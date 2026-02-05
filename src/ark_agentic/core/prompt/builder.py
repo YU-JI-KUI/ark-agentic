@@ -182,6 +182,15 @@ class SystemPromptBuilder:
 
         return self
 
+    def add_memory_instructions(self) -> SystemPromptBuilder:
+        """添加 Memory 使用指令
+        
+        当 Agent 配置了 memory_search/memory_get 工具时调用。
+        指导 LLM 在回答历史相关问题前先搜索 memory。
+        """
+        self._sections.append(("memory", MEMORY_INSTRUCTIONS.strip()))
+        return self
+
     def build(self) -> str:
         """构建最终的系统提示"""
         if not self._sections:
@@ -203,6 +212,7 @@ class SystemPromptBuilder:
         custom_instructions: str | None = None,
         config: PromptConfig | None = None,
         include_tool_params: bool = False,
+        include_memory_instructions: bool = False,
     ) -> str:
         """快速构建系统提示
 
@@ -213,6 +223,7 @@ class SystemPromptBuilder:
             custom_instructions: 自定义指令
             config: 提示配置
             include_tool_params: 是否在工具描述中包含参数信息
+            include_memory_instructions: 是否包含 memory 使用指令
 
         Returns:
             构建的系统提示
@@ -223,6 +234,8 @@ class SystemPromptBuilder:
 
         if tools:
             builder.add_tools(tools, include_params=include_tool_params)
+        if include_memory_instructions:
+            builder.add_memory_instructions()
         if skills:
             builder.add_skills(skills)
         if context:
@@ -231,6 +244,26 @@ class SystemPromptBuilder:
             builder.add_custom_instructions(custom_instructions)
 
         return builder.build()
+
+
+# ============ Memory 提示模板 ============
+# 参考: openclaw-main/src/agents/system-prompt.ts - MEMORY_INSTRUCTIONS
+
+MEMORY_INSTRUCTIONS = """
+## Memory Recall
+
+Before answering anything about prior work, decisions, dates, people, preferences, or context:
+
+1. **Search first**: Run `memory_search` with a relevant query to find related information in MEMORY.md and memory/*.md files
+2. **Get details**: Use `memory_get` to pull only the specific lines you need
+3. **Keep context small**: Don't retrieve entire files; request only what's necessary
+4. **Cite sources**: When using information from memory, reference the file and line numbers
+
+Example workflow:
+- User asks about a previous decision → call `memory_search` with the topic
+- Find relevant result at MEMORY.md#L42-50 → call `memory_get` for those lines
+- Use the information to answer the question
+"""
 
 
 # ============ 预定义提示模板 ============

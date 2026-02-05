@@ -22,7 +22,13 @@ from .skills.matcher import SkillMatcher
 from .stream.assembler import StreamAssembler, StreamEvent
 from .tools.base import AgentTool
 from .tools.registry import ToolRegistry
+from .tools.memory import create_memory_tools
 from .types import AgentMessage, AgentToolResult, MessageRole, ToolCall
+
+# Type hint for MemoryManager (avoid circular import)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +41,7 @@ class RunnerConfig:
     """Runner 配置"""
 
     # LLM 参数
-    model: str = "doubao-1.5-pro-32k"
+    model: str = "Qwen3-80B-Instruct"
     temperature: float = 0.7
     max_tokens: int = 4096
 
@@ -95,12 +101,21 @@ class AgentRunner:
         session_manager: SessionManager | None = None,
         skill_loader: SkillLoader | None = None,
         config: RunnerConfig | None = None,
+        memory_manager: MemoryManager | None = None,
     ) -> None:
         self.llm_client = llm_client
         self.tool_registry = tool_registry or ToolRegistry()
         self.session_manager = session_manager or SessionManager()
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
+        self._memory_manager = memory_manager
+
+        # 自动注册 memory 工具（如果提供了 memory_manager）
+        if memory_manager is not None:
+            memory_tools = create_memory_tools(memory_manager)
+            for tool in memory_tools:
+                self.tool_registry.register(tool)
+            logger.info(f"Registered {len(memory_tools)} memory tools")
 
         # 技能匹配器
         self.skill_matcher = (
@@ -328,11 +343,15 @@ class AgentRunner:
             match_result = self.skill_matcher.match(context=context)
             skills = match_result.matched_skills
 
+        # 如果启用了 memory，添加 memory 使用指令
+        include_memory = self._memory_manager is not None
+
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
             context=context,
             config=self.config.prompt_config,
+            include_memory_instructions=include_memory,
         )
 
     def _build_tools(self, context: dict[str, Any]) -> list[dict[str, Any]]:

@@ -564,7 +564,7 @@ class SessionStoreEntry:
     session_id: str
     updated_at: int  # 毫秒时间戳
     session_file: str | None = None
-    model: str = "doubao-1.5-pro-32k"
+    model: str = "Qwen3-80B-Instruct"
     provider: str = "ark"
     input_tokens: int = 0
     output_tokens: int = 0
@@ -594,7 +594,7 @@ class SessionStoreEntry:
             session_id=data.get("sessionId", ""),
             updated_at=data.get("updatedAt", 0),
             session_file=data.get("sessionFile"),
-            model=data.get("model", "doubao-1.5-pro-32k"),
+            model=data.get("model", "Qwen3-80B-Instruct"),
             provider=data.get("provider", "ark"),
             input_tokens=data.get("inputTokens", 0),
             output_tokens=data.get("outputTokens", 0),

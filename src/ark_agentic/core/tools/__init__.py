@@ -15,15 +15,22 @@ from .base import (
     read_dict_param,
 )
 from .registry import ToolRegistry
+from .memory import MemorySearchTool, MemoryGetTool, create_memory_tools
 
 __all__ = [
+    # Base
     "AgentTool",
     "ToolParameter",
     "ToolRegistry",
+    # Parameter helpers
     "read_string_param",
     "read_int_param",
     "read_float_param",
     "read_bool_param",
     "read_list_param",
     "read_dict_param",
+    # Memory tools
+    "MemorySearchTool",
+    "MemoryGetTool",
+    "create_memory_tools",
 ]

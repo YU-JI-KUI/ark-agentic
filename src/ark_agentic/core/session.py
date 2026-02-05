@@ -56,7 +56,7 @@ class SessionManager:
 
     async def create_session(
         self,
-        model: str = "doubao-1.5-pro-32k",
+        model: str = "Qwen3-80B-Instruct",
         provider: str = "ark",
         metadata: dict[str, Any] | None = None,
     ) -> SessionEntry:
@@ -86,7 +86,7 @@ class SessionManager:
 
     def create_session_sync(
         self,
-        model: str = "doubao-1.5-pro-32k",
+        model: str = "Qwen3-80B-Instruct",
         provider: str = "ark",
         metadata: dict[str, Any] | None = None,
     ) -> SessionEntry:
@@ -168,7 +168,7 @@ class SessionManager:
                 else datetime.now()
             ),
             updated_at=datetime.now(),
-            model=store_entry.model if store_entry else "doubao-1.5-pro-32k",
+            model=store_entry.model if store_entry else "Qwen3-80B-Instruct",
             provider=store_entry.provider if store_entry else "ark",
             messages=messages,
             active_skills=store_entry.active_skills if store_entry else [],
@@ -184,8 +184,26 @@ class SessionManager:
         logger.info(f"Loaded session from disk: {session_id}")
         return session
 
+    async def sync_pending_messages(self, session_id: str) -> None:
+        """持久化待写入的消息"""
+        if not self._enable_persistence or not self._transcript_manager:
+            return
+
+        session = self.get_session(session_id)
+        if not session:
+            return
+
+        pending = getattr(session, "_pending_messages", [])
+        if pending:
+            await self._transcript_manager.append_messages(session_id, pending)
+            session._pending_messages = []
+            logger.debug(f"Synced {len(pending)} pending messages for session {session_id}")
+
     async def sync_session_metadata(self, session_id: str) -> None:
-        """同步会话元数据到存储"""
+        """同步会话元数据和待写入消息到存储"""
+        # 先同步待写入的消息
+        await self.sync_pending_messages(session_id)
+
         if not self._enable_persistence or not self._session_store:
             return
 
@@ -237,10 +255,17 @@ class SessionManager:
             await self._transcript_manager.append_messages(session_id, messages)
 
     def add_message_sync(self, session_id: str, message: AgentMessage) -> None:
-        """同步添加消息（不持久化，用于内部调用）"""
+        """同步添加消息（标记为待持久化）
+        
+        消息会立即加入内存，但持久化会延迟到 sync_pending_messages() 调用时。
+        """
         session = self.get_session_required(session_id)
         session.add_message(message)
-        logger.debug(f"Added {message.role.value} message to session {session_id} (sync)")
+        # 标记有待持久化消息
+        if not hasattr(session, "_pending_messages"):
+            session._pending_messages = []
+        session._pending_messages.append(message)
+        logger.debug(f"Added {message.role.value} message to session {session_id} (pending sync)")
 
     def get_messages(
         self,

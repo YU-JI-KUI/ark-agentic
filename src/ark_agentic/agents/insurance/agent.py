@@ -53,6 +53,7 @@ from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.llm import create_llm_client, LLMClientProtocol
+from ark_agentic.core.memory.manager import MemoryManager, MemoryConfig
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 
 # 模块路径常量
@@ -299,6 +300,8 @@ def create_insurance_agent(
     llm_client: LLMClientProtocol,
     sessions_dir: str | Path | None = None,
     enable_persistence: bool = False,
+    memory_dir: str | Path | None = None,
+    enable_memory: bool = False,
 ) -> AgentRunner:
     """创建保险取款智能体
 
@@ -306,6 +309,8 @@ def create_insurance_agent(
         llm_client: LLM 客户端实例
         sessions_dir: 会话持久化目录（None 则使用临时目录）
         enable_persistence: 是否启用持久化
+        memory_dir: Memory 数据目录（用于向量存储等）
+        enable_memory: 是否启用 Memory 系统
 
     Returns:
         配置好的 AgentRunner
@@ -317,7 +322,7 @@ def create_insurance_agent(
     # 2. 创建会话管理器（支持持久化）
     if enable_persistence:
         if sessions_dir is None:
-            sessions_dir = Path(tempfile.gettempdir()) / "ark_nav_sessions"
+            sessions_dir = Path("data") / "sessions"
         logger.info(f"Session persistence enabled: {sessions_dir}")
 
     session_manager = SessionManager(
@@ -343,7 +348,19 @@ def create_insurance_agent(
     except Exception as e:
         logger.warning(f"Failed to load skills: {e}")
 
-    # 4. 配置 Runner
+    # 4. 可选：创建 MemoryManager
+    memory_manager = None
+    if enable_memory:
+        if memory_dir is None:
+            memory_dir = Path(tempfile.gettempdir()) / "ark_memory"
+        memory_config = MemoryConfig(
+            workspace_dir=str(_AGENT_DIR),  # 使用 agent 目录作为 workspace
+            index_dir=str(memory_dir),
+        )
+        memory_manager = MemoryManager(memory_config)
+        logger.info(f"Memory enabled: {memory_dir}")
+
+    # 5. 配置 Runner
     runner_config = RunnerConfig(
         model="deepseek-chat",
         temperature=0.7,
@@ -356,13 +373,14 @@ def create_insurance_agent(
         ),
     )
 
-    # 5. 创建 Runner
+    # 6. 创建 Runner
     runner = AgentRunner(
         llm_client=llm_client,
         tool_registry=tool_registry,
         session_manager=session_manager,
         skill_loader=skill_loader,
         config=runner_config,
+        memory_manager=memory_manager,
     )
 
     return runner
@@ -557,6 +575,15 @@ Examples:
         help="会话持久化目录",
     )
     parser.add_argument(
+        "--memory",
+        action="store_true",
+        help="启用 Memory 系统（语义搜索）",
+    )
+    parser.add_argument(
+        "--memory-dir",
+        help="Memory 数据目录",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="详细日志输出",
@@ -591,6 +618,8 @@ async def main():
         llm_client=llm_client,
         sessions_dir=args.sessions_dir,
         enable_persistence=args.persistence,
+        memory_dir=args.memory_dir,
+        enable_memory=args.memory,
     )
 
     # 运行

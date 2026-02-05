@@ -27,7 +27,7 @@ all = [
 
 [project.scripts]
 insurance-agent = "ark_agentic.agents.insurance.agent:main_sync"
-ark-agentic-api = "ark_agentic.api.app:main"
+ark-agentic-api = "ark_agentic.app:main"
 
 [build-system]
 requires = ["hatchling"]

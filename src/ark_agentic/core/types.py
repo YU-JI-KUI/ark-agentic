@@ -254,7 +254,7 @@ class SessionEntry:
     updated_at: datetime = field(default_factory=datetime.now)
 
     # 模型配置
-    model: str = "doubao-1.5-pro-32k"
+    model: str = "Qwen3-80B-Instruct"
     provider: str = "ark"
 
     # 消息历史
@@ -274,7 +274,7 @@ class SessionEntry:
 
     @classmethod
     def create(
-        cls, model: str = "doubao-1.5-pro-32k", provider: str = "ark", **kwargs: Any
+        cls, model: str = "Qwen3-80B-Instruct", provider: str = "ark", **kwargs: Any
     ) -> SessionEntry:
         return cls(
             session_id=str(uuid.uuid4()),
