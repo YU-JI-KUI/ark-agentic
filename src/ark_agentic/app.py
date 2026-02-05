@@ -186,8 +186,8 @@ async def chat(
             context=context,
         )
         tool_calls = []
-        if result.response.tool_calls:
-            for tc in result.response.tool_calls:
+        if result.tool_calls:
+            for tc in result.tool_calls:
                 tool_calls.append({"name": tc.name, "arguments": tc.arguments})
         return ChatResponse(
             session_id=session_id,
@@ -231,8 +231,8 @@ async def chat(
                 context=context,
             )
             tool_calls = []
-            if result.response.tool_calls:
-                for tc in result.response.tool_calls:
+            if result.tool_calls:
+                for tc in result.tool_calls:
                     tool_calls.append({"name": tc.name, "arguments": tc.arguments})
             # 发送 final 事件
             final_event = SSEEvent(

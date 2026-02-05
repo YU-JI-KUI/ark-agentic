@@ -73,6 +73,9 @@ class RunResult:
     turns: int = 0
     tool_calls_count: int = 0
 
+    # 所有工具调用（用于返回给客户端）
+    tool_calls: list[ToolCall] = field(default_factory=list)
+
     # Token 使用
     input_tokens: int = 0
     output_tokens: int = 0
@@ -194,6 +197,7 @@ class AgentRunner:
         total_tool_calls = 0
         total_input_tokens = 0
         total_output_tokens = 0
+        all_tool_calls: list[ToolCall] = []  # 记录所有工具调用
 
         while turns < self.config.max_turns:
             turns += 1
@@ -225,6 +229,7 @@ class AgentRunner:
                     response=response,
                     turns=turns,
                     tool_calls_count=total_tool_calls,
+                    tool_calls=all_tool_calls,
                     input_tokens=total_input_tokens,
                     output_tokens=total_output_tokens,
                     stopped_by_limit=True,
@@ -232,6 +237,9 @@ class AgentRunner:
 
             # 检查是否有工具调用
             if response.tool_calls:
+                # 记录工具调用
+                all_tool_calls.extend(response.tool_calls)
+
                 # 执行工具（并行）
                 tool_results = await self._execute_tools(
                     response.tool_calls, context
@@ -256,6 +264,7 @@ class AgentRunner:
                 response=response,
                 turns=turns,
                 tool_calls_count=total_tool_calls,
+                tool_calls=all_tool_calls,
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
             )
@@ -272,6 +281,7 @@ class AgentRunner:
             response=last_assistant,
             turns=turns,
             tool_calls_count=total_tool_calls,
+            tool_calls=all_tool_calls,
             input_tokens=total_input_tokens,
             output_tokens=total_output_tokens,
             stopped_by_limit=True,
