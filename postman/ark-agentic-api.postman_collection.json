@@ -1,0 +1,230 @@
+{
+  "info": {
+    "name": "ark-agentic-api",
+    "description": "Ark-Agentic 统一 Agent API 测试集合",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "session_id",
+      "value": ""
+    },
+    {
+      "key": "user_id",
+      "value": "test-user-001"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Chat (non-stream)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"我想取点钱\",\n  \"stream\": false,\n  \"user_id\": \"{{user_id}}\",\n  \"context\": {\n    \"channel\": \"mobile_app\",\n    \"customer_tier\": \"vip\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["chat"]
+        }
+      }
+    },
+    {
+      "name": "Chat (non-stream with headers)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-ark-user-id",
+            "value": "{{user_id}}"
+          },
+          {
+            "key": "x-ark-trace-id",
+            "value": "trace-{{$randomUUID}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"查询我的保单信息\",\n  \"stream\": false,\n  \"context\": {\n    \"source\": \"postman_test\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["chat"]
+        }
+      }
+    },
+    {
+      "name": "Chat (SSE stream)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "text/event-stream"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"我想取点钱\",\n  \"stream\": true,\n  \"user_id\": \"{{user_id}}\",\n  \"context\": {\n    \"channel\": \"web\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["chat"]
+        },
+        "description": "SSE 流式响应。事件格式:\n- state=delta: 增量内容\n- state=final: 完整响应\n- state=error: 错误信息\n\n每个事件包含 run_id, session_id, seq (序列号)"
+      }
+    },
+    {
+      "name": "Chat (with idempotency key)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"帮我办理退保\",\n  \"stream\": false,\n  \"user_id\": \"{{user_id}}\",\n  \"idempotency_key\": \"req-{{$randomUUID}}\",\n  \"context\": {\n    \"policy_id\": \"POL-2024-001\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["chat"]
+        },
+        "description": "使用幂等键防止重复请求"
+      }
+    },
+    {
+      "name": "Chat (with session)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-ark-session-key",
+            "value": "{{session_id}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"继续上次的对话\",\n  \"stream\": false,\n  \"user_id\": \"{{user_id}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["chat"]
+        },
+        "description": "通过 header 传递 session_id 继续已有会话"
+      }
+    },
+    {
+      "name": "Create session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"metadata\": {\n    \"user_id\": \"{{user_id}}\",\n    \"channel\": \"api_test\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/sessions",
+          "host": ["{{baseUrl}}"],
+          "path": ["sessions"]
+        }
+      }
+    },
+    {
+      "name": "Get session",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/sessions/{{session_id}}?agent_id=insurance",
+          "host": ["{{baseUrl}}"],
+          "path": ["sessions", "{{session_id}}"],
+          "query": [
+            {
+              "key": "agent_id",
+              "value": "insurance"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Delete session",
+      "request": {
+        "method": "DELETE",
+        "url": {
+          "raw": "{{baseUrl}}/sessions/{{session_id}}?agent_id=insurance",
+          "host": ["{{baseUrl}}"],
+          "path": ["sessions", "{{session_id}}"],
+          "query": [
+            {
+              "key": "agent_id",
+              "value": "insurance"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "List sessions",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/sessions?agent_id=insurance",
+          "host": ["{{baseUrl}}"],
+          "path": ["sessions"],
+          "query": [
+            {
+              "key": "agent_id",
+              "value": "insurance"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
