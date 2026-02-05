@@ -50,7 +50,7 @@ class LLMConfig:
     """LLM 配置"""
 
     # 提供商
-    provider: Literal["deepseek", "gemini", "openai", "internal"] = "deepseek"
+    provider: Literal["deepseek", "gemini", "openai", "internal", "unified", "simple"] = "deepseek"
 
     # API 配置
     api_key: str = ""
@@ -62,6 +62,10 @@ class LLMConfig:
     # 内部 API 专用
     authorization: str = ""
     trace_appid: str = ""
+
+    # Unified Internal API 专用
+    trace_source: str = ""
+    trace_user_id: str = ""
 
     # 默认参数
     temperature: float = 0.7

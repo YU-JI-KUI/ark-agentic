@@ -5,11 +5,11 @@ LLM Client 模块
 - DeepSeek (OpenAI 兼容)
 - Gemini (OpenAI 兼容)
 - OpenAI
-- 内部 API
+- 内部 API (internal, unified, simple)
 
 使用示例:
 ```python
-from ark_nav.core.agent.llm import create_llm_client
+from ark_agentic.core.llm import create_llm_client
 
 # 使用 DeepSeek
 client = create_llm_client("deepseek", api_key="sk-xxx")
@@ -23,6 +23,22 @@ client = create_llm_client(
     base_url="http://internal-api.example.com/chat",
     authorization="Bearer xxx",
     trace_appid="my-app",
+)
+
+# 使用 Unified 内部 API
+client = create_llm_client(
+    "unified",
+    base_url="https://my-llm/api-app/agent/unified/v1/chat/completions",
+    authorization="Bearer sk-xxxxx",
+    trace_appid="my-app",
+    trace_source="ark-agentic",
+    trace_user_id="user123",
+)
+
+# 使用 Simple 内部 API
+client = create_llm_client(
+    "simple",
+    base_url="https://my-llm/simple-api",
 )
 
 # 调用
@@ -53,7 +69,11 @@ from .openai_compat import (
 
 from .internal import (
     InternalAPIClient,
+    UnifiedInternalClient,
+    SimpleInternalClient,
     create_internal_client,
+    create_unified_client,
+    create_simple_client,
 )
 
 from .factory import (
@@ -79,7 +99,11 @@ __all__ = [
     "create_openai_client",
     # Internal
     "InternalAPIClient",
+    "UnifiedInternalClient",
+    "SimpleInternalClient",
     "create_internal_client",
+    "create_unified_client",
+    "create_simple_client",
     # Factory
     "create_llm_client",
     "get_available_providers",
