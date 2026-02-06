@@ -1,7 +1,7 @@
 """
 OpenAI 兼容 LLM 客户端
 
-支持 DeepSeek、Gemini 等 OpenAI 兼容的 API。
+支持 DeepSeek 等 OpenAI 兼容的 API。
 """
 
 from __future__ import annotations
@@ -17,16 +17,28 @@ from .base import BaseLLMClient, LLMConfig
 logger = logging.getLogger(__name__)
 
 
+def _resolve_extra_values(extra: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """解析额外参数，Callable 会被调用获取实际值
+
+    Args:
+        extra: 额外参数字典，值可以是静态值或 Callable
+        context: 上下文字典（来自 chat() 的 kwargs）
+
+    Returns:
+        解析后的参数字典
+    """
+    resolved = {}
+    for key, value in extra.items():
+        resolved[key] = value(context) if callable(value) else value
+    return resolved
+
+
 # ============ Provider 配置 ============
 
 PROVIDER_CONFIGS = {
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
         "default_model": "deepseek-chat",
-    },
-    "gemini": {
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "default_model": "gemini-2.0-flash",
     },
     "openai": {
         "base_url": "https://api.openai.com/v1",
@@ -40,7 +52,6 @@ class OpenAICompatibleClient(BaseLLMClient):
 
     支持所有 OpenAI 兼容的 API：
     - DeepSeek
-    - Gemini (通过 OpenAI 兼容端点)
     - OpenAI
     - 其他兼容服务
     """
@@ -97,12 +108,15 @@ class OpenAICompatibleClient(BaseLLMClient):
             messages: 消息列表
             tools: 工具定义列表
             stream: 是否流式输出
-            **kwargs: 其他参数
+            **kwargs: 其他参数（也作为动态值的 context）
 
         Returns:
             非流式：完整响应字典
             流式：事件迭代器
         """
+        # kwargs 作为 context 传递给动态值函数
+        context = kwargs.copy()
+
         # 构建请求体
         body: dict[str, Any] = {
             "model": kwargs.get("model", self.model),
@@ -117,29 +131,42 @@ class OpenAICompatibleClient(BaseLLMClient):
             body["tools"] = tools
             body["tool_choice"] = kwargs.get("tool_choice", "auto")
 
+        # 解析并合并额外 body（在 kwargs 之前，允许 extra_body 覆盖默认值）
+        if self.config.extra_body:
+            body.update(_resolve_extra_values(self.config.extra_body, context))
+
         # 移除已处理的 kwargs
         for key in ["model", "temperature", "max_tokens", "tool_choice"]:
             kwargs.pop(key, None)
 
-        # 添加其他参数
-        body.update(kwargs)
+        # 添加其他 kwargs（不覆盖 extra_body）
+        for key, value in kwargs.items():
+            if key not in body:
+                body[key] = value
+
+        # 解析额外 headers
+        extra_headers = (
+            _resolve_extra_values(self.config.extra_headers, context)
+            if self.config.extra_headers
+            else {}
+        )
 
         url = f"{self.base_url}/chat/completions"
 
         if stream:
-            return self._stream_chat(url, body)
+            return self._stream_chat(url, body, extra_headers)
         else:
-            return await self._sync_chat(url, body)
+            return await self._sync_chat(url, body, extra_headers)
 
     async def _sync_chat(
-        self, url: str, body: dict[str, Any]
+        self, url: str, body: dict[str, Any], extra_headers: dict[str, str] | None = None
     ) -> dict[str, Any]:
         """非流式请求"""
         client = await self._get_client()
 
         for attempt in range(self.config.max_retries):
             try:
-                response = await client.post(url, json=body)
+                response = await client.post(url, json=body, headers=extra_headers)
                 response.raise_for_status()
                 return response.json()
 
@@ -159,16 +186,15 @@ class OpenAICompatibleClient(BaseLLMClient):
                 else:
                     raise
 
-        # 不应该到达这里
         raise RuntimeError("Max retries exceeded")
 
     async def _stream_chat(
-        self, url: str, body: dict[str, Any]
+        self, url: str, body: dict[str, Any], extra_headers: dict[str, str] | None = None
     ) -> AsyncIterator[dict[str, Any]]:
         """流式请求"""
         client = await self._get_client()
 
-        async with client.stream("POST", url, json=body) as response:
+        async with client.stream("POST", url, json=body, headers=extra_headers) as response:
             response.raise_for_status()
 
             async for line in response.aiter_lines():
@@ -205,21 +231,6 @@ def create_deepseek_client(
     """创建 DeepSeek 客户端"""
     config = LLMConfig(
         provider="deepseek",
-        api_key=api_key,
-        model=model,
-        **kwargs,
-    )
-    return OpenAICompatibleClient(config)
-
-
-def create_gemini_client(
-    api_key: str,
-    model: str = "gemini-2.0-flash",
-    **kwargs: Any,
-) -> OpenAICompatibleClient:
-    """创建 Gemini 客户端"""
-    config = LLMConfig(
-        provider="gemini",
         api_key=api_key,
         model=model,
         **kwargs,

@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import logging
 import os
-import tempfile
 from pathlib import Path
 
 from .agent import create_insurance_agent, MockLLMClient
-from ark_agentic.core.llm import create_llm_client
+from ark_agentic.core.llm import create_llm_client, PAModel
 from ark_agentic.core.runner import AgentRunner
 
 logger = logging.getLogger(__name__)
@@ -25,17 +24,34 @@ def create_insurance_agent_from_env(
     """从环境变量创建保险智能体
     
     环境变量:
-        LLM_PROVIDER: LLM 提供商 (deepseek/gemini/openai)
-        DEEPSEEK_API_KEY: DeepSeek API Key
-        GEMINI_API_KEY: Gemini API Key
+        LLM_PROVIDER: LLM 提供商 (pa/deepseek/openai)，默认 pa
+        PA_MODEL: PA 模型选择 (PA-JT-80B/PA-SX-80B/PA-SX-235B)，默认 PA-SX-80B
+        PA_SX_BASE_URL: PA SX 系列 API 地址
+        PA_JT_BASE_URL: PA JT 系列 API 地址
+        DEEPSEEK_API_KEY: DeepSeek API Key（当 provider=deepseek 时使用）
         LLM_BASE_URL: 自定义 LLM API 地址
         SESSIONS_DIR: 会话持久化目录
     """
-    provider = os.getenv("LLM_PROVIDER", "deepseek")
-    api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("GEMINI_API_KEY")
+    provider = os.getenv("LLM_PROVIDER", "pa")
+    pa_model_str = os.getenv("PA_MODEL", "PA-SX-80B")
+    api_key = os.getenv("DEEPSEEK_API_KEY")
     base_url = os.getenv("LLM_BASE_URL")
 
-    if api_key:
+    if provider == "pa":
+        # PA Internal LLM
+        try:
+            pa_model = PAModel(pa_model_str)
+        except ValueError:
+            pa_model = PAModel.PA_SX_80B
+            logger.warning(f"Invalid PA_MODEL: {pa_model_str}, using PA-SX-80B")
+        
+        try:
+            llm_client = create_llm_client(provider="pa", pa_model=pa_model)
+            logger.info(f"Using PA Internal LLM: {pa_model.value}")
+        except ValueError as e:
+            logger.warning(f"PA LLM init failed: {e}, using Mock LLM client")
+            llm_client = MockLLMClient()
+    elif api_key:
         llm_client = create_llm_client(
             provider=provider,
             api_key=api_key,

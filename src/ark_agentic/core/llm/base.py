@@ -6,9 +6,48 @@ LLM Client 基础定义
 
 from __future__ import annotations
 
+import time
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Literal, Protocol
+from typing import Any, AsyncIterator, Callable, Literal, Protocol
+
+
+# ============ Dynamic Values ============
+
+
+class DynamicValues:
+    """常用动态值生成器
+
+    用于 extra_headers 和 extra_body 中需要动态生成的值。
+
+    示例:
+        extra_headers={
+            "trace-appId": "my-app",                    # 静态值
+            "trace-requestId": DynamicValues.uuid(),   # 每次请求生成新 UUID
+            "trace-userId": DynamicValues.from_kwargs("user_id"),
+        }
+    """
+
+    @staticmethod
+    def uuid() -> Callable[[dict[str, Any]], str]:
+        """每次请求生成新 UUID"""
+        return lambda ctx: str(uuid.uuid4())
+
+    @staticmethod
+    def timestamp() -> Callable[[dict[str, Any]], int]:
+        """生成时间戳（秒）"""
+        return lambda ctx: int(time.time())
+
+    @staticmethod
+    def timestamp_ms() -> Callable[[dict[str, Any]], int]:
+        """生成时间戳（毫秒）"""
+        return lambda ctx: int(time.time() * 1000)
+
+    @staticmethod
+    def from_kwargs(key: str, default: Any = "") -> Callable[[dict[str, Any]], Any]:
+        """从 chat() 的 kwargs 获取值"""
+        return lambda ctx: ctx.get(key, default)
 
 
 # ============ LLM Client Protocol ============
@@ -50,7 +89,7 @@ class LLMConfig:
     """LLM 配置"""
 
     # 提供商
-    provider: Literal["deepseek", "gemini", "openai", "internal", "unified", "simple"] = "deepseek"
+    provider: Literal["deepseek", "openai", "internal", "simple"] = "deepseek"
 
     # API 配置
     api_key: str = ""
@@ -75,6 +114,11 @@ class LLMConfig:
     # 重试配置
     max_retries: int = 3
     retry_delay: float = 1.0
+
+    # 扩展参数（用于 OpenAI 兼容 API 添加自定义 headers/body）
+    # 值可以是静态值或 Callable[[dict], Any] 动态值
+    extra_headers: dict[str, Any] = field(default_factory=dict)
+    extra_body: dict[str, Any] = field(default_factory=dict)
 
 
 # ============ Response Types ============

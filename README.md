@@ -132,9 +132,6 @@ python -m ark_agentic.agents.insurance.agent -i
 # Mock 模式演示 (无需 API Key)
 python -m ark_agentic.agents.insurance.agent --mock --demo
 
-# 使用 Gemini
-python -m ark_agentic.agents.insurance.agent --provider gemini
-
 # 启用 Memory 系统
 python -m ark_agentic.agents.insurance.agent --mock --demo --memory
 
@@ -271,14 +268,12 @@ from ark_agentic.core.llm import create_llm_client
 # DeepSeek
 client = create_llm_client("deepseek", api_key="sk-xxx")
 
-# Gemini
-client = create_llm_client("gemini", api_key="xxx")
-
 # 内部 API
 client = create_llm_client(
     "internal",
     base_url="http://api.internal.com/chat",
     authorization="Bearer xxx",
+    trace_appid="my-app",
 )
 ```
 
@@ -311,7 +306,6 @@ ark-agentic/
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `DEEPSEEK_API_KEY` | DeepSeek API Key | - |
-| `GEMINI_API_KEY` | Gemini API Key | - |
 | `API_HOST` | API 监听地址 | `0.0.0.0` |
 | `API_PORT` | API 端口 | `8080` |
 | `SESSIONS_DIR` | 会话存储目录 | `/data/sessions` |

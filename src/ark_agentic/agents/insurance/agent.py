@@ -8,14 +8,11 @@
 - 工具调用（用户画像、保单查询、规则引擎）
 - 会话持久化（JSONL 格式）
 - 技能系统集成
-- 支持多种 LLM 提供商（DeepSeek, Gemini, 内部 API）
+- 支持多种 LLM 提供商（DeepSeek, OpenAI, 内部 API）
 
 使用方法：
     # 使用 DeepSeek（默认，需要设置 DEEPSEEK_API_KEY 环境变量）
     python examples/insurance_withdrawal_agent.py
-
-    # 使用 Gemini（需要设置 GEMINI_API_KEY 环境变量）
-    python examples/insurance_withdrawal_agent.py --provider gemini
 
     # 使用内部 API
     python examples/insurance_withdrawal_agent.py --provider internal --base-url http://api.example.com/chat
@@ -259,14 +256,13 @@ def get_llm_client(args: argparse.Namespace) -> LLMClientProtocol:
         )
 
     else:
-        # OpenAI 兼容 API (deepseek, gemini, openai)
+        # OpenAI 兼容 API (deepseek, openai)
         api_key = args.api_key
 
         # 尝试从环境变量获取
         if not api_key:
             env_keys = {
                 "deepseek": "DEEPSEEK_API_KEY",
-                "gemini": "GEMINI_API_KEY",
                 "openai": "OPENAI_API_KEY",
             }
             env_key = env_keys.get(provider, "")
@@ -506,9 +502,6 @@ Examples:
   # 使用 DeepSeek（需要设置 DEEPSEEK_API_KEY 环境变量）
   python examples/insurance_withdrawal_agent.py
 
-  # 使用 Gemini
-  python examples/insurance_withdrawal_agent.py --provider gemini
-
   # 使用 Mock 客户端（演示模式）
   python examples/insurance_withdrawal_agent.py --mock --demo
 
@@ -520,7 +513,7 @@ Examples:
     # LLM 配置
     parser.add_argument(
         "--provider",
-        choices=["deepseek", "gemini", "openai", "internal"],
+        choices=["deepseek", "openai", "internal"],
         default="deepseek",
         help="LLM 提供商 (default: deepseek)",
     )
@@ -610,7 +603,6 @@ async def main():
         print("\n提示：")
         print("  - 使用 --mock 可以在没有 API Key 的情况下运行演示")
         print("  - 设置 DEEPSEEK_API_KEY 环境变量使用 DeepSeek")
-        print("  - 设置 GEMINI_API_KEY 环境变量使用 Gemini")
         return
 
     # 创建 Agent
