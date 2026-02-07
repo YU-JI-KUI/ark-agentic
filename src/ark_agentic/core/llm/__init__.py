@@ -65,6 +65,14 @@ from .factory import (
     check_api_key_available,
 )
 
+from .errors import (
+    LLMErrorReason,
+    LLMError,
+    classify_error,
+    FallbackLLMClient,
+    FallbackModelConfig,
+)
+
 __all__ = [
     # Base
     "LLMClientProtocol",
@@ -93,4 +101,10 @@ __all__ = [
     "create_llm_client",
     "get_available_providers",
     "check_api_key_available",
+    # Errors & Fallback
+    "LLMErrorReason",
+    "LLMError",
+    "classify_error",
+    "FallbackLLMClient",
+    "FallbackModelConfig",
 ]

@@ -15,6 +15,8 @@ from .compaction import (
     CompactionConfig,
     CompactionResult,
     ContextCompactor,
+    LLMSummarizer,
+    SummarizerProtocol,
     estimate_message_tokens,
 )
 from .persistence import SessionStore, SessionStoreEntry, TranscriptManager
@@ -35,10 +37,11 @@ class SessionManager:
         compaction_config: CompactionConfig | None = None,
         sessions_dir: str | Path | None = None,
         enable_persistence: bool = True,
+        summarizer: SummarizerProtocol | None = None,
     ) -> None:
         self._sessions: dict[str, SessionEntry] = {}
         self._compaction_config = compaction_config or CompactionConfig()
-        self._compactor = ContextCompactor(self._compaction_config)
+        self._compactor = ContextCompactor(self._compaction_config, summarizer=summarizer)
 
         # 持久化组件
         self._enable_persistence = enable_persistence
@@ -379,9 +382,27 @@ class SessionManager:
 
         return result
 
-    async def auto_compact_if_needed(self, session_id: str) -> CompactionResult | None:
-        """自动检查并压缩（如果需要）"""
+    async def auto_compact_if_needed(
+        self,
+        session_id: str,
+        pre_compact_callback: Any | None = None,
+    ) -> CompactionResult | None:
+        """自动检查并压缩（如果需要）
+
+        Args:
+            session_id: 会话 ID
+            pre_compact_callback: 压缩前回调（用于 memory flush 等），
+                签名: async (session_id, messages) -> None
+        """
         if self.needs_compaction(session_id):
+            # 压缩前回调（允许 Agent 将重要上下文写入 memory）
+            if pre_compact_callback is not None:
+                try:
+                    session = self.get_session_required(session_id)
+                    await pre_compact_callback(session_id, session.messages)
+                except Exception as e:
+                    logger.warning(f"Pre-compaction callback failed: {e}")
+
             return await self.compact_session(session_id)
         return None
 

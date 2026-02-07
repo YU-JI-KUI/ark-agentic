@@ -13,9 +13,12 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Literal
 
+from pathlib import Path
+
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ark_agentic.core.runner import AgentRunner
@@ -58,6 +61,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息内容")
     session_id: str | None = Field(None, description="会话 ID，为空则创建新会话")
     stream: bool = Field(False, description="是否启用 SSE 流式输出")
+    model: str | None = Field(None, description="模型名称覆盖，为空则使用默认模型")
     # 业务上下文字段
     user_id: str | None = Field(None, description="用户 ID")
     context: dict[str, Any] | None = Field(None, description="业务上下文数据")
@@ -74,13 +78,21 @@ class ChatResponse(BaseModel):
 
 
 class SSEEvent(BaseModel):
-    """SSE 事件格式，参考 openclaw ChatEventSchema"""
+    """SSE 事件格式，对齐 OpenAI Responses API 事件语义
+
+    state 取值:
+      - "delta"  : LLM 文本增量（附 output_index 标识所属输出块）
+      - "step"   : 智能体生命周期步骤（工具调用、状态提示等）
+      - "done"   : 整次 run 结束，携带完整响应
+      - "error"  : 执行出错
+    """
     run_id: str = Field(..., description="本次执行 ID")
     session_id: str = Field(..., description="会话 ID")
     seq: int = Field(..., description="序列号")
-    state: Literal["delta", "final", "error"] = Field(..., description="事件状态")
-    content: str | None = Field(None, description="delta 内容")
-    message: str | None = Field(None, description="final 完整响应")
+    state: Literal["delta", "done", "error", "step"] = Field(..., description="事件状态")
+    content: str | None = Field(None, description="delta/step 内容")
+    output_index: int | None = Field(None, description="delta 所属的输出块索引（前端按此分组）")
+    message: str | None = Field(None, description="done 完整响应")
     tool_calls: list[dict[str, Any]] | None = Field(None, description="工具调用列表")
     error_message: str | None = Field(None, description="错误信息")
     usage: dict[str, int] | None = Field(None, description="Token 使用统计")
@@ -131,6 +143,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 静态文件 & 测试 UI
+_STATIC_DIR = Path(__file__).parent / "static"
+if _STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """测试 UI 入口"""
+    index = _STATIC_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(str(index), media_type="text/html")
+    return {"message": "Ark-Agentic API", "docs": "/docs"}
 
 
 @app.get("/health")
@@ -184,6 +210,7 @@ async def chat(
             session_id=session_id,
             user_input=request.message,
             context=context,
+            model_override=request.model,
         )
         tool_calls = []
         if result.tool_calls:
@@ -209,37 +236,97 @@ async def chat(
         seq_counter["value"] += 1
         return seq_counter["value"]
 
-    def on_content(content: str) -> None:
-        if content:
-            event = SSEEvent(
+    def on_content(content: str, output_index: int = 0) -> None:
+        """LLM 文本增量回调，附 output_index 标识所属输出块"""
+        if not content:
+            return
+        queue.put_nowait(SSEEvent(
+            run_id=run_id,
+            session_id=session_id,
+            seq=next_seq(),
+            state="delta",
+            content=content,
+            output_index=output_index,
+        ))
+
+    def on_thinking(content: str) -> None:
+        """智能体生命周期步骤回调（状态提示、模型 extended thinking 等）"""
+        if not content:
+            return
+        queue.put_nowait(SSEEvent(
+            run_id=run_id,
+            session_id=session_id,
+            seq=next_seq(),
+            state="step",
+            content=content,
+        ))
+
+    # 工具名 → 用户可见状态描述
+    _TOOL_STATUS: dict[str, str] = {
+        "policy_query": "正在查询您的保单信息，请稍等…",
+        "customer_info": "正在查询您的客户信息…",
+        "user_profile": "正在获取用户画像信息…",
+        "rule_engine": "正在为您计算取款方案…",
+        "verify_identity": "正在进行身份验证…",
+        "memory_search": "正在检索相关信息…",
+        "memory_get": "正在读取相关资料…",
+        "memory_set": "正在保存关键信息…",
+    }
+
+    def on_tool_start(tc: Any) -> None:
+        status_text = _TOOL_STATUS.get(tc.name, f"正在处理 {tc.name}…")
+        queue.put_nowait(SSEEvent(
+            run_id=run_id,
+            session_id=session_id,
+            seq=next_seq(),
+            state="step",
+            content=status_text,
+        ))
+
+    def on_tool_end(result: Any) -> None:
+        is_error = getattr(result, "is_error", False)
+        if is_error:
+            queue.put_nowait(SSEEvent(
                 run_id=run_id,
                 session_id=session_id,
                 seq=next_seq(),
-                state="delta",
-                content=content,
-            )
-            queue.put_nowait(event)
+                state="step",
+                content="工具调用遇到问题，正在尝试其他方式…",
+            ))
 
     async def run_agent() -> None:
-        prev_streaming = agent.config.enable_streaming
-        agent.config.enable_streaming = True
-        agent.set_callbacks(on_content=on_content)
+        agent.set_callbacks(
+            on_content=on_content,
+            on_thinking=on_thinking,
+            on_tool_start=on_tool_start,
+            on_tool_end=on_tool_end,
+        )
+        # 立即推送初始 step 事件，用户能即时看到响应
+        queue.put_nowait(SSEEvent(
+            run_id=run_id,
+            session_id=session_id,
+            seq=next_seq(),
+            state="step",
+            content="收到您的消息，正在处理中…",
+        ))
         try:
             result = await agent.run(
                 session_id=session_id,
                 user_input=request.message,
                 context=context,
+                stream_override=True,
+                model_override=request.model,
             )
             tool_calls = []
             if result.tool_calls:
                 for tc in result.tool_calls:
                     tool_calls.append({"name": tc.name, "arguments": tc.arguments})
-            # 发送 final 事件
+            # 发送 done 事件
             final_event = SSEEvent(
                 run_id=run_id,
                 session_id=session_id,
                 seq=next_seq(),
-                state="final",
+                state="done",
                 message=result.response.content or "",
                 tool_calls=tool_calls if tool_calls else None,
                 turns=result.turns,
@@ -260,7 +347,6 @@ async def chat(
             )
             queue.put_nowait(error_event)
         finally:
-            agent.config.enable_streaming = prev_streaming
             done_event.set()
 
     async def event_stream() -> AsyncIterator[str]:

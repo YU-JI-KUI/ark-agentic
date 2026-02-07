@@ -139,11 +139,13 @@ class MemoryManager:
         # 尝试加载已有索引
         await self._load_index()
 
+        # 标记为已初始化（必须在 sync 之前，否则 sync→initialize 无限递归）
+        self._initialized = True
+
         # 初始同步
         if self.config.sync_on_init:
             await self.sync()
 
-        self._initialized = True
         logger.info("Memory system initialized")
 
     async def _load_index(self) -> bool:
@@ -389,7 +391,7 @@ class MemoryManager:
 
 def create_memory_manager(
     workspace_dir: str,
-    embedding_model: str = "BAAI/bge-small-zh-v1.5",
+    embedding_model: str = "",
     device: str = "cpu",
 ) -> MemoryManager:
     """创建 Memory 管理器"""

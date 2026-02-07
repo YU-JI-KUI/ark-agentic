@@ -2,10 +2,12 @@
 客户信息工具
 
 查询客户的完整信息，包括身份、联系方式、受益人、历史交易等。
+通过数据服务 API（apiCode=customer_info）获取真实数据。
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ark_agentic.core.tools.base import (
@@ -16,11 +18,15 @@ from ark_agentic.core.tools.base import (
 )
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
+from .data_service import DataServiceClient, MockDataServiceClient, DataServiceError, get_data_service_client
+
+logger = logging.getLogger(__name__)
+
 
 class CustomerInfoTool(AgentTool):
     """客户信息查询工具
 
-    查询客户的详细信息，用于身份验证和业务办理。
+    通过数据服务 customer_info API 查询客户详细信息。
     """
 
     name = "customer_info"
@@ -56,6 +62,9 @@ class CustomerInfoTool(AgentTool):
         ),
     ]
 
+    def __init__(self, client: DataServiceClient | MockDataServiceClient | None = None) -> None:
+        self._client = client or get_data_service_client()
+
     async def execute(
         self, tool_call: ToolCall, context: dict[str, Any] | None = None
     ) -> AgentToolResult:
@@ -65,194 +74,21 @@ class CustomerInfoTool(AgentTool):
         info_type = read_string_param_required(args, "info_type")
         policy_id = read_string_param(args, "policy_id")
 
-        # 模拟查询
-        if info_type == "identity":
-            result = self._get_identity(user_id)
-        elif info_type == "contact":
-            result = self._get_contact(user_id)
-        elif info_type == "beneficiary":
-            result = self._get_beneficiary(user_id, policy_id)
-        elif info_type == "transaction_history":
-            result = self._get_transaction_history(user_id)
-        elif info_type == "service_history":
-            result = self._get_service_history(user_id)
-        elif info_type == "full":
-            result = self._get_full_info(user_id)
-        else:
-            return AgentToolResult.error_result(
-                tool_call.id, f"不支持的查询类型: {info_type}"
+        extra: dict[str, str] = {"info_type": info_type}
+        if policy_id:
+            extra["policy_id"] = policy_id
+
+        try:
+            result = await self._client.call(
+                api_code=DataServiceClient.API_CUSTOMER_INFO,
+                user_id=user_id,
+                **extra,
             )
+        except DataServiceError as exc:
+            logger.error(f"customer_info API error: {exc}")
+            return AgentToolResult.error_result(tool_call.id, str(exc))
 
         return AgentToolResult.json_result(tool_call.id, result)
-
-    def _get_identity(self, user_id: str) -> dict[str, Any]:
-        """获取身份信息（模拟数据）"""
-        return {
-            "user_id": user_id,
-            "identity": {
-                "name": "张明",
-                "id_type": "身份证",
-                "id_number": "310***********1234",  # 脱敏
-                "gender": "男",
-                "birth_date": "1982-05-15",
-                "age": 42,
-                "verified": True,
-                "verification_date": "2024-01-15",
-            },
-        }
-
-    def _get_contact(self, user_id: str) -> dict[str, Any]:
-        """获取联系方式（模拟数据）"""
-        return {
-            "user_id": user_id,
-            "contact": {
-                "phone": "138****5678",  # 脱敏
-                "email": "zhang***@example.com",
-                "address": "上海市浦东新区***路***号",
-                "preferred_contact": "phone",
-                "contact_time_preference": "工作日 9:00-18:00",
-            },
-        }
-
-    def _get_beneficiary(
-        self, user_id: str, policy_id: str | None
-    ) -> dict[str, Any]:
-        """获取受益人信息（模拟数据）"""
-        beneficiaries = [
-            {
-                "policy_id": "POL001",
-                "beneficiaries": [
-                    {
-                        "name": "张小明",
-                        "relationship": "子女",
-                        "id_number": "310***********5678",
-                        "share": 0.5,
-                        "order": 1,
-                    },
-                    {
-                        "name": "李芳",
-                        "relationship": "配偶",
-                        "id_number": "310***********9012",
-                        "share": 0.5,
-                        "order": 1,
-                    },
-                ],
-            },
-            {
-                "policy_id": "POL002",
-                "beneficiaries": [
-                    {
-                        "name": "法定继承人",
-                        "relationship": "法定",
-                        "share": 1.0,
-                        "order": 1,
-                    },
-                ],
-            },
-        ]
-
-        if policy_id:
-            for b in beneficiaries:
-                if b["policy_id"] == policy_id:
-                    return {"user_id": user_id, **b}
-            return {"user_id": user_id, "error": f"未找到保单 {policy_id}"}
-
-        return {"user_id": user_id, "beneficiaries_by_policy": beneficiaries}
-
-    def _get_transaction_history(self, user_id: str) -> dict[str, Any]:
-        """获取交易历史（模拟数据）"""
-        return {
-            "user_id": user_id,
-            "transactions": [
-                {
-                    "id": "TXN001",
-                    "date": "2024-06-15",
-                    "type": "premium_payment",
-                    "policy_id": "POL001",
-                    "amount": 12000,
-                    "status": "completed",
-                    "description": "年度保费缴纳",
-                },
-                {
-                    "id": "TXN002",
-                    "date": "2024-03-20",
-                    "type": "partial_withdrawal",
-                    "policy_id": "POL002",
-                    "amount": -30000,
-                    "status": "completed",
-                    "description": "部分领取",
-                },
-                {
-                    "id": "TXN003",
-                    "date": "2023-12-01",
-                    "type": "premium_payment",
-                    "policy_id": "POL002",
-                    "amount": 50000,
-                    "status": "completed",
-                    "description": "年度保费缴纳",
-                },
-            ],
-            "summary": {
-                "total_premium_paid": 212000,
-                "total_withdrawals": 30000,
-                "last_transaction_date": "2024-06-15",
-            },
-        }
-
-    def _get_service_history(self, user_id: str) -> dict[str, Any]:
-        """获取服务记录（模拟数据）"""
-        return {
-            "user_id": user_id,
-            "service_records": [
-                {
-                    "id": "SVC001",
-                    "date": "2024-07-20",
-                    "type": "inquiry",
-                    "channel": "app",
-                    "summary": "咨询取款方案",
-                    "status": "resolved",
-                },
-                {
-                    "id": "SVC002",
-                    "date": "2024-03-15",
-                    "type": "withdrawal",
-                    "channel": "app",
-                    "summary": "办理部分领取",
-                    "status": "completed",
-                },
-                {
-                    "id": "SVC003",
-                    "date": "2023-11-10",
-                    "type": "inquiry",
-                    "channel": "phone",
-                    "summary": "咨询保单权益",
-                    "status": "resolved",
-                },
-            ],
-            "statistics": {
-                "total_interactions": 12,
-                "app_interactions": 8,
-                "phone_interactions": 4,
-                "avg_satisfaction_score": 4.8,
-            },
-        }
-
-    def _get_full_info(self, user_id: str) -> dict[str, Any]:
-        """获取完整信息（模拟数据）"""
-        return {
-            "user_id": user_id,
-            **self._get_identity(user_id),
-            **self._get_contact(user_id),
-            "beneficiaries_by_policy": self._get_beneficiary(user_id, None)[
-                "beneficiaries_by_policy"
-            ],
-            "recent_transactions": self._get_transaction_history(user_id)[
-                "transactions"
-            ][:3],
-            "recent_services": self._get_service_history(user_id)["service_records"][
-                :3
-            ],
-        }
 
 
 class IdentityVerificationTool(AgentTool):

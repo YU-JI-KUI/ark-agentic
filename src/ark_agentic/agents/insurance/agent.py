@@ -315,11 +315,14 @@ def create_insurance_agent(
     tool_registry = ToolRegistry()
     tool_registry.register_all(create_insurance_tools())
 
-    # 2. 创建会话管理器（支持持久化）
+    # 2. 创建会话管理器（支持持久化，使用 LLM 摘要器进行上下文压缩）
     if enable_persistence:
         if sessions_dir is None:
             sessions_dir = Path("data") / "sessions"
         logger.info(f"Session persistence enabled: {sessions_dir}")
+
+    from ark_agentic.core.compaction import LLMSummarizer
+    summarizer = LLMSummarizer(llm_client)
 
     session_manager = SessionManager(
         compaction_config=CompactionConfig(
@@ -328,6 +331,7 @@ def create_insurance_agent(
         ),
         sessions_dir=sessions_dir if enable_persistence else None,
         enable_persistence=enable_persistence,
+        summarizer=summarizer,
     )
 
     # 3. 创建技能加载器（使用绝对路径）
@@ -349,12 +353,28 @@ def create_insurance_agent(
     if enable_memory:
         if memory_dir is None:
             memory_dir = Path(tempfile.gettempdir()) / "ark_memory"
+        memory_dir = Path(memory_dir)
+        memory_dir.mkdir(parents=True, exist_ok=True)
+
+        # workspace_dir 和 index_dir 都指向 memory_dir，
+        # 使得 memory 内容文件（MEMORY.md 等）和 FAISS 索引共存于数据目录
+        index_sub = memory_dir / ".index"
+        index_sub.mkdir(parents=True, exist_ok=True)
+
+        # 初始化 MEMORY.md（如不存在）
+        seed_file = memory_dir / "MEMORY.md"
+        if not seed_file.exists():
+            seed_file.write_text(
+                "# Agent Memory\n\n此文件用于存储跨会话的长期记忆。\n",
+                encoding="utf-8",
+            )
+
         memory_config = MemoryConfig(
-            workspace_dir=str(_AGENT_DIR),  # 使用 agent 目录作为 workspace
-            index_dir=str(memory_dir),
+            workspace_dir=str(memory_dir),
+            index_dir=str(index_sub),
         )
         memory_manager = MemoryManager(memory_config)
-        logger.info(f"Memory enabled: {memory_dir}")
+        logger.info(f"Memory enabled: workspace={memory_dir}, index={index_sub}")
 
     # 5. 配置 Runner
     runner_config = RunnerConfig(

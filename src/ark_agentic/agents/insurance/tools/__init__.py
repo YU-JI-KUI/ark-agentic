@@ -11,12 +11,16 @@
 - IdentityVerificationTool: 身份验证（短信、人脸、密码）
 """
 
+from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
 from .user_profile import UserProfileTool
 from .customer_info import CustomerInfoTool, IdentityVerificationTool
 
 __all__ = [
+    "DataServiceClient",
+    "MockDataServiceClient",
+    "get_data_service_client",
     "PolicyQueryTool",
     "RuleEngineTool",
     "UserProfileTool",
@@ -25,21 +29,32 @@ __all__ = [
 ]
 
 
-def create_insurance_tools() -> list:
-    """创建保险工具集合（完整版）"""
+def create_insurance_tools(
+    data_client: DataServiceClient | None = None,
+) -> list:
+    """创建保险工具集合（完整版）
+
+    Args:
+        data_client: 可选的 DataServiceClient 实例。
+                     不传则使用全局单例（从环境变量读取配置）。
+    """
+    client = data_client or get_data_service_client()
     return [
-        PolicyQueryTool(),
+        PolicyQueryTool(client=client),
         RuleEngineTool(),
         UserProfileTool(),
-        CustomerInfoTool(),
+        CustomerInfoTool(client=client),
         IdentityVerificationTool(),
     ]
 
 
-def create_insurance_tools_minimal() -> list:
+def create_insurance_tools_minimal(
+    data_client: DataServiceClient | None = None,
+) -> list:
     """创建保险工具集合（最小版，用于测试）"""
+    client = data_client or get_data_service_client()
     return [
-        PolicyQueryTool(),
+        PolicyQueryTool(client=client),
         RuleEngineTool(),
         UserProfileTool(),
     ]

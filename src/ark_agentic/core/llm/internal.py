@@ -99,17 +99,14 @@ class InternalAPIClient(BaseLLMClient):
             非流式：完整响应字典（OpenAI 兼容格式）
             流式：事件迭代器
         """
-        # 简化消息格式
-        simplified_messages = [
-            {"role": msg.get("role", "user"), "content": msg.get("content", "")}
-            for msg in messages
-        ]
+        # 保留完整的 OpenAI 消息格式（包括 tool_calls 和 tool role 消息）
+        preserved_messages = self._preserve_messages(messages)
 
         # 构建请求体
         body: dict[str, Any] = {
             "reqId": str(uuid.uuid4()),
             "stream": stream,
-            "messages": simplified_messages,
+            "messages": preserved_messages,
         }
 
         if tools:
@@ -171,6 +168,36 @@ class InternalAPIClient(BaseLLMClient):
                         yield self._normalize_stream_chunk(json.loads(line))
                     except json.JSONDecodeError:
                         pass
+
+    @staticmethod
+    def _preserve_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """保留完整消息结构，包括 tool_calls 和 tool role 消息。
+
+        不再简化为 {role, content}，确保 ReAct 循环中的工具调用链完整传递给 LLM。
+        """
+        preserved: list[dict[str, Any]] = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            out: dict[str, Any] = {"role": role}
+
+            if msg.get("content") is not None:
+                out["content"] = msg["content"]
+
+            # assistant 消息可能携带 tool_calls
+            if role == "assistant" and msg.get("tool_calls"):
+                out["tool_calls"] = msg["tool_calls"]
+                # OpenAI 规范: assistant 有 tool_calls 时 content 可为 null
+                if "content" not in out:
+                    out["content"] = None
+
+            # tool role 消息必须携带 tool_call_id
+            if role == "tool":
+                if msg.get("tool_call_id"):
+                    out["tool_call_id"] = msg["tool_call_id"]
+                # content 已在上面处理
+
+            preserved.append(out)
+        return preserved
 
     def _normalize_response(self, data: dict[str, Any]) -> dict[str, Any]:
         """将响应转换为 OpenAI 兼容格式"""
@@ -257,7 +284,7 @@ class SimpleInternalClient(BaseLLMClient):
 
         Args:
             messages: 消息列表
-            tools: 工具定义列表（不支持，会被忽略）
+            tools: 工具定义列表（尝试传递，由后端决定是否支持）
             stream: 是否流式输出
             **kwargs: 其他参数
 
@@ -266,6 +293,9 @@ class SimpleInternalClient(BaseLLMClient):
             流式：事件迭代器
         """
         body: dict[str, Any] = {"messages": messages, "stream": stream}
+
+        if tools:
+            body["tools"] = tools
 
         if stream:
             return self._stream_chat(self.base_url, body)

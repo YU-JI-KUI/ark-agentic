@@ -35,6 +35,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ark_agentic"]
+artifacts = ["src/ark_agentic/static/**"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

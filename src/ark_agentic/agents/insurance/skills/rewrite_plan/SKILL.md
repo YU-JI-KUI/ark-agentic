@@ -2,7 +2,7 @@
 name: 方案改写
 description: 根据用户反馈调整和改写推荐方案
 version: "1.0.0"
-invocation_policy: manual
+invocation_policy: auto
 group: insurance
 tags:
   - rewrite

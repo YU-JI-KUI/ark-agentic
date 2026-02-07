@@ -3,39 +3,43 @@ BGE Embedding 封装
 
 使用 sentence-transformers 加载 BGE 模型生成向量。
 支持的模型:
-- BAAI/bge-small-zh-v1.5 (512 max tokens, 384 dims) - 推荐，平衡速度和效果
-- BAAI/bge-base-zh-v1.5 (512 max tokens, 768 dims)
+- BAAI/bge-base-zh-v1.5 (512 max tokens, 768 dims) - 推荐，平衡效果和速度
 - BAAI/bge-large-zh-v1.5 (512 max tokens, 1024 dims) - 效果最好但较慢
+
+可通过环境变量 EMBEDDING_MODEL_PATH 指定本地模型路径。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # 默认模型
-DEFAULT_BGE_MODEL = "BAAI/bge-small-zh-v1.5"
+DEFAULT_BGE_MODEL = "BAAI/bge-base-zh-v1.5"
 
 # 模型维度映射
 BGE_MODEL_DIMS = {
-    "BAAI/bge-small-zh-v1.5": 512,
     "BAAI/bge-base-zh-v1.5": 768,
     "BAAI/bge-large-zh-v1.5": 1024,
-    "BAAI/bge-small-en-v1.5": 384,
-    "BAAI/bge-base-en-v1.5": 768,
-    "BAAI/bge-large-en-v1.5": 1024,
 }
 
 
 @dataclass
 class BGEConfig:
-    """BGE 配置"""
+    """BGE 配置
 
-    model_name: str = DEFAULT_BGE_MODEL
+    model_name 优先级：
+    1. 构造时显式传入的 model_name
+    2. 环境变量 EMBEDDING_MODEL_PATH（本地路径或 HuggingFace ID）
+    3. DEFAULT_BGE_MODEL
+    """
+
+    model_name: str = ""
     device: str = "cpu"  # "cpu", "cuda", "mps"
     normalize_embeddings: bool = True
     max_length: int = 512
@@ -44,6 +48,10 @@ class BGEConfig:
 
     # 查询前缀（BGE 推荐对查询加前缀）
     query_instruction: str = "为这个句子生成表示以用于检索相关文章："
+
+    def __post_init__(self) -> None:
+        if not self.model_name:
+            self.model_name = os.getenv("EMBEDDING_MODEL_PATH", DEFAULT_BGE_MODEL)
 
 
 class BGEEmbedding:
@@ -213,9 +221,6 @@ def get_available_devices() -> list[str]:
     return devices
 
 
-def get_recommended_model(language: str = "zh") -> str:
+def get_recommended_model() -> str:
     """获取推荐的模型"""
-    if language == "zh":
-        return "BAAI/bge-small-zh-v1.5"
-    else:
-        return "BAAI/bge-small-en-v1.5"
+    return DEFAULT_BGE_MODEL

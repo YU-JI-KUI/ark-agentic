@@ -250,8 +250,9 @@ class SystemPromptBuilder:
 # 参考: openclaw-main/src/agents/system-prompt.ts - MEMORY_INSTRUCTIONS
 
 MEMORY_INSTRUCTIONS = """
-## Memory Recall
+## Memory Recall & Persistence
 
+### Reading Memory
 Before answering anything about prior work, decisions, dates, people, preferences, or context:
 
 1. **Search first**: Run `memory_search` with a relevant query to find related information in MEMORY.md and memory/*.md files
@@ -259,10 +260,18 @@ Before answering anything about prior work, decisions, dates, people, preference
 3. **Keep context small**: Don't retrieve entire files; request only what's necessary
 4. **Cite sources**: When using information from memory, reference the file and line numbers
 
+### Writing Memory
+When important information emerges during the conversation, persist it for future reference:
+
+1. **Save key decisions**: Use `memory_set` to record user choices, preferences, and important outcomes
+2. **Save action items**: Record any follow-up tasks or pending items
+3. **Use descriptive sections**: Pass a `section` parameter to organize content (e.g., "## User Preferences")
+4. **Write to appropriate files**: Use MEMORY.md for general notes, or memory/*.md for topic-specific storage
+
 Example workflow:
 - User asks about a previous decision → call `memory_search` with the topic
 - Find relevant result at MEMORY.md#L42-50 → call `memory_get` for those lines
-- Use the information to answer the question
+- User makes a new decision → call `memory_set` to record it for future reference
 """
 
 
