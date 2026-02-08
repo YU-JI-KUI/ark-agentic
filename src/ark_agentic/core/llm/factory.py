@@ -69,26 +69,6 @@ def create_llm_client(
         # 指定 PA 模型
         client = create_llm_client("pa", pa_model=PAModel.PA_JT_80B)
 
-        # 使用 DeepSeek
-        client = create_llm_client("deepseek", api_key="sk-xxx")
-
-        # 使用内部 API
-        client = create_llm_client(
-            "internal",
-            base_url="http://internal-api.example.com/chat",
-            authorization="Bearer xxx",
-            trace_appid="my-app",
-            trace_source="ark-agentic",
-            trace_user_id="user123",
-        )
-
-        # 使用 Simple 内部 API
-        client = create_llm_client(
-            "simple",
-            base_url="https://my-llm/simple-api",
-            authorization="Bearer xxx",  # 可选
-        )
-
         # 使用带额外参数的 OpenAI 兼容 API
         from ark_agentic.core.llm import DynamicValues
         client = create_llm_client(
@@ -112,42 +92,6 @@ def create_llm_client(
     if provider == "pa":
         # PA Internal LLM
         return create_pa_client(model=pa_model, **kwargs)
-
-    elif provider == "internal":
-        # 内部 API
-        if not base_url:
-            raise ValueError("base_url is required for internal provider")
-        if not authorization:
-            raise ValueError("authorization is required for internal provider")
-        if not trace_appid:
-            raise ValueError("trace_appid is required for internal provider")
-
-        config = LLMConfig(
-            provider="internal",
-            base_url=base_url,
-            authorization=authorization,
-            trace_appid=trace_appid,
-            trace_source=trace_source or "",
-            trace_user_id=trace_user_id or "",
-            model=model or "",
-            **kwargs,
-        )
-        return InternalAPIClient(config)
-
-    elif provider == "simple":
-        # Simple 内部 API
-        if not base_url:
-            raise ValueError("base_url is required for simple provider")
-
-        config = LLMConfig(
-            provider="simple",
-            base_url=base_url,
-            authorization=authorization or "",
-            model=model or "",
-            **kwargs,
-        )
-        return SimpleInternalClient(config)
-
     else:
         # OpenAI 兼容 API (deepseek, openai)
         resolved_api_key = api_key

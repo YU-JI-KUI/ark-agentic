@@ -283,80 +283,81 @@ body {
   box-shadow: var(--card-shadow);
 }
 
-/* Thinking panel (collapsible timeline of agent steps + intermediate content) */
-.thinking-panel {
-  margin-bottom: 8px;
-  border-radius: var(--radius-sm);
+/* Thinking card (Gemini-style collapsible thinking process) */
+.thinking-card {
   background: var(--step-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   overflow: hidden;
+  margin-bottom: 8px;
   width: 100%;
+  transition: all 0.3s ease;
 }
-.thinking-toggle {
+.thinking-header {
+  padding: 10px 14px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
+  justify-content: space-between;
   cursor: pointer;
   user-select: none;
-  font-size: 12px;
-  color: var(--text-muted);
-  transition: color .15s;
 }
-.thinking-toggle:hover { color: var(--text-secondary); }
-.tg-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--orange);
-  flex-shrink: 0;
-  animation: pulse 1s infinite;
+.thinking-header:hover { background: rgba(0,0,0,0.02); }
+.th-left { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); font-weight: 500; }
+.th-icon { width: 16px; height: 16px; animation: spin 3s linear infinite; color: #34a853; }
+.th-icon.done { animation: none; color: #34a853; }
+.th-chevron { transition: transform 0.3s; font-size: 11px; color: var(--text-muted); }
+.thinking-card.collapsed .thinking-content { display: none; }
+.thinking-card.collapsed .th-chevron { transform: rotate(-90deg); }
+.thinking-content {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
 }
-.tg-dot.done { animation: none; opacity: 0.4; }
-.tg-label { flex: 1; font-weight: 500; }
-.tg-chevron {
-  font-size: 10px;
-  transition: transform .2s;
-  line-height: 1;
-}
-.thinking-panel.collapsed .tg-chevron { transform: rotate(-90deg); }
-.thinking-body {
-  padding: 0 12px 8px;
+
+/* Individual step items */
+.think-step {
+  padding: 8px 14px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  border-left: 2px solid transparent;
+  transition: background 0.2s;
 }
-.thinking-panel.collapsed .thinking-body { display: none; }
-
-/* Individual timeline items */
-.think-step {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 2px 0;
-  line-height: 1.5;
-}
-.ts-dot {
-  width: 5px; height: 5px;
+.think-step:hover { background: rgba(0,0,0,0.02); }
+.think-step.active { border-left-color: var(--orange); background: rgba(240,118,43,0.04); }
+.ts-header { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+.ts-icon {
+  width: 8px; height: 8px;
   border-radius: 50%;
-  background: var(--orange);
+  background: #ddd;
   flex-shrink: 0;
-  opacity: 0.35;
+  transition: all 0.3s;
 }
-.think-step:last-child .ts-dot {
-  opacity: 1;
-  animation: pulse 1s infinite;
-}
-.think-content {
-  font-size: 12px;
+.think-step.active .ts-icon { background: var(--orange); box-shadow: 0 0 0 3px rgba(240,118,43,0.15); }
+.think-step.done .ts-icon { background: #34a853; }
+.ts-expand {
+  margin-left: auto;
+  font-size: 10px;
   color: var(--text-muted);
-  padding: 3px 0 3px 11px;
-  border-left: 2px solid var(--border);
+  transition: transform 0.2s;
+}
+.ts-expand.open { transform: rotate(90deg); }
+.ts-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 0 2px 16px;
   line-height: 1.55;
   word-break: break-word;
   white-space: pre-wrap;
+  display: none;
 }
+.ts-detail.open { display: block; animation: fadeIn 0.3s; }
 
+/* Typing cursor */
+.typing-cursor::after { content: '\25CB'; color: var(--orange); animation: pulse 1s infinite; margin-left: 2px; }
+
+@keyframes spin { 100% { transform: rotate(360deg); } }
 @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.25;} }
 @keyframes fadeIn { from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
 .msg-meta {
@@ -853,16 +854,17 @@ body {
     }
 
     const msgEl = createAssistantContainer();
-    const thinkPanel = msgEl.querySelector('.thinking-panel');
-    const thinkBody = msgEl.querySelector('.thinking-body');
-    const tgDot = msgEl.querySelector('.tg-dot');
+    const thinkCard = msgEl.querySelector('.thinking-card');
+    const thinkContent = msgEl.querySelector('.thinking-content');
+    const thinkIcon = msgEl.querySelector('.th-icon');
+    const statusText = msgEl.querySelector('.status-text');
     const answerBubble = msgEl.querySelector('.answer-bubble');
     const metaEl = msgEl.querySelector('.msg-meta');
 
-    let currentOutputIndex = -1;
     let hadThinkingContent = false;
-    let contentByIndex = {};   // idx -> { text }
-    let markers = {};          // idx -> invisible placeholder in thinkBody (reserves chronological slot)
+    let currentStepEl = null;
+    let finalText = '';
+    let currentOutputIndex = -1;  // track output_index for rare edge-case clearing
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -876,8 +878,14 @@ body {
       const lines = buffer.split('\n');
       buffer = lines.pop();
 
+      let currentEventType = null;
       for (const line of lines) {
         const trimmed = line.trim();
+        // Capture SSE event: line
+        if (trimmed.startsWith('event:')) {
+          currentEventType = trimmed.slice(6).trim();
+          continue;
+        }
         if (!trimmed.startsWith('data:')) continue;
         const jsonStr = trimmed.slice(5).trim();
         if (!jsonStr) continue;
@@ -885,97 +893,88 @@ body {
         let event;
         try { event = JSON.parse(jsonStr); } catch { continue; }
 
+        // Use event.type from JSON (authoritative), fallback to event: line
+        const eventType = event.type || currentEventType || '';
+        currentEventType = null;
+
         if (event.session_id && !sessionId) {
           sessionId = event.session_id;
           sessionStorage.setItem('ark_session_id', sessionId);
           updateSessionLabel();
         }
 
-        switch (event.state) {
-          case 'step': {
-            // Append a step item to the thinking timeline
+        switch (eventType) {
+          // ---- response.created: initial acknowledgement ----
+          case 'response.created': {
+            if (event.content) {
+              hadThinkingContent = true;
+              thinkCard.style.display = '';
+              const step = document.createElement('div');
+              step.className = 'think-step active';
+              step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(event.content) + '</span></div>';
+              thinkContent.appendChild(step);
+              currentStepEl = step;
+              thinkCard.dataset.latestStep = event.content;
+              statusText.textContent = thinkCard.classList.contains('collapsed') ? event.content : '正在思考中…';
+            }
+            scrollToBottom();
+            break;
+          }
+
+          // ---- response.step: thinking panel ----
+          case 'response.step': {
             hadThinkingContent = true;
-            thinkPanel.classList.remove('hidden');
+            thinkCard.style.display = '';
+            if (currentStepEl) {
+              currentStepEl.classList.remove('active');
+              currentStepEl.classList.add('done');
+            }
             const step = document.createElement('div');
-            step.className = 'think-step';
-            step.innerHTML = '<span class="ts-dot"></span>' + escHtml(event.content || '');
-            thinkBody.appendChild(step);
+            step.className = 'think-step active';
+            step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(event.content || '') + '</span></div>';
+            thinkContent.appendChild(step);
+            currentStepEl = step;
+            thinkCard.dataset.latestStep = event.content || '思考中…';
+            statusText.textContent = thinkCard.classList.contains('collapsed') ? (event.content || '思考中…') : '正在思考中…';
             scrollToBottom();
             break;
           }
 
-          case 'delta': {
+          // ---- response.content.delta: real-time typewriter in answer area ----
+          case 'response.content.delta': {
+            // output_index change → clear previous content (rare edge case)
             const idx = event.output_index ?? 0;
-
             if (idx !== currentOutputIndex) {
-              // --- output_index changed ---
-              // Freeze previous index: replace its marker with visible think-content
-              if (currentOutputIndex >= 0 && contentByIndex[currentOutputIndex] && markers[currentOutputIndex]) {
-                const prev = contentByIndex[currentOutputIndex];
-                if (prev.text.trim()) {
-                  hadThinkingContent = true;
-                  thinkPanel.classList.remove('hidden');
-                  const tc = document.createElement('div');
-                  tc.className = 'think-content';
-                  tc.innerHTML = md(prev.text);
-                  markers[currentOutputIndex].replaceWith(tc);
-                } else {
-                  markers[currentOutputIndex].remove();
-                }
-                delete markers[currentOutputIndex];
-              }
-
               currentOutputIndex = idx;
-              // Insert invisible marker at current position in thinkBody
-              const marker = document.createElement('div');
-              marker.style.display = 'none';
-              thinkBody.appendChild(marker);
-              markers[idx] = marker;
-              // Reset answer bubble for new content
-              answerBubble.classList.remove('hidden');
-              answerBubble.innerHTML = '';
-              contentByIndex[idx] = { text: '' };
+              finalText = '';
             }
-
-            // First delta ever — bootstrap
-            if (currentOutputIndex < 0) {
-              currentOutputIndex = idx;
-              const marker = document.createElement('div');
-              marker.style.display = 'none';
-              thinkBody.appendChild(marker);
-              markers[idx] = marker;
-              answerBubble.classList.remove('hidden');
-              contentByIndex[idx] = { text: '' };
-            }
-
-            contentByIndex[idx].text += event.content || '';
-            answerBubble.innerHTML = md(contentByIndex[idx].text);
+            answerBubble.classList.remove('hidden');
+            finalText += event.delta || '';
+            answerBubble.innerHTML = md(finalText);
             scrollToBottom();
             break;
           }
 
-          case 'done': {
-            // Remove the marker for the final output_index (answer is in answerBubble, not thinking panel)
-            if (currentOutputIndex >= 0 && markers[currentOutputIndex]) {
-              markers[currentOutputIndex].remove();
-              delete markers[currentOutputIndex];
+          // ---- response.completed: finalize ----
+          case 'response.completed': {
+            if (currentStepEl) {
+              currentStepEl.classList.remove('active');
+              currentStepEl.classList.add('done');
+              currentStepEl = null;
             }
-            // Collapse thinking panel (user can re-expand)
             if (hadThinkingContent) {
-              thinkPanel.classList.add('collapsed');
-              tgDot.classList.add('done');
-              thinkBody.querySelectorAll('.ts-dot').forEach(function(d) {
-                d.style.animation = 'none';
-                d.style.opacity = '0.35';
-              });
+              thinkCard.classList.add('collapsed');
+              // Swap spinning clock → checkmark
+              thinkIcon.outerHTML = '<svg class="th-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
+              statusText.textContent = '思考完成';
             } else {
-              thinkPanel.classList.add('hidden');
+              thinkCard.style.display = 'none';
             }
-            // Show usage
+            answerBubble.classList.remove('typing-cursor');
             if (event.usage) {
               const inp = event.usage.input_tokens || 0;
               const out = event.usage.output_tokens || 0;
-              metaEl.textContent = (event.turns || '-') + ' 轮 · ' + (inp + out) + ' tokens';
+              metaEl.textContent = (event.turns || '-') + ' \u8F6E \u00B7 ' + (inp + out) + ' tokens';
               metaEl.classList.remove('hidden');
             }
             if (event.session_id) {
@@ -988,11 +987,13 @@ body {
             break;
           }
 
-          case 'error':
-            thinkPanel.classList.add('hidden');
-            appendErrorMessage(event.error_message || '未知错误');
+          // ---- response.failed: error ----
+          case 'response.failed': {
+            thinkCard.style.display = 'none';
+            appendErrorMessage(event.error_message || '\u672A\u77E5\u9519\u8BEF');
             $statusText.textContent = '';
             break;
+          }
         }
       }
     }
@@ -1015,20 +1016,30 @@ body {
     const div = document.createElement('div');
     div.className = 'msg msg-assistant';
     div.innerHTML =
-      '<div class="thinking-panel hidden">' +
-        '<div class="thinking-toggle">' +
-          '<span class="tg-dot"></span>' +
-          '<span class="tg-label">思考过程</span>' +
-          '<span class="tg-chevron">&#9662;</span>' +
+      '<div class="thinking-card" style="display:none">' +
+        '<div class="thinking-header">' +
+          '<div class="th-left">' +
+            '<svg class="th-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' +
+            '<span class="status-text">思考中\u2026</span>' +
+          '</div>' +
+          '<span class="th-chevron">&#9660;</span>' +
         '</div>' +
-        '<div class="thinking-body"></div>' +
+        '<div class="thinking-content"></div>' +
       '</div>' +
-      '<div class="msg-bubble answer-bubble hidden"></div>' +
+      '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>' +
       '<div class="msg-meta hidden"></div>';
     // Wire up collapse toggle
-    const toggle = div.querySelector('.thinking-toggle');
-    const panel = div.querySelector('.thinking-panel');
-    toggle.addEventListener('click', () => { panel.classList.toggle('collapsed'); });
+    const header = div.querySelector('.thinking-header');
+    const card = div.querySelector('.thinking-card');
+    header.addEventListener('click', () => {
+      card.classList.toggle('collapsed');
+      // Dynamic title: collapsed shows latest step, expanded shows generic label
+      const st = card.querySelector('.status-text');
+      if (st && !card.querySelector('.th-icon.done')) {
+        const latest = card.dataset.latestStep || '思考中…';
+        st.textContent = card.classList.contains('collapsed') ? latest : '正在思考中…';
+      }
+    });
     $chat.appendChild(div);
     scrollToBottom();
     return div;

@@ -37,8 +37,6 @@ import tempfile
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format="%(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # 导入 Agent 框架组件

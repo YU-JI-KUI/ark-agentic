@@ -134,31 +134,23 @@ class AgentRunner:
         # 流式组装器
         self._stream_assembler: StreamAssembler | None = None
 
-        # 回调
-        self._on_thinking: Callable[[str], None] | None = None
+        # Callbacks — 2 only
+        self._on_step: Callable[[str], None] | None = None
         self._on_content: Callable[[str, int], None] | None = None
-        self._on_tool_start: Callable[[ToolCall], None] | None = None
-        self._on_tool_end: Callable[[AgentToolResult], None] | None = None
 
     def set_callbacks(
         self,
-        on_thinking: Callable[[str], None] | None = None,
+        on_step: Callable[[str], None] | None = None,
         on_content: Callable[[str, int], None] | None = None,
-        on_tool_start: Callable[[ToolCall], None] | None = None,
-        on_tool_end: Callable[[AgentToolResult], None] | None = None,
     ) -> None:
         """设置回调函数
 
         Args:
-            on_thinking: 生命周期步骤回调 (content)
-            on_content: LLM 文本增量回调 (content, output_index)
-            on_tool_start: 工具开始回调 (tool_call)
-            on_tool_end: 工具结束回调 (tool_result)
+            on_step: 生命周期步骤回调 (str) → response.step
+            on_content: LLM 文本增量回调 (delta, output_index) → response.content.delta
         """
-        self._on_thinking = on_thinking
+        self._on_step = on_step
         self._on_content = on_content
-        self._on_tool_start = on_tool_start
-        self._on_tool_end = on_tool_end
 
     async def run(
         self,
@@ -296,14 +288,14 @@ class AgentRunner:
             # 构建请求
             messages = self._build_messages(session_id, context)
             tools = self._build_tools(context)
+            logger.info(f"Turn {turns} | messages={len(messages)} tools={len(tools)} model={model_override or self.config.model}")
 
-            # 创建绑定 output_index 的 content 回调（闭包捕获当前值）
+            # 绑定当前 output_index 的 content 回调（闭包捕获当前值）
             _current_idx = output_index
             def _scoped_content(text: str, _idx: int = _current_idx) -> None:
                 if self._on_content:
                     self._on_content(text, _idx)
 
-            # 调用 LLM
             if use_streaming:
                 response = await self._call_llm_streaming(
                     messages, tools,
@@ -319,6 +311,13 @@ class AgentRunner:
             turn_output = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
             total_input_tokens += turn_input
             total_output_tokens += turn_output
+            finish_reason = response.metadata.get("finish_reason")
+            logger.info(
+                f"Turn {turns} | finish_reason={finish_reason} "
+                f"content_len={len(response.content or '')} "
+                f"tool_calls={len(response.tool_calls or [])} "
+                f"tokens=+{turn_input}/{turn_output}"
+            )
 
             # 同步 token 统计到 session
             self.session_manager.update_token_usage(
@@ -331,7 +330,6 @@ class AgentRunner:
             self.session_manager.add_message_sync(session_id, response)
 
             # 检查 finish_reason
-            finish_reason = response.metadata.get("finish_reason")
             if finish_reason == "length":
                 logger.warning(f"Response truncated (max_tokens) in session {session_id}")
                 # 可以选择继续或返回，这里选择返回截断的响应
@@ -345,11 +343,10 @@ class AgentRunner:
                     stopped_by_limit=True,
                 )
 
-            # ---- 工具调用轮（内容已通过 on_content 实时流式输出） ----
+            # ---- 工具调用轮（中间轮） ----
             if response.tool_calls:
                 all_tool_calls.extend(response.tool_calls)
 
-                # 执行工具（并行，on_tool_start/on_tool_end 回调触发 thinking 事件）
                 tool_results = await self._execute_tools(
                     response.tool_calls, context
                 )
@@ -365,14 +362,14 @@ class AgentRunner:
                 if all_errors:
                     logger.warning(f"All tool calls failed in turn {turns}")
 
-                # 工具执行完毕，递增 output_index 后进入下一轮 LLM 调用
+                # 递增 output_index，进入下一轮
                 output_index += 1
-                if self._on_thinking:
-                    self._on_thinking("信息收集完毕，正在为您总结…")
+                if self._on_step:
+                    self._on_step("信息收集完毕，正在为您总结…")
 
                 continue
 
-            # ---- 最终轮：无 tool_calls，内容已通过 on_content 实时流式输出 ----
+            # ---- 最终轮：无 tool_calls —— 内容已通过 on_content 实时流式输出 ----
             # 输出验证
             if self.config.enable_output_validation and all_tool_results and response.content:
                 validation = validate_response_against_tools(
@@ -556,15 +553,17 @@ class AgentRunner:
         model_override: str | None = None,
         content_callback: Callable[[str], None] | None = None,
     ) -> AgentMessage:
-        """流式调用 LLM（always-forward 模式）
+        """流式调用 LLM
 
-        所有内容通过 content_callback 实时转发给客户端，保持打字机效果。
         content_callback 由 _run_loop 传入，已绑定当前轮的 output_index。
-        on_thinking 用于模型级 extended thinking（如 Claude thinking blocks）。
+        所有 LLM 内容实时转发给前端（打字机效果）。
         """
+        model = model_override or self.config.model
+        logger.info(f"LLM stream start | model={model}")
+
         assembler = StreamAssembler(
             on_content=content_callback,
-            on_thinking=self._on_thinking,
+            on_thinking=self._on_step,
         )
 
         llm_kwargs: dict[str, Any] = {
@@ -584,7 +583,7 @@ class AgentRunner:
         except LLMError:
             raise
         except Exception as exc:
-            raise classify_error(exc, model=model_override or self.config.model) from exc
+            raise classify_error(exc, model=model) from exc
 
         # 处理流
         async for chunk in stream:
@@ -592,6 +591,10 @@ class AgentRunner:
             if event:
                 assembler.process_event(event)
 
+        logger.info(
+            f"LLM stream done | content_len={len(assembler.state.content)} "
+            f"tool_calls={len(assembler.state.tool_calls)}"
+        )
         return assembler.build_message()
 
     def _parse_llm_response(self, response: dict[str, Any]) -> AgentMessage:
@@ -654,6 +657,18 @@ class AgentRunner:
         from .stream.assembler import parse_openai_sse
         return parse_openai_sse(chunk)
 
+    # 工具名 → 用户可见状态描述
+    _TOOL_STATUS: dict[str, str] = {
+        "policy_query": "正在查询您的保单信息，请稍等…",
+        "customer_info": "正在查询您的客户信息…",
+        "user_profile": "正在获取用户画像信息…",
+        "rule_engine": "正在为您计算取款方案…",
+        "verify_identity": "正在进行身份验证…",
+        "memory_search": "正在检索相关信息…",
+        "memory_get": "正在读取相关资料…",
+        "memory_set": "正在保存关键信息…",
+    }
+
     async def _execute_tools(
         self,
         tool_calls: list[ToolCall],
@@ -664,8 +679,10 @@ class AgentRunner:
 
         async def execute_single(tc: ToolCall) -> AgentToolResult:
             """执行单个工具（带超时保护）"""
-            if self._on_tool_start:
-                self._on_tool_start(tc)
+            logger.info(f"Tool {tc.name} | args={tc.arguments}")
+            if self._on_step:
+                status = self._TOOL_STATUS.get(tc.name, f"正在处理 {tc.name}…")
+                self._on_step(status)
 
             tool = self.tool_registry.get(tc.name)
             if tool is None:
@@ -687,8 +704,9 @@ class AgentRunner:
                     logger.error(f"Tool execution error: {tc.name} - {e}")
                     result = AgentToolResult.error_result(tc.id, str(e))
 
-            if self._on_tool_end:
-                self._on_tool_end(result)
+            logger.info(f"Tool {tc.name} | error={result.is_error} result_len={len(result.content or '')}")
+            if result.is_error and self._on_step:
+                self._on_step("工具调用遇到问题，正在尝试其他方式…")
 
             return result
 

@@ -141,7 +141,6 @@ class StreamAssembler:
         """处理内容增量"""
         delta = event.data or ""
         self._state.content += delta
-
         if self._on_content:
             self._on_content(delta)
 

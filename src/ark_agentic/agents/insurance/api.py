@@ -87,5 +87,5 @@ def create_insurance_agent_from_env(
         sessions_dir=sessions_dir,
         enable_persistence=enable_persistence,
         memory_dir=memory_dir,
-        enable_memory=True,
+        enable_memory=False,
     )

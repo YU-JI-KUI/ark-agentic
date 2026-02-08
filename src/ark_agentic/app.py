@@ -11,9 +11,20 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Literal
+from typing import Any, AsyncIterator
 
 from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv()
+
+# ---- 全局日志配置 ----
+logging.basicConfig(
+    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s %(levelname)-5s %(name)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
+)
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -78,25 +89,31 @@ class ChatResponse(BaseModel):
 
 
 class SSEEvent(BaseModel):
-    """SSE 事件格式，对齐 OpenAI Responses API 事件语义
+    """SSE event — aligned with OpenAI Responses API naming.
 
-    state 取值:
-      - "delta"  : LLM 文本增量（附 output_index 标识所属输出块）
-      - "step"   : 智能体生命周期步骤（工具调用、状态提示等）
-      - "done"   : 整次 run 结束，携带完整响应
-      - "error"  : 执行出错
+    Event types:
+      - response.created       : Run initialized
+      - response.step          : Agent lifecycle step (tool, status)
+      - response.content.delta : Final answer text chunk (typewriter)
+      - response.completed     : Run finished with metadata
+      - response.failed        : Error
     """
-    run_id: str = Field(..., description="本次执行 ID")
-    session_id: str = Field(..., description="会话 ID")
-    seq: int = Field(..., description="序列号")
-    state: Literal["delta", "done", "error", "step"] = Field(..., description="事件状态")
-    content: str | None = Field(None, description="delta/step 内容")
-    output_index: int | None = Field(None, description="delta 所属的输出块索引（前端按此分组）")
-    message: str | None = Field(None, description="done 完整响应")
-    tool_calls: list[dict[str, Any]] | None = Field(None, description="工具调用列表")
-    error_message: str | None = Field(None, description="错误信息")
-    usage: dict[str, int] | None = Field(None, description="Token 使用统计")
-    turns: int | None = Field(None, description="对话轮数")
+    type: str = Field(..., description="Event type (response.*)")
+    seq: int = Field(..., description="Sequence number")
+    run_id: str | None = Field(None)
+    session_id: str | None = Field(None)
+    # Step
+    content: str | None = Field(None, description="Step description text")
+    # Content delta
+    delta: str | None = Field(None, description="Answer text chunk")
+    output_index: int | None = Field(None, description="Output block index")
+    # Completed
+    message: str | None = Field(None, description="Full answer text")
+    usage: dict[str, int] | None = Field(None)
+    turns: int | None = Field(None)
+    tool_calls: list[dict[str, Any]] | None = Field(None)
+    # Failed
+    error_message: str | None = Field(None)
 
 
 class SessionCreateRequest(BaseModel):
@@ -236,77 +253,42 @@ async def chat(
         seq_counter["value"] += 1
         return seq_counter["value"]
 
-    def on_content(content: str, output_index: int = 0) -> None:
-        """LLM 文本增量回调，附 output_index 标识所属输出块"""
-        if not content:
+    # ---- Two callbacks only ----
+
+    def on_step(text: str) -> None:
+        """Agent lifecycle step → response.step"""
+        if not text:
             return
         queue.put_nowait(SSEEvent(
+            type="response.step",
+            seq=next_seq(),
             run_id=run_id,
             session_id=session_id,
+            content=text,
+        ))
+
+    def on_content(delta: str, output_index: int = 0) -> None:
+        """Final answer text chunk → response.content.delta"""
+        if not delta:
+            return
+        queue.put_nowait(SSEEvent(
+            type="response.content.delta",
             seq=next_seq(),
-            state="delta",
-            content=content,
+            run_id=run_id,
+            session_id=session_id,
+            delta=delta,
             output_index=output_index,
         ))
 
-    def on_thinking(content: str) -> None:
-        """智能体生命周期步骤回调（状态提示、模型 extended thinking 等）"""
-        if not content:
-            return
-        queue.put_nowait(SSEEvent(
-            run_id=run_id,
-            session_id=session_id,
-            seq=next_seq(),
-            state="step",
-            content=content,
-        ))
-
-    # 工具名 → 用户可见状态描述
-    _TOOL_STATUS: dict[str, str] = {
-        "policy_query": "正在查询您的保单信息，请稍等…",
-        "customer_info": "正在查询您的客户信息…",
-        "user_profile": "正在获取用户画像信息…",
-        "rule_engine": "正在为您计算取款方案…",
-        "verify_identity": "正在进行身份验证…",
-        "memory_search": "正在检索相关信息…",
-        "memory_get": "正在读取相关资料…",
-        "memory_set": "正在保存关键信息…",
-    }
-
-    def on_tool_start(tc: Any) -> None:
-        status_text = _TOOL_STATUS.get(tc.name, f"正在处理 {tc.name}…")
-        queue.put_nowait(SSEEvent(
-            run_id=run_id,
-            session_id=session_id,
-            seq=next_seq(),
-            state="step",
-            content=status_text,
-        ))
-
-    def on_tool_end(result: Any) -> None:
-        is_error = getattr(result, "is_error", False)
-        if is_error:
-            queue.put_nowait(SSEEvent(
-                run_id=run_id,
-                session_id=session_id,
-                seq=next_seq(),
-                state="step",
-                content="工具调用遇到问题，正在尝试其他方式…",
-            ))
-
     async def run_agent() -> None:
-        agent.set_callbacks(
-            on_content=on_content,
-            on_thinking=on_thinking,
-            on_tool_start=on_tool_start,
-            on_tool_end=on_tool_end,
-        )
-        # 立即推送初始 step 事件，用户能即时看到响应
+        agent.set_callbacks(on_step=on_step, on_content=on_content)
+
+        # response.created
         queue.put_nowait(SSEEvent(
+            type="response.created",
+            seq=next_seq(),
             run_id=run_id,
             session_id=session_id,
-            seq=next_seq(),
-            state="step",
             content="收到您的消息，正在处理中…",
         ))
         try:
@@ -321,12 +303,12 @@ async def chat(
             if result.tool_calls:
                 for tc in result.tool_calls:
                     tool_calls.append({"name": tc.name, "arguments": tc.arguments})
-            # 发送 done 事件
-            final_event = SSEEvent(
+            # response.completed
+            queue.put_nowait(SSEEvent(
+                type="response.completed",
+                seq=next_seq(),
                 run_id=run_id,
                 session_id=session_id,
-                seq=next_seq(),
-                state="done",
                 message=result.response.content or "",
                 tool_calls=tool_calls if tool_calls else None,
                 turns=result.turns,
@@ -334,18 +316,16 @@ async def chat(
                     "input_tokens": result.input_tokens,
                     "output_tokens": result.output_tokens,
                 },
-            )
-            queue.put_nowait(final_event)
+            ))
         except Exception as exc:
             logger.exception(f"Agent run error: {exc}")
-            error_event = SSEEvent(
+            queue.put_nowait(SSEEvent(
+                type="response.failed",
+                seq=next_seq(),
                 run_id=run_id,
                 session_id=session_id,
-                seq=next_seq(),
-                state="error",
                 error_message=str(exc),
-            )
-            queue.put_nowait(error_event)
+            ))
         finally:
             done_event.set()
 
@@ -357,7 +337,7 @@ async def chat(
                     break
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=0.1)
-                    yield f"data: {event.model_dump_json(exclude_none=True)}\n\n"
+                    yield f"event: {event.type}\ndata: {event.model_dump_json(exclude_none=True)}\n\n"
                 except asyncio.TimeoutError:
                     continue
         finally:
@@ -433,9 +413,7 @@ async def list_sessions(agent_id: str = Query("insurance")):
 
 def main() -> None:
     import uvicorn
-    from dotenv import load_dotenv
 
-    load_dotenv()
     host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", "8080"))
 
@@ -445,6 +423,7 @@ def main() -> None:
         host=host,
         port=port,
         reload=False,
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
     )
 
 
