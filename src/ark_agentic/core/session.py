@@ -1,8 +1,4 @@
-"""
-会话管理
-
-参考: openclaw-main/src/config/sessions/
-"""
+"""会话管理器: 消息追踪、压缩、持久化"""
 
 from __future__ import annotations
 
@@ -26,11 +22,6 @@ logger = logging.getLogger(__name__)
 
 
 class SessionManager:
-    """会话管理器
-
-    管理会话的创建、消息追加、压缩和状态查询。
-    支持 JSONL 持久化和内存存储。
-    """
 
     def __init__(
         self,
@@ -84,7 +75,7 @@ class SessionManager:
             )
             await self._session_store.update(session.session_id, store_entry)
 
-        logger.info(f"Created session: {session.session_id}")
+        logger.info(f"[SESSION_CREATE] id={session.session_id[:8]} model={model}")
         return session
 
     def create_session_sync(

@@ -11,7 +11,6 @@ tags:
 required_tools:
   - policy_query
   - rule_engine
-  - user_profile
 ---
 
 # 保险取款技能
@@ -34,9 +33,8 @@ required_tools:
 首先调用工具收集必要信息：
 
 ```
-1. user_profile - 获取用户画像和偏好
-2. policy_query(query_type="list") - 获取用户所有保单
-3. policy_query(query_type="withdrawal_limit") - 获取可取款额度汇总
+1. policy_query(query_type="list") - 获取用户所有保单
+2. policy_query(query_type="withdrawal_limit") - 获取可取款额度汇总
 ```
 
 ### 2. 需求澄清

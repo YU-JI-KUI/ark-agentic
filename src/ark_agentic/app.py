@@ -73,6 +73,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(None, description="会话 ID，为空则创建新会话")
     stream: bool = Field(False, description="是否启用 SSE 流式输出")
     model: str | None = Field(None, description="模型名称覆盖，为空则使用默认模型")
+    temperature: float | None = Field(None, ge=0.0, le=2.0, description="采样温度覆盖（0.0-2.0），为空则使用环境变量 DEFAULT_TEMPERATURE 的值")
     # 业务上下文字段
     user_id: str | None = Field(None, description="用户 ID")
     context: dict[str, Any] | None = Field(None, description="业务上下文数据")
@@ -228,6 +229,7 @@ async def chat(
             user_input=request.message,
             context=context,
             model_override=request.model,
+            temperature_override=request.temperature,
         )
         tool_calls = []
         if result.tool_calls:
@@ -298,6 +300,7 @@ async def chat(
                 context=context,
                 stream_override=True,
                 model_override=request.model,
+                temperature_override=request.temperature,
             )
             tool_calls = []
             if result.tool_calls:

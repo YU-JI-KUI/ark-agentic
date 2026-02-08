@@ -1,19 +1,9 @@
-"""
-上下文压缩和摘要
-
-参考: openclaw-main/src/agents/compaction.ts
-
-实现功能:
-1. Token 估算（带安全边界）
-2. 自适应消息分块（根据平均消息大小调整）
-3. 多阶段摘要（分块摘要 + LLM 合并）
-4. 历史裁剪以适应上下文窗口
-5. 超大消息处理
-"""
+"""上下文压缩: Token 估算、自适应分块、LLM 摘要"""
 
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
@@ -48,14 +38,14 @@ class LLMClientProtocol(Protocol):
         self,
         messages: list[dict[str, str]],
         max_tokens: int = 500,
-        temperature: float = 0.7,
+        temperature: float = float(os.getenv("DEFAULT_TEMPERATURE", "0.7")),
     ) -> dict[str, Any]:
         """异步聊天接口
 
         Args:
             messages: 消息列表，每条消息包含 role 和 content
             max_tokens: 最大生成 token 数
-            temperature: 采样温度
+            temperature: 采样温度（默认使用环境变量 DEFAULT_TEMPERATURE）
 
         Returns:
             响应字典，应包含 choices 列表，每个 choice 包含 message.content
@@ -339,7 +329,7 @@ class LLMSummarizer:
             response = await self.llm_client.chat(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
-                temperature=0.3,  # 低温度保证稳定性
+                temperature=float(os.getenv("COMPACTION_TEMPERATURE", "0.3")),  # 低温度保证稳定性
             )
 
             # 解析响应

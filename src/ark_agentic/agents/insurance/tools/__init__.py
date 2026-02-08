@@ -14,7 +14,6 @@
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
-from .user_profile import UserProfileTool
 from .customer_info import CustomerInfoTool, IdentityVerificationTool
 
 __all__ = [
@@ -23,7 +22,6 @@ __all__ = [
     "get_data_service_client",
     "PolicyQueryTool",
     "RuleEngineTool",
-    "UserProfileTool",
     "CustomerInfoTool",
     "IdentityVerificationTool",
 ]
@@ -42,7 +40,6 @@ def create_insurance_tools(
     return [
         PolicyQueryTool(client=client),
         RuleEngineTool(),
-        UserProfileTool(),
         CustomerInfoTool(client=client),
         IdentityVerificationTool(),
     ]
@@ -56,5 +53,4 @@ def create_insurance_tools_minimal(
     return [
         PolicyQueryTool(client=client),
         RuleEngineTool(),
-        UserProfileTool(),
     ]

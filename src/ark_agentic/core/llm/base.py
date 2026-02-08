@@ -6,6 +6,7 @@ LLM Client 基础定义
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -107,7 +108,7 @@ class LLMConfig:
     trace_user_id: str = ""
 
     # 默认参数
-    temperature: float = 0.7
+    temperature: float = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
     max_tokens: int = 4096
     timeout: float = 60.0
 

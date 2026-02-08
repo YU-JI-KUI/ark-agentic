@@ -109,8 +109,8 @@ class MockLLMClient:
                                 "id": "call_001",
                                 "type": "function",
                                 "function": {
-                                    "name": "user_profile",
-                                    "arguments": '{"user_id": "U001"}',
+                                    "name": "policy_query",
+                                    "arguments": '{"user_id": "U001", "query_type": "list"}',
                                 },
                             },
                             {
@@ -377,7 +377,7 @@ def create_insurance_agent(
     # 5. 配置 Runner
     runner_config = RunnerConfig(
         model="deepseek-chat",
-        temperature=0.7,
+        temperature=float(os.getenv("DEFAULT_TEMPERATURE", "0.7")),
         max_tokens=4096,
         max_turns=10,
         enable_streaming=False,

@@ -1,20 +1,15 @@
-"""
-Agent Runner - 智能体执行器
-
-参考: openclaw-main/src/agents/pi-embedded-runner/run.ts
-
-核心执行循环，编排消息处理、工具调用和响应生成。
-"""
+"""Agent Runner - ReAct 执行器"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable
 
 from .llm.base import LLMClientProtocol
-from .llm.errors import LLMError, classify_error
+from .llm.errors import LLMError, LLMErrorReason, classify_error
 from .prompt.builder import SystemPromptBuilder, PromptConfig
 from .session import SessionManager
 from .skills.base import SkillConfig
@@ -44,7 +39,7 @@ class RunnerConfig:
 
     # LLM 参数
     model: str = "Qwen3-80B-Instruct"
-    temperature: float = 0.7
+    temperature: float = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
     max_tokens: int = 4096
 
     # 执行控制
@@ -160,6 +155,7 @@ class AgentRunner:
         *,
         stream_override: bool | None = None,
         model_override: str | None = None,
+        temperature_override: float | None = None,
     ) -> RunResult:
         """执行智能体
 
@@ -169,6 +165,7 @@ class AgentRunner:
             context: 额外上下文
             stream_override: 覆盖 config.enable_streaming（线程安全，不修改共享状态）
             model_override: 覆盖默认模型名称，传递给 LLM client
+            temperature_override: 覆盖默认采样温度（0.0-2.0），为空则使用配置值
 
         Returns:
             执行结果
@@ -199,6 +196,7 @@ class AgentRunner:
                 session_id, context,
                 use_streaming=use_streaming,
                 model_override=model_override,
+                temperature_override=temperature_override,
             )
         finally:
             # 无论成功或失败，同步待写入消息到持久化存储
@@ -259,6 +257,24 @@ class AgentRunner:
 
         return _flush_to_memory
 
+    def _get_user_friendly_error_message(self, error: LLMError) -> str:
+        if error.reason == LLMErrorReason.AUTH:
+            return "抱歉，模型认证失败，请检查 API 配置。如需帮助，请联系技术支持。"
+        elif error.reason == LLMErrorReason.RATE_LIMIT:
+            return "抱歉，当前请求较多，请稍后再试。"
+        elif error.reason == LLMErrorReason.TIMEOUT:
+            return "抱歉，请求超时，请检查网络连接后重试。"
+        elif error.reason == LLMErrorReason.CONTEXT_OVERFLOW:
+            return "抱歉，对话内容过长，系统将自动压缩历史消息后重试。如问题持续，请新建会话。"
+        elif error.reason == LLMErrorReason.CONTENT_FILTER:
+            return "抱歉，您的输入包含不适当内容，请修改后重试。"
+        elif error.reason == LLMErrorReason.SERVER_ERROR:
+            return "抱歉，服务暂时不可用，请稍后重试。"
+        elif error.reason == LLMErrorReason.NETWORK:
+            return "抱歉，网络连接出现问题，请检查网络后重试。"
+        else:
+            return "抱歉，处理您的请求时出现了问题，请稍后重试。"
+
     async def _run_loop(
         self,
         session_id: str,
@@ -266,14 +282,10 @@ class AgentRunner:
         *,
         use_streaming: bool = True,
         model_override: str | None = None,
+        temperature_override: float | None = None,
     ) -> RunResult:
-        """执行主循环（ReAct 模式）
-
-        ReAct 循环：
-        1. 调用 LLM 获取响应
-        2. 如果有工具调用，执行工具并将结果发回 LLM
-        3. 重复直到 LLM 返回最终响应（无工具调用）
-        """
+        """ReAct 循环: LLM → Tool → LLM → ... → Response"""
+        logger.info(f"[RUN] session={session_id[:8]} streaming={use_streaming}")
         turns = 0
         total_tool_calls = 0
         total_input_tokens = 0
@@ -296,14 +308,43 @@ class AgentRunner:
                 if self._on_content:
                     self._on_content(text, _idx)
 
-            if use_streaming:
-                response = await self._call_llm_streaming(
-                    messages, tools,
-                    model_override=model_override,
-                    content_callback=_scoped_content,
+            try:
+                if use_streaming:
+                    response = await self._call_llm_streaming(
+                        messages, tools,
+                        model_override=model_override,
+                        temperature_override=temperature_override,
+                        content_callback=_scoped_content,
+                    )
+                else:
+                    response = await self._call_llm(
+                        messages, tools,
+                        model_override=model_override,
+                        temperature_override=temperature_override,
+                    )
+            except LLMError as e:
+                logger.error(f"[LLM_ERROR] turn={turns} reason={e.reason.value} retryable={e.retryable}")
+                user_message = self._get_user_friendly_error_message(e)
+                
+                error_response = AgentMessage.assistant(content=user_message)
+                error_response.metadata["error"] = {
+                    "reason": e.reason.value,
+                    "message": str(e),
+                    "retryable": e.retryable,
+                }
+                
+                self.session_manager.add_message_sync(session_id, error_response)
+                logger.info(f"[RUN_END] session={session_id[:8]} error={e.reason.value}")
+                
+                return RunResult(
+                    response=error_response,
+                    turns=turns,
+                    tool_calls_count=total_tool_calls,
+                    tool_calls=all_tool_calls,
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
+                    stopped_by_limit=False,
                 )
-            else:
-                response = await self._call_llm(messages, tools, model_override=model_override)
 
             # 更新 token 统计
             usage = response.metadata.get("usage", {})
@@ -343,8 +384,9 @@ class AgentRunner:
                     stopped_by_limit=True,
                 )
 
-            # ---- 工具调用轮（中间轮） ----
+            # 工具调用轮
             if response.tool_calls:
+                logger.info(f"[TOOLS] turn={turns} count={len(response.tool_calls)} names={[tc.name for tc in response.tool_calls]}")
                 all_tool_calls.extend(response.tool_calls)
 
                 tool_results = await self._execute_tools(
@@ -357,10 +399,9 @@ class AgentRunner:
                 tool_message = AgentMessage.tool(tool_results)
                 self.session_manager.add_message_sync(session_id, tool_message)
 
-                # 检查是否所有工具都失败了
                 all_errors = all(tr.is_error for tr in tool_results)
                 if all_errors:
-                    logger.warning(f"All tool calls failed in turn {turns}")
+                    logger.warning(f"[TOOLS_FAIL] turn={turns} all_failed=True")
 
                 # 递增 output_index，进入下一轮
                 output_index += 1
@@ -369,7 +410,8 @@ class AgentRunner:
 
                 continue
 
-            # ---- 最终轮：无 tool_calls —— 内容已通过 on_content 实时流式输出 ----
+            # 最终轮：无工具调用
+            logger.info(f"[RUN_END] session={session_id[:8]} turns={turns} tool_calls={total_tool_calls} tokens={total_input_tokens}/{total_output_tokens}")
             # 输出验证
             if self.config.enable_output_validation and all_tool_results and response.content:
                 validation = validate_response_against_tools(
@@ -399,8 +441,7 @@ class AgentRunner:
                 output_tokens=total_output_tokens,
             )
 
-        # 达到最大轮数
-        logger.warning(f"Reached max turns ({self.config.max_turns}) for session {session_id}")
+        logger.warning(f"[RUN_LIMIT] session={session_id[:8]} max_turns={self.config.max_turns}")
         session = self.session_manager.get_session_required(session_id)
         last_assistant = next(
             (m for m in reversed(session.messages) if m.role == MessageRole.ASSISTANT),
@@ -522,10 +563,10 @@ class AgentRunner:
         tools: list[dict[str, Any]],
         *,
         model_override: str | None = None,
+        temperature_override: float | None = None,
     ) -> AgentMessage:
-        """非流式调用 LLM"""
         llm_kwargs: dict[str, Any] = {
-            "temperature": self.config.temperature,
+            "temperature": temperature_override if temperature_override is not None else self.config.temperature,
             "max_tokens": self.config.max_tokens,
         }
         if model_override:
@@ -538,10 +579,13 @@ class AgentRunner:
                 stream=False,
                 **llm_kwargs,
             )
-        except LLMError:
+        except LLMError as e:
+            logger.error(f"[LLM] {e}")
             raise
         except Exception as exc:
-            raise classify_error(exc, model=model_override or self.config.model) from exc
+            error = classify_error(exc, model=model_override or self.config.model)
+            logger.error(f"[LLM] {error}")
+            raise error from exc
 
         return self._parse_llm_response(response)
 
@@ -551,13 +595,9 @@ class AgentRunner:
         tools: list[dict[str, Any]],
         *,
         model_override: str | None = None,
+        temperature_override: float | None = None,
         content_callback: Callable[[str], None] | None = None,
     ) -> AgentMessage:
-        """流式调用 LLM
-
-        content_callback 由 _run_loop 传入，已绑定当前轮的 output_index。
-        所有 LLM 内容实时转发给前端（打字机效果）。
-        """
         model = model_override or self.config.model
         logger.info(f"LLM stream start | model={model}")
 
@@ -567,7 +607,7 @@ class AgentRunner:
         )
 
         llm_kwargs: dict[str, Any] = {
-            "temperature": self.config.temperature,
+            "temperature": temperature_override if temperature_override is not None else self.config.temperature,
             "max_tokens": self.config.max_tokens,
         }
         if model_override:
@@ -580,21 +620,25 @@ class AgentRunner:
                 stream=True,
                 **llm_kwargs,
             )
-        except LLMError:
+        except LLMError as e:
+            logger.error(f"[LLM_STREAM] {e}")
             raise
         except Exception as exc:
-            raise classify_error(exc, model=model) from exc
+            error = classify_error(exc, model=model)
+            logger.error(f"[LLM_STREAM] {error}")
+            raise error from exc
 
-        # 处理流
-        async for chunk in stream:
-            event = self._parse_stream_chunk(chunk)
-            if event:
-                assembler.process_event(event)
+        try:
+            async for chunk in stream:
+                event = self._parse_stream_chunk(chunk)
+                if event:
+                    assembler.process_event(event)
+        except Exception as exc:
+            error = classify_error(exc, model=model)
+            logger.error(f"[LLM_STREAM_PARSE] {error}")
+            raise error from exc
 
-        logger.info(
-            f"LLM stream done | content_len={len(assembler.state.content)} "
-            f"tool_calls={len(assembler.state.tool_calls)}"
-        )
+        logger.debug(f"[LLM_STREAM_DONE] content={len(assembler.state.content)}B tools={len(assembler.state.tool_calls)}")
         return assembler.build_message()
 
     def _parse_llm_response(self, response: dict[str, Any]) -> AgentMessage:
@@ -674,12 +718,10 @@ class AgentRunner:
         tool_calls: list[ToolCall],
         context: dict[str, Any],
     ) -> list[AgentToolResult]:
-        """执行工具调用（支持并行执行、超时保护）"""
         timeout = self.config.tool_timeout
 
         async def execute_single(tc: ToolCall) -> AgentToolResult:
-            """执行单个工具（带超时保护）"""
-            logger.info(f"Tool {tc.name} | args={tc.arguments}")
+            logger.debug(f"[TOOL_START] {tc.name} args={tc.arguments}")
             if self._on_step:
                 status = self._TOOL_STATUS.get(tc.name, f"正在处理 {tc.name}…")
                 self._on_step(status)
@@ -701,19 +743,19 @@ class AgentRunner:
                         tc.id, f"Tool '{tc.name}' timed out after {timeout}s"
                     )
                 except Exception as e:
-                    logger.error(f"Tool execution error: {tc.name} - {e}")
+                    logger.error(f"[TOOL_ERROR] {tc.name}: {e}")
                     result = AgentToolResult.error_result(tc.id, str(e))
 
-            logger.info(f"Tool {tc.name} | error={result.is_error} result_len={len(result.content or '')}")
+            logger.debug(f"[TOOL_DONE] {tc.name} error={result.is_error} size={len(str(result.content))}B")
             if result.is_error and self._on_step:
                 self._on_step("工具调用遇到问题，正在尝试其他方式…")
 
             return result
 
-        # 限制工具调用数量
         limited_calls = tool_calls[: self.config.max_tool_calls_per_turn]
+        if len(tool_calls) > len(limited_calls):
+            logger.warning(f"[TOOLS_LIMIT] requested={len(tool_calls)} limited={len(limited_calls)}")
 
-        # 并行执行所有工具
         results = await asyncio.gather(
             *[execute_single(tc) for tc in limited_calls],
             return_exceptions=False,
