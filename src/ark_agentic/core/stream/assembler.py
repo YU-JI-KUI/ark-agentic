@@ -156,11 +156,14 @@ class StreamAssembler:
         """处理工具调用开始"""
         tool_data = event.data or {}
         self._state.current_tool_index = len(self._state.tool_calls)
-        self._state.current_tool_input = ""
+        # 某些 LLM 提供商会在首个 chunk 中同时发送 name 和 arguments，
+        # 此处将其作为初始参数保留，避免丢失。
+        initial_args = tool_data.get("arguments", "")
+        self._state.current_tool_input = initial_args
         self._state.tool_calls.append({
             "id": tool_data.get("id", ""),
             "name": tool_data.get("name", ""),
-            "input": "",
+            "input": initial_args,
         })
 
     def _handle_tool_delta(self, event: StreamEvent) -> None:
@@ -365,11 +368,15 @@ def parse_openai_sse(data: dict[str, Any]) -> StreamEvent | None:
             if "function" in tc:
                 func = tc["function"]
                 if "name" in func:
-                    # 工具开始
+                    # 工具开始（携带同 chunk 内的初始 arguments，防止丢失）
                     return StreamEvent(
                         type=StreamEventType.TOOL_USE_START,
                         index=index,
-                        data={"id": tc.get("id", ""), "name": func["name"]},
+                        data={
+                            "id": tc.get("id", ""),
+                            "name": func["name"],
+                            "arguments": func.get("arguments", ""),
+                        },
                     )
                 elif "arguments" in func:
                     # 参数增量

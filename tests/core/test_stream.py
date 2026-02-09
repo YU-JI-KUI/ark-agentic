@@ -1,4 +1,4 @@
-﻿"""Tests for stream assembler."""
+"""Tests for stream assembler."""
 
 import pytest
 from ark_agentic.core.stream.assembler import (
@@ -314,3 +314,60 @@ class TestParseOpenAISSE:
         """Test empty choices."""
         event = parse_openai_sse({"choices": []})
         assert event is None
+
+    def test_tool_start_with_arguments_in_same_chunk(self) -> None:
+        """Test that name + arguments in the same chunk are both preserved.
+
+        Some LLM providers send the function name and initial arguments
+        in a single SSE chunk. Previously the elif branch dropped the
+        arguments; now they are carried in the TOOL_USE_START data.
+        """
+        event = parse_openai_sse({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "tc_combined",
+                        "function": {
+                            "name": "combined_tool",
+                            "arguments": '{"x":1}',
+                        },
+                    }]
+                },
+                "finish_reason": None,
+            }]
+        })
+        assert event is not None
+        assert event.type == StreamEventType.TOOL_USE_START
+        assert event.data["name"] == "combined_tool"
+        assert event.data["id"] == "tc_combined"
+        # Arguments should be carried alongside the start event
+        assert event.data["arguments"] == '{"x":1}'
+
+
+class TestToolStartWithArguments:
+    """End-to-end: StreamAssembler handles TOOL_USE_START with initial args."""
+
+    def test_assembler_preserves_initial_arguments(self) -> None:
+        """When TOOL_USE_START carries arguments, they appear in the final message."""
+        assembler = StreamAssembler()
+
+        # Simulate a provider that sends name + args in one chunk
+        assembler.process_event(StreamEvent(
+            type=StreamEventType.TOOL_USE_START,
+            data={"id": "tc1", "name": "tool1", "arguments": '{"x":'},
+        ))
+        # Followed by more argument fragments
+        assembler.process_event(StreamEvent(
+            type=StreamEventType.TOOL_USE_DELTA,
+            data='1}',
+        ))
+        assembler.process_event(StreamEvent(
+            type=StreamEventType.TOOL_USE_END,
+        ))
+
+        message = assembler.build_message()
+        assert message.tool_calls is not None
+        assert len(message.tool_calls) == 1
+        assert message.tool_calls[0].name == "tool1"
+        assert message.tool_calls[0].arguments == {"x": 1}

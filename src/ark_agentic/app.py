@@ -283,8 +283,6 @@ async def chat(
         ))
 
     async def run_agent() -> None:
-        agent.set_callbacks(on_step=on_step, on_content=on_content)
-
         # response.created
         queue.put_nowait(SSEEvent(
             type="response.created",
@@ -301,6 +299,8 @@ async def chat(
                 stream_override=True,
                 model_override=request.model,
                 temperature_override=request.temperature,
+                on_step=on_step,
+                on_content=on_content,
             )
             tool_calls = []
             if result.tool_calls:

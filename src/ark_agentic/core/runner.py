@@ -126,10 +126,7 @@ class AgentRunner:
             SkillMatcher(skill_loader) if skill_loader else None
         )
 
-        # 流式组装器
-        self._stream_assembler: StreamAssembler | None = None
-
-        # Callbacks — 2 only
+        # Callbacks — legacy: prefer passing on_step/on_content to run() directly
         self._on_step: Callable[[str], None] | None = None
         self._on_content: Callable[[str, int], None] | None = None
 
@@ -138,12 +135,24 @@ class AgentRunner:
         on_step: Callable[[str], None] | None = None,
         on_content: Callable[[str, int], None] | None = None,
     ) -> None:
-        """设置回调函数
+        """设置回调函数（已废弃，不适用于并发场景）
+
+        .. deprecated::
+            set_callbacks() 将共享的实例状态作为回调存储，在多个并发请求共享同一
+            AgentRunner 实例时会导致竞态条件。请改为将 on_step / on_content 直接
+            传递给 run() 方法。
 
         Args:
             on_step: 生命周期步骤回调 (str) → response.step
             on_content: LLM 文本增量回调 (delta, output_index) → response.content.delta
         """
+        import warnings
+        warnings.warn(
+            "set_callbacks() is not safe for concurrent use. "
+            "Pass on_step/on_content to run() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._on_step = on_step
         self._on_content = on_content
 
@@ -156,6 +165,8 @@ class AgentRunner:
         stream_override: bool | None = None,
         model_override: str | None = None,
         temperature_override: float | None = None,
+        on_step: Callable[[str], None] | None = None,
+        on_content: Callable[[str, int], None] | None = None,
     ) -> RunResult:
         """执行智能体
 
@@ -166,11 +177,17 @@ class AgentRunner:
             stream_override: 覆盖 config.enable_streaming（线程安全，不修改共享状态）
             model_override: 覆盖默认模型名称，传递给 LLM client
             temperature_override: 覆盖默认采样温度（0.0-2.0），为空则使用配置值
+            on_step: 生命周期步骤回调 (str) → response.step（per-request，并发安全）
+            on_content: LLM 文本增量回调 (delta, output_index) → response.content.delta（per-request，并发安全）
 
         Returns:
             执行结果
         """
         context = context or {}
+
+        # 解析有效回调：run() 参数优先，回退到 set_callbacks() 设置的实例属性
+        effective_on_step = on_step if on_step is not None else self._on_step
+        effective_on_content = on_content if on_content is not None else self._on_content
 
         # 惰性初始化 Memory（首次 run 时触发）
         if self._memory_manager and not self._memory_manager._initialized:
@@ -197,6 +214,8 @@ class AgentRunner:
                 use_streaming=use_streaming,
                 model_override=model_override,
                 temperature_override=temperature_override,
+                on_step=effective_on_step,
+                on_content=effective_on_content,
             )
         finally:
             # 无论成功或失败，同步待写入消息到持久化存储
@@ -283,6 +302,8 @@ class AgentRunner:
         use_streaming: bool = True,
         model_override: str | None = None,
         temperature_override: float | None = None,
+        on_step: Callable[[str], None] | None = None,
+        on_content: Callable[[str, int], None] | None = None,
     ) -> RunResult:
         """ReAct 循环: LLM → Tool → LLM → ... → Response"""
         logger.info(f"[RUN] session={session_id[:8]} streaming={use_streaming}")
@@ -305,8 +326,8 @@ class AgentRunner:
             # 绑定当前 output_index 的 content 回调（闭包捕获当前值）
             _current_idx = output_index
             def _scoped_content(text: str, _idx: int = _current_idx) -> None:
-                if self._on_content:
-                    self._on_content(text, _idx)
+                if on_content:
+                    on_content(text, _idx)
 
             try:
                 if use_streaming:
@@ -315,6 +336,7 @@ class AgentRunner:
                         model_override=model_override,
                         temperature_override=temperature_override,
                         content_callback=_scoped_content,
+                        on_step=on_step,
                     )
                 else:
                     response = await self._call_llm(
@@ -390,7 +412,7 @@ class AgentRunner:
                 all_tool_calls.extend(response.tool_calls)
 
                 tool_results = await self._execute_tools(
-                    response.tool_calls, context
+                    response.tool_calls, context, on_step=on_step,
                 )
                 total_tool_calls += len(response.tool_calls)
                 all_tool_results.extend(tool_results)
@@ -405,8 +427,8 @@ class AgentRunner:
 
                 # 递增 output_index，进入下一轮
                 output_index += 1
-                if self._on_step:
-                    self._on_step("信息收集完毕，正在为您总结…")
+                if on_step:
+                    on_step("信息收集完毕，正在为您总结…")
 
                 continue
 
@@ -597,13 +619,14 @@ class AgentRunner:
         model_override: str | None = None,
         temperature_override: float | None = None,
         content_callback: Callable[[str], None] | None = None,
+        on_step: Callable[[str], None] | None = None,
     ) -> AgentMessage:
         model = model_override or self.config.model
         logger.info(f"LLM stream start | model={model}")
 
         assembler = StreamAssembler(
             on_content=content_callback,
-            on_thinking=self._on_step,
+            on_thinking=on_step,
         )
 
         llm_kwargs: dict[str, Any] = {
@@ -717,14 +740,15 @@ class AgentRunner:
         self,
         tool_calls: list[ToolCall],
         context: dict[str, Any],
+        on_step: Callable[[str], None] | None = None,
     ) -> list[AgentToolResult]:
         timeout = self.config.tool_timeout
 
         async def execute_single(tc: ToolCall) -> AgentToolResult:
             logger.debug(f"[TOOL_START] {tc.name} args={tc.arguments}")
-            if self._on_step:
+            if on_step:
                 status = self._TOOL_STATUS.get(tc.name, f"正在处理 {tc.name}…")
-                self._on_step(status)
+                on_step(status)
 
             tool = self.tool_registry.get(tc.name)
             if tool is None:
@@ -747,8 +771,8 @@ class AgentRunner:
                     result = AgentToolResult.error_result(tc.id, str(e))
 
             logger.debug(f"[TOOL_DONE] {tc.name} error={result.is_error} size={len(str(result.content))}B")
-            if result.is_error and self._on_step:
-                self._on_step("工具调用遇到问题，正在尝试其他方式…")
+            if result.is_error and on_step:
+                on_step("工具调用遇到问题，正在尝试其他方式…")
 
             return result
 
