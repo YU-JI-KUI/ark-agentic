@@ -39,7 +39,7 @@ def create_insurance_tools(
     client = data_client or get_data_service_client()
     return [
         PolicyQueryTool(client=client),
-        RuleEngineTool(),
+        RuleEngineTool(client=client),
         CustomerInfoTool(client=client),
         IdentityVerificationTool(),
     ]
@@ -52,5 +52,5 @@ def create_insurance_tools_minimal(
     client = data_client or get_data_service_client()
     return [
         PolicyQueryTool(client=client),
-        RuleEngineTool(),
+        RuleEngineTool(client=client),
     ]
