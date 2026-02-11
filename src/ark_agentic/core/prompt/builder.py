@@ -314,13 +314,20 @@ rule_engine(
 )
 ```
 
-规则引擎返回按优先级排序的可选项列表（`options`）和一个 `combination_hint` 字段。每个可选项代表一张保单的一个可用取款渠道（如生存金、红利、贷款等），由你从中组装最终推荐方案。
+规则引擎返回 `options` 列表和一个 `combination_hint` 字段。每条记录是一张保单的标准化信息，包含四个可用金额：
+- `survival_fund_amt` — 生存金（零成本，不影响保障）
+- `bonus_amt` — 红利（零成本，不影响保障）
+- `refund_amt` — 部分领取/退保金额（含义取决于 `product_type`：whole_life=退保，其他=部分领取）
+- `loan_amt` — 可贷款额度（年利率见 `loan_interest_rate`）
+- `refund_fee_rate` — 部分领取的手续费率（退保无手续费）
+- `available_amount` — 四项合计
+
+你需要根据用户的金额需求，从这些保单中选择合适的渠道和金额，组装成 2-3 个方案并推荐一个（标 ⭐）。每个渠道的取用金额不得超过该渠道的可用额度。
 
 **关键判断**：
-- `combination_hint` 为 null → 有单个可选项能满足金额，用排名第一的可选项作为推荐方案（标 ⭐）
-- `combination_hint` 不为 null → 需要组合多个可选项，组合方案整体作为推荐（标 ⭐）
-- **不要同时推荐单方案又推荐组合方案，只给一个推荐。**
-- 每个可选项的取用金额不得超过其 `available_amount`（硬上限）。
+- `combination_hint` 为 null → 有单张保单的总额能满足需求
+- `combination_hint` 不为 null → 需要跨保单组合，或总额不足
+- **只给一个推荐方案（⭐），其余为备选。**
 
 **优先级原则**（组合时从高到低选取）：
 1. 生存金/满期金 + 红利领取 → 零成本，不影响保障，优先选用
@@ -345,7 +352,7 @@ rule_engine(
 
 **根据 `combination_hint` 是否为 null 选择对应格式：**
 
-### 单个可选项足够（combination_hint 为 null）
+### 单张保单足够（combination_hint 为 null）
 ```markdown
 ### 方案一：[方案名称] ⭐ 推荐
 - 📋 **关联保单**：[保单名称]（[保单号]）
@@ -361,7 +368,7 @@ rule_engine(
 请问您倾向于哪个方案？确认后我可以帮您一键办理。
 ```
 
-### 需要组合多个可选项（combination_hint 不为 null）
+### 需要跨保单组合（combination_hint 不为 null）
 ```markdown
 由于单个渠道无法满足 [X] 元的需求，为您推荐以下组合方案 ⭐
 

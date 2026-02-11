@@ -271,7 +271,7 @@ class MockDataServiceClient:
         if qt == "list":
             return {
                 "user_id": user_id,
-                "policies": [
+                "policyAssertList": [
                     {
                         "policy_id": "POL001",
                         "product_name": "平安福终身寿险",

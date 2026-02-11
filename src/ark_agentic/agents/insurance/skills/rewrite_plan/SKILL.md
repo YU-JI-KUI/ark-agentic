@@ -1,7 +1,7 @@
 ---
 name: 方案改写
 description: 根据用户反馈调整已推荐的取款方案，支持调总额、改方向、调单保单等多种场景
-version: "3.2.0"
+version: "4.0.0"
 invocation_policy: auto
 group: insurance
 tags:
@@ -34,6 +34,20 @@ required_tools:
 - 用户初次表达取款意图 → 由 clarify_need / withdraw_money 处理
 - 用户确认方案、同意办理 → 由 withdraw_money 的确认流程处理
 
+## 关于规则引擎返回数据
+
+规则引擎 `list_options` 返回每张保单一条记录，包含四个金额字段：
+
+| 字段 | 含义 | 特点 |
+|-----|------|------|
+| `survival_fund_amt` | 生存金 | 零成本，不影响保障 |
+| `bonus_amt` | 红利 | 零成本，不影响保障 |
+| `refund_amt` | 部分领取/退保金额 | `product_type=whole_life` 时为退保，其他为部分领取 |
+| `loan_amt` | 保单贷款额度 | 年利率见 `loan_interest_rate` |
+| `available_amount` | 四项合计 | 该保单总可用金额 |
+
+同一张保单的多个渠道可同时使用，但每个渠道取用金额不得超过该渠道的数值。
+
 ## 第一步：判断调整类型
 
 用户的修改请求分为三类，**必须先判断属于哪一类**，再选择对应的处理方式：
@@ -47,17 +61,17 @@ required_tools:
 - "5万太多了，3万就够了"
 - "能不能凑到10万"
 
-**处理方式**：重新调用 `list_options`，用新金额获取最新可选项数据。
+**处理方式**：重新调用 `list_options`，用新金额获取最新保单数据。
 
 ```
 rule_engine(action="list_options", user_id=用户ID, amount=新总金额)
 ```
 
-然后基于新的可选项数据，按 withdraw_money 技能的组装逻辑重新构建推荐方案。
+然后基于新的保单数据，按 withdraw_money 技能的组装逻辑重新构建推荐方案。
 
 **金额不足处理**：如果 `total_available_incl_loan` < 新金额，给出最大可取方案并告知用户。
 
-### 类型 B：改变方案方向 / 排除某类可选项
+### 类型 B：改变方案方向 / 排除某类渠道
 
 用户不改金额，但对渠道类型有偏好或排除条件。
 
@@ -68,45 +82,50 @@ rule_engine(action="list_options", user_id=用户ID, amount=新总金额)
 - "有没有不收手续费的方案"
 - "我不想动那个终身寿险"
 
-**处理方式**：重新调用 `list_options` 获取完整可选项数据，然后根据用户的约束条件**过滤**。
+**处理方式**：重新调用 `list_options` 获取完整保单数据，然后根据用户约束条件**过滤渠道**。
 
 ```
 rule_engine(action="list_options", user_id=用户ID, amount=原金额)
 ```
 
-拿到结果后：
-- 排除用户不想要的可选项类型（如排除 option_type="policy_loan" 或 option_type="surrender"）
-- 基于剩余可选项按优先级组装方案，每个可选项取用金额 ≤ 其 `available_amount`
-- 如果过滤后剩余可选项的总额无法满足金额，明确告知并给出替代建议
+拿到结果后，根据用户约束在组装方案时排除特定渠道：
+- "不要贷款" → 组装方案时不使用任何保单的 `loan_amt`
+- "不要退保" → 不使用 `product_type=whole_life` 的保单的 `refund_amt`
+- "不影响保障" → 只使用 `survival_fund_amt` 和 `bonus_amt`
+- "不想动某保单" → 从候选列表中排除该保单
 
-### 类型 C：调整某张保单 / 某个可选项的具体金额
+如果过滤后剩余渠道的总额无法满足金额，明确告知并给出替代建议。
 
-用户针对已推荐方案中的某一个可选项做微调。
+### 类型 C：调整某张保单 / 某个渠道的具体金额
+
+用户针对已推荐方案中的某一项做微调。
 
 典型表述：
 - "POL002 少取一点，取3万就行"
 - "保单贷款能不能只贷2万"
 - "红利那个能全取吗"
 
-**处理方式**：用 `calculate_detail` 对目标保单做精确计算。
+**处理方式**：用 `calculate_detail` 对目标保单的指定渠道做精确计算。
 
 ```
 rule_engine(
   action="calculate_detail",
   policy={...从上文 list_options 结果中获取该保单数据...},
-  option_type="对应可选项类型",
+  option_type="对应渠道类型",
   amount=新金额
 )
 ```
 
-**金额约束**：新金额不得超过该可选项的 `available_amount`。如果用户要求的金额超过上限，`calculate_detail` 会自动按最大额度计算并返回 warning 字段，应向用户说明。
+`option_type` 取值：`survival_fund`, `bonus`, `partial_withdrawal`, `surrender`, `policy_loan`
+
+**金额约束**：新金额不得超过该渠道的可用额度（如 `loan_amt` 是贷款上限）。如果用户要求的金额超过上限，`calculate_detail` 会自动按最大额度计算并返回 warning 字段，应向用户说明。
 
 ### 混合场景
 
 用户可能同时提出多个条件，如 "多取一点但不要贷款"。处理方式：
 1. 先用类型 A 的方式重新 `list_options`（新金额）
-2. 再按类型 B 过滤掉不需要的可选项
-3. 基于过滤后的可选项数据组装方案
+2. 再按类型 B 在组装方案时过滤掉不需要的渠道
+3. 基于过滤后的保单数据组装方案
 
 ## 第二步：生成调整方案
 
@@ -117,7 +136,7 @@ rule_engine(
 4. **与原方案对比**：费用差异、金额差异等
 5. **建议与风险提示**
 
-如果修改不可行（如过滤后可选项总额不足，或金额超出所有可选项上限），清楚说明原因并提供替代建议。
+如果修改不可行（如过滤后渠道总额不足，或金额超出上限），清楚说明原因并提供替代建议。
 
 **核心原则：改写后的方案呈现同样遵循"只有一个 ⭐ 推荐"的原则。** 无论是重新排列还是过滤后的结果，只有排名第一的方案标 ⭐ 推荐，其余为备选。
 
@@ -148,13 +167,15 @@ rule_engine(
 | 用户说 | 调整类型 | 用哪个 action |
 |-------|---------|--------------|
 | "多取一点" / "总共要X万" | A 调总额 | `list_options`（新amount） |
-| "不要贷款" / "不退保" | B 改方向 | `list_options` + 过滤 |
-| "只用不影响保障的" | B 改方向 | `list_options` + 过滤 |
+| "不要贷款" | B 改方向 | `list_options` + 组装时不使用 loan_amt |
+| "不退保" | B 改方向 | `list_options` + 组装时不使用 whole_life 的 refund_amt |
+| "只用不影响保障的" | B 改方向 | `list_options` + 只用 survival_fund_amt 和 bonus_amt |
+| "不想动某保单" | B 改方向 | `list_options` + 排除该保单 |
 | "POL002 少取点" | C 调单项 | `calculate_detail` |
-| "贷款只贷2万" | C 调单项 | `calculate_detail` |
-| "多取一点但不要贷款" | A+B 混合 | `list_options`（新amount）+ 过滤 |
+| "贷款只贷2万" | C 调单项 | `calculate_detail`（option_type=policy_loan） |
+| "多取一点但不要贷款" | A+B 混合 | `list_options`（新amount）+ 组装时排除贷款 |
 | "换个方案" | B 改方向 | `list_options` |
-| "利息太高了" | B 改方向 | `list_options` + 排除贷款 |
+| "利息太高了" | B 改方向 | `list_options` + 排除贷款渠道 |
 
 ## 输出格式
 
@@ -167,10 +188,10 @@ rule_engine(
 
 #### ⭐ 推荐：[方案名称]
 - 📋 **关联保单**：[product_name]（[policy_id]）
-- 💰 **取款金额**：[≤available_amount] 元
+- 💰 **取款金额**：[X] 元（[渠道名]）
 - 💵 **费用**：[根据实际计算]
 - ⏱️ **到账时间**：1-3个工作日
-- 🛡️ **对保障影响**：[coverage_impact]
+- 🛡️ **对保障影响**：[说明]
 
 #### 备选一：[方案名称]
 - ...
@@ -180,19 +201,18 @@ rule_engine(
 请问这个方案可以吗？确认后我可以帮您一键办理。
 ```
 
-### 类型 C（调整单个可选项）
+### 类型 C（调整单个渠道金额）
 
 ```markdown
 ### 调整后的方案
 
-根据您的要求，我重新计算了 [product_name] 的方案：
+根据您的要求，我重新计算了 [product_name] 的 [渠道名]：
 
-**[option_name]**
 - 📋 **关联保单**：[product_name]（[policy_id]）
-- 💰 **金额**：[≤available_amount] 元（原方案：[原金额] 元）
+- 💰 **金额**：[X] 元（原方案：[原金额] 元）
 - 💵 **费用**：[根据实际计算]（原方案：[原费用]）
 - ⏱️ **到账时间**：1-3个工作日
-- 🛡️ **对保障影响**：[coverage_impact]
+- 🛡️ **对保障影响**：[说明]
 
 确认后我可以帮您一键办理。如果还需要调整，请随时告诉我。
 ```
@@ -225,7 +245,8 @@ rule_engine(
 3. 每个方案必须标注关联保单的名称和保单号
 4. 不可行时主动提供替代建议，说明原因
 5. 方案展示后必须引导用户确认，不要直接结束对话
-6. 退保可选项的调整需要额外风险提示
+6. 退保相关调整需要额外风险提示
 7. **只有一个 ⭐ 推荐**：改写后的结果也只标一个推荐，其余为备选
 8. **不要做需求澄清**：本技能处理的是已有方案的修改，不是初始需求收集
-9. **金额硬约束**：任何可选项的取用金额绝不能超过其 `available_amount`
+9. **金额硬约束**：每个渠道的取用金额不得超过该渠道的数值（survival_fund_amt / bonus_amt / loan_amt / refund_amt）
+10. **product_type 决定 refund_amt 含义**：`whole_life` = 退保（保障终止），其他 = 部分领取
