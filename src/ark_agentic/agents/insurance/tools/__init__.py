@@ -6,15 +6,13 @@
 工具列表：
 - PolicyQueryTool: 保单查询（列表、详情、现金价值、可取款额度）
 - RuleEngineTool: 规则引擎（计算取款方案、比较方案）
-- UserProfileTool: 用户画像（基本信息、风险偏好、行为特征）
 - CustomerInfoTool: 客户信息（身份、联系方式、受益人、交易历史）
-- IdentityVerificationTool: 身份验证（短信、人脸、密码）
 """
 
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
-from .customer_info import CustomerInfoTool, IdentityVerificationTool
+from .customer_info import CustomerInfoTool
 
 __all__ = [
     "DataServiceClient",
@@ -23,7 +21,6 @@ __all__ = [
     "PolicyQueryTool",
     "RuleEngineTool",
     "CustomerInfoTool",
-    "IdentityVerificationTool",
 ]
 
 
@@ -41,7 +38,6 @@ def create_insurance_tools(
         PolicyQueryTool(client=client),
         RuleEngineTool(client=client),
         CustomerInfoTool(client=client),
-        IdentityVerificationTool(),
     ]
 
 

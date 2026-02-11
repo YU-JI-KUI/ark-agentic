@@ -90,7 +90,7 @@ class LLMConfig:
     """LLM 配置"""
 
     # 提供商
-    provider: Literal["deepseek", "openai", "internal", "simple"] = "deepseek"
+    provider: Literal["deepseek", "pa", "mock"] = "deepseek"
 
     # API 配置
     api_key: str = ""
@@ -98,14 +98,6 @@ class LLMConfig:
 
     # 模型
     model: str = "deepseek-chat"
-
-    # 内部 API 专用
-    authorization: str = ""
-    trace_appid: str = ""
-
-    # Unified Internal API 专用
-    trace_source: str = ""
-    trace_user_id: str = ""
 
     # 默认参数
     temperature: float = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
@@ -136,8 +128,8 @@ class LLMUsage:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> LLMUsage:
         return cls(
-            prompt_tokens=data.get("prompt_tokens", 0) or data.get("input_tokens", 0),
-            completion_tokens=data.get("completion_tokens", 0) or data.get("output_tokens", 0),
+            prompt_tokens=data.get("prompt_tokens", 0),
+            completion_tokens=data.get("completion_tokens", 0),
             total_tokens=data.get("total_tokens", 0),
         )
 

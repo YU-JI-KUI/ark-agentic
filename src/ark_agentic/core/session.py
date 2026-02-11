@@ -171,8 +171,8 @@ class SessionManager:
 
         # 恢复 token 统计
         if store_entry:
-            session.token_usage.input_tokens = store_entry.input_tokens
-            session.token_usage.output_tokens = store_entry.output_tokens
+            session.token_usage.prompt_tokens = store_entry.prompt_tokens
+            session.token_usage.completion_tokens = store_entry.completion_tokens
 
         self._sessions[session_id] = session
         logger.info(f"Loaded session from disk: {session_id}")
@@ -215,8 +215,8 @@ class SessionManager:
             ),
             model=session.model,
             provider=session.provider,
-            input_tokens=session.token_usage.input_tokens,
-            output_tokens=session.token_usage.output_tokens,
+            prompt_tokens=session.token_usage.prompt_tokens,
+            completion_tokens=session.token_usage.completion_tokens,
             total_tokens=session.token_usage.total_tokens,
             compaction_count=session.compaction_stats.compacted_messages,
             active_skills=session.active_skills,
@@ -307,14 +307,13 @@ class SessionManager:
     def update_token_usage(
         self,
         session_id: str,
-        input_tokens: int = 0,
-        output_tokens: int = 0,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
         cache_read: int = 0,
         cache_creation: int = 0,
     ) -> None:
-        """更新 token 使用统计"""
         session = self.get_session_required(session_id)
-        session.update_token_usage(input_tokens, output_tokens, cache_read, cache_creation)
+        session.update_token_usage(prompt_tokens, completion_tokens, cache_read, cache_creation)
 
     def get_token_usage(self, session_id: str) -> TokenUsage:
         """获取 token 使用统计"""
@@ -437,8 +436,8 @@ class SessionManager:
             "message_count": len(session.messages),
             "estimated_tokens": self.estimate_current_tokens(session_id),
             "token_usage": {
-                "input": session.token_usage.input_tokens,
-                "output": session.token_usage.output_tokens,
+                "input": session.token_usage.prompt_tokens,
+                "output": session.token_usage.completion_tokens,
                 "total": session.token_usage.total_tokens,
             },
             "compaction": {

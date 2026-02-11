@@ -566,8 +566,8 @@ class SessionStoreEntry:
     session_file: str | None = None
     model: str = "Qwen3-80B-Instruct"
     provider: str = "ark"
-    input_tokens: int = 0
-    output_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     total_tokens: int = 0
     compaction_count: int = 0
     active_skills: list[str] = field(default_factory=list)
@@ -580,8 +580,8 @@ class SessionStoreEntry:
             "sessionFile": self.session_file,
             "model": self.model,
             "provider": self.provider,
-            "inputTokens": self.input_tokens,
-            "outputTokens": self.output_tokens,
+            "inputTokens": self.prompt_tokens,
+            "outputTokens": self.completion_tokens,
             "totalTokens": self.total_tokens,
             "compactionCount": self.compaction_count,
             "activeSkills": self.active_skills,
@@ -596,8 +596,8 @@ class SessionStoreEntry:
             session_file=data.get("sessionFile"),
             model=data.get("model", "Qwen3-80B-Instruct"),
             provider=data.get("provider", "ark"),
-            input_tokens=data.get("inputTokens", 0),
-            output_tokens=data.get("outputTokens", 0),
+            prompt_tokens=data.get("inputTokens", 0),
+            completion_tokens=data.get("outputTokens", 0),
             total_tokens=data.get("totalTokens", 0),
             compaction_count=data.get("compactionCount", 0),
             active_skills=data.get("activeSkills", []),

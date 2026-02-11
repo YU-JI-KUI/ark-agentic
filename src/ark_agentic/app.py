@@ -241,8 +241,8 @@ async def chat(
             tool_calls=tool_calls,
             turns=result.turns,
             usage={
-                "input_tokens": result.input_tokens,
-                "output_tokens": result.output_tokens,
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
             },
         )
 
@@ -316,8 +316,8 @@ async def chat(
                 tool_calls=tool_calls if tool_calls else None,
                 turns=result.turns,
                 usage={
-                    "input_tokens": result.input_tokens,
-                    "output_tokens": result.output_tokens,
+                    "prompt_tokens": result.prompt_tokens,
+                    "completion_tokens": result.completion_tokens,
                 },
             ))
         except Exception as exc:

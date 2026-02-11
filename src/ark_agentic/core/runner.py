@@ -78,8 +78,8 @@ class RunResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
 
     # Token 使用
-    input_tokens: int = 0
-    output_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
     # 是否因达到限制而停止
     stopped_by_limit: bool = False
@@ -309,8 +309,8 @@ class AgentRunner:
         logger.info(f"[RUN] session={session_id[:8]} streaming={use_streaming}")
         turns = 0
         total_tool_calls = 0
-        total_input_tokens = 0
-        total_output_tokens = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
         all_tool_calls: list[ToolCall] = []  # 记录所有工具调用
         all_tool_results: list[AgentToolResult] = []  # 记录所有工具结果（用于输出验证）
         output_index = 0  # 当前输出块索引，每轮工具调用后递增
@@ -363,30 +363,28 @@ class AgentRunner:
                     turns=turns,
                     tool_calls_count=total_tool_calls,
                     tool_calls=all_tool_calls,
-                    input_tokens=total_input_tokens,
-                    output_tokens=total_output_tokens,
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
                     stopped_by_limit=False,
                 )
 
-            # 更新 token 统计
             usage = response.metadata.get("usage", {})
-            turn_input = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
-            turn_output = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
-            total_input_tokens += turn_input
-            total_output_tokens += turn_output
+            turn_prompt = usage.get("prompt_tokens", 0)
+            turn_completion = usage.get("completion_tokens", 0)
+            total_prompt_tokens += turn_prompt
+            total_completion_tokens += turn_completion
             finish_reason = response.metadata.get("finish_reason")
             logger.info(
                 f"Turn {turns} | finish_reason={finish_reason} "
                 f"content_len={len(response.content or '')} "
                 f"tool_calls={len(response.tool_calls or [])} "
-                f"tokens=+{turn_input}/{turn_output}"
+                f"tokens=+{turn_prompt}/{turn_completion}"
             )
 
-            # 同步 token 统计到 session
             self.session_manager.update_token_usage(
                 session_id,
-                input_tokens=turn_input,
-                output_tokens=turn_output,
+                prompt_tokens=turn_prompt,
+                completion_tokens=turn_completion,
             )
 
             # 添加助手响应到会话（使用同步方法，持久化在 run 结束后批量处理）
@@ -401,8 +399,8 @@ class AgentRunner:
                     turns=turns,
                     tool_calls_count=total_tool_calls,
                     tool_calls=all_tool_calls,
-                    input_tokens=total_input_tokens,
-                    output_tokens=total_output_tokens,
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
                     stopped_by_limit=True,
                 )
 
@@ -433,7 +431,7 @@ class AgentRunner:
                 continue
 
             # 最终轮：无工具调用
-            logger.info(f"[RUN_END] session={session_id[:8]} turns={turns} tool_calls={total_tool_calls} tokens={total_input_tokens}/{total_output_tokens}")
+            logger.info(f"[RUN_END] session={session_id[:8]} turns={turns} tool_calls={total_tool_calls} tokens={total_prompt_tokens}/{total_completion_tokens}")
             # 输出验证
             if self.config.enable_output_validation and all_tool_results and response.content:
                 validation = validate_response_against_tools(
@@ -459,8 +457,8 @@ class AgentRunner:
                 turns=turns,
                 tool_calls_count=total_tool_calls,
                 tool_calls=all_tool_calls,
-                input_tokens=total_input_tokens,
-                output_tokens=total_output_tokens,
+                prompt_tokens=total_prompt_tokens,
+                completion_tokens=total_completion_tokens,
             )
 
         logger.warning(f"[RUN_LIMIT] session={session_id[:8]} max_turns={self.config.max_turns}")
@@ -475,8 +473,8 @@ class AgentRunner:
             turns=turns,
             tool_calls_count=total_tool_calls,
             tool_calls=all_tool_calls,
-            input_tokens=total_input_tokens,
-            output_tokens=total_output_tokens,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
             stopped_by_limit=True,
         )
 

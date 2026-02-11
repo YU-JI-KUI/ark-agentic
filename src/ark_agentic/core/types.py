@@ -220,14 +220,14 @@ class SkillEntry:
 class TokenUsage:
     """Token 使用统计"""
 
-    input_tokens: int = 0
-    output_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
-        return self.input_tokens + self.output_tokens
+        return self.prompt_tokens + self.completion_tokens
 
 
 @dataclass
@@ -290,13 +290,12 @@ class SessionEntry:
 
     def update_token_usage(
         self,
-        input_tokens: int = 0,
-        output_tokens: int = 0,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
         cache_read: int = 0,
         cache_creation: int = 0,
     ) -> None:
-        """更新 token 使用统计"""
-        self.token_usage.input_tokens += input_tokens
-        self.token_usage.output_tokens += output_tokens
+        self.token_usage.prompt_tokens += prompt_tokens
+        self.token_usage.completion_tokens += completion_tokens
         self.token_usage.cache_read_tokens += cache_read
         self.token_usage.cache_creation_tokens += cache_creation

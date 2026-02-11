@@ -72,8 +72,8 @@ class StreamState:
     error: str | None = None
 
     # 统计
-    input_tokens: int = 0
-    output_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class StreamAssembler:
@@ -203,11 +203,12 @@ class StreamAssembler:
         """处理消息结束"""
         self._state.is_complete = True
 
-        # 解析 usage
+        # 解析 usage（仅在 usage 非空时更新）
         if event.data and isinstance(event.data, dict):
-            usage = event.data.get("usage", {})
-            self._state.input_tokens = usage.get("input_tokens", 0)
-            self._state.output_tokens = usage.get("output_tokens", 0)
+            usage = event.data.get("usage")
+            if usage and isinstance(usage, dict):
+                self._state.prompt_tokens = usage.get("prompt_tokens", 0)
+                self._state.completion_tokens = usage.get("completion_tokens", 0)
 
         # 构建最终消息
         message = self.build_message()

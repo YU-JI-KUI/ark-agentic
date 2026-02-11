@@ -15,13 +15,17 @@ from .base import (
 from .openai_compat import (
     OpenAICompatibleClient,
     create_deepseek_client,
-    create_openai_client,
 )
 
 from .pa_internal_llm import (
     PAModel,
     PAInternalClient,
     create_pa_client,
+)
+
+from .mock import (
+    MockLLMClient,
+    create_mock_client,
 )
 
 from .factory import (
@@ -52,11 +56,13 @@ __all__ = [
     # OpenAI Compatible
     "OpenAICompatibleClient",
     "create_deepseek_client",
-    "create_openai_client",
     # PA Internal
     "PAModel",
     "PAInternalClient",
     "create_pa_client",
+    # Mock
+    "MockLLMClient",
+    "create_mock_client",
     # Factory
     "create_llm_client",
     "get_available_providers",

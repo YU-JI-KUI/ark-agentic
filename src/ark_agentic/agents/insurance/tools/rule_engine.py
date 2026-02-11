@@ -219,7 +219,7 @@ class RuleEngineTool(AgentTool):
             user_id=user_id,
             query_type="list",
         )
-        policies = data.get("policies", [])
+        policies = data.get("policyAssertList", [])
         if not policies:
             return {
                 "requested_amount": amount,

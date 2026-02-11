@@ -10,7 +10,7 @@ import logging
 import os
 from pathlib import Path
 
-from .agent import create_insurance_agent, MockLLMClient
+from .agent import create_insurance_agent
 from ark_agentic.core.llm import create_llm_client, PAModel
 from ark_agentic.core.runner import AgentRunner
 

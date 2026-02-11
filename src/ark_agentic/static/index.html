@@ -972,8 +972,8 @@ body {
             }
             answerBubble.classList.remove('typing-cursor');
             if (event.usage) {
-              const inp = event.usage.input_tokens || 0;
-              const out = event.usage.output_tokens || 0;
+              const inp = event.usage.prompt_tokens || 0;
+              const out = event.usage.completion_tokens || 0;
               metaEl.textContent = (event.turns || '-') + ' \u8F6E \u00B7 ' + (inp + out) + ' tokens';
               metaEl.classList.remove('hidden');
             }
@@ -1050,7 +1050,7 @@ body {
     div.className = 'msg msg-assistant';
     let meta = '';
     if (usage) {
-      const t = (usage.input_tokens || 0) + (usage.output_tokens || 0);
+      const t = (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
       meta = '<div class="msg-meta">' + t + ' tokens</div>';
     }
     div.innerHTML = '<div class="msg-bubble">' + md(text) + '</div>' + meta;

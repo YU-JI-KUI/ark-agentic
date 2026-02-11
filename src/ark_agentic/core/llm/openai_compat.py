@@ -40,19 +40,14 @@ PROVIDER_CONFIGS = {
         "base_url": "https://api.deepseek.com/v1",
         "default_model": "deepseek-chat",
     },
-    "openai": {
-        "base_url": "https://api.openai.com/v1",
-        "default_model": "gpt-4o-mini",
-    },
 }
 
 
 class OpenAICompatibleClient(BaseLLMClient):
     """OpenAI 兼容客户端
 
-    支持所有 OpenAI 兼容的 API：
+    支持所有 OpenAI 兼容协议的 API：
     - DeepSeek
-    - OpenAI
     - 其他兼容服务
     """
 
@@ -125,6 +120,9 @@ class OpenAICompatibleClient(BaseLLMClient):
             "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
             "stream": stream,
         }
+
+        if stream:
+            body["stream_options"] = {"include_usage": True}
 
         # 添加工具
         if tools:
@@ -238,16 +236,3 @@ def create_deepseek_client(
     return OpenAICompatibleClient(config)
 
 
-def create_openai_client(
-    api_key: str,
-    model: str = "gpt-4o-mini",
-    **kwargs: Any,
-) -> OpenAICompatibleClient:
-    """创建 OpenAI 客户端"""
-    config = LLMConfig(
-        provider="openai",
-        api_key=api_key,
-        model=model,
-        **kwargs,
-    )
-    return OpenAICompatibleClient(config)

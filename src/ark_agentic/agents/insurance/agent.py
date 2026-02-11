@@ -8,23 +8,18 @@
 - 工具调用（用户画像、保单查询、规则引擎）
 - 会话持久化（JSONL 格式）
 - 技能系统集成
-- 支持多种 LLM 提供商（DeepSeek, OpenAI, 内部 API）
+- 支持多种 LLM 提供商（DeepSeek, OpenAI, Mock）
 
 使用方法：
-    # 使用 DeepSeek（默认，需要设置 DEEPSEEK_API_KEY 环境变量）
-    python examples/insurance_withdrawal_agent.py
-
-    # 使用内部 API
-    python examples/insurance_withdrawal_agent.py --provider internal --base-url http://api.example.com/chat
+    # 使用 DeepSeek（默认）
+    export DEEPSEEK_API_KEY=sk-xxx
+    python -m ark_agentic.agents.insurance.agent
 
     # 使用 Mock 客户端（演示/测试）
-    python examples/insurance_withdrawal_agent.py --mock
+    python -m ark_agentic.agents.insurance.agent --mock --demo
 
     # 交互模式
-    python examples/insurance_withdrawal_agent.py -i
-
-    # 运行预设对话示例
-    python examples/insurance_withdrawal_agent.py --demo
+    python -m ark_agentic.agents.insurance.agent -i
 """
 
 from __future__ import annotations
@@ -35,7 +30,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -56,174 +51,6 @@ _AGENT_DIR = Path(__file__).resolve().parent
 _SKILLS_DIR = _AGENT_DIR / "skills"
 
 
-# ============ Mock LLM Client ============
-
-
-class MockLLMClient:
-    """模拟 LLM 客户端
-
-    用于演示和测试，不依赖真实 API。
-    """
-
-    def __init__(self) -> None:
-        self._call_count = 0
-
-    async def chat(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None = None,
-        stream: bool = False,
-        **kwargs: Any,
-    ) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
-        """模拟聊天响应"""
-        self._call_count += 1
-
-        # 获取用户最后一条消息
-        user_message = ""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                user_message = msg.get("content", "")
-                break
-
-        # 检查是否有工具结果
-        has_tool_results = any(msg.get("role") == "tool" for msg in messages)
-
-        # 根据对话阶段返回不同响应
-        if self._call_count == 1 and not has_tool_results:
-            return self._response_with_tools()
-        elif has_tool_results and self._call_count <= 2:
-            return self._response_with_plans()
-        else:
-            return self._response_followup(user_message)
-
-    def _response_with_tools(self) -> dict[str, Any]:
-        """返回带工具调用的响应"""
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [
-                            {
-                                "id": "call_001",
-                                "type": "function",
-                                "function": {
-                                    "name": "policy_query",
-                                    "arguments": '{"user_id": "U001", "query_type": "list"}',
-                                },
-                            },
-                            {
-                                "id": "call_002",
-                                "type": "function",
-                                "function": {
-                                    "name": "policy_query",
-                                    "arguments": '{"user_id": "U001", "query_type": "withdrawal_limit"}',
-                                },
-                            },
-                        ],
-                    },
-                    "finish_reason": "tool_calls",
-                }
-            ]
-        }
-
-    def _response_with_plans(self) -> dict[str, Any]:
-        """返回推荐方案"""
-        content = """好的，张先生，我已经查询了您的保单信息。根据您的情况，我为您推荐以下取款方案：
-
-## 推荐方案
-
-### 方案一：部分领取 ⭐ 推荐
-
-从您的「金瑞人生年金险」中部分领取：
-
-- 💰 **可领取金额**：65,000元
-- ⏱️ **到账时间**：3-5个工作日
-- 💵 **费用**：无手续费
-- 💡 **特点**：不影响保单其他权益
-
-**推荐理由**：无利息成本，操作简单，适合短期资金需求。
-
----
-
-### 方案二：保单贷款
-
-从您的「平安福终身寿险」中申请贷款：
-
-- 💰 **可贷金额**：33,600元
-- ⏱️ **到账时间**：1-2个工作日
-- 💵 **年利息**：约1,848元（年利率5.5%）
-- 💡 **特点**：保障不变，可随时还款
-
-**推荐理由**：到账最快，保障完全不受影响，适合短期周转。
-
----
-
-### 方案三：组合方案
-
-同时使用以上两种方式：
-
-- 💰 **合计可取**：98,600元
-- 💡 **特点**：获取最大资金额度
-
----
-
-请问您倾向于哪个方案？或者您需要的金额是多少，我可以帮您做更精确的计算。"""
-
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": content,
-                    },
-                    "finish_reason": "stop",
-                }
-            ]
-        }
-
-    def _response_followup(self, user_message: str) -> dict[str, Any]:
-        """返回后续对话响应"""
-        if "方案一" in user_message or "部分领取" in user_message:
-            content = """好的，您选择了**部分领取**方案。
-
-我来为您确认一下操作细节：
-
-📋 **操作确认**
-- 保单：金瑞人生年金险（POL002）
-- 操作：部分领取
-- 金额：65,000元
-- 到账：3-5个工作日
-
-⚠️ **温馨提示**
-- 领取后账户价值将相应减少
-- 未来年金领取金额会略有调整
-
-如果确认无误，您可以通过以下方式办理：
-1. APP自助办理（推荐）
-2. 拨打客服热线 95511
-3. 前往就近营业网点
-
-请问还有其他问题吗？"""
-        else:
-            content = """好的，我明白了。还有什么我可以帮您的吗？
-
-如果您想了解更多方案细节，或者有其他保险问题，随时告诉我。"""
-
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": content,
-                    },
-                    "finish_reason": "stop",
-                }
-            ]
-        }
-
-
 # ============ 创建 LLM 客户端 ============
 
 
@@ -231,60 +58,34 @@ def get_llm_client(args: argparse.Namespace) -> LLMClientProtocol:
     """根据命令行参数创建 LLM 客户端"""
     if args.mock:
         logger.info("Using Mock LLM client")
-        return MockLLMClient()
+        return create_llm_client("mock")
 
     provider = args.provider
+    api_key = args.api_key
 
-    if provider == "internal":
-        # 内部 API
-        authorization = args.authorization or os.environ.get("INTERNAL_API_AUTH", "")
-        trace_appid = args.trace_appid or os.environ.get("INTERNAL_API_APPID", "ark-nav")
+    # 从环境变量获取 API Key
+    if not api_key:
+        env_key = "DEEPSEEK_API_KEY"
+        api_key = os.environ.get(env_key, "")
 
-        if not args.base_url:
-            raise ValueError("--base-url is required for internal provider")
-        if not authorization:
-            raise ValueError("--authorization or INTERNAL_API_AUTH env var is required for internal provider")
-
-        logger.info(f"Using Internal API client: {args.base_url}")
-        return create_llm_client(
-            provider="internal",
-            base_url=args.base_url,
-            authorization=authorization,
-            trace_appid=trace_appid,
+    if not api_key:
+        raise ValueError(
+            f"API key is required. Set --api-key or DEEPSEEK_API_KEY environment variable."
         )
 
-    else:
-        # OpenAI 兼容 API (deepseek, openai)
-        api_key = args.api_key
+    logger.info(f"Using {provider.upper()} client (model: {args.model or 'default'})")
 
-        # 尝试从环境变量获取
-        if not api_key:
-            env_keys = {
-                "deepseek": "DEEPSEEK_API_KEY",
-                "openai": "OPENAI_API_KEY",
-            }
-            env_key = env_keys.get(provider, "")
-            if env_key:
-                api_key = os.environ.get(env_key, "")
+    kwargs = {}
+    if args.base_url:
+        kwargs["base_url"] = args.base_url
+    if args.model:
+        kwargs["model"] = args.model
 
-        if not api_key:
-            raise ValueError(
-                f"API key is required. Set --api-key or {env_keys.get(provider, 'API_KEY')} environment variable."
-            )
-
-        logger.info(f"Using {provider.upper()} client (model: {args.model or 'default'})")
-
-        kwargs = {}
-        if args.base_url:
-            kwargs["base_url"] = args.base_url
-        if args.model:
-            kwargs["model"] = args.model
-
-        return create_llm_client(
-            provider=provider,
-            api_key=api_key,
-            **kwargs,
-        )
+    return create_llm_client(
+        provider=provider,
+        api_key=api_key,
+        **kwargs,
+    )
 
 
 # ============ 创建 Agent ============
@@ -439,7 +240,7 @@ async def run_demo(agent: AgentRunner):
         print(f"[助手] {result.response.content}")
         print()
         print(f"[统计] 轮数: {result.turns}, 工具调用: {result.tool_calls_count}")
-        print(f"[Token] 输入: {result.input_tokens}, 输出: {result.output_tokens}")
+        print(f"[Token] 输入: {result.prompt_tokens}, 输出: {result.completion_tokens}")
         print("-" * 60)
         print()
 
@@ -531,7 +332,7 @@ Examples:
     # LLM 配置
     parser.add_argument(
         "--provider",
-        choices=["deepseek", "openai", "internal"],
+        choices=["deepseek"],
         default="deepseek",
         help="LLM 提供商 (default: deepseek)",
     )
@@ -546,16 +347,6 @@ Examples:
     parser.add_argument(
         "--model",
         help="模型名称",
-    )
-
-    # 内部 API 专用
-    parser.add_argument(
-        "--authorization",
-        help="内部 API 的 Authorization header",
-    )
-    parser.add_argument(
-        "--trace-appid",
-        help="内部 API 的 trace-appid",
     )
 
     # 运行模式
