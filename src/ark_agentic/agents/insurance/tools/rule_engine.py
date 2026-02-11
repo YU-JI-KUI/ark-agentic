@@ -1,14 +1,16 @@
 """
 规则引擎工具
 
-根据业务规则计算取款方案、费用、影响等。
+查询用户保单数据，标准化每张保单的可用取款渠道，并计算费用、优先级等。
 基于保单数据中的四个金额字段进行确定性计算：
   - bounusAmt   红利
   - loanAmt     可贷款额度
   - survivalFundAmt  生存金 / 满期金
   - policyRefundAmount  退保金额（部分领取 / 全额退保）
 
-compare_plans 通过 user_id 自行获取保单数据，无需 LLM 中转。
+list_options 通过 user_id 自行获取保单数据，无需 LLM 中转。
+返回的是按优先级排序的可选项列表（每张保单的每个可用渠道），
+由 LLM 根据用户需求从中组装最终推荐方案。
 """
 
 from __future__ import annotations
@@ -110,15 +112,15 @@ def _get_fee_rate(policy_year: int) -> float:
 class RuleEngineTool(AgentTool):
     """规则引擎工具
 
-    compare_plans: 接收 user_id，内部获取保单数据，按优先级排序可用取款方案。
-    calculate_detail: 接收单张保单数据，对某种方案做精确费用计算。
+    list_options: 接收 user_id，内部获取保单数据，返回按优先级排序的可选项列表。
+    calculate_detail: 接收单张保单数据，对某个可选项做精确费用计算。
     """
 
     name = "rule_engine"
     description = (
-        "根据业务规则计算取款方案。"
-        "compare_plans 根据 user_id 自动获取保单数据并返回按优先级排序的可选方案；"
-        "calculate_detail 对单张保单的某种方案做详细费用计算。"
+        "查询保单数据并计算可用取款可选项。"
+        "list_options 根据 user_id 自动获取保单数据并返回按优先级排序的可选项列表；"
+        "calculate_detail 对单张保单的某个可选项做详细费用计算。"
     )
     group = "insurance"
 
@@ -126,14 +128,14 @@ class RuleEngineTool(AgentTool):
         ToolParameter(
             name="action",
             type="string",
-            description="操作类型：compare_plans（方案比较）或 calculate_detail（单方案详算）",
+            description="操作类型：list_options（列出可选项）或 calculate_detail（单项详算）",
             required=True,
-            enum=["compare_plans", "calculate_detail"],
+            enum=["list_options", "calculate_detail"],
         ),
         ToolParameter(
             name="user_id",
             type="string",
-            description="用户ID（compare_plans 时必填），规则引擎会自动查询该用户的保单数据",
+            description="用户ID（list_options 时必填），规则引擎会自动查询该用户的保单数据",
             required=False,
         ),
         ToolParameter(
@@ -143,16 +145,16 @@ class RuleEngineTool(AgentTool):
             required=False,
         ),
         ToolParameter(
-            name="plan_type",
+            name="option_type",
             type="string",
-            description="方案类型（calculate_detail 时必填）",
+            description="可选项类型（calculate_detail 时必填）",
             required=False,
             enum=["survival_fund", "bonus", "partial_withdrawal", "surrender", "policy_loan"],
         ),
         ToolParameter(
             name="amount",
             type="number",
-            description="期望金额（可选，不提供则返回各方案最大可用额度）",
+            description="期望金额（可选，不提供则返回各可选项最大可用额度）",
             required=False,
         ),
     ]
@@ -169,17 +171,17 @@ class RuleEngineTool(AgentTool):
         args = tool_call.arguments
         action = read_string_param_required(args, "action")
 
-        if action == "compare_plans":
+        if action == "list_options":
             user_id = read_string_param(args, "user_id")
             if not user_id:
                 return AgentToolResult.error_result(
-                    tool_call.id, "compare_plans 需要提供 user_id 参数"
+                    tool_call.id, "list_options 需要提供 user_id 参数"
                 )
             amount = read_float_param(args, "amount")
             try:
-                result = await self._compare_plans(user_id, amount)
+                result = await self._list_options(user_id, amount)
             except DataServiceError as exc:
-                logger.error(f"rule_engine compare_plans data fetch error: {exc}")
+                logger.error(f"rule_engine list_options data fetch error: {exc}")
                 return AgentToolResult.error_result(tool_call.id, f"获取保单数据失败: {exc}")
 
         elif action == "calculate_detail":
@@ -188,13 +190,13 @@ class RuleEngineTool(AgentTool):
                 return AgentToolResult.error_result(
                     tool_call.id, "calculate_detail 需要提供 policy 参数（单张保单数据）"
                 )
-            plan_type = read_string_param(args, "plan_type")
-            if not plan_type:
+            option_type = read_string_param(args, "option_type")
+            if not option_type:
                 return AgentToolResult.error_result(
-                    tool_call.id, "calculate_detail 需要提供 plan_type 参数"
+                    tool_call.id, "calculate_detail 需要提供 option_type 参数"
                 )
             amount = read_float_param(args, "amount")
-            result = self._calculate_detail(policy, plan_type, amount)
+            result = self._calculate_detail(policy, option_type, amount)
 
         else:
             return AgentToolResult.error_result(
@@ -204,15 +206,15 @@ class RuleEngineTool(AgentTool):
         return AgentToolResult.json_result(tool_call.id, result)
 
     # ------------------------------------------------------------------
-    # compare_plans: 自动获取保单数据 → 方案比较
+    # list_options: 自动获取保单数据 → 提取可选项
     # ------------------------------------------------------------------
 
-    async def _compare_plans(
+    async def _list_options(
         self,
         user_id: str,
         amount: float | None,
     ) -> dict[str, Any]:
-        """通过 user_id 获取保单列表，生成候选方案并按优先级排序。"""
+        """通过 user_id 获取保单列表，提取所有可用取款可选项并按优先级排序。"""
         # 直接调用数据服务获取保单列表，避免 LLM 中转
         data = await self._client.call(
             api_code=DataServiceClient.API_POLICY_QUERY,
@@ -226,17 +228,17 @@ class RuleEngineTool(AgentTool):
                 "total_available_excl_loan": 0,
                 "total_available_incl_loan": 0,
                 "combination_hint": "未找到该用户的有效保单",
-                "plans": [],
+                "options": [],
             }
 
-        return self._build_plans(policies, amount)
+        return self._build_options(policies, amount)
 
-    def _build_plans(
+    def _build_options(
         self,
         policies: list[dict[str, Any]],
         amount: float | None,
     ) -> dict[str, Any]:
-        """遍历所有保单，生成候选方案并按优先级排序。"""
+        """遍历所有保单，提取每个可用取款渠道作为可选项，按优先级排序。"""
         candidates: list[dict[str, Any]] = []
 
         for pol in policies:
@@ -249,11 +251,11 @@ class RuleEngineTool(AgentTool):
             # ---------- 生存金 / 满期金 ----------
             survival = float(pol.get("survivalFundAmt", 0) or 0)
             if survival > 0:
-                candidates.append(self._make_plan(
+                candidates.append(self._make_option(
                     policy_id=policy_id,
                     product_name=product_name,
-                    plan_type="survival_fund",
-                    plan_name="生存金领取",
+                    option_type="survival_fund",
+                    option_name="生存金领取",
                     priority=PRIORITY_SURVIVAL_FUND,
                     available_amount=survival,
                     fee_rate=0.0,
@@ -265,11 +267,11 @@ class RuleEngineTool(AgentTool):
             # ---------- 红利领取 ----------
             bonus = float(pol.get("bounusAmt", 0) or 0)
             if bonus > 0:
-                candidates.append(self._make_plan(
+                candidates.append(self._make_option(
                     policy_id=policy_id,
                     product_name=product_name,
-                    plan_type="bonus",
-                    plan_name="红利领取",
+                    option_type="bonus",
+                    option_name="红利领取",
                     priority=PRIORITY_BONUS,
                     available_amount=bonus,
                     fee_rate=0.0,
@@ -284,11 +286,11 @@ class RuleEngineTool(AgentTool):
                 fee_rate = _get_fee_rate(policy_year)
                 if product_type == "universal_life":
                     # 万能险 → P2
-                    candidates.append(self._make_plan(
+                    candidates.append(self._make_option(
                         policy_id=policy_id,
                         product_name=product_name,
-                        plan_type="partial_withdrawal",
-                        plan_name="万能险部分领取",
+                        option_type="partial_withdrawal",
+                        option_name="万能险部分领取",
                         priority=PRIORITY_UNIVERSAL_LIFE,
                         available_amount=refund,
                         fee_rate=fee_rate,
@@ -299,11 +301,11 @@ class RuleEngineTool(AgentTool):
                     ))
                 elif product_type == "whole_life":
                     # 终身寿险 → P3（退保），退保无手续费
-                    candidates.append(self._make_plan(
+                    candidates.append(self._make_option(
                         policy_id=policy_id,
                         product_name=product_name,
-                        plan_type="surrender",
-                        plan_name="退保",
+                        option_type="surrender",
+                        option_name="退保",
                         priority=PRIORITY_WHOLE_LIFE,
                         available_amount=refund,
                         fee_rate=0.0,
@@ -314,11 +316,11 @@ class RuleEngineTool(AgentTool):
                     ))
                 else:
                     # 其他类型（年金险等）→ P2
-                    candidates.append(self._make_plan(
+                    candidates.append(self._make_option(
                         policy_id=policy_id,
                         product_name=product_name,
-                        plan_type="partial_withdrawal",
-                        plan_name="部分领取",
+                        option_type="partial_withdrawal",
+                        option_name="部分领取",
                         priority=PRIORITY_UNIVERSAL_LIFE,
                         available_amount=refund,
                         fee_rate=fee_rate,
@@ -331,11 +333,11 @@ class RuleEngineTool(AgentTool):
             # ---------- 保单贷款 ----------
             loan = float(pol.get("loanAmt", 0) or 0)
             if loan > 0:
-                candidates.append(self._make_plan(
+                candidates.append(self._make_option(
                     policy_id=policy_id,
                     product_name=product_name,
-                    plan_type="policy_loan",
-                    plan_name="保单贷款",
+                    option_type="policy_loan",
+                    option_name="保单贷款",
                     priority=PRIORITY_POLICY_LOAN,
                     available_amount=loan,
                     fee_rate=0.0,
@@ -353,22 +355,22 @@ class RuleEngineTool(AgentTool):
             c["priority_label"] = PRIORITY_LABELS.get(c["priority"], "")
 
         # 汇总
-        total_available = sum(c["available_amount"] for c in candidates if c["plan_type"] != "policy_loan")
+        total_available = sum(c["available_amount"] for c in candidates if c["option_type"] != "policy_loan")
         total_with_loan = sum(c["available_amount"] for c in candidates)
 
-        # 组合方案提示
+        # 组合提示
         combination_hint = None
         if amount and amount > 0:
-            # 检查是否有单个方案能满足
+            # 检查是否有单个可选项能满足
             single_ok = any(c["net_amount"] >= amount for c in candidates)
             if not single_ok and total_with_loan >= amount:
                 combination_hint = (
-                    f"单个方案无法满足 {amount:,.0f} 元的需求，"
-                    f"建议组合多个方案（总可用约 {total_with_loan:,.0f} 元）。"
+                    f"单个可选项无法满足 {amount:,.0f} 元的需求，"
+                    f"需组合多个可选项（总可用约 {total_with_loan:,.0f} 元）。"
                 )
             elif not single_ok:
                 combination_hint = (
-                    f"所有方案合计约 {total_with_loan:,.0f} 元，"
+                    f"所有可选项合计约 {total_with_loan:,.0f} 元，"
                     f"仍不足 {amount:,.0f} 元，请考虑调整金额。"
                 )
 
@@ -377,20 +379,20 @@ class RuleEngineTool(AgentTool):
             "total_available_excl_loan": total_available,
             "total_available_incl_loan": total_with_loan,
             "combination_hint": combination_hint,
-            "plans": candidates,
+            "options": candidates,
         }
 
     # ------------------------------------------------------------------
-    # calculate_detail: 单保单 + 单方案详细计算
+    # calculate_detail: 单保单 + 单可选项详细计算
     # ------------------------------------------------------------------
 
     def _calculate_detail(
         self,
         policy: dict[str, Any],
-        plan_type: str,
+        option_type: str,
         amount: float | None,
     ) -> dict[str, Any]:
-        """对单张保单的某种方案做详细费用计算。"""
+        """对单张保单的某个可选项做详细费用计算。"""
         policy_id = policy.get("policy_id", "")
         product_name = policy.get("product_name", "")
         effective_date = policy.get("effective_date", "")
@@ -404,22 +406,22 @@ class RuleEngineTool(AgentTool):
             "policy_loan": ("loanAmt", "保单贷款"),
         }
 
-        if plan_type not in field_map:
-            return {"success": False, "error": f"不支持的方案类型: {plan_type}"}
+        if option_type not in field_map:
+            return {"success": False, "error": f"不支持的可选项类型: {option_type}"}
 
-        field_name, plan_name = field_map[plan_type]
+        field_name, option_name = field_map[option_type]
         max_available = float(policy.get(field_name, 0) or 0)
 
         if max_available <= 0:
             return {
                 "success": False,
-                "error": f"该保单 {policy_id} 无可用的{plan_name}额度",
+                "error": f"该保单 {policy_id} 无可用的{option_name}额度",
             }
 
         actual_amount = min(amount, max_available) if amount else max_available
 
         # 费用计算：退保无手续费，仅部分领取按保单年度收费
-        if plan_type == "partial_withdrawal":
+        if option_type == "partial_withdrawal":
             fee_rate = _get_fee_rate(policy_year)
         else:
             # survival_fund, bonus, surrender, policy_loan 均无手续费
@@ -432,8 +434,8 @@ class RuleEngineTool(AgentTool):
             "success": True,
             "policy_id": policy_id,
             "product_name": product_name,
-            "plan_type": plan_type,
-            "plan_name": plan_name,
+            "option_type": option_type,
+            "option_name": option_name,
             "max_available": max_available,
             "requested_amount": amount,
             "actual_amount": actual_amount,
@@ -444,15 +446,15 @@ class RuleEngineTool(AgentTool):
             "policy_year": policy_year,
         }
 
-        # 方案特有信息
-        if plan_type == "policy_loan":
+        # 可选项特有信息
+        if option_type == "policy_loan":
             result["interest_rate"] = LOAN_INTEREST_RATE
             result["interest_annual"] = round(actual_amount * LOAN_INTEREST_RATE, 2)
             result["interest_monthly"] = round(actual_amount * LOAN_INTEREST_RATE / 12, 2)
             result["coverage_impact"] = "不影响保障（未按时还款可能导致保单中止）"
-        elif plan_type == "surrender":
+        elif option_type == "surrender":
             result["coverage_impact"] = "所有保障终止，退保后无法恢复"
-        elif plan_type == "partial_withdrawal":
+        elif option_type == "partial_withdrawal":
             result["coverage_impact"] = "现金价值减少，保额同步下降"
         else:
             result["coverage_impact"] = "不影响保障"
@@ -467,12 +469,12 @@ class RuleEngineTool(AgentTool):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _make_plan(
+    def _make_option(
         *,
         policy_id: str,
         product_name: str,
-        plan_type: str,
-        plan_name: str,
+        option_type: str,
+        option_name: str,
         priority: int,
         available_amount: float,
         fee_rate: float,
@@ -481,15 +483,15 @@ class RuleEngineTool(AgentTool):
         notes: str,
         policy_year: int | None = None,
     ) -> dict[str, Any]:
-        """构造一个候选方案字典。"""
+        """构造一个可选项字典。"""
         fee = round(available_amount * fee_rate, 2)
         net_amount = round(available_amount - fee, 2)
 
-        plan: dict[str, Any] = {
+        option: dict[str, Any] = {
             "policy_id": policy_id,
             "product_name": product_name,
-            "plan_type": plan_type,
-            "plan_name": plan_name,
+            "option_type": option_type,
+            "option_name": option_name,
             "priority": priority,
             "available_amount": available_amount,
             "fee_rate": fee_rate,
@@ -501,10 +503,10 @@ class RuleEngineTool(AgentTool):
         }
 
         if interest_rate is not None:
-            plan["interest_rate"] = interest_rate
-            plan["interest_annual"] = round(available_amount * interest_rate, 2)
+            option["interest_rate"] = interest_rate
+            option["interest_annual"] = round(available_amount * interest_rate, 2)
 
         if policy_year is not None:
-            plan["policy_year"] = policy_year
+            option["policy_year"] = policy_year
 
-        return plan
+        return option

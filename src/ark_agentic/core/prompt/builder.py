@@ -308,18 +308,19 @@ INSURANCE_AGENT_INSTRUCTIONS = """
 
 ```
 rule_engine(
-  action="compare_plans",
+  action="list_options",
   user_id=用户ID,
   amount=用户期望金额
 )
 ```
 
-规则引擎返回按优先级排序的方案列表和一个 `combination_hint` 字段。
+规则引擎返回按优先级排序的可选项列表（`options`）和一个 `combination_hint` 字段。每个可选项代表一张保单的一个可用取款渠道（如生存金、红利、贷款等），由你从中组装最终推荐方案。
 
 **关键判断**：
-- `combination_hint` 为 null → 有单方案能满足，推荐排名第一的方案（标 ⭐）
-- `combination_hint` 不为 null → 需要组合多个方案，组合方案整体作为推荐（标 ⭐）
+- `combination_hint` 为 null → 有单个可选项能满足金额，用排名第一的可选项作为推荐方案（标 ⭐）
+- `combination_hint` 不为 null → 需要组合多个可选项，组合方案整体作为推荐（标 ⭐）
 - **不要同时推荐单方案又推荐组合方案，只给一个推荐。**
+- 每个可选项的取用金额不得超过其 `available_amount`（硬上限）。
 
 **优先级原则**（组合时从高到低选取）：
 1. 生存金/满期金 + 红利领取 → 零成本，不影响保障，优先选用
@@ -331,8 +332,8 @@ rule_engine(
 
 ### 第四步：响应用户修改请求
 根据用户的修改类型选择正确的工具：
-- **调整总金额** 或 **改变方案方向**（如"不要贷款"）：重新调用 `rule_engine(action="compare_plans", user_id=用户ID, amount=新金额)`，根据用户约束过滤展示
-- **调整某张保单的具体金额**：调用 `rule_engine(action="calculate_detail", policy={...}, plan_type="...", amount=新金额)`
+- **调整总金额** 或 **改变方案方向**（如"不要贷款"）：重新调用 `rule_engine(action="list_options", user_id=用户ID, amount=新金额)`，根据用户约束过滤展示
+- **调整某张保单的具体金额**：调用 `rule_engine(action="calculate_detail", policy={...}, option_type="...", amount=新金额)`
 
 无论哪种调整：
 - 解释调整后的变化，对比原方案差异
@@ -344,7 +345,7 @@ rule_engine(
 
 **根据 `combination_hint` 是否为 null 选择对应格式：**
 
-### 单方案足够（combination_hint 为 null）
+### 单个可选项足够（combination_hint 为 null）
 ```markdown
 ### 方案一：[方案名称] ⭐ 推荐
 - 📋 **关联保单**：[保单名称]（[保单号]）
@@ -360,7 +361,7 @@ rule_engine(
 请问您倾向于哪个方案？确认后我可以帮您一键办理。
 ```
 
-### 需要组合（combination_hint 不为 null）
+### 需要组合多个可选项（combination_hint 不为 null）
 ```markdown
 由于单个渠道无法满足 [X] 元的需求，为您推荐以下组合方案 ⭐
 
