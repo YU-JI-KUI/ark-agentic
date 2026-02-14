@@ -1,0 +1,37 @@
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "holdings": [
+            {
+                "securityCode": "510300",
+                "securityName": "沪深300ETF",
+                "quantity": 10000,
+                "costPrice": 4.50,
+                "currentPrice": 4.80,
+                "marketValue": 48000.00,
+                "profit": 3000.00,
+                "profitRate": 0.0667,
+                "todayProfit": 500.00
+            },
+            {
+                "securityCode": "159915",
+                "securityName": "创业板ETF",
+                "quantity": 5000,
+                "costPrice": 2.20,
+                "currentPrice": 2.35,
+                "marketValue": 11750.00,
+                "profit": 750.00,
+                "profitRate": 0.0682,
+                "todayProfit": -200.00
+            }
+        ],
+        "summary": {
+            "totalMarketValue": 59750.00,
+            "totalCost": 56000.00,
+            "totalProfit": 3750.00,
+            "totalProfitRate": 0.0670,
+            "todayProfit": 300.00
+        }
+    }
+}

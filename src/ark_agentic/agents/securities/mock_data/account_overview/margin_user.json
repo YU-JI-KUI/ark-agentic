@@ -1,0 +1,17 @@
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "totalAssets": 2500000.00,
+        "cashBalance": 100000.00,
+        "stockValue": 2400000.00,
+        "todayProfit": -25000.00,
+        "totalProfit": 500000.00,
+        "profitRate": 0.25,
+        "marginRatio": 2.8,
+        "riskLevel": "low",
+        "maintenanceMargin": 850000.00,
+        "availableMargin": 1650000.00,
+        "updateTime": "2026-02-14 10:30:00"
+    }
+}

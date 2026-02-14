@@ -564,13 +564,32 @@ class AgentRunner:
         # 如果启用了 memory，添加 memory 使用指令
         include_memory = self._memory_manager is not None
 
-        return SystemPromptBuilder.quick_build(
+        # 构建基础系统提示
+        base_prompt = SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
             context=context,
             config=self.config.prompt_config,
             include_memory_instructions=include_memory,
         )
+
+        # 🆕 注入会话上下文（如果存在）
+        if session_id:
+            session_context = self.session_manager.get_all_context(session_id)
+            if session_context:
+                context_lines = []
+                for key, value in session_context.items():
+                    # 格式化上下文项
+                    if isinstance(value, str):
+                        context_lines.append(f"- **{key}**: {value}")
+                    else:
+                        context_lines.append(f"- **{key}**: `{value}`")
+                
+                # 注入到系统提示末尾
+                context_block = "\n\n## 当前会话上下文\n\n" + "\n".join(context_lines)
+                base_prompt = base_prompt + context_block
+
+        return base_prompt
 
     def _build_tools(self, context: dict[str, Any]) -> list[dict[str, Any]]:
         """构建工具定义"""

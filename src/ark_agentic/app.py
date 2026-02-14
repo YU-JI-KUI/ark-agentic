@@ -34,6 +34,7 @@ from pydantic import BaseModel, Field
 
 from ark_agentic.core.runner import AgentRunner
 from ark_agentic.agents.insurance.api import create_insurance_agent_from_env
+from ark_agentic.agents.securities.api import create_securities_agent_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +67,49 @@ def _get_agent(agent_id: str) -> AgentRunner:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
 
 
+def extract_template_from_response(content: str) -> dict[str, Any] | None:
+    """从 LLM 响应中提取 JSON 模板
+    
+    检测模式：
+    1. 响应中包含 ```json ... ``` 代码块
+    2. JSON 对象包含 "template_type" 字段
+    
+    Args:
+        content: LLM 响应内容
+    
+    Returns:
+        模板字典，如果没有则返回 None
+    """
+    import json
+    import re
+    
+    # 提取 JSON 代码块
+    json_pattern = r'```json\s*\n(.*?)\n```'
+    matches = re.findall(json_pattern, content, re.DOTALL)
+    
+    for match in matches:
+        try:
+            data = json.loads(match)
+            # 检查是否是模板
+            if isinstance(data, dict) and "template_type" in data:
+                return data
+        except json.JSONDecodeError:
+            continue
+    
+    # 尝试直接解析整个响应（如果是纯 JSON）
+    try:
+        data = json.loads(content.strip())
+        if isinstance(data, dict) and "template_type" in data:
+            return data
+    except json.JSONDecodeError:
+        pass
+    
+    return None
+
+
 class ChatRequest(BaseModel):
     """Chat 请求模型"""
-    agent_id: str = Field("insurance", description="Agent ID")
+    agent_id: str = Field("insurance", description="Agent ID (insurance/securities)")
     message: str = Field(..., description="用户消息内容")
     session_id: str | None = Field(None, description="会话 ID，为空则创建新会话")
     stream: bool = Field(False, description="是否启用 SSE 流式输出")
@@ -96,6 +137,7 @@ class SSEEvent(BaseModel):
       - response.created       : Run initialized
       - response.step          : Agent lifecycle step (tool, status)
       - response.content.delta : Final answer text chunk (typewriter)
+      - response.template      : JSON template card (🆕)
       - response.completed     : Run finished with metadata
       - response.failed        : Error
     """
@@ -108,6 +150,8 @@ class SSEEvent(BaseModel):
     # Content delta
     delta: str | None = Field(None, description="Answer text chunk")
     output_index: int | None = Field(None, description="Output block index")
+    # Template (🆕)
+    template: dict[str, Any] | None = Field(None, description="JSON template card data")
     # Completed
     message: str | None = Field(None, description="Full answer text")
     usage: dict[str, int] | None = Field(None)
@@ -142,7 +186,8 @@ class SessionHistoryResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _registry.register("insurance", create_insurance_agent_from_env())
-    logger.info("Unified API started")
+    _registry.register("securities", create_securities_agent_from_env())
+    logger.info("Unified API started with agents: insurance, securities")
     yield
     logger.info("Unified API shutting down")
 
@@ -221,6 +266,24 @@ async def chat(
 
     # 生成本次执行 ID
     run_id = str(uuid.uuid4())
+
+    # 🆕 为 securities agent 设置会话上下文
+    if request.agent_id == "securities":
+        # 从请求上下文或环境变量获取账户类型和用户 ID
+        account_type = context.get("account_type") or os.getenv("SECURITIES_ACCOUNT_TYPE", "normal")
+        # user_id 已在上面从 request 或 header 中提取
+        
+        # 设置会话上下文（仅在首次创建时设置，避免覆盖）
+        existing_account_type = agent.session_manager.get_context(session_id, "account_type")
+        if not existing_account_type:
+            agent.session_manager.set_context(session_id, "account_type", account_type)
+            logger.info(f"Set securities context: account_type={account_type}")
+        
+        if user_id:
+            existing_user_id = agent.session_manager.get_context(session_id, "user_id")
+            if not existing_user_id:
+                agent.session_manager.set_context(session_id, "user_id", user_id)
+                logger.info(f"Set securities context: user_id={user_id}")
 
     if not request.stream:
         # 非流式响应
@@ -306,6 +369,20 @@ async def chat(
             if result.tool_calls:
                 for tc in result.tool_calls:
                     tool_calls.append({"name": tc.name, "arguments": tc.arguments})
+            
+            # 🆕 检测并发送模板事件
+            if result.response.content:
+                template = extract_template_from_response(result.response.content)
+                if template:
+                    queue.put_nowait(SSEEvent(
+                        type="response.template",
+                        seq=next_seq(),
+                        run_id=run_id,
+                        session_id=session_id,
+                        template=template,
+                    ))
+                    logger.info(f"Detected template: {template.get('template_type')}")
+            
             # response.completed
             queue.put_nowait(SSEEvent(
                 type="response.completed",

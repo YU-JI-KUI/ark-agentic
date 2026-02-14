@@ -1,0 +1,26 @@
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "holdings": [
+            {
+                "productCode": "161725",
+                "productName": "招商中证白酒指数基金",
+                "quantity": 5000,
+                "costPrice": 1.20,
+                "currentValue": 1.35,
+                "marketValue": 6750.00,
+                "profit": 750.00,
+                "profitRate": 0.125,
+                "todayProfit": 50.00
+            }
+        ],
+        "summary": {
+            "totalMarketValue": 6750.00,
+            "totalCost": 6000.00,
+            "totalProfit": 750.00,
+            "totalProfitRate": 0.125,
+            "todayProfit": 50.00
+        }
+    }
+}
