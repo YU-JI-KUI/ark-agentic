@@ -21,16 +21,14 @@ description: 分析用户的持仓情况，包括 ETF、港股通、基金等
 ## 执行步骤
 
 1. **识别资产类别**：
-   - ETF → 调用 `etf_holdings` 工具
-   - 港股通 → 调用 `hksc_holdings` 工具
-   - 基金理财 → 调用 `fund_holdings` 工具
+   - ETF → 调用 `etf_holdings(return_json_card=True/False)`
+   - 港股通 → 调用 `hksc_holdings(return_json_card=True/False)`
+   - 基金理财 → 调用 `fund_holdings(return_json_card=True/False)`
    - 全部持仓 → 调用多个工具
-
 2. **意图判断**：
-   - **纯查询**（如"我的 ETF"）→ 返回 JSON 模板卡片
-   - **分析性**（如"ETF 收益怎么样"）→ 返回 Markdown 分析
-
-3. **数据整理**：
+   - **纯查询**（如"我的 ETF"）→ 设置 `return_json_card=True`，直接输出 JSON
+   - **分析性**（如"ETF 收益怎么样"）→ 设置 `return_json_card=False`，返回 Markdown 分析
+3. **数据整理**（仅分析场景）：
    - 按收益率排序
    - 计算占比
    - 识别盈亏情况
@@ -44,30 +42,10 @@ description: 分析用户的持仓情况，包括 ETF、港股通、基金等
 - 无分析性问题
 
 **返回格式**：
-```json
-{
-  "template_type": "holdings_list_card",
-  "asset_class": "ETF",
-  "data": {
-    "holdings": [
-      {
-        "security_code": "510300",
-        "security_name": "沪深300ETF",
-        "quantity": 10000,
-        "cost_price": 4.50,
-        "current_price": 4.80,
-        "market_value": 48000.00,
-        "profit": 3000.00,
-        "profit_rate": 0.0667
-      }
-    ],
-    "summary": {
-      "total_market_value": 59750.00,
-      "total_profit": 3750.00,
-      "total_profit_rate": 0.0670
-    }
-  }
-}
+直接输出工具返回的 JSON 数据：
+
+```text
+{ "template_type": "holdings_list_card", "asset_class": "ETF", "data": { ... } }
 ```
 
 ### 场景 2：分析性查询（返回 Markdown）

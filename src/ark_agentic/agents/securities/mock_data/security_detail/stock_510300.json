@@ -1,5 +1,5 @@
 {
-    "code": 0,
+    "code": "0",
     "message": "success",
     "data": {
         "securityCode": "510300",
@@ -7,23 +7,23 @@
         "securityType": "ETF",
         "market": "SH",
         "holding": {
-            "quantity": 10000,
-            "availableQuantity": 10000,
-            "costPrice": 4.50,
-            "currentPrice": 4.80,
-            "marketValue": 48000.00,
-            "profit": 3000.00,
-            "profitRate": 0.0667,
-            "todayProfit": 500.00,
-            "todayProfitRate": 0.0104
+            "quantity": "10000",
+            "availableQuantity": "10000",
+            "costPrice": "4.5",
+            "currentPrice": "4.8",
+            "marketValue": "48000.0",
+            "profit": "3000.0",
+            "profitRate": "0.0667",
+            "todayProfit": "500.0",
+            "todayProfitRate": "0.0104"
         },
         "marketInfo": {
-            "openPrice": 4.75,
-            "highPrice": 4.85,
-            "lowPrice": 4.72,
-            "volume": 125000000,
-            "turnover": 598750000.00,
-            "changeRate": 0.0106
+            "openPrice": "4.75",
+            "highPrice": "4.85",
+            "lowPrice": "4.72",
+            "volume": "125000000",
+            "turnover": "598750000.0",
+            "changeRate": "0.0106"
         }
     }
 }

@@ -21,9 +21,9 @@ description: 查询和分析用户的投资收益情况
 ## 执行步骤
 
 1. **确定查询范围**：
-   - 总收益 → 调用 `account_overview`
+   - 总收益 → 调用 `account_overview(return_json_card=True/False)`
    - 单类资产收益 → 调用对应工具
-   - 具体标的收益 → 调用 `security_detail`
+   - 具体标的收益 → 调用 `security_detail(..., return_json_card=True/False)`
 
 2. **计算收益指标**：
    - 今日收益
@@ -44,22 +44,10 @@ description: 查询和分析用户的投资收益情况
 - "今天赚了多少"、"总收益"等简单查询
 
 **返回格式**：
-```json
-{
-  "template_type": "profit_summary_card",
-  "data": {
-    "today_profit": 15000.00,
-    "today_profit_rate": 0.012,
-    "total_profit": 250000.00,
-    "total_profit_rate": 0.25,
-    "top_performers": [
-      {
-        "name": "创业板ETF",
-        "profit_rate": 0.0682
-      }
-    ]
-  }
-}
+直接输出工具返回的 JSON 数据：
+
+```text
+{ "template_type": "profit_summary_card", "data": { ... } }
 ```
 
 ### 场景 2：收益分析（返回 Markdown）

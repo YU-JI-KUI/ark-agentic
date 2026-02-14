@@ -1,10 +1,10 @@
 {
-    "code": 0,
+    "code": "0",
     "message": "success",
     "data": {
-        "availableCash": 50000.00,
-        "frozenCash": 0.00,
-        "totalCash": 50000.00,
+        "availableCash": "50000.0",
+        "frozenCash": "0.0",
+        "totalCash": "50000.0",
         "updateTime": "2026-02-14 10:30:00"
     }
 }

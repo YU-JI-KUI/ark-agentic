@@ -867,7 +867,6 @@
         <span>万能服务</span>
       </div>
       <div class="header-right">
-        <span class="session-tag" id="sessionLabel"></span>
         <!-- 🆕 Agent 选择器 -->
         <select class="user-select" id="agentSelect">
           <option value="insurance">保险</option>
@@ -884,7 +883,13 @@
           <option value="U003">王伟</option>
           <option value="_custom">自定义…</option>
         </select>
-        <button class="header-btn" id="newSessionBtn">新会话</button>
+        <button class="header-btn" id="newSessionBtn" title="新会话">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -1073,7 +1078,7 @@
       const $scroll = document.getElementById('scrollContent');
       const $input = document.getElementById('msgInput');
       const $sendBtn = document.getElementById('sendBtn');
-      const $sessionLabel = document.getElementById('sessionLabel');
+      // const $sessionLabel = document.getElementById('sessionLabel'); // Removed
       const $newSessionBtn = document.getElementById('newSessionBtn');
       const $toggleTrack = document.getElementById('toggleTrack');
       const $toggleLabel = document.getElementById('toggleLabel');
@@ -1141,9 +1146,10 @@
 
       // ---- Session label ----
       function updateSessionLabel() {
-        $sessionLabel.textContent = sessionId ? sessionId.slice(0, 8) : '';
+        // Removed to save space
+        // if ($sessionLabel) $sessionLabel.textContent = sessionId ? sessionId.slice(0, 8) : '';
       }
-      updateSessionLabel();
+      // updateSessionLabel();
 
       // ---- New session ----
       $newSessionBtn.addEventListener('click', () => {
@@ -1153,7 +1159,7 @@
         $chat.classList.add('hidden');
         $welcome.classList.remove('hidden');
         $subHeader.classList.remove('hidden');
-        updateSessionLabel();
+        // updateSessionLabel();
       });
 
       // ---- Stream toggle ----

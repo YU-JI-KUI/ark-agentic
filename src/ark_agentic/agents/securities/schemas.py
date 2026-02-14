@@ -16,79 +16,52 @@ from pydantic import BaseModel, Field, field_validator
 
 # ============ 账户总资产 ============
 
+def get_val(d: dict, *keys):
+    """获取第一个非 None 的值"""
+    for k in keys:
+        if k in d and d[k] is not None:
+            return d[k]
+    return None
+
 class AccountOverviewSchema(BaseModel):
     """账户总资产标准模型"""
     
-    total_assets: float = Field(
-        ...,
-        description="总资产"
-    )
-    cash_balance: float = Field(
-        ...,
-        description="现金余额"
-    )
-    stock_market_value: float = Field(
-        ...,
-        description="股票市值"
-    )
-    today_profit: float = Field(
-        ...,
-        description="今日收益"
-    )
-    total_profit: float = Field(
-        ...,
-        description="累计收益"
-    )
-    profit_rate: float = Field(
-        ...,
-        description="收益率"
-    )
-    update_time: str | None = Field(
-        None,
-        description="更新时间"
-    )
+    total_assets: str = Field(..., description="总资产")
+    cash_balance: str = Field(..., description="现金余额")
+    stock_market_value: str = Field(..., description="股票市值")
+    today_profit: str = Field(..., description="今日收益")
+    total_profit: str = Field(..., description="累计收益")
+    profit_rate: str = Field(..., description="收益率")
+    update_time: str | None = Field(None, description="更新时间")
     
     # 两融账户专属字段（可选）
-    margin_ratio: float | None = Field(
-        None,
-        description="维持担保比率"
-    )
-    risk_level: Literal["low", "medium", "high"] | None = Field(
-        None,
-        description="风险等级"
-    )
-    maintenance_margin: float | None = Field(
-        None,
-        description="维持保证金"
-    )
-    available_margin: float | None = Field(
-        None,
-        description="可用保证金"
-    )
+    margin_ratio: str | None = Field(None, description="维持担保比率")
+    risk_level: Literal["low", "medium", "high"] | None = Field(None, description="风险等级")
+    maintenance_margin: str | None = Field(None, description="维持保证金")
+    available_margin: str | None = Field(None, description="可用保证金")
     
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
     @classmethod
     def from_raw_data(cls, data: dict, account_type: str = "normal") -> AccountOverviewSchema:
         """从原始数据创建（支持多种字段名）"""
         # 标准化字段名
         normalized = {
-            "total_assets": data.get("totalAssets") or data.get("total_asset"),
-            "cash_balance": data.get("cashBalance") or data.get("cash"),
-            "stock_market_value": data.get("stockValue") or data.get("stock_mv"),
-            "today_profit": data.get("todayProfit") or data.get("profit_today"),
-            "total_profit": data.get("totalProfit") or data.get("profit_total"),
-            "profit_rate": data.get("profitRate") or data.get("profit_pct"),
-            "update_time": data.get("updateTime") or data.get("update_time"),
+            "total_assets": get_val(data, "totalAssets", "total_asset"),
+            "cash_balance": get_val(data, "cashBalance", "cash"),
+            "stock_market_value": get_val(data, "stockValue", "stock_mv"),
+            "today_profit": get_val(data, "todayProfit", "profit_today"),
+            "total_profit": get_val(data, "totalProfit", "profit_total"),
+            "profit_rate": get_val(data, "profitRate", "profit_pct"),
+            "update_time": get_val(data, "updateTime", "update_time"),
         }
         
         # 两融账户额外字段
         if account_type == "margin":
-            normalized["margin_ratio"] = data.get("marginRatio") or data.get("margin_pct")
-            normalized["risk_level"] = data.get("riskLevel") or data.get("risk")
-            normalized["maintenance_margin"] = data.get("maintenanceMargin")
-            normalized["available_margin"] = data.get("availableMargin")
+            normalized["margin_ratio"] = get_val(data, "marginRatio", "margin_pct")
+            normalized["risk_level"] = get_val(data, "riskLevel", "risk")
+            normalized["maintenance_margin"] = get_val(data, "maintenanceMargin")
+            normalized["available_margin"] = get_val(data, "availableMargin")
         
         return cls(**normalized)
 
@@ -98,58 +71,66 @@ class AccountOverviewSchema(BaseModel):
 class HoldingItemSchema(BaseModel):
     """单个持仓项"""
     
-    security_code: str = Field(..., description="证券代码")
-    security_name: str = Field(..., description="证券名称")
-    quantity: int = Field(..., description="持仓数量")
-    cost_price: float = Field(..., description="成本价")
-    current_price: float = Field(..., description="当前价")
-    market_value: float = Field(..., description="市值")
-    profit: float = Field(..., description="盈亏金额")
-    profit_rate: float = Field(..., description="盈亏比率")
-    today_profit: float | None = Field(None, description="今日盈亏")
+    security_code: str = Field(..., alias="securityCode", description="证券代码")
+    security_name: str = Field(..., alias="securityName", description="证券名称")
+    quantity: str = Field(..., alias="quantity", description="持仓数量")
+    cost_price: str = Field(..., alias="costPrice", description="成本价")
+    current_price: str = Field(..., alias="currentPrice", description="当前价")
+    market_value: str = Field(..., alias="marketValue", description="市值")
+    profit: str = Field(..., alias="profit", description="盈亏金额")
+    profit_rate: str = Field(..., alias="profitRate", description="盈亏比率")
+    today_profit: str | None = Field(None, alias="todayProfit", description="今日盈亏")
     
+    model_config = {"populate_by_name": True}
+
     @field_validator("profit_rate")
     @classmethod
-    def validate_profit_rate(cls, v: float) -> float:
+    def validate_profit_rate(cls, v: str) -> str:
         """验证收益率范围"""
-        if not -1.0 <= v <= 10.0:  # 允许 -100% 到 1000%
-            raise ValueError(f"Profit rate out of range: {v}")
+        try:
+            val = float(v)
+        except (ValueError, TypeError):
+            # 可能是特殊字符，视业务需求而定，这里假设必须可转数字
+            raise ValueError(f"Invalid profit rate format: {v}")
+            
+        if not -1.0 <= val <= 10.0:  # 允许 -100% 到 1000%
+            raise ValueError(f"Profit rate out of range: {val}")
         return v
     
     @classmethod
     def from_raw_data(cls, data: dict) -> HoldingItemSchema:
         """从原始数据创建"""
         return cls(
-            security_code=data.get("securityCode") or data.get("code"),
-            security_name=data.get("securityName") or data.get("name"),
-            quantity=data.get("quantity") or data.get("qty"),
-            cost_price=data.get("costPrice") or data.get("cost"),
-            current_price=data.get("currentPrice") or data.get("price"),
-            market_value=data.get("marketValue") or data.get("mv"),
-            profit=data.get("profit") or data.get("profitAmt"),
-            profit_rate=data.get("profitRate") or data.get("profitPct"),
-            today_profit=data.get("todayProfit"),
+            security_code=get_val(data, "securityCode", "code"),
+            security_name=get_val(data, "securityName", "name"),
+            quantity=get_val(data, "quantity", "qty"),
+            cost_price=get_val(data, "costPrice", "cost"),
+            current_price=get_val(data, "currentPrice", "price"),
+            market_value=get_val(data, "marketValue", "mv"),
+            profit=get_val(data, "profit", "profitAmt"),
+            profit_rate=get_val(data, "profitRate", "profitPct"),
+            today_profit=get_val(data, "todayProfit"),
         )
 
 
 class HoldingsSummarySchema(BaseModel):
     """持仓汇总"""
     
-    total_market_value: float = Field(..., description="总市值")
-    total_cost: float = Field(..., description="总成本")
-    total_profit: float = Field(..., description="总盈亏")
-    total_profit_rate: float = Field(..., description="总盈亏比率")
-    today_profit: float = Field(..., description="今日盈亏")
+    total_market_value: str = Field(..., description="总市值")
+    total_cost: str = Field(..., description="总成本")
+    total_profit: str = Field(..., description="总盈亏")
+    total_profit_rate: str = Field(..., description="总盈亏比率")
+    today_profit: str = Field(..., description="今日盈亏")
     
     @classmethod
     def from_raw_data(cls, data: dict) -> HoldingsSummarySchema:
         """从原始数据创建"""
         return cls(
-            total_market_value=data.get("totalMarketValue") or data.get("total_mv"),
-            total_cost=data.get("totalCost") or data.get("total_cost"),
-            total_profit=data.get("totalProfit") or data.get("total_profit"),
-            total_profit_rate=data.get("totalProfitRate") or data.get("total_profit_pct"),
-            today_profit=data.get("todayProfit") or data.get("today_profit"),
+            total_market_value=get_val(data, "totalMarketValue", "total_mv"),
+            total_cost=get_val(data, "totalCost", "total_cost"),
+            total_profit=get_val(data, "totalProfit", "total_profit"),
+            total_profit_rate=get_val(data, "totalProfitRate", "total_profit_pct"),
+            today_profit=get_val(data, "todayProfit", "today_profit"),
         )
 
 
@@ -196,29 +177,31 @@ class HKSCHoldingsSchema(BaseModel):
 class FundHoldingItemSchema(BaseModel):
     """基金持仓项"""
     
-    product_code: str = Field(..., description="产品代码")
-    product_name: str = Field(..., description="产品名称")
-    quantity: int = Field(..., description="持有份额")
-    cost_price: float = Field(..., description="成本净值")
-    current_value: float = Field(..., description="当前净值")
-    market_value: float = Field(..., description="市值")
-    profit: float = Field(..., description="盈亏金额")
-    profit_rate: float = Field(..., description="盈亏比率")
-    today_profit: float | None = Field(None, description="今日盈亏")
+    product_code: str = Field(..., alias="productCode", description="产品代码")
+    product_name: str = Field(..., alias="productName", description="产品名称")
+    quantity: str = Field(..., alias="quantity", description="持有份额")
+    cost_price: str = Field(..., alias="costPrice", description="成本净值")
+    current_value: str = Field(..., alias="currentValue", description="当前净值")
+    market_value: str = Field(..., alias="marketValue", description="市值")
+    profit: str = Field(..., alias="profit", description="盈亏金额")
+    profit_rate: str = Field(..., alias="profitRate", description="盈亏比率")
+    today_profit: str | None = Field(None, alias="todayProfit", description="今日盈亏")
+    
+    model_config = {"populate_by_name": True}
     
     @classmethod
     def from_raw_data(cls, data: dict) -> FundHoldingItemSchema:
         """从原始数据创建"""
         return cls(
-            product_code=data.get("productCode") or data.get("code"),
-            product_name=data.get("productName") or data.get("name"),
-            quantity=data.get("quantity") or data.get("qty"),
-            cost_price=data.get("costPrice") or data.get("cost"),
-            current_value=data.get("currentValue") or data.get("value"),
-            market_value=data.get("marketValue") or data.get("mv"),
-            profit=data.get("profit"),
-            profit_rate=data.get("profitRate") or data.get("profitPct"),
-            today_profit=data.get("todayProfit"),
+            product_code=get_val(data, "productCode", "code"),
+            product_name=get_val(data, "productName", "name"),
+            quantity=get_val(data, "quantity", "qty"),
+            cost_price=get_val(data, "costPrice", "cost"),
+            current_value=get_val(data, "currentValue", "value"),
+            market_value=get_val(data, "marketValue", "mv"),
+            profit=get_val(data, "profit"),
+            profit_rate=get_val(data, "profitRate", "profitPct"),
+            today_profit=get_val(data, "todayProfit"),
         )
 
 
@@ -245,19 +228,19 @@ class FundHoldingsSchema(BaseModel):
 class CashAssetsSchema(BaseModel):
     """现金资产"""
     
-    available_cash: float = Field(..., description="可用资金")
-    frozen_cash: float = Field(..., description="冻结资金")
-    total_cash: float = Field(..., description="总资金")
+    available_cash: str = Field(..., description="可用资金")
+    frozen_cash: str = Field(..., description="冻结资金")
+    total_cash: str = Field(..., description="总资金")
     update_time: str | None = Field(None, description="更新时间")
     
     @classmethod
     def from_raw_data(cls, data: dict) -> CashAssetsSchema:
         """从原始数据创建"""
         return cls(
-            available_cash=data.get("availableCash") or data.get("available"),
-            frozen_cash=data.get("frozenCash") or data.get("frozen"),
-            total_cash=data.get("totalCash") or data.get("total"),
-            update_time=data.get("updateTime") or data.get("update_time"),
+            available_cash=get_val(data, "availableCash", "available"),
+            frozen_cash=get_val(data, "frozenCash", "frozen"),
+            total_cash=get_val(data, "totalCash", "total"),
+            update_time=get_val(data, "updateTime", "update_time"),
         )
 
 
@@ -266,26 +249,45 @@ class CashAssetsSchema(BaseModel):
 class SecurityHoldingSchema(BaseModel):
     """标的持仓信息"""
     
-    quantity: int = Field(..., description="持仓数量")
-    available_quantity: int = Field(..., description="可用数量")
-    cost_price: float = Field(..., description="成本价")
-    current_price: float = Field(..., description="当前价")
-    market_value: float = Field(..., description="市值")
-    profit: float = Field(..., description="盈亏金额")
-    profit_rate: float = Field(..., description="盈亏比率")
-    today_profit: float = Field(..., description="今日盈亏")
-    today_profit_rate: float = Field(..., description="今日盈亏比率")
+    quantity: str = Field(..., alias="quantity", description="持仓数量")
+    available_quantity: str = Field(..., alias="availableQuantity", description="可用数量")
+    cost_price: str = Field(..., alias="costPrice", description="成本价")
+    current_price: str = Field(..., alias="currentPrice", description="当前价")
+    market_value: str = Field(..., alias="marketValue", description="市值")
+    profit: str = Field(..., alias="profit", description="盈亏金额")
+    profit_rate: str = Field(..., alias="profitRate", description="盈亏比率")
+    today_profit: str = Field(..., alias="todayProfit", description="今日盈亏")
+    today_profit_rate: str = Field(..., alias="todayProfitRate", description="今日盈亏比率")
+    
+    model_config = {"populate_by_name": True}
+    
+    @classmethod
+    def from_raw_data(cls, data: dict) -> SecurityHoldingSchema:
+        """从原始数据创建"""
+        return cls(
+            quantity=get_val(data, "quantity", "qty"),
+            available_quantity=get_val(data, "availableQuantity", "availableQty"),
+            cost_price=get_val(data, "costPrice", "cost"),
+            current_price=get_val(data, "currentPrice", "price"),
+            market_value=get_val(data, "marketValue", "mv"),
+            profit=get_val(data, "profit", "profitAmt"),
+            profit_rate=get_val(data, "profitRate", "profitPct"),
+            today_profit=get_val(data, "todayProfit", "todayProfitAmt"),
+            today_profit_rate=get_val(data, "todayProfitRate", "todayProfitPct"),
+        )
 
 
 class SecurityMarketInfoSchema(BaseModel):
     """标的行情信息"""
     
-    open_price: float = Field(..., description="开盘价")
-    high_price: float = Field(..., description="最高价")
-    low_price: float = Field(..., description="最低价")
-    volume: int = Field(..., description="成交量")
-    turnover: float = Field(..., description="成交额")
-    change_rate: float = Field(..., description="涨跌幅")
+    open_price: str = Field(..., alias="openPrice", description="开盘价")
+    high_price: str = Field(..., alias="highPrice", description="最高价")
+    low_price: str = Field(..., alias="lowPrice", description="最低价")
+    volume: str = Field(..., alias="volume", description="成交量")
+    turnover: str = Field(..., alias="turnover", description="成交额")
+    change_rate: str = Field(..., alias="changeRate", description="涨跌幅")
+    
+    model_config = {"populate_by_name": True}
 
 
 class SecurityDetailSchema(BaseModel):

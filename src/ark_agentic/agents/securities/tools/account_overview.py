@@ -8,6 +8,7 @@ from typing import Any
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
+from ..template_renderer import TemplateRenderer
 from .service_client import create_service_adapter
 
 
@@ -37,7 +38,10 @@ class AccountOverviewTool(AgentTool):
         context: dict[str, Any] | None = None,
     ) -> AgentToolResult:
         args = tool_call.arguments
-        account_type = args.get("account_type", "normal")
+        # 优先从 args 获取（LLM 显式指定），其次从 context 获取，最后默认为 normal
+        # 注意：通常 LLM 不会指定 account_type，而是由系统上下文决定
+        context_account_type = context.get("account_type") if context else None
+        account_type = args.get("account_type") or context_account_type or "normal"
         
         # 从上下文获取用户信息
         user_id = context.get("user_id", "U001") if context else "U001"
@@ -51,6 +55,9 @@ class AccountOverviewTool(AgentTool):
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
                 data=data,
+                metadata={
+                    "template": TemplateRenderer.render_account_overview_card(data),
+                },
             )
         except Exception as e:
             return AgentToolResult.error_result(

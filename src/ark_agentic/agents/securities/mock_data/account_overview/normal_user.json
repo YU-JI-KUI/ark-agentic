@@ -1,13 +1,13 @@
 {
-  "code": 0,
-  "message": "success",
-  "data": {
-    "totalAssets": 1250000.00,
-    "cashBalance": 50000.00,
-    "stockValue": 1200000.00,
-    "todayProfit": 15000.00,
-    "totalProfit": 250000.00,
-    "profitRate": 0.25,
-    "updateTime": "2026-02-14 10:30:00"
-  }
+    "code": "0",
+    "message": "success",
+    "data": {
+        "totalAssets": "1250000.0",
+        "cashBalance": "50000.0",
+        "stockValue": "1200000.0",
+        "todayProfit": "15000.0",
+        "totalProfit": "250000.0",
+        "profitRate": "0.25",
+        "updateTime": "2026-02-14 10:30:00"
+    }
 }

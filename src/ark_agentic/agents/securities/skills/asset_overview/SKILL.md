@@ -21,11 +21,13 @@ description: 查询用户账户的总体资产情况
 ## 执行步骤
 
 1. **调用工具**：使用 `account_overview` 工具获取账户总资产数据
+   - **纯查询**：设置 `return_json_card=True`，直接返回 JSON 卡片
+   - **分析性查询**：设置 `return_json_card=False`（默认），获取数据进行分析
 2. **判断账户类型**：
    - 普通账户：展示基本资产信息
    - 两融账户：额外展示维持担保比率、风险等级等
 3. **意图判断**：
-   - 如果用户**仅查看总览**（无具体问题）→ 返回 JSON 模板卡片
+   - 如果用户**仅查看总览**（无具体问题）→ 直接输出工具返回的 JSON
    - 如果用户有**具体问题**（如"为什么亏损"）→ 返回 Markdown 文本分析
 
 ## 输出格式
@@ -37,19 +39,10 @@ description: 查询用户账户的总体资产情况
 - 没有额外的分析性问题
 
 **返回格式**：
-```json
-{
-  "template_type": "account_overview_card",
-  "data": {
-    "total_assets": 1250000.00,
-    "cash_balance": 50000.00,
-    "stock_market_value": 1200000.00,
-    "today_profit": 15000.00,
-    "total_profit": 250000.00,
-    "profit_rate": 0.25,
-    "account_type": "normal"
-  }
-}
+直接输出工具返回的 JSON 数据（不要加 markdown 代码块）：
+
+```text
+{ "template_type": "account_overview_card", "data": { ... } }
 ```
 
 ### 场景 2：分析性查询（返回 Markdown）

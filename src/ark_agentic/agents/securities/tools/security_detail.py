@@ -8,6 +8,7 @@ from typing import Any
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
+from ..template_renderer import TemplateRenderer
 from .service_client import create_service_adapter
 
 
@@ -43,15 +44,10 @@ class SecurityDetailTool(AgentTool):
         context: dict[str, Any] | None = None,
     ) -> AgentToolResult:
         args = tool_call.arguments
-        security_code = args.get("security_code")
-        
-        if not security_code:
-            return AgentToolResult.error_result(
-                tool_call_id=tool_call.id,
-                error="Missing required parameter: security_code",
-            )
-        
-        account_type = args.get("account_type", "normal")
+        security_code = args.get("security_code", "")
+        # 优先 context，其次 args，最后 default
+        context_account_type = context.get("account_type") if context else None
+        account_type = args.get("account_type") or context_account_type or "normal"
         user_id = context.get("user_id", "U001") if context else "U001"
         
         try:
@@ -64,6 +60,9 @@ class SecurityDetailTool(AgentTool):
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
                 data=data,
+                metadata={
+                    "template": TemplateRenderer.render_security_detail_card(data),
+                },
             )
         except Exception as e:
             return AgentToolResult.error_result(

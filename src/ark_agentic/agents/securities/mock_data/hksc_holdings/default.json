@@ -1,26 +1,26 @@
 {
-    "code": 0,
+    "code": "0",
     "message": "success",
     "data": {
         "holdings": [
             {
                 "securityCode": "00700",
                 "securityName": "腾讯控股",
-                "quantity": 500,
-                "costPrice": 380.00,
-                "currentPrice": 420.00,
-                "marketValue": 210000.00,
-                "profit": 20000.00,
-                "profitRate": 0.1053,
-                "todayProfit": 2500.00
+                "quantity": "500",
+                "costPrice": "380.0",
+                "currentPrice": "420.0",
+                "marketValue": "210000.0",
+                "profit": "20000.0",
+                "profitRate": "0.1053",
+                "todayProfit": "2500.0"
             }
         ],
         "summary": {
-            "totalMarketValue": 210000.00,
-            "totalCost": 190000.00,
-            "totalProfit": 20000.00,
-            "totalProfitRate": 0.1053,
-            "todayProfit": 2500.00
+            "totalMarketValue": "210000.0",
+            "totalCost": "190000.0",
+            "totalProfit": "20000.0",
+            "totalProfitRate": "0.1053",
+            "todayProfit": "2500.0"
         }
     }
 }

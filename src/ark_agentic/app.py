@@ -370,10 +370,10 @@ async def chat(
                 for tc in result.tool_calls:
                     tool_calls.append({"name": tc.name, "arguments": tc.arguments})
             
-            # 🆕 检测并发送模板事件
-            if result.response.content:
-                template = extract_template_from_response(result.response.content)
-                if template:
+            # 🆕 从工具结果中提取模板事件（结构化路径，替代 LLM 文本提取）
+            for tr in (result.tool_results or []):
+                template = tr.metadata.get("template") if tr.metadata else None
+                if template and isinstance(template, dict) and "template_type" in template:
                     queue.put_nowait(SSEEvent(
                         type="response.template",
                         seq=next_seq(),
@@ -381,7 +381,7 @@ async def chat(
                         session_id=session_id,
                         template=template,
                     ))
-                    logger.info(f"Detected template: {template.get('template_type')}")
+                    logger.info(f"Template from tool result: {template.get('template_type')}")
             
             # response.completed
             queue.put_nowait(SSEEvent(
