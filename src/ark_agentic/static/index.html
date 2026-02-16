@@ -1517,10 +1517,13 @@
             cardDiv.innerHTML = renderAccountOverviewCard(template.data);
             break;
           case 'holdings_list_card':
-            cardDiv.innerHTML = renderHoldingsListCard(template.data);
+            cardDiv.innerHTML = renderHoldingsListCard(template);
             break;
           case 'cash_assets_card':
             cardDiv.innerHTML = renderCashAssetsCard(template.data);
+            break;
+          case 'security_detail_card':
+            cardDiv.innerHTML = renderSecurityDetailCard(template.data);
             break;
           default:
             cardDiv.innerHTML = renderGenericCard(template);
@@ -1533,13 +1536,22 @@
 
       function formatNumber(num) {
         if (num == null) return '0.00';
-        return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const n = typeof num === 'string' ? parseFloat(num) : num;
+        if (isNaN(n)) return '0.00';
+        return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+
+      function toNum(v) {
+        if (v == null) return 0;
+        const n = typeof v === 'string' ? parseFloat(v) : v;
+        return isNaN(n) ? 0 : n;
       }
 
       function renderAccountOverviewCard(data) {
         const accountTypeBadge = data.account_type === 'margin' ? '两融账户' : '普通账户';
-        const profitClass = (data.today_profit || 0) >= 0 ? 'profit' : 'loss';
-        const profitSign = (data.today_profit || 0) >= 0 ? '+' : '';
+        const todayProfit = toNum(data.today_profit);
+        const profitClass = todayProfit >= 0 ? 'profit' : 'loss';
+        const profitSign = todayProfit >= 0 ? '+' : '';
 
         return `
           <div class="template-card-header">
@@ -1557,45 +1569,51 @@
             </div>
             <div class="tc-metric">
               <span class="tc-label">持仓市值</span>
-              <span class="tc-value">￥${formatNumber(data.market_value)}</span>
+              <span class="tc-value">￥${formatNumber(data.stock_market_value)}</span>
             </div>
             <div class="tc-metric">
               <span class="tc-label">今日收益</span>
               <span class="tc-value ${profitClass}">
-                ${profitSign}￥${formatNumber(Math.abs(data.today_profit || 0))}
-                (${profitSign}${(data.today_profit_rate || 0).toFixed(2)}%)
+                ${profitSign}￥${formatNumber(Math.abs(todayProfit))}
+                (${profitSign}${(toNum(data.profit_rate) * 100).toFixed(2)}%)
               </span>
             </div>
             ${data.account_type === 'margin' && data.margin_ratio ? `
               <div class="tc-metric">
                 <span class="tc-label">维持担保比率</span>
-                <span class="tc-value ${data.margin_ratio < 150 ? 'warning' : ''}">${data.margin_ratio}%</span>
+                <span class="tc-value ${toNum(data.margin_ratio) < 150 ? 'warning' : ''}">${data.margin_ratio}%</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">风险等级</span>
+                <span class="tc-value">${data.risk_level || '-'}</span>
               </div>
             ` : ''}
           </div>
         `;
       }
 
-      function renderHoldingsListCard(data) {
-        const title = data.asset_type === 'ETF' ? 'ETF持仓' :
-          data.asset_type === 'HKSC' ? '港股通持仓' :
-            data.asset_type === 'Fund' ? '基金持仓' : '持仓明细';
+      function renderHoldingsListCard(template) {
+        const ac = template.asset_class || '';
+        const title = ac === 'ETF' ? 'ETF持仓' :
+          ac === 'HKSC' ? '港股通持仓' :
+            ac === 'Fund' ? '基金持仓' : '持仓明细';
 
-        const holdings = data.holdings || [];
+        const holdings = (template.data && template.data.holdings) || [];
         const holdingsHtml = holdings.map(h => {
-          const profitClass = (h.profit_rate || 0) >= 0 ? 'profit' : 'loss';
-          const profitSign = (h.profit_rate || 0) >= 0 ? '+' : '';
+          const pr = toNum(h.profit_rate);
+          const profitClass = pr >= 0 ? 'profit' : 'loss';
+          const profitSign = pr >= 0 ? '+' : '';
           return `
             <div class="tc-list-item">
               <div>
-                <div class="tc-item-name">${escHtml(h.name || h.code)}</div>
+                <div class="tc-item-name">${escHtml(h.security_name || h.name || h.security_code || h.code || '')}</div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
-                  ${escHtml(h.code)} · 持仓: ${h.quantity}
+                  ${escHtml(h.security_code || h.code || '')} · 持仓: ${h.quantity || h.holding_quantity || '-'}
                 </div>
               </div>
               <div style="text-align:right;">
                 <div class="tc-item-value ${profitClass}">
-                  ${profitSign}${(h.profit_rate || 0).toFixed(2)}%
+                  ${profitSign}${(pr * 100).toFixed(2)}%
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
                   ￥${formatNumber(h.market_value)}
@@ -1634,6 +1652,56 @@
               <span class="tc-label">总现金</span>
               <span class="tc-value">￥${formatNumber(data.total_cash)}</span>
             </div>
+          </div>
+        `;
+      }
+
+      function renderSecurityDetailCard(data) {
+        const holding = data.holding || {};
+        const market = data.market_info || {};
+        const pr = toNum(holding.profit_rate);
+        const profitClass = pr >= 0 ? 'profit' : 'loss';
+        const profitSign = pr >= 0 ? '+' : '';
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${escHtml(data.security_name || data.security_code || '标的详情')}</div>
+            <div class="tc-badge">${escHtml(data.security_type || data.market || '')}</div>
+          </div>
+          <div class="template-card-body">
+            ${market.current_price ? `
+              <div class="tc-metric">
+                <span class="tc-label">现价</span>
+                <span class="tc-value">￥${formatNumber(market.current_price)}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">涨跌幅</span>
+                <span class="tc-value ${toNum(market.change_rate) >= 0 ? 'profit' : 'loss'}">
+                  ${toNum(market.change_rate) >= 0 ? '+' : ''}${(toNum(market.change_rate) * 100).toFixed(2)}%
+                </span>
+              </div>
+            ` : ''}
+            ${holding.quantity ? `
+              <div class="tc-metric">
+                <span class="tc-label">持仓数量</span>
+                <span class="tc-value">${holding.quantity}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">持仓成本</span>
+                <span class="tc-value">￥${formatNumber(holding.cost_price)}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">持仓市值</span>
+                <span class="tc-value">￥${formatNumber(holding.market_value)}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">盈亏</span>
+                <span class="tc-value ${profitClass}">
+                  ${profitSign}￥${formatNumber(Math.abs(toNum(holding.profit)))}
+                  (${profitSign}${(pr * 100).toFixed(2)}%)
+                </span>
+              </div>
+            ` : '<div style="text-align:center;color:var(--text-muted);padding:12px;">当前未持仓</div>'}
           </div>
         `;
       }

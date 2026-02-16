@@ -1,0 +1,17 @@
+{
+  "1cb2ac5e-4e9a-4712-a46e-d87dc0eb5cea": {
+    "sessionId": "1cb2ac5e-4e9a-4712-a46e-d87dc0eb5cea",
+    "updatedAt": 1771225773983,
+    "sessionFile": "data/ark_sessions/1cb2ac5e-4e9a-4712-a46e-d87dc0eb5cea.jsonl",
+    "model": "Qwen3-80B-Instruct",
+    "provider": "ark",
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "compactionCount": 0,
+    "activeSkills": [],
+    "metadata": {
+      "user_id": "U001"
+    }
+  }
+}

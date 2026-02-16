@@ -67,7 +67,7 @@ def create_insurance_agent_from_env(
         sessions_dir = os.getenv("SESSIONS_DIR")
     
     if enable_persistence and sessions_dir is None:
-        sessions_dir = Path("data") / "ark_insurance_sessions"
+        sessions_dir = Path("data") / "ark_sessions"
     
     if sessions_dir:
         sessions_dir = Path(sessions_dir)
