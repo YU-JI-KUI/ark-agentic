@@ -8,7 +8,6 @@ from typing import Any
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
-from ..template_renderer import TemplateRenderer
 from .service_client import create_service_adapter
 
 
@@ -52,9 +51,6 @@ class ETFHoldingsTool(AgentTool):
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
                 data=data,
-                metadata={
-                    "template": TemplateRenderer.render_holdings_list_card("ETF", data),
-                },
             )
         except Exception as e:
             return AgentToolResult.error_result(

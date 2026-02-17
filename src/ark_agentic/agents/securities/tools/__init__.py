@@ -2,6 +2,7 @@
 
 from .account_overview import AccountOverviewTool
 from .cash_assets import CashAssetsTool
+from .display_card import DisplayCardTool
 from .etf_holdings import ETFHoldingsTool
 from .fund_holdings import FundHoldingsTool
 from .hksc_holdings import HKSCHoldingsTool
@@ -10,6 +11,7 @@ from .security_detail import SecurityDetailTool
 __all__ = [
     "AccountOverviewTool",
     "CashAssetsTool",
+    "DisplayCardTool",
     "ETFHoldingsTool",
     "FundHoldingsTool",
     "HKSCHoldingsTool",
@@ -23,6 +25,7 @@ def create_securities_tools() -> list:
     return [
         AccountOverviewTool(),
         CashAssetsTool(),
+        DisplayCardTool(),
         ETFHoldingsTool(),
         FundHoldingsTool(),
         HKSCHoldingsTool(),

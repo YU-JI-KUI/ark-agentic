@@ -89,36 +89,3 @@ class TemplateRenderer:
             }
         }
 
-
-def should_return_template(user_input: str, intent: str) -> bool:
-    """
-    判断是否应该返回 JSON 模板卡片
-    
-    Args:
-        user_input: 用户输入
-        intent: 识别的意图（account_overview, etf_holdings 等）
-    
-    Returns:
-        True 表示返回模板，False 表示返回 Markdown 文本
-    """
-    # 简单的启发式规则：
-    # 1. 优先检查分析性关键词
-    # 2. 如果包含分析性关键词，返回 Markdown
-    # 3. 否则根据输入长度判断
-    
-    analysis_keywords = [
-        "为什么", "怎么样", "分析", "建议", "原因", "对比",
-        "合理", "风险", "趋势", "预测", "评价", "如何",
-    ]
-    
-    # 如果包含分析性关键词，返回 Markdown
-    for keyword in analysis_keywords:
-        if keyword in user_input:
-            return False
-    
-    # 如果输入很短（<= 10 字），返回模板
-    if len(user_input) <= 10:
-        return True
-    
-    # 默认：输入较短返回模板，较长返回 Markdown
-    return len(user_input) <= 15

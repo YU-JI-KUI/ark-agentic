@@ -13,5 +13,20 @@
     "metadata": {
       "user_id": "U001"
     }
+  },
+  "b455023c-503f-4273-b836-8cfe2fd8883a": {
+    "sessionId": "b455023c-503f-4273-b836-8cfe2fd8883a",
+    "updatedAt": 1771245421522,
+    "sessionFile": "data/ark_sessions/b455023c-503f-4273-b836-8cfe2fd8883a.jsonl",
+    "model": "Qwen3-80B-Instruct",
+    "provider": "ark",
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "compactionCount": 0,
+    "activeSkills": [],
+    "metadata": {
+      "user_id": "U001"
+    }
   }
 }

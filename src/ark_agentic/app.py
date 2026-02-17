@@ -67,46 +67,6 @@ def _get_agent(agent_id: str) -> AgentRunner:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
 
 
-def extract_template_from_response(content: str) -> dict[str, Any] | None:
-    """从 LLM 响应中提取 JSON 模板
-    
-    检测模式：
-    1. 响应中包含 ```json ... ``` 代码块
-    2. JSON 对象包含 "template_type" 字段
-    
-    Args:
-        content: LLM 响应内容
-    
-    Returns:
-        模板字典，如果没有则返回 None
-    """
-    import json
-    import re
-    
-    # 提取 JSON 代码块
-    json_pattern = r'```json\s*\n(.*?)\n```'
-    matches = re.findall(json_pattern, content, re.DOTALL)
-    
-    for match in matches:
-        try:
-            data = json.loads(match)
-            # 检查是否是模板
-            if isinstance(data, dict) and "template_type" in data:
-                return data
-        except json.JSONDecodeError:
-            continue
-    
-    # 尝试直接解析整个响应（如果是纯 JSON）
-    try:
-        data = json.loads(content.strip())
-        if isinstance(data, dict) and "template_type" in data:
-            return data
-    except json.JSONDecodeError:
-        pass
-    
-    return None
-
-
 class ChatRequest(BaseModel):
     """Chat 请求模型"""
     agent_id: str = Field("insurance", description="Agent ID (insurance/securities)")

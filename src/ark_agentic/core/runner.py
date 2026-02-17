@@ -415,6 +415,21 @@ class AgentRunner:
                 tool_results = await self._execute_tools(
                     response.tool_calls, context, on_step=on_step,
                 )
+
+                # 🆕 将已完成的工具结果数据注入 context，供后续工具（如 display_card）使用
+                # 注意：只存储可序列化的 content 数据，不存储 AgentToolResult 对象
+                _tc_name_map = {tc.id: tc.name for tc in all_tool_calls}
+                for tr in tool_results:
+                    _tc_name_map[tr.tool_call_id] = next(
+                        (tc.name for tc in response.tool_calls if tc.id == tr.tool_call_id),
+                        _tc_name_map.get(tr.tool_call_id, ""),
+                    )
+                named_data = {
+                    _tc_name_map.get(tr.tool_call_id, ""): tr.content
+                    for tr in [*all_tool_results, *tool_results]
+                    if not tr.is_error
+                }
+                context["_tool_results_by_name"] = named_data
                 total_tool_calls += len(response.tool_calls)
                 all_tool_results.extend(tool_results)
 
