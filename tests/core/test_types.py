@@ -1,4 +1,4 @@
-﻿"""Tests for agent types."""
+"""Tests for agent types."""
 
 import pytest
 from datetime import datetime
@@ -7,6 +7,7 @@ from ark_agentic.core.types import (
     AgentMessage,
     AgentToolResult,
     MessageRole,
+    RunOptions,
     SessionEntry,
     SkillEntry,
     SkillMetadata,
@@ -118,15 +119,15 @@ class TestSessionEntry:
     def test_update_token_usage(self) -> None:
         """Test token usage update."""
         session = SessionEntry.create()
-        session.update_token_usage(input_tokens=100, output_tokens=50)
-        assert session.token_usage.input_tokens == 100
-        assert session.token_usage.output_tokens == 50
+        session.update_token_usage(prompt_tokens=100, completion_tokens=50)
+        assert session.token_usage.prompt_tokens == 100
+        assert session.token_usage.completion_tokens == 50
         assert session.token_usage.total_tokens == 150
 
         # Cumulative
-        session.update_token_usage(input_tokens=50, output_tokens=25)
-        assert session.token_usage.input_tokens == 150
-        assert session.token_usage.output_tokens == 75
+        session.update_token_usage(prompt_tokens=50, completion_tokens=25)
+        assert session.token_usage.prompt_tokens == 150
+        assert session.token_usage.completion_tokens == 75
 
 
 class TestSkillMetadata:
@@ -140,6 +141,35 @@ class TestSkillMetadata:
         assert meta.version == "1.0.0"
         assert meta.invocation_policy == "auto"
         assert meta.tags == []
+        assert meta.when_to_use is None
+
+    def test_when_to_use(self) -> None:
+        """Test when_to_use field for skill load decision."""
+        meta = SkillMetadata(
+            name="withdraw",
+            description="Withdraw money",
+            when_to_use="用户明确要求取款或退保时",
+        )
+        assert meta.when_to_use == "用户明确要求取款或退保时"
+
+
+class TestRunOptions:
+    """Tests for RunOptions."""
+
+    def test_default_all_none(self) -> None:
+        """Test default RunOptions has all None."""
+        opts = RunOptions()
+        assert opts.model is None
+        assert opts.temperature is None
+
+    def test_custom_values(self) -> None:
+        """Test RunOptions with explicit values."""
+        opts = RunOptions(
+            model="gpt-4",
+            temperature=0.7,
+        )
+        assert opts.model == "gpt-4"
+        assert opts.temperature == 0.7
 
 
 class TestTokenUsage:
@@ -147,14 +177,14 @@ class TestTokenUsage:
 
     def test_total_tokens(self) -> None:
         """Test total tokens calculation."""
-        usage = TokenUsage(input_tokens=100, output_tokens=50)
+        usage = TokenUsage(prompt_tokens=100, completion_tokens=50)
         assert usage.total_tokens == 150
 
     def test_cache_tokens(self) -> None:
         """Test cache token fields."""
         usage = TokenUsage(
-            input_tokens=100,
-            output_tokens=50,
+            prompt_tokens=100,
+            completion_tokens=50,
             cache_read_tokens=20,
             cache_creation_tokens=10
         )

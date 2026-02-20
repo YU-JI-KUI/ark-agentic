@@ -1,11 +1,9 @@
-﻿"""Tests for prompt builder."""
+"""Tests for prompt builder."""
 
 import pytest
 from ark_agentic.core.prompt.builder import (
-    INSURANCE_AGENT_INSTRUCTIONS,
     PromptConfig,
     SystemPromptBuilder,
-    build_insurance_agent_prompt,
 )
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, SkillEntry, SkillMetadata
@@ -122,7 +120,7 @@ class TestSystemPromptBuilder:
         assert "Available Tools" not in prompt
 
     def test_add_skills(self) -> None:
-        """Test adding skills section."""
+        """Test adding skills section (full content by default)."""
         builder = SystemPromptBuilder()
         skills = [
             SkillEntry(
@@ -137,6 +135,30 @@ class TestSystemPromptBuilder:
 
         assert "Test Skill" in prompt
         assert "Use this skill when testing." in prompt
+
+    def test_add_skills_metadata_only(self) -> None:
+        """When use_skill_metadata_only=True: metadata list + load-one-skill instructions, no full content."""
+        config = PromptConfig(use_skill_metadata_only=True)
+        builder = SystemPromptBuilder(config)
+        skills = [
+            SkillEntry(
+                id="test_skill",
+                path="/test",
+                content="Full skill body must not appear in prompt.",
+                metadata=SkillMetadata(
+                    name="Test Skill",
+                    description="A test skill. When to use: When user asks for X",
+                ),
+            )
+        ]
+        builder.add_skills(skills)
+        prompt = builder.build()
+
+        assert "test_skill" in prompt
+        assert "Test Skill" in prompt
+        assert "When user asks for X" in prompt
+        assert "read_skill" in prompt
+        assert "Full skill body must not appear in prompt." not in prompt
 
     def test_add_skills_disabled(self) -> None:
         """Test skills disabled in config."""
@@ -249,7 +271,7 @@ class TestQuickBuild:
         assert "mock_tool" in prompt
 
     def test_quick_build_with_skills(self) -> None:
-        """Test quick build with skills."""
+        """Test quick build with skills (full content by default)."""
         skills = [
             SkillEntry(
                 id="test",
@@ -260,6 +282,22 @@ class TestQuickBuild:
         ]
         prompt = SystemPromptBuilder.quick_build(skills=skills)
         assert "Skill content" in prompt
+
+    def test_quick_build_with_skills_metadata_only(self) -> None:
+        """Test quick build with use_skill_metadata_only: metadata only, no full content."""
+        skills = [
+            SkillEntry(
+                id="s1",
+                path="/s1",
+                content="Secret body",
+                metadata=SkillMetadata(name="S1", description="First. When to use: When A"),
+            )
+        ]
+        config = PromptConfig(use_skill_metadata_only=True)
+        prompt = SystemPromptBuilder.quick_build(skills=skills, config=config)
+        assert "s1" in prompt and "S1" in prompt and "When A" in prompt
+        assert "read_skill" in prompt
+        assert "Secret body" not in prompt
 
     def test_quick_build_with_context(self) -> None:
         """Test quick build with context."""
@@ -285,31 +323,3 @@ class TestQuickBuild:
         assert "query(string)" in prompt
 
 
-class TestBuildInsuranceAgentPrompt:
-    """Tests for insurance agent prompt builder."""
-
-    def test_basic_prompt(self) -> None:
-        """Test basic insurance prompt."""
-        prompt = build_insurance_agent_prompt()
-
-        assert "保险智能助手" in prompt
-        assert "工作流程" in prompt or "理解需求" in prompt
-
-    def test_with_tools(self) -> None:
-        """Test with tools."""
-        prompt = build_insurance_agent_prompt(
-            tools=[MockTool()]
-        )
-        assert "mock_tool" in prompt
-
-    def test_with_user_context(self) -> None:
-        """Test with user context."""
-        prompt = build_insurance_agent_prompt(
-            user_context={"customer_id": "12345"}
-        )
-        assert "customer_id" in prompt
-
-    def test_insurance_instructions_content(self) -> None:
-        """Test insurance instructions content."""
-        assert "保险" in INSURANCE_AGENT_INSTRUCTIONS
-        assert "方案" in INSURANCE_AGENT_INSTRUCTIONS

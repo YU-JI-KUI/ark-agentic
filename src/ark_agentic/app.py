@@ -33,6 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ark_agentic.core.runner import AgentRunner
+from ark_agentic.core.types import RunOptions
 from ark_agentic.agents.insurance.api import create_insurance_agent_from_env
 
 logger = logging.getLogger(__name__)
@@ -72,8 +73,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息内容")
     session_id: str | None = Field(None, description="会话 ID，为空则创建新会话")
     stream: bool = Field(False, description="是否启用 SSE 流式输出")
-    model: str | None = Field(None, description="模型名称覆盖，为空则使用默认模型")
-    temperature: float | None = Field(None, ge=0.0, le=2.0, description="采样温度覆盖（0.0-2.0），为空则使用环境变量 DEFAULT_TEMPERATURE 的值")
+    run_options: RunOptions | None = Field(None, description="运行选项（模型、温度等覆盖）")
     # 业务上下文字段
     user_id: str | None = Field(None, description="用户 ID")
     context: dict[str, Any] | None = Field(None, description="业务上下文数据")
@@ -224,12 +224,12 @@ async def chat(
 
     if not request.stream:
         # 非流式响应
+        run_options = request.run_options
         result = await agent.run(
             session_id=session_id,
             user_input=request.message,
             context=context,
-            model_override=request.model,
-            temperature_override=request.temperature,
+            run_options=run_options,
         )
         tool_calls = []
         if result.tool_calls:
@@ -297,8 +297,7 @@ async def chat(
                 user_input=request.message,
                 context=context,
                 stream_override=True,
-                model_override=request.model,
-                temperature_override=request.temperature,
+                run_options=request.run_options,
                 on_step=on_step,
                 on_content=on_content,
             )

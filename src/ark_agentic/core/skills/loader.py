@@ -94,6 +94,9 @@ class SkillLoader:
         # 构建元数据
         metadata = self._build_metadata(frontmatter, skill_id)
 
+        # 构建全局唯一 skill id：agent_id.skill_name
+        skill_id = f"{self.config.agent_id}.{skill_id}" if self.config.agent_id else skill_id
+
         return SkillEntry(
             id=skill_id,
             path=str(file_path.parent),
@@ -128,10 +131,16 @@ class SkillLoader:
     def _build_metadata(
         self, frontmatter: dict[str, Any], skill_id: str
     ) -> SkillMetadata:
-        """从 frontmatter 构建元数据"""
+        """从 frontmatter 构建元数据。when_to_use 合并进 description，标准 skill 仅用 description。"""
+        desc = (frontmatter.get("description") or "").strip()
+        wtu = frontmatter.get("when_to_use")
+        if wtu:
+            wtu_str = wtu.strip() if isinstance(wtu, str) else str(wtu).strip()
+            if wtu_str:
+                desc = f"{desc}\nWhen to use: {wtu_str}" if desc else wtu_str
         return SkillMetadata(
             name=frontmatter.get("name", skill_id),
-            description=frontmatter.get("description", ""),
+            description=desc,
             version=frontmatter.get("version", "1.0.0"),
             required_os=frontmatter.get("required_os"),
             required_binaries=frontmatter.get("required_binaries"),

@@ -186,6 +186,9 @@ class SkillMetadata:
     group: str | None = None
     tags: list[str] = field(default_factory=list)
 
+    # 何时使用（简短说明，用于“是否加载该技能”决策）
+    when_to_use: str | None = None
+
 
 @dataclass
 class SkillEntry:
@@ -211,6 +214,27 @@ class SkillEntry:
 
     # 是否启用
     enabled: bool = True
+
+
+# ============ Run Options ============
+
+
+SkillLoadMode = Literal["full", "dynamic", "semantic"]
+
+
+from pydantic import BaseModel as _PydanticBaseModel, Field as _Field
+
+
+class RunOptions(_PydanticBaseModel):
+    """单次运行的选项（模型、温度等）。
+
+    用于 API 层按请求覆盖模型和温度。
+    技能加载模式由 SkillConfig.default_load_mode 在 Agent 级别配置,
+    不在单次请求中指定。
+    """
+
+    model: str | None = _Field(None, description="模型名称覆盖")
+    temperature: float | None = _Field(None, ge=0.0, le=2.0, description="采样温度覆盖（0.0-2.0）")
 
 
 # ============ Session Types ============

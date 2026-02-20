@@ -136,7 +136,9 @@ def create_insurance_agent(
     # 3. 创建技能加载器（使用绝对路径）
     skill_config = SkillConfig(
         skill_directories=[str(_SKILLS_DIR)],
+        agent_id="insurance",
         enable_eligibility_check=True,
+        default_load_mode="full",  # 保险 Agent 默认全量加载（最可靠）
     )
     skill_loader = SkillLoader(skill_config)
 

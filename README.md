@@ -293,6 +293,9 @@ uv run python script.py
 - **FAISS 索引**: 向量检索支持百万级文档
 - **会话压缩**: 自动总结历史消息，保持上下文窗口稳定
 
-## 许可
+## TODOs
+- [P0] **存储层解耦**: 实现基于 Redis/Database 的 Session 和 Memory 存储，支持 Cloud-Native 分布式部署。
+- [P1] **技能系统 (Skills) 完善**: 设计动态加载方案（全加载/全动态/工程筛选），提供 3-5 个复杂度示例并明确 Skill vs Tool 边界。
+- [P1] **CLI 工具 (ark-cli)**: 开发命令行工具，支持一键生成 Agent 骨架，降低上手门槛。
+- [P2] **UI 适配**: 支持内部 AG-UI 的 Schema 设定。
 
-MIT

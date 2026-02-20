@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, Callable
 
 from .llm.base import LLMClientProtocol
@@ -19,7 +19,13 @@ from .stream.assembler import StreamAssembler, StreamEvent
 from .tools.base import AgentTool
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
-from .types import AgentMessage, AgentToolResult, MessageRole, ToolCall
+from .types import (
+    AgentMessage,
+    AgentToolResult,
+    MessageRole,
+    RunOptions,
+    ToolCall,
+)
 from .validation import validate_response_against_tools
 
 # Type hint for MemoryManager (avoid circular import)
@@ -121,6 +127,12 @@ class AgentRunner:
                 self.tool_registry.register(tool)
             logger.info(f"Registered {len(memory_tools)} memory tools")
 
+        # 自动注册 read_skill 工具（如果提供了 skill_loader）
+        if skill_loader is not None:
+            from .tools.read_skill import ReadSkillTool
+            self.tool_registry.register(ReadSkillTool(skill_loader))
+            logger.info("Registered read_skill tool for dynamic skill loading")
+
         # 技能匹配器
         self.skill_matcher = (
             SkillMatcher(skill_loader) if skill_loader else None
@@ -162,9 +174,8 @@ class AgentRunner:
         user_input: str,
         context: dict[str, Any] | None = None,
         *,
+        run_options: RunOptions | None = None,
         stream_override: bool | None = None,
-        model_override: str | None = None,
-        temperature_override: float | None = None,
         on_step: Callable[[str], None] | None = None,
         on_content: Callable[[str, int], None] | None = None,
     ) -> RunResult:
@@ -174,9 +185,8 @@ class AgentRunner:
             session_id: 会话 ID
             user_input: 用户输入
             context: 额外上下文
+            run_options: 本次运行选项（model/temperature），优先于 config 默认值
             stream_override: 覆盖 config.enable_streaming（线程安全，不修改共享状态）
-            model_override: 覆盖默认模型名称，传递给 LLM client
-            temperature_override: 覆盖默认采样温度（0.0-2.0），为空则使用配置值
             on_step: 生命周期步骤回调 (str) → response.step（per-request，并发安全）
             on_content: LLM 文本增量回调 (delta, output_index) → response.content.delta（per-request，并发安全）
 
@@ -184,6 +194,25 @@ class AgentRunner:
             执行结果
         """
         context = context or {}
+
+        # 解析 model / temperature：run_options 优先，其次 config 默认值
+        effective_model = (
+            (run_options.model if run_options else None)
+            or self.config.model
+        )
+        effective_temperature = (
+            (run_options.temperature if run_options else None)
+            if (run_options and run_options.temperature is not None)
+            else self.config.temperature
+        )
+        # skill_load_mode: Agent 级别配置，不接受请求级覆盖
+        resolved_skill_load_mode: str = (
+            os.getenv("ARK_SKILL_LOAD_MODE")
+            or self.config.skill_config.default_load_mode
+            or "full"
+        )
+        if resolved_skill_load_mode not in ("full", "dynamic", "semantic"):
+            resolved_skill_load_mode = "full"
 
         # 解析有效回调：run() 参数优先，回退到 set_callbacks() 设置的实例属性
         effective_on_step = on_step if on_step is not None else self._on_step
@@ -212,8 +241,9 @@ class AgentRunner:
             result = await self._run_loop(
                 session_id, context,
                 use_streaming=use_streaming,
-                model_override=model_override,
-                temperature_override=temperature_override,
+                model_override=effective_model,
+                temperature_override=effective_temperature,
+                skill_load_mode=resolved_skill_load_mode,
                 on_step=effective_on_step,
                 on_content=effective_on_content,
             )
@@ -302,6 +332,7 @@ class AgentRunner:
         use_streaming: bool = True,
         model_override: str | None = None,
         temperature_override: float | None = None,
+        skill_load_mode: str = "full",
         on_step: Callable[[str], None] | None = None,
         on_content: Callable[[str, int], None] | None = None,
     ) -> RunResult:
@@ -319,7 +350,7 @@ class AgentRunner:
             turns += 1
 
             # 构建请求
-            messages = self._build_messages(session_id, context)
+            messages = self._build_messages(session_id, context, skill_load_mode=skill_load_mode)
             tools = self._build_tools(context)
             logger.info(f"Turn {turns} | messages={len(messages)} tools={len(tools)} model={model_override or self.config.model}")
 
@@ -479,7 +510,11 @@ class AgentRunner:
         )
 
     def _build_messages(
-        self, session_id: str, context: dict[str, Any]
+        self,
+        session_id: str,
+        context: dict[str, Any],
+        *,
+        skill_load_mode: str = "full",
     ) -> list[dict[str, Any]]:
         """构建 LLM 消息列表"""
         import json
@@ -488,7 +523,9 @@ class AgentRunner:
         messages: list[dict[str, Any]] = []
 
         # 系统提示
-        system_prompt = self._build_system_prompt(context, session_id=session_id)
+        system_prompt = self._build_system_prompt(
+            context, session_id=session_id, skill_load_mode=skill_load_mode
+        )
         messages.append({"role": "system", "content": system_prompt})
 
         # 历史消息
@@ -535,7 +572,11 @@ class AgentRunner:
         return messages
 
     def _build_system_prompt(
-        self, context: dict[str, Any], session_id: str | None = None
+        self,
+        context: dict[str, Any],
+        session_id: str | None = None,
+        *,
+        skill_load_mode: str = "full",
     ) -> str:
         """构建系统提示"""
         tools = self.tool_registry.list_all()
@@ -564,11 +605,28 @@ class AgentRunner:
         # 如果启用了 memory，添加 memory 使用指令
         include_memory = self._memory_manager is not None
 
+        # 技能注入模式
+        base_config = self.config.prompt_config
+        if skill_load_mode == "full":
+            use_skill_metadata_only = False
+        elif skill_load_mode == "dynamic":
+            use_skill_metadata_only = True
+        elif skill_load_mode == "semantic":
+            # 占位: 未来通过 SemanticSkillMatcher 预匹配后，
+            # 高置信 skill 全文注入，低置信 skill 走 metadata
+            logger.warning(
+                "Semantic skill loading not yet implemented, falling back to 'dynamic'"
+            )
+            use_skill_metadata_only = True
+        else:
+            use_skill_metadata_only = False
+        prompt_config = replace(base_config, use_skill_metadata_only=use_skill_metadata_only)
+
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
             context=context,
-            config=self.config.prompt_config,
+            config=prompt_config,
             include_memory_instructions=include_memory,
         )
 

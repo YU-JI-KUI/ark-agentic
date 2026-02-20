@@ -333,14 +333,15 @@ class TestCreateMemoryTools:
     """Tests for create_memory_tools factory function."""
 
     def test_creates_both_tools(self) -> None:
-        """Test factory creates both search and get tools."""
+        """Test factory creates search, get, and set tools."""
         manager = MockMemoryManager()
         tools = create_memory_tools(manager)
 
-        assert len(tools) == 2
+        assert len(tools) == 3
         names = [t.name for t in tools]
         assert "memory_search" in names
         assert "memory_get" in names
+        assert "memory_set" in names
 
     def test_tools_share_manager(self) -> None:
         """Test both tools use the same manager instance."""

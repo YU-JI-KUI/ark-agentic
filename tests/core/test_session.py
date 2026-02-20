@@ -1,4 +1,4 @@
-﻿"""Tests for session management."""
+"""Tests for session management."""
 
 import pytest
 import tempfile
@@ -135,10 +135,10 @@ class TestSessionManagerTokens:
         manager = SessionManager(enable_persistence=False)
         session = manager.create_session_sync()
 
-        manager.update_token_usage(session.session_id, input_tokens=100, output_tokens=50)
+        manager.update_token_usage(session.session_id, prompt_tokens=100, completion_tokens=50)
         usage = manager.get_token_usage(session.session_id)
-        assert usage.input_tokens == 100
-        assert usage.output_tokens == 50
+        assert usage.prompt_tokens == 100
+        assert usage.completion_tokens == 50
         assert usage.total_tokens == 150
 
     def test_estimate_current_tokens(self) -> None:
