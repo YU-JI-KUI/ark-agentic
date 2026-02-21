@@ -179,7 +179,6 @@ def create_insurance_agent(
 
     # 5. 配置 Runner
     runner_config = RunnerConfig(
-        model="deepseek-chat",
         temperature=float(os.getenv("DEFAULT_TEMPERATURE", "0.7")),
         max_tokens=4096,
         max_turns=10,
@@ -188,6 +187,7 @@ def create_insurance_agent(
             agent_name="保险智能助手",
             agent_description="专业的保险咨询和业务处理助手，帮助您管理保单和解决保险相关问题。",
         ),
+        skill_config=skill_config,
     )
 
     # 6. 创建 Runner

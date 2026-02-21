@@ -34,7 +34,7 @@ class LLMError(Exception):
     reason: LLMErrorReason
     message: str
     provider: str = ""
-    model: str = ""
+    model: str | None = None
     status_code: int | None = None
     retryable: bool = False
     original: Exception | None = None
@@ -54,7 +54,7 @@ class LLMError(Exception):
 def classify_error(
     exc: Exception,
     provider: str = "",
-    model: str = "",
+    model: str | None = None,
 ) -> LLMError:
     """将原始异常分类为结构化 LLMError。
 

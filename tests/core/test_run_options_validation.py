@@ -116,15 +116,23 @@ class TestRunnerConfigurationPrecedence:
 
     @pytest.mark.asyncio
     async def test_skill_load_mode_precedence(self, runner: AgentRunner) -> None:
-        """Test skill_load_mode comes from config, not run_options."""
-        with patch("os.getenv", return_value=None):
-            # 1. Config default "full"
+        """Test skill_load_mode comes from config only (no run_options, no env)."""
+        # 1. Config default "full"
+        await runner.run(session_id="s1", user_input="hi")
+        _, kwargs = runner._run_loop.call_args
+        assert kwargs["skill_load_mode"] == "full"
+
+        # 2. Config "dynamic"
+        runner.config.skill_config.default_load_mode = "dynamic"
+        await runner.run(session_id="s2", user_input="hi", run_options=RunOptions(model="foo"))
+        _, kwargs = runner._run_loop.call_args
+        assert kwargs["skill_load_mode"] == "dynamic"
+
+    @pytest.mark.asyncio
+    async def test_skill_load_mode_ignores_env(self, runner: AgentRunner) -> None:
+        """Test that skill_load_mode is taken from config only (env has no effect)."""
+        runner.config.skill_config.default_load_mode = "full"
+        with patch.dict("os.environ", {"ARK_SKILL_LOAD_MODE": "dynamic"}, clear=False):
             await runner.run(session_id="s1", user_input="hi")
-            _, kwargs = runner._run_loop.call_args
-            assert kwargs["skill_load_mode"] == "full"
-            
-            # 2. Config "dynamic"
-            runner.config.skill_config.default_load_mode = "dynamic"
-            await runner.run(session_id="s2", user_input="hi", run_options=RunOptions(model="foo"))
-            _, kwargs = runner._run_loop.call_args
-            assert kwargs["skill_load_mode"] == "dynamic"
+        _, kwargs = runner._run_loop.call_args
+        assert kwargs["skill_load_mode"] == "full"

@@ -44,7 +44,7 @@ class RunnerConfig:
     """Runner 配置"""
 
     # LLM 参数
-    model: str = "Qwen3-80B-Instruct"
+    model: str | None = None
     temperature: float = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
     max_tokens: int = 4096
 
@@ -205,14 +205,11 @@ class AgentRunner:
             if (run_options and run_options.temperature is not None)
             else self.config.temperature
         )
-        # skill_load_mode: Agent 级别配置，不接受请求级覆盖
+        # skill_load_mode: Agent 级别配置，仅来自 RunnerConfig.skill_config
+        raw = self.config.skill_config.default_load_mode
         resolved_skill_load_mode: str = (
-            os.getenv("ARK_SKILL_LOAD_MODE")
-            or self.config.skill_config.default_load_mode
-            or "full"
+            raw if raw in ("full", "dynamic", "semantic") else "full"
         )
-        if resolved_skill_load_mode not in ("full", "dynamic", "semantic"):
-            resolved_skill_load_mode = "full"
 
         # 解析有效回调：run() 参数优先，回退到 set_callbacks() 设置的实例属性
         effective_on_step = on_step if on_step is not None else self._on_step
