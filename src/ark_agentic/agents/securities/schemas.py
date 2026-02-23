@@ -24,18 +24,31 @@ def get_val(d: dict, *keys):
     return None
 
 class AccountOverviewSchema(BaseModel):
-    """账户总资产标准模型"""
+    """账户总资产标准模型
     
+    支持两种数据来源：
+    1. from_raw_data: 从旧格式/mock 数据创建
+    2. from_api_response: 从真实 API 响应创建（通过字段提取后的数据）
+    """
+    
+    # 基础字段
     total_assets: str = Field(..., description="总资产")
     cash_balance: str = Field(..., description="现金余额")
     stock_market_value: str = Field(..., description="股票市值")
     today_profit: str = Field(..., description="今日收益")
-    total_profit: str = Field(..., description="累计收益")
-    profit_rate: str = Field(..., description="收益率")
+    total_profit: str | None = Field(None, description="累计收益")
+    profit_rate: str | None = Field(None, description="收益率")
     update_time: str | None = Field(None, description="更新时间")
     
+    # 新增字段（来自真实 API）
+    fund_market_value: str | None = Field(None, description="基金市值")
+    today_return_rate: str | None = Field(None, description="今日收益率")
+    
     # 两融账户专属字段（可选）
-    margin_ratio: str | None = Field(None, description="维持担保比率")
+    net_assets: str | None = Field(None, description="净资产")
+    total_liabilities: str | None = Field(None, description="总负债")
+    maintenance_margin_ratio: str | None = Field(None, description="维持担保比例")
+    margin_ratio: str | None = Field(None, description="维持担保比率（兼容旧字段）")
     risk_level: Literal["low", "medium", "high"] | None = Field(None, description="风险等级")
     maintenance_margin: str | None = Field(None, description="维持保证金")
     available_margin: str | None = Field(None, description="可用保证金")
@@ -44,26 +57,68 @@ class AccountOverviewSchema(BaseModel):
 
     @classmethod
     def from_raw_data(cls, data: dict, account_type: str = "normal") -> AccountOverviewSchema:
-        """从原始数据创建（支持多种字段名）"""
+        """从原始数据创建（支持多种字段名）
+        
+        用于旧格式/mock 数据的解析。
+        """
         # 标准化字段名
         normalized = {
-            "total_assets": get_val(data, "totalAssets", "total_asset"),
-            "cash_balance": get_val(data, "cashBalance", "cash"),
-            "stock_market_value": get_val(data, "stockValue", "stock_mv"),
-            "today_profit": get_val(data, "todayProfit", "profit_today"),
-            "total_profit": get_val(data, "totalProfit", "profit_total"),
-            "profit_rate": get_val(data, "profitRate", "profit_pct"),
+            "total_assets": get_val(data, "totalAssets", "total_asset", "total_assets"),
+            "cash_balance": get_val(data, "cashBalance", "cash", "cash_balance"),
+            "stock_market_value": get_val(data, "stockValue", "stock_mv", "stock_market_value"),
+            "today_profit": get_val(data, "todayProfit", "profit_today", "today_profit"),
+            "total_profit": get_val(data, "totalProfit", "profit_total", "total_profit"),
+            "profit_rate": get_val(data, "profitRate", "profit_pct", "profit_rate"),
             "update_time": get_val(data, "updateTime", "update_time"),
+            "fund_market_value": get_val(data, "fundMktVal", "fund_market_value"),
+            "today_return_rate": get_val(data, "todayReturnRate", "today_return_rate"),
         }
         
         # 两融账户额外字段
         if account_type == "margin":
+            normalized["net_assets"] = get_val(data, "netAssets", "net_assets", "netWorth")
+            normalized["total_liabilities"] = get_val(data, "totalLiabilities", "total_liabilities")
+            normalized["maintenance_margin_ratio"] = get_val(data, "maintenanceMarginRatio", "maintenance_margin_ratio", "mainRatio")
             normalized["margin_ratio"] = get_val(data, "marginRatio", "margin_pct")
             normalized["risk_level"] = get_val(data, "riskLevel", "risk")
             normalized["maintenance_margin"] = get_val(data, "maintenanceMargin")
             normalized["available_margin"] = get_val(data, "availableMargin")
         
         return cls(**normalized)
+    
+    @classmethod
+    def from_api_response(cls, data: dict, account_type: str = "normal") -> AccountOverviewSchema:
+        """从真实 API 响应创建（通过字段提取后的数据）
+        
+        用于从 field_extraction.extract_account_overview() 提取后的数据创建。
+        字段已经是标准化的名称。
+        
+        Args:
+            data: 从 extract_account_overview() 返回的标准化数据
+            account_type: 账户类型 ("normal" 或 "margin")
+        
+        Returns:
+            AccountOverviewSchema 实例
+        """
+        return cls(
+            total_assets=data.get("total_assets", "0"),
+            cash_balance=data.get("cash_balance", "0"),
+            stock_market_value=data.get("stock_market_value", "0"),
+            today_profit=data.get("today_profit", "0"),
+            total_profit=data.get("total_profit"),
+            profit_rate=data.get("profit_rate"),
+            update_time=data.get("update_time"),
+            fund_market_value=data.get("fund_market_value"),
+            today_return_rate=data.get("today_return_rate"),
+            # 两融账户字段
+            net_assets=data.get("net_assets"),
+            total_liabilities=data.get("total_liabilities"),
+            maintenance_margin_ratio=data.get("maintenance_margin_ratio"),
+            margin_ratio=data.get("margin_ratio"),
+            risk_level=data.get("risk_level"),
+            maintenance_margin=data.get("maintenance_margin"),
+            available_margin=data.get("available_margin"),
+        )
 
 
 # ============ ETF 持仓 ============

@@ -1,4 +1,10 @@
-"""账户总资产工具"""
+"""账户总资产工具
+
+从扁平 context 获取参数：
+- token_id: 用户令牌（必需，由前端传入）
+- account_type: 账户类型，normal 或 margin（可选，默认 normal）
+- user_id: 用户 ID（可选）
+"""
 
 from __future__ import annotations
 
@@ -37,18 +43,21 @@ class AccountOverviewTool(AgentTool):
         context: dict[str, Any] | None = None,
     ) -> AgentToolResult:
         args = tool_call.arguments
-        # 优先从 args 获取（LLM 显式指定），其次从 context 获取，最后默认为 normal
-        # 注意：通常 LLM 不会指定 account_type，而是由系统上下文决定
-        context_account_type = context.get("account_type") if context else None
-        account_type = args.get("account_type") or context_account_type or "normal"
+        context = context or {}
+        # 上下文中的参数优先级高于 args，例如用户令牌或账户切换等信息。
+        args.update(context)
         
-        # 从上下文获取用户信息
-        user_id = context.get("user_id", "U001") if context else "U001"
+        # 从扁平 context 获取业务参数
+        # 优先级: args > context > 默认值
+        account_type = args.get("account_type") or context.get("account_type", "normal")
+        user_id = context.get("user_id", "U001")
         
         try:
+            # 传递完整 context 给 adapter（用于参数映射）
             data = await self._adapter.call(
                 account_type=account_type,
                 user_id=user_id,
+                _context=context,  # 传递完整上下文供参数映射使用
             )
             
             return AgentToolResult.json_result(

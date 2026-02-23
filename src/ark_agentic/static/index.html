@@ -1071,6 +1071,8 @@
       let selectedUserId = sessionStorage.getItem('ark_user_id') || 'U001';
       let selectedAgent = sessionStorage.getItem('ark_agent') || 'insurance';  // 🆕
       let selectedAccountType = sessionStorage.getItem('ark_account_type') || 'normal';  // 🆕
+      // 🆕 模拟登录后的 token（真实场景应从登录接口获取）
+      let tokenId = sessionStorage.getItem('ark_token_id') || 'MOCK_TOKEN_' + Date.now();
 
       // ---- DOM refs ----
       const $welcome = document.getElementById('welcomeSection');
@@ -1239,6 +1241,7 @@
           user_id: selectedUserId,
           context: {
             user_id: selectedUserId,
+            token_id: tokenId,  // 🆕 传入 token_id
             ...(selectedAgent === 'securities' ? { account_type: selectedAccountType } : {})  // 🆕
           },
         };
@@ -1578,15 +1581,27 @@
                 (${profitSign}${(toNum(data.profit_rate) * 100).toFixed(2)}%)
               </span>
             </div>
-            ${data.account_type === 'margin' && data.margin_ratio ? `
+            ${data.account_type === 'margin' ? `
               <div class="tc-metric">
-                <span class="tc-label">维持担保比率</span>
-                <span class="tc-value ${toNum(data.margin_ratio) < 150 ? 'warning' : ''}">${data.margin_ratio}%</span>
+                <span class="tc-label">净资产</span>
+                <span class="tc-value">￥${formatNumber(data.net_assets)}</span>
               </div>
               <div class="tc-metric">
-                <span class="tc-label">风险等级</span>
-                <span class="tc-value">${data.risk_level || '-'}</span>
+                <span class="tc-label">总负债</span>
+                <span class="tc-value">￥${formatNumber(data.total_liabilities)}</span>
               </div>
+              ${data.maintenance_margin_ratio ? `
+                <div class="tc-metric">
+                  <span class="tc-label">维持担保比率</span>
+                  <span class="tc-value ${toNum(data.maintenance_margin_ratio) < 150 ? 'warning' : ''}">${data.maintenance_margin_ratio}%</span>
+                </div>
+              ` : ''}
+              ${data.risk_level ? `
+                <div class="tc-metric">
+                  <span class="tc-label">风险等级</span>
+                  <span class="tc-value">${data.risk_level}</span>
+                </div>
+              ` : ''}
             ` : ''}
           </div>
         `;

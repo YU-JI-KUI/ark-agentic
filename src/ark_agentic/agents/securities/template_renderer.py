@@ -14,18 +14,40 @@ class TemplateRenderer:
     
     @staticmethod
     def render_account_overview_card(data: dict[str, Any]) -> dict[str, Any]:
-        """渲染账户总览卡片"""
+        """渲染账户总览卡片
+        
+        支持的字段（来自真实 API 响应提取）：
+        - total_assets: 总资产
+        - cash_balance: 现金余额
+        - stock_market_value: 股票市值
+        - fund_market_value: 基金市值
+        - today_profit: 今日收益
+        - today_return_rate: 今日收益率
+        - account_type: 账户类型 (normal/margin)
+        
+        两融账户额外字段：
+        - net_assets: 净资产
+        - total_liabilities: 总负债
+        - maintenance_margin_ratio: 维持担保比例
+        """
         return {
             "template_type": "account_overview_card",
             "data": {
+                # 基础字段
                 "total_assets": data.get("total_assets"),
                 "cash_balance": data.get("cash_balance"),
                 "stock_market_value": data.get("stock_market_value"),
+                "fund_market_value": data.get("fund_market_value"),
                 "today_profit": data.get("today_profit"),
+                "today_return_rate": data.get("today_return_rate"),
+                "account_type": "normal" if data.get("account_type", "1") == "1" else "margin",
+                # 两融账户额外字段
+                "net_assets": data.get("net_assets"),
+                "total_liabilities": data.get("total_liabilities"),
+                "maintenance_margin_ratio": data.get("maintenance_margin_ratio"),
+                # 兼容旧字段（可选）
                 "total_profit": data.get("total_profit"),
                 "profit_rate": data.get("profit_rate"),
-                "account_type": data.get("account_type", "normal"),
-                # 两融账户额外字段
                 "margin_ratio": data.get("margin_ratio"),
                 "risk_level": data.get("risk_level"),
                 "update_time": data.get("update_time"),

@@ -2,6 +2,8 @@
 
 显式触发前端数据卡片渲染。从当前轮次的数据工具结果中读取数据，
 调用 TemplateRenderer 生成卡片模板并通过 metadata.template 传递给 SSE 管道。
+
+对于 account_overview，使用字段提取工具从真实 API 格式中提取显示字段。
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
 from ..template_renderer import TemplateRenderer
+from .field_extraction import extract_account_overview
 
 
 # 数据工具名 → TemplateRenderer 调用方式
@@ -105,7 +108,9 @@ class DisplayCardTool(AgentTool):
             asset_class = _ASSET_CLASS_MAP[source_tool]
             template = TemplateRenderer.render_holdings_list_card(asset_class, data)
         elif render_type == "account_overview":
-            template = TemplateRenderer.render_account_overview_card(data)
+            # 使用字段提取工具从 API 响应中提取显示字段
+            extracted_data = extract_account_overview(data)
+            template = TemplateRenderer.render_account_overview_card(extracted_data)
         elif render_type == "cash_assets":
             template = TemplateRenderer.render_cash_assets_card(data)
         elif render_type == "security_detail":

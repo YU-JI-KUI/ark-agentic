@@ -115,36 +115,57 @@ class BaseServiceAdapter(ABC):
 
 
 class AccountOverviewAdapter(BaseServiceAdapter):
-    """账户总资产服务适配器"""
+    """账户总资产服务适配器
+    
+    使用真实 API 格式：
+    - 请求体: {"channel": "native", "appName": "AYLCAPP", "tokenId": "xxx", "body": {"accountType": "1"}}
+    - 响应体: {"status": 1, "results": {"rmb": {...}}}
+    """
+    
+    def _build_request(
+        self,
+        account_type: str,
+        user_id: str,
+        params: dict[str, Any],
+    ) -> tuple[dict[str, str], dict[str, Any]]:
+        """构建请求（使用参数映射配置）
+        
+        context 为扁平结构: {"token_id": "xxx", "account_type": "normal", "user_id": "U001"}
+        """
+        from .param_mapping import build_api_request, SERVICE_PARAM_CONFIGS
+        
+        # 从 params 中获取 context（扁平结构）
+        context = params.get("_context", {})
+        
+        # 确保扁平结构中有 account_type
+        if "account_type" not in context:
+            context = {**context, "account_type": account_type}
+        
+        # 使用参数映射构建请求体
+        config = SERVICE_PARAM_CONFIGS.get("account_overview", {})
+        body = build_api_request(config, context)
+        
+        headers = {"Content-Type": "application/json"}
+        
+        # 添加认证（如果配置了）
+        if self.config.auth_type == "header" and self.config.auth_value:
+            headers[self.config.auth_key] = self.config.auth_value
+        
+        return headers, body
     
     def _normalize_response(
         self,
         raw_data: dict[str, Any],
         account_type: str,
     ) -> dict[str, Any]:
-        """使用 Pydantic 标准化字段"""
-        from ..schemas import AccountOverviewSchema
-        from pydantic import ValidationError
+        """返回原始数据，不做标准化（由 display_card 处理字段提取）"""
+        # 检查 API 响应状态
+        if raw_data.get("status") != 1:
+            error_msg = raw_data.get("errmsg") or "Unknown API error"
+            raise ServiceError(f"API returned error: {error_msg}")
         
-        data = raw_data.get("data", {})
-        
-        try:
-            # 使用 Pydantic Schema 自动处理字段映射和类型校验
-            schema = AccountOverviewSchema.from_raw_data(data, account_type)
-            
-            # 转换为字典
-            result = schema.model_dump(exclude_none=True)
-            
-            # 如果是普通账户，移除两融字段
-            if account_type == "normal":
-                for key in ["margin_ratio", "risk_level", "maintenance_margin", "available_margin"]:
-                    result.pop(key, None)
-            
-            return result
-            
-        except ValidationError as e:
-            logger.error(f"Account overview data validation failed: {e}")
-            raise ServiceError(f"Invalid response data: {e}")
+        # 返回原始数据，字段提取由 display_card 工具完成
+        return raw_data
 
 
 class ETFHoldingsAdapter(BaseServiceAdapter):

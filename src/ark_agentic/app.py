@@ -19,12 +19,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ---- 全局日志配置 ----
+_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
-    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    level=_log_level,
     format="%(asctime)s %(levelname)-5s %(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     force=True,
 )
+
+# 抑制第三方库的 DEBUG 日志（即使 LOG_LEVEL=DEBUG）
+for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
+    logging.getLogger(_lib).setLevel(logging.WARNING)
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -233,17 +238,13 @@ async def chat(
         account_type = context.get("account_type") or os.getenv("SECURITIES_ACCOUNT_TYPE", "normal")
         # user_id 已在上面从 request 或 header 中提取
         
-        # 设置会话上下文（仅在首次创建时设置，避免覆盖）
-        existing_account_type = agent.session_manager.get_context(session_id, "account_type")
-        if not existing_account_type:
-            agent.session_manager.set_context(session_id, "account_type", account_type)
-            logger.info(f"Set securities context: account_type={account_type}")
+        # 始终更新 account_type（用户可能在同一会话中切换账户类型）
+        agent.session_manager.set_context(session_id, "account_type", account_type)
+        logger.info(f"Set securities context: account_type={account_type}")
         
         if user_id:
-            existing_user_id = agent.session_manager.get_context(session_id, "user_id")
-            if not existing_user_id:
-                agent.session_manager.set_context(session_id, "user_id", user_id)
-                logger.info(f"Set securities context: user_id={user_id}")
+            agent.session_manager.set_context(session_id, "user_id", user_id)
+            logger.info(f"Set securities context: user_id={user_id}")
 
     if not request.stream:
         # 非流式响应

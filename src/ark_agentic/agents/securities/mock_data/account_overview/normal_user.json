@@ -1,13 +1,103 @@
 {
-    "code": "0",
-    "message": "success",
-    "data": {
-        "totalAssets": "1250000.0",
-        "cashBalance": "50000.0",
-        "stockValue": "1200000.0",
-        "todayProfit": "15000.0",
-        "totalProfit": "250000.0",
-        "profitRate": "0.25",
-        "updateTime": "2026-02-14 10:30:00"
+    "status": 1,
+    "errmsg": null,
+    "requestId": "MOCK_normal_user_001",
+    "results": {
+        "accountType": "1",
+        "rmb": {
+            "totalAssetVal": "390664059.82",
+            "positions": "23.16%",
+            "prudentPositions": "",
+            "cashGainAssetsInfo": {
+                "cashBalance": "1227455354.88",
+                "drawBalance": "3067362.75",
+                "fundCode": "",
+                "fundName": "开通现金宝+，实现白天炒股，晚上理财",
+                "cashText": "购买现金产品，赚收益",
+                "cashUrl": "http://www.pingan.com?Wt.mc_id=APP_251_247559_LC",
+                "cashNoticeId": "247559"
+            },
+            "mktAssetsInfo": {
+                "totalMktVal": "267887813.40",
+                "totalMktProfitToday": "-54638.28",
+                "totalMktYieldToday": "-0.01",
+                "stockText": "",
+                "stockUrl": "",
+                "stockNoticeId": ""
+            },
+            "fundMktAssetsInfo": {
+                "fundMktVal": "1323481.54",
+                "finalDayProfit": "-1.32",
+                "fundYieldToday": "",
+                "fundDateLine": "最新日收益 02月05日更新",
+                "fundMktText": "",
+                "fundMktUrl": "",
+                "fundMktSchemeUrl": "anlicaiapp://stock.pingan.com/webvns?url=https%3A%2F%2Fm.stg.pingan.com%2F",
+                "fundMktNoticeId": ""
+            },
+            "rzrqAssetsInfo": null,
+            "stockMktDetail": [
+                {
+                    "key": "Mkt_AG",
+                    "chineseDesc": "A股",
+                    "mktVal": "267883.40",
+                    "mktProfit": "-4638.28"
+                },
+                {
+                    "key": "Mkt_GGT",
+                    "chineseDesc": "港股通",
+                    "mktVal": "265080.00",
+                    "mktProfit": "-300.00"
+                }
+            ],
+            "fundMktDetail": [
+                {
+                    "name": "jjMktTotal",
+                    "chineseDesc": "基金",
+                    "value": "3481.54",
+                    "lastDayProfit": "-1.32",
+                    "linkUrl": "http://m.pingan.com/webvns?url=https%3A%2F%2Fm.stg.pingan.com%2F"
+                },
+                {
+                    "name": "yljMktTotal",
+                    "chineseDesc": "养老",
+                    "value": "3000.00",
+                    "lastDayProfit": "0.00",
+                    "linkUrl": "http://m.pingan.com/webvns?url=https%3A%2F%2Fm.stg.pingan.com%2F"
+                }
+            ],
+            "analyzeDataDetail": [
+                {
+                    "key": "stock",
+                    "chineseDesc": "股票证券",
+                    "percent": "23.16",
+                    "list": [
+                        {
+                            "key": "Mkt_AG",
+                            "chineseDesc": "A股",
+                            "percent": "25.26",
+                            "mktVal": "251400.40"
+                        },
+                        {
+                            "key": "Mkt_GGT",
+                            "chineseDesc": "港股通",
+                            "percent": "11.77",
+                            "mktVal": "103200.00"
+                        },
+                        {
+                            "key": "Mkt_ETF",
+                            "chineseDesc": "ETF",
+                            "percent": "2.72",
+                            "mktVal": "10000.00"
+                        }
+                    ]
+                }
+            ],
+            "totalHoldingPmlUrl": null,
+            "totalHolding": null,
+            "totalHoldingUrl": null,
+            "conservPos": null,
+            "conservPosUrl": null
+        }
     }
 }

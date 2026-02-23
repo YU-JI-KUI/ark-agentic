@@ -1,17 +1,73 @@
 {
-    "code": "0",
-    "message": "success",
-    "data": {
-        "totalAssets": "2500000.0",
-        "cashBalance": "100000.0",
-        "stockValue": "2400000.0",
-        "todayProfit": "-25000.0",
-        "totalProfit": "500000.0",
-        "profitRate": "0.25",
-        "marginRatio": "2.8",
-        "riskLevel": "low",
-        "maintenanceMargin": "850000.0",
-        "availableMargin": "1650000.0",
-        "updateTime": "2026-02-14 10:30:00"
+    "status": 1,
+    "errmsg": null,
+    "requestId": "MOCK_margin_user_001",
+    "results": {
+        "accountType": "2",
+        "rmb": {
+            "totalAssetVal": "333678978.13",
+            "positions": "70.03%",
+            "prudentPositions": "",
+            "cashGainAssetsInfo": {
+                "cashBalance": "100815068.13",
+                "drawBalance": "99874458.88",
+                "fundCode": "",
+                "fundName": "",
+                "cashYield": "",
+                "cashText": "",
+                "cashUrl": "",
+                "cashNoticeId": ""
+            },
+            "mktAssetsInfo": {
+                "totalMktVal": "233663910.00",
+                "totalMktProfitToday": "-1420880.00",
+                "totalMktYieldToday": "-0.42",
+                "stockText": "",
+                "stockUrl": "",
+                "stockNoticeId": ""
+            },
+            "fundMktAssetsInfo": null,
+            "rzrqAssetsInfo": {
+                "netWorth": "332733488.56",
+                "totalLiabilities": "945497.57",
+                "mainRatio": "35291.35"
+            },
+            "stockMktDetail": null,
+            "fundMktDetail": null,
+            "analyzeDataDetail": [
+                {
+                    "key": "stock",
+                    "chineseDesc": "股票证券",
+                    "percent": "23.16",
+                    "list": [
+                        {
+                            "key": "Mkt_AG",
+                            "chineseDesc": "A股",
+                            "percent": "25.26",
+                            "mktVal": "251400.40"
+                        },
+                        {
+                            "key": "Mkt_GGT",
+                            "chineseDesc": "港股通",
+                            "percent": "11.77",
+                            "mktVal": "103200.00"
+                        },
+                        {
+                            "key": "Mkt_ETF",
+                            "chineseDesc": "ETF",
+                            "percent": "2.72",
+                            "mktVal": "10000.00"
+                        }
+                    ]
+                }
+            ],
+            "totalHoldingPmlUrl": null,
+            "totalHolding": null,
+            "totalHoldingUrl": null,
+            "conservPos": null,
+            "conservPosUrl": null,
+            "aggPos": null,
+            "aggPosUrl": null
+        }
     }
 }
