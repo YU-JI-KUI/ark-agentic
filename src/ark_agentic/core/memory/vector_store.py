@@ -56,7 +56,7 @@ class FAISSVectorStore:
         self.dimensions = dimensions
         self.config = config or FAISSConfig()
 
-        self._index: Any = None
+        self._index: Optional[Any] = None  # FAISS index, kept as Any due to optional dependency
         self._chunks: dict[str, MemoryChunk] = {}  # id -> chunk
         self._id_to_idx: dict[str, int] = {}  # chunk_id -> faiss_idx
         self._idx_to_id: dict[int, str] = {}  # faiss_idx -> chunk_id

@@ -7,7 +7,7 @@ from pathlib import Path
 from ark_agentic.core.skills.base import (
     SkillConfig,
     build_skill_prompt,
-    check_skill_requirements,
+    check_skill_eligibility,
     format_skills_metadata_for_prompt,
 )
 from ark_agentic.core.skills.loader import (
@@ -44,7 +44,7 @@ class TestCheckSkillRequirements:
             content="Test content",
             metadata=SkillMetadata(name="test", description="Test"),
         )
-        is_eligible, reasons = check_skill_requirements(skill)
+        is_eligible, reasons = check_skill_eligibility(skill)
         assert is_eligible
         assert len(reasons) == 0
 
@@ -63,7 +63,7 @@ class TestCheckSkillRequirements:
                 required_os=[current_os]
             ),
         )
-        is_eligible, reasons = check_skill_requirements(skill)
+        is_eligible, reasons = check_skill_eligibility(skill)
         assert is_eligible
         assert len(reasons) == 0
 
@@ -79,7 +79,7 @@ class TestCheckSkillRequirements:
                 required_os=["nonexistent_os"]
             ),
         )
-        is_eligible, reasons = check_skill_requirements(skill)
+        is_eligible, reasons = check_skill_eligibility(skill)
         assert not is_eligible
         assert len(reasons) > 0
 

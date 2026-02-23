@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from pydantic import ValidationError
 
-from ark_agentic.core.types import RunOptions
+from ark_agentic.core.types import RunOptions, SkillLoadMode
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.skills.base import SkillConfig
 
@@ -44,7 +44,7 @@ class TestRunnerConfigurationPrecedence:
         config = RunnerConfig(
             model="default-model",
             temperature=0.5,
-            skill_config=SkillConfig(default_load_mode="full")
+            skill_config=SkillConfig(default_load_mode=SkillLoadMode.full)
         )
         
         # Mock ALL required dependencies
@@ -123,7 +123,7 @@ class TestRunnerConfigurationPrecedence:
         assert kwargs["skill_load_mode"] == "full"
 
         # 2. Config "dynamic"
-        runner.config.skill_config.default_load_mode = "dynamic"
+        runner.config.skill_config.default_load_mode = SkillLoadMode.dynamic
         await runner.run(session_id="s2", user_input="hi", run_options=RunOptions(model="foo"))
         _, kwargs = runner._run_loop.call_args
         assert kwargs["skill_load_mode"] == "dynamic"
@@ -131,7 +131,7 @@ class TestRunnerConfigurationPrecedence:
     @pytest.mark.asyncio
     async def test_skill_load_mode_ignores_env(self, runner: AgentRunner) -> None:
         """Test that skill_load_mode is taken from config only (env has no effect)."""
-        runner.config.skill_config.default_load_mode = "full"
+        runner.config.skill_config.default_load_mode = SkillLoadMode.full
         with patch.dict("os.environ", {"ARK_SKILL_LOAD_MODE": "dynamic"}, clear=False):
             await runner.run(session_id="s1", user_input="hi")
         _, kwargs = runner._run_loop.call_args

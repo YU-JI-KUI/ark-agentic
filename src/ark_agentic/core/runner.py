@@ -1,21 +1,25 @@
-"""Agent Runner - ReAct 执行器"""
+"""Agent Runner - ReAct 执行器
+
+使用 langchain ChatOpenAI 作为 LLM 后端。
+"""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from dataclasses import dataclass, field, replace
-from typing import Any, AsyncIterator, Callable
+from typing import Any, TYPE_CHECKING, Callable, Awaitable
 
-from .llm.base import LLMClientProtocol
 from .llm.errors import LLMError, LLMErrorReason, classify_error
+from .llm.protocol import LangChainLLMProtocol
 from .prompt.builder import SystemPromptBuilder, PromptConfig
 from .session import SessionManager
 from .skills.base import SkillConfig
 from .skills.loader import SkillLoader
 from .skills.matcher import SkillMatcher
-from .stream.assembler import StreamAssembler, StreamEvent
+from .stream.event_bus import AgentEventHandler
 from .tools.base import AgentTool
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
@@ -24,14 +28,16 @@ from .types import (
     AgentToolResult,
     MessageRole,
     RunOptions,
+    SkillLoadMode,
     ToolCall,
 )
 from .validation import validate_response_against_tools
 
-# Type hint for MemoryManager (avoid circular import)
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .memory.manager import MemoryManager
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import BaseMessage
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
@@ -106,14 +112,14 @@ class AgentRunner:
 
     def __init__(
         self,
-        llm_client: LLMClientProtocol,
+        llm: LangChainLLMProtocol,
         tool_registry: ToolRegistry | None = None,
         session_manager: SessionManager | None = None,
         skill_loader: SkillLoader | None = None,
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
     ) -> None:
-        self.llm_client = llm_client
+        self.llm = llm  # LLM following LangChain protocol
         self.tool_registry = tool_registry or ToolRegistry()
         self.session_manager = session_manager or SessionManager()
         self.skill_loader = skill_loader
@@ -138,36 +144,6 @@ class AgentRunner:
             SkillMatcher(skill_loader) if skill_loader else None
         )
 
-        # Callbacks — legacy: prefer passing on_step/on_content to run() directly
-        self._on_step: Callable[[str], None] | None = None
-        self._on_content: Callable[[str, int], None] | None = None
-
-    def set_callbacks(
-        self,
-        on_step: Callable[[str], None] | None = None,
-        on_content: Callable[[str, int], None] | None = None,
-    ) -> None:
-        """设置回调函数（已废弃，不适用于并发场景）
-
-        .. deprecated::
-            set_callbacks() 将共享的实例状态作为回调存储，在多个并发请求共享同一
-            AgentRunner 实例时会导致竞态条件。请改为将 on_step / on_content 直接
-            传递给 run() 方法。
-
-        Args:
-            on_step: 生命周期步骤回调 (str) → response.step
-            on_content: LLM 文本增量回调 (delta, output_index) → response.content.delta
-        """
-        import warnings
-        warnings.warn(
-            "set_callbacks() is not safe for concurrent use. "
-            "Pass on_step/on_content to run() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self._on_step = on_step
-        self._on_content = on_content
-
     async def run(
         self,
         session_id: str,
@@ -176,8 +152,7 @@ class AgentRunner:
         *,
         run_options: RunOptions | None = None,
         stream_override: bool | None = None,
-        on_step: Callable[[str], None] | None = None,
-        on_content: Callable[[str, int], None] | None = None,
+        handler: AgentEventHandler | None = None,
     ) -> RunResult:
         """执行智能体
 
@@ -186,9 +161,8 @@ class AgentRunner:
             user_input: 用户输入
             context: 额外上下文
             run_options: 本次运行选项（model/temperature），优先于 config 默认值
-            stream_override: 覆盖 config.enable_streaming（线程安全，不修改共享状态）
-            on_step: 生命周期步骤回调 (str) → response.step（per-request，并发安全）
-            on_content: LLM 文本增量回调 (delta, output_index) → response.content.delta（per-request，并发安全）
+            stream_override: 覆盖 config.enable_streaming
+            handler: AgentEventHandler 实例（用于接收流式事件）
 
         Returns:
             执行结果
@@ -205,35 +179,27 @@ class AgentRunner:
             if (run_options and run_options.temperature is not None)
             else self.config.temperature
         )
-        # skill_load_mode: Agent 级别配置，仅来自 RunnerConfig.skill_config
+        # skill_load_mode
         raw = self.config.skill_config.default_load_mode
-        resolved_skill_load_mode: str = (
-            raw if raw in ("full", "dynamic", "semantic") else "full"
-        )
+        resolved_skill_load_mode: str = raw.value
 
-        # 解析有效回调：run() 参数优先，回退到 set_callbacks() 设置的实例属性
-        effective_on_step = on_step if on_step is not None else self._on_step
-        effective_on_content = on_content if on_content is not None else self._on_content
-
-        # 惰性初始化 Memory（首次 run 时触发）
+        # 惰性初始化 Memory
         if self._memory_manager and not self._memory_manager._initialized:
             await self._memory_manager.initialize()
 
-        # 添加用户消息（使用同步方法避免额外的异步开销）
+        # 添加用户消息
         user_message = AgentMessage.user(user_input, metadata=context)
         self.session_manager.add_message_sync(session_id, user_message)
 
-        # 自动压缩（如果需要），传入 pre-compact 回调将即将丢弃的上下文写入 memory
+        # 自动压缩
         if self.config.auto_compact:
             callback = self._make_pre_compact_callback() if self._memory_manager else None
             await self.session_manager.auto_compact_if_needed(
                 session_id, pre_compact_callback=callback,
             )
 
-        # 确定本次执行是否启用流式
         use_streaming = stream_override if stream_override is not None else self.config.enable_streaming
 
-        # 执行主循环
         try:
             result = await self._run_loop(
                 session_id, context,
@@ -241,8 +207,7 @@ class AgentRunner:
                 model_override=effective_model,
                 temperature_override=effective_temperature,
                 skill_load_mode=resolved_skill_load_mode,
-                on_step=effective_on_step,
-                on_content=effective_on_content,
+                handler=handler,
             )
         finally:
             # 无论成功或失败，同步待写入消息到持久化存储
@@ -253,7 +218,7 @@ class AgentRunner:
 
         return result
 
-    def _make_pre_compact_callback(self) -> Callable:
+    def _make_pre_compact_callback(self) -> Callable[[str, list[AgentMessage]], Awaitable[None]]:
         """创建压缩前回调：将即将丢弃的消息摘要写入 MEMORY.md"""
         memory_mgr = self._memory_manager
 
@@ -330,8 +295,7 @@ class AgentRunner:
         model_override: str | None = None,
         temperature_override: float | None = None,
         skill_load_mode: str = "full",
-        on_step: Callable[[str], None] | None = None,
-        on_content: Callable[[str, int], None] | None = None,
+        handler: AgentEventHandler | None = None,
     ) -> RunResult:
         """ReAct 循环: LLM → Tool → LLM → ... → Response"""
         logger.info(f"[RUN] session={session_id[:8]} streaming={use_streaming}")
@@ -339,23 +303,22 @@ class AgentRunner:
         total_tool_calls = 0
         total_prompt_tokens = 0
         total_completion_tokens = 0
-        all_tool_calls: list[ToolCall] = []  # 记录所有工具调用
-        all_tool_results: list[AgentToolResult] = []  # 记录所有工具结果（用于输出验证）
-        output_index = 0  # 当前输出块索引，每轮工具调用后递增
+        all_tool_calls: list[ToolCall] = []
+        all_tool_results: list[AgentToolResult] = []
+        output_index = 0
 
         while turns < self.config.max_turns:
             turns += 1
 
-            # 构建请求
             messages = self._build_messages(session_id, context, skill_load_mode=skill_load_mode)
             tools = self._build_tools(context)
             logger.info(f"Turn {turns} | messages={len(messages)} tools={len(tools)} model={model_override or self.config.model}")
 
-            # 绑定当前 output_index 的 content 回调（闭包捕获当前值）
+            # 绑定当前 output_index 的 content 回调
             _current_idx = output_index
             def _scoped_content(text: str, _idx: int = _current_idx) -> None:
-                if on_content:
-                    on_content(text, _idx)
+                if handler:
+                    handler.on_content_delta(text, _idx)
 
             try:
                 if use_streaming:
@@ -364,7 +327,7 @@ class AgentRunner:
                         model_override=model_override,
                         temperature_override=temperature_override,
                         content_callback=_scoped_content,
-                        on_step=on_step,
+                        handler=handler,
                     )
                 else:
                     response = await self._call_llm(
@@ -375,17 +338,13 @@ class AgentRunner:
             except LLMError as e:
                 logger.error(f"[LLM_ERROR] turn={turns} reason={e.reason.value} retryable={e.retryable}")
                 user_message = self._get_user_friendly_error_message(e)
-                
                 error_response = AgentMessage.assistant(content=user_message)
                 error_response.metadata["error"] = {
                     "reason": e.reason.value,
                     "message": str(e),
                     "retryable": e.retryable,
                 }
-                
                 self.session_manager.add_message_sync(session_id, error_response)
-                logger.info(f"[RUN_END] session={session_id[:8]} error={e.reason.value}")
-                
                 return RunResult(
                     response=error_response,
                     turns=turns,
@@ -415,13 +374,10 @@ class AgentRunner:
                 completion_tokens=turn_completion,
             )
 
-            # 添加助手响应到会话（使用同步方法，持久化在 run 结束后批量处理）
             self.session_manager.add_message_sync(session_id, response)
 
-            # 检查 finish_reason
             if finish_reason == "length":
                 logger.warning(f"Response truncated (max_tokens) in session {session_id}")
-                # 可以选择继续或返回，这里选择返回截断的响应
                 return RunResult(
                     response=response,
                     turns=turns,
@@ -438,23 +394,20 @@ class AgentRunner:
                 all_tool_calls.extend(response.tool_calls)
 
                 tool_results = await self._execute_tools(
-                    response.tool_calls, context, on_step=on_step,
+                    response.tool_calls, {**context, "session_id": session_id}, handler=handler,
                 )
                 total_tool_calls += len(response.tool_calls)
                 all_tool_results.extend(tool_results)
 
-                # 添加工具结果到会话
                 tool_message = AgentMessage.tool(tool_results)
                 self.session_manager.add_message_sync(session_id, tool_message)
 
-                all_errors = all(tr.is_error for tr in tool_results)
-                if all_errors:
+                if all(tr.is_error for tr in tool_results):
                     logger.warning(f"[TOOLS_FAIL] turn={turns} all_failed=True")
 
-                # 递增 output_index，进入下一轮
                 output_index += 1
-                if on_step:
-                    on_step("信息收集完毕，正在为您总结…")
+                if handler:
+                    handler.on_step("信息收集完毕，正在为您总结…")
 
                 continue
 
@@ -534,9 +487,7 @@ class AgentRunner:
                 messages.append({"role": "user", "content": msg.content})
 
             elif msg.role == MessageRole.ASSISTANT:
-                assistant_msg: dict[str, Any] = {"role": "assistant"}
-                if msg.content:
-                    assistant_msg["content"] = msg.content
+                assistant_msg: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
                 if msg.tool_calls:
                     assistant_msg["tool_calls"] = [
                         {
@@ -632,6 +583,21 @@ class AgentRunner:
         tools = self.tool_registry.list_all()
         return [tool.get_json_schema() for tool in tools]
 
+    def _get_llm(self, model_override: str | None = None, temperature_override: float | None = None) -> LangChainLLMProtocol:
+        """获取 LLM 实例，支持 per-call model/temperature 覆盖。"""
+        updates: dict[str, Any] = {}
+        if model_override:
+            updates["model"] = model_override
+        if temperature_override is not None:
+            updates["temperature"] = temperature_override
+        if updates:
+            if hasattr(self.llm, "model_copy"):
+                return self.llm.model_copy(update=updates)
+            if hasattr(self.llm, "copy"):
+                return self.llm.copy(update=updates)
+            logger.debug(f"LLM backend lacks model_copy/copy methods; ignoring overrides: {updates}")
+        return self.llm
+
     async def _call_llm(
         self,
         messages: list[dict[str, Any]],
@@ -640,29 +606,20 @@ class AgentRunner:
         model_override: str | None = None,
         temperature_override: float | None = None,
     ) -> AgentMessage:
-        llm_kwargs: dict[str, Any] = {
-            "temperature": temperature_override if temperature_override is not None else self.config.temperature,
-            "max_tokens": self.config.max_tokens,
-        }
-        if model_override:
-            llm_kwargs["model"] = model_override
+        """非流式 LLM 调用（ChatOpenAI.ainvoke）"""
+        llm = self._get_llm(model_override, temperature_override)
+        if tools:
+            llm = llm.bind_tools(tools)
 
         try:
-            response = await self.llm_client.chat(
-                messages=messages,
-                tools=tools if tools else None,
-                stream=False,
-                **llm_kwargs,
-            )
-        except LLMError as e:
-            logger.error(f"[LLM] {e}")
+            ai_msg = await llm.ainvoke(messages)
+        except LLMError:
             raise
         except Exception as exc:
             error = classify_error(exc, model=model_override or self.config.model)
-            logger.error(f"[LLM] {error}")
             raise error from exc
 
-        return self._parse_llm_response(response)
+        return self._ai_message_to_agent_message(ai_msg)
 
     async def _call_llm_streaming(
         self,
@@ -672,110 +629,102 @@ class AgentRunner:
         model_override: str | None = None,
         temperature_override: float | None = None,
         content_callback: Callable[[str], None] | None = None,
-        on_step: Callable[[str], None] | None = None,
+        handler: AgentEventHandler | None = None,
     ) -> AgentMessage:
+        """流式 LLM 调用（ChatOpenAI.astream）"""
+        llm = self._get_llm(model_override, temperature_override)
+        if tools:
+            llm = llm.bind_tools(tools)
+
         model = model_override or self.config.model
         logger.info(f"LLM stream start | model={model}")
 
-        assembler = StreamAssembler(
-            on_content=content_callback,
-            on_thinking=on_step,
-        )
-
-        llm_kwargs: dict[str, Any] = {
-            "temperature": temperature_override if temperature_override is not None else self.config.temperature,
-            "max_tokens": self.config.max_tokens,
-        }
-        if model_override:
-            llm_kwargs["model"] = model_override
+        full_content = ""
+        tool_calls_data: dict[int, dict[str, str]] = {}  # index → {id, name, args}
+        finish_reason = "stop"
+        usage: dict[str, int] = {}
 
         try:
-            stream = await self.llm_client.chat(
-                messages=messages,
-                tools=tools if tools else None,
-                stream=True,
-                **llm_kwargs,
-            )
-        except LLMError as e:
-            logger.error(f"[LLM_STREAM] {e}")
+            async for chunk in llm.astream(messages):
+                # Content delta
+                if chunk.content:
+                    full_content += chunk.content
+                    if content_callback:
+                        content_callback(chunk.content)
+
+                # Tool call chunks
+                if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                    for tc_chunk in chunk.tool_call_chunks:
+                        idx = tc_chunk.get("index", 0)
+                        if idx not in tool_calls_data:
+                            tool_calls_data[idx] = {"id": "", "name": "", "args": ""}
+                        if tc_chunk.get("id"):
+                            tool_calls_data[idx]["id"] = tc_chunk["id"]
+                        if tc_chunk.get("name"):
+                            tool_calls_data[idx]["name"] = tc_chunk["name"]
+                        if tc_chunk.get("args"):
+                            tool_calls_data[idx]["args"] += tc_chunk["args"]
+
+                # Response metadata (last chunk)
+                if hasattr(chunk, "response_metadata") and chunk.response_metadata:
+                    finish_reason = chunk.response_metadata.get("finish_reason", finish_reason)
+                if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
+                    usage = {
+                        "prompt_tokens": chunk.usage_metadata.get("input_tokens", 0),
+                        "completion_tokens": chunk.usage_metadata.get("output_tokens", 0),
+                    }
+
+        except LLMError:
             raise
         except Exception as exc:
             error = classify_error(exc, model=model)
-            logger.error(f"[LLM_STREAM] {error}")
             raise error from exc
 
-        try:
-            async for chunk in stream:
-                event = self._parse_stream_chunk(chunk)
-                if event:
-                    assembler.process_event(event)
-        except Exception as exc:
-            error = classify_error(exc, model=model)
-            logger.error(f"[LLM_STREAM_PARSE] {error}")
-            raise error from exc
-
-        logger.debug(f"[LLM_STREAM_DONE] content={len(assembler.state.content)}B tools={len(assembler.state.tool_calls)}")
-        return assembler.build_message()
-
-    def _parse_llm_response(self, response: dict[str, Any]) -> AgentMessage:
-        """解析 LLM 响应
-
-        支持 OpenAI 和兼容格式，处理 finish_reason。
-        """
-        import json
-
-        # OpenAI 格式
-        choices = response.get("choices", [])
-        if not choices:
-            return AgentMessage.assistant(content="")
-
-        choice = choices[0]
-        message = choice.get("message", {})
-        content = message.get("content")
-        finish_reason = choice.get("finish_reason")
-
-        # 处理特殊的 finish_reason
-        if finish_reason == "length":
-            logger.warning("Response truncated due to max_tokens limit")
-            # 可以在 content 末尾添加标记，或者在 metadata 中记录
-        elif finish_reason == "content_filter":
-            logger.warning("Response filtered due to content policy")
-            content = content or "[内容已被过滤]"
-
-        # 解析工具调用
-        tool_calls = None
-        raw_tool_calls = message.get("tool_calls", [])
-        if raw_tool_calls:
-            tool_calls = []
-            for tc in raw_tool_calls:
-                func = tc.get("function", {})
+        # 组装工具调用
+        parsed_tool_calls = None
+        if tool_calls_data:
+            parsed_tool_calls = []
+            for idx in sorted(tool_calls_data):
+                tc = tool_calls_data[idx]
                 try:
-                    args = json.loads(func.get("arguments", "{}"))
+                    args = json.loads(tc["args"]) if tc["args"] else {}
                 except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse tool arguments: {func.get('arguments')}")
-                    args = {"_raw": func.get("arguments", "")}
+                    args = {"_raw": tc["args"]}
+                parsed_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
 
-                tool_calls.append(ToolCall(
-                    id=tc.get("id", ""),
-                    name=func.get("name", ""),
-                    arguments=args,
-                ))
-
-        # 构建消息，保存 finish_reason 到 metadata
-        msg = AgentMessage.assistant(content=content, tool_calls=tool_calls)
+        msg = AgentMessage.assistant(content=full_content, tool_calls=parsed_tool_calls)
         msg.metadata["finish_reason"] = finish_reason
-
-        # 保存 usage 信息
-        usage = response.get("usage")
         if usage:
             msg.metadata["usage"] = usage
-
+        logger.debug(f"[LLM_STREAM_DONE] content={len(full_content)}B tools={len(tool_calls_data)}")
         return msg
 
-    def _parse_stream_chunk(self, chunk: dict[str, Any]) -> StreamEvent | None:
-        """解析流式块"""
-        from .stream.assembler import parse_openai_sse
-        return parse_openai_sse(chunk)
+    def _ai_message_to_agent_message(self, ai_msg: AIMessage) -> AgentMessage:
+        """将 LangChain AIMessage 转为 AgentMessage。"""
+        content = ai_msg.content if isinstance(ai_msg.content, str) else ""
+
+        tool_calls = None
+        if ai_msg.tool_calls:
+            tool_calls = [
+                ToolCall(id=tc["id"], name=tc["name"], arguments=tc.get("args", {}))
+                for tc in ai_msg.tool_calls
+            ]
+
+        msg = AgentMessage.assistant(content=content, tool_calls=tool_calls)
+
+        # finish_reason
+        rm = getattr(ai_msg, "response_metadata", {}) or {}
+        msg.metadata["finish_reason"] = rm.get("finish_reason", "stop")
+
+        # usage
+        um = getattr(ai_msg, "usage_metadata", None)
+        if um:
+            msg.metadata["usage"] = {
+                "prompt_tokens": um.get("input_tokens", 0),
+                "completion_tokens": um.get("output_tokens", 0),
+            }
+
+        return msg
 
     # 工具名 → 用户可见状态描述
     _TOOL_STATUS: dict[str, str] = {
@@ -793,15 +742,16 @@ class AgentRunner:
         self,
         tool_calls: list[ToolCall],
         context: dict[str, Any],
-        on_step: Callable[[str], None] | None = None,
+        handler: AgentEventHandler | None = None,
     ) -> list[AgentToolResult]:
         timeout = self.config.tool_timeout
 
         async def execute_single(tc: ToolCall) -> AgentToolResult:
             logger.debug(f"[TOOL_START] {tc.name} args={tc.arguments}")
-            if on_step:
+            if handler:
+                handler.on_tool_call_start(tc.name, tc.arguments)
                 status = self._TOOL_STATUS.get(tc.name, f"正在处理 {tc.name}…")
-                on_step(status)
+                handler.on_step(status)
 
             tool = self.tool_registry.get(tc.name)
             if tool is None:
@@ -823,9 +773,12 @@ class AgentRunner:
                     logger.error(f"[TOOL_ERROR] {tc.name}: {e}")
                     result = AgentToolResult.error_result(tc.id, str(e))
 
+            if handler:
+                handler.on_tool_call_result(tc.name, result.content)
+
             logger.debug(f"[TOOL_DONE] {tc.name} error={result.is_error} size={len(str(result.content))}B")
-            if result.is_error and on_step:
-                on_step("工具调用遇到问题，正在尝试其他方式…")
+            if result.is_error and handler:
+                handler.on_step("工具调用遇到问题，正在尝试其他方式…")
 
             return result
 
@@ -842,14 +795,14 @@ class AgentRunner:
 
     # ============ 便捷方法 ============
 
-    async def create_session(self, **kwargs: Any) -> str:
+    async def create_session(self, model: str = "Qwen3-80B-Instruct", provider: str = "ark", metadata: dict[str, Any] | None = None) -> str:
         """创建新会话并返回 ID（异步，支持持久化）"""
-        session = await self.session_manager.create_session(**kwargs)
+        session = await self.session_manager.create_session(model=model, provider=provider, metadata=metadata)
         return session.session_id
 
-    def create_session_sync(self, **kwargs: Any) -> str:
+    def create_session_sync(self, model: str = "Qwen3-80B-Instruct", provider: str = "ark", metadata: dict[str, Any] | None = None) -> str:
         """创建新会话并返回 ID（同步，无持久化）"""
-        session = self.session_manager.create_session_sync(**kwargs)
+        session = self.session_manager.create_session_sync(model=model, provider=provider, metadata=metadata)
         return session.session_id
 
     def register_tool(self, tool: AgentTool) -> None:

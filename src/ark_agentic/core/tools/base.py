@@ -109,6 +109,58 @@ class AgentTool(ABC):
         """
         ...
 
+    def to_langchain_tool(self, context: dict[str, Any] | None = None) -> Any:
+        """适配为 LangChain StructuredTool（YAGNI：仅在需要接入 LangChain 生态时调用）。
+
+        通过闭包绑定 context，解决 LangChain Tool 接口无法传递 context 的问题。
+
+        Args:
+            context: 执行上下文，闭包绑定后在每次工具调用时自动传入
+
+        Returns:
+            langchain_core.tools.StructuredTool 实例
+
+        Raises:
+            ImportError: 如果 langchain-core 未安装
+        """
+        try:
+            from langchain_core.tools import StructuredTool
+        except ImportError:
+            raise ImportError(
+                "langchain-core is required for to_langchain_tool(). "
+                "Install with: uv add langchain-core"
+            )
+
+        tool_self = self
+        bound_context = context
+
+        import asyncio
+        import json
+
+        async def _ainvoke(**kwargs: Any) -> str:
+            """闭包：将 LangChain 调用转为 AgentTool.execute()"""
+            tc = ToolCall(
+                id=f"lc_{tool_self.name}",
+                name=tool_self.name,
+                arguments=kwargs,
+            )
+            result = await tool_self.execute(tc, context=bound_context)
+            return result.output if result.output else json.dumps(
+                result.to_dict() if hasattr(result, "to_dict") else str(result)
+            )
+
+        # 构建参数 schema
+        schema = self.get_json_schema()
+        func_schema = schema.get("function", {})
+        params = func_schema.get("parameters", {})
+
+        return StructuredTool.from_function(
+            coroutine=_ainvoke,
+            name=self.name,
+            description=self.description,
+            args_schema=None,  # 使用动态 kwargs
+        )
+
 
 # ============ 参数读取辅助函数 ============
 # 参考: openclaw-main/src/agents/tools/common.ts - readStringParam etc.

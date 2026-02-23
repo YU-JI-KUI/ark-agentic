@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 from .compaction import (
     CompactionConfig,
@@ -375,7 +375,7 @@ class SessionManager:
     async def auto_compact_if_needed(
         self,
         session_id: str,
-        pre_compact_callback: Any | None = None,
+        pre_compact_callback: Callable[[str, list[AgentMessage]], Awaitable[None]] | None = None,
     ) -> CompactionResult | None:
         """自动检查并压缩（如果需要）
 

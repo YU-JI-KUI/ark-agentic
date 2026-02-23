@@ -27,11 +27,11 @@ def test_deepseek_works_without_pycryptodome():
 
 
 def test_pa_jt_fails_without_pycryptodome():
-    """Test that PA-JT models fail gracefully without pycryptodome."""
-    # Mock the transport import to fail inside the _create_pa_jt_model function
+    """Test that PA-JT models raise when creation fails (e.g. missing pycryptodome)."""
     with patch('ark_agentic.core.llm.factory._create_pa_jt_model') as mock_create:
-        mock_create.side_effect = ImportError("PA-JT models require pycryptodome for RSA signing. Install with: uv add 'ark-agentic[pa-jt]' or uv add pycryptodome")
-
+        mock_create.side_effect = ImportError(
+            "PA-JT models require pycryptodome for RSA signing. Install with: uv add 'ark-agentic[pa-jt]' or uv add pycryptodome"
+        )
         with patch.dict('os.environ', {
             'PA_JT_BASE_URL': 'https://test-jt.example.com',
             'PA_JT_OPEN_API_CODE': 'test-code',
@@ -41,9 +41,8 @@ def test_pa_jt_fails_without_pycryptodome():
             'PA_JT_GPT_APP_SECRET': 'test-secret',
             'PA_JT_SCENE_ID': 'test-scene'
         }):
-            # Should fall back to MockLLMClient instead of raising
-            llm = create_chat_model(PAModel.PA_JT_80B)
-            assert llm is not None
+            with pytest.raises(ImportError):
+                create_chat_model(PAModel.PA_JT_80B)
 
 
 def test_helpful_error_message_for_pa_jt():

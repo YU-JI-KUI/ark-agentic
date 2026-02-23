@@ -34,8 +34,8 @@ class SkillConfig:
     # 是否允许未知技能
     allow_unknown_skills: bool = False
 
-    # Agent 级别默认加载模式: "full" | "dynamic" | "semantic"
-    default_load_mode: SkillLoadMode = "full"
+    # Agent 级别默认加载模式
+    default_load_mode: SkillLoadMode = SkillLoadMode.full
 
 
 def check_skill_eligibility(
@@ -125,10 +125,6 @@ def should_include_skill(
         # 自动策略：根据上下文判断
         # 简单实现：总是包含 auto 技能
         return True
-
-
-# 别名函数，保持向后兼容
-check_skill_requirements = check_skill_eligibility
 
 
 def _escape_xml(text: str) -> str:
