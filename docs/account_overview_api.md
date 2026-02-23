@@ -2,14 +2,14 @@
 
 ### 查询接口
 ``` python
-url = "http://gm-yw-uat-001-k8s.paic.com.cn:30060/assetservice/restapi/getMyAllAssetsBy10"
+url = "http://test-host:3000/assetservice/restapi/getMyAllAssetsBy10"
 
 payload = json.dumps({
     "channel": "native",  # fixed value
     "appName": "AYLCAPP", # fixed value
-    "tokenId":  "N_4ABD52CE290DD3850BC7742405EB7E327BBACDDD2C02847D257F8D14D925A334962DCA24CA5480E24E5812F67637DCCB5B982FF0EDA817936F4A1A2ECAD0096B9B1E6FA8941D", # token value from context.args
+    "tokenId":  "N_TOKENSTR", # token value from context
     "body": {
-        "accountType": "1" # 1: 普通账户，2: 两融账户 from context.args
+        "accountType": "1" # 1: 普通账户，2: 两融账户 from context
     }
 })
 
@@ -121,7 +121,7 @@ response = requests.request("POST", url, headers=headers, data=payload)
                 "fundCode": "",
                 "fundName": "开通现金宝+，实现白天炒股，晚上理财",
                 "cashText": "购买现金产品，赚收益",
-                "cashUrl": "http://www.pingan.com?Wt.mc_id=APP_251_247559_LC",
+                "cashUrl": "http://test.com?Wt.mc_id=APP_251_247559_LC",
                 "cashNoticeId": "247559"
             },
             "mktAssetsInfo": {
@@ -139,7 +139,7 @@ response = requests.request("POST", url, headers=headers, data=payload)
                 "fundDateLine": "最新日收益 02月05日更新",
                 "fundMktText": "",
                 "fundMktUrl": "",
-                "fundMktSchemeUrl": "anlicaiapp://stock.pingan.com/webvns?url=https%3A%2F%2Fm.stg.pingan.com%2F... (已缩略)",
+                "fundMktSchemeUrl": "anlicaiapp://stock.test.com/webvns?url=https%3A%2F%2Fm.stg.test.com%2F... (已缩略)",
                 "fundMktNoticeId": ""
             },
             "rzrqAssetsInfo": null,
@@ -162,12 +162,12 @@ response = requests.request("POST", url, headers=headers, data=payload)
                 "chineseDesc": "基金",
                 "value": "3481.54",
                 "lastDayProfit": "-1.32",
-                "linkUrl": "http://m.pingan.com/webvns?url=https%3A%2F%2Fm.stg.pingan.com%2F... (已缩略)",
+                "linkUrl": "http://m.test.com/webvns?url=https%3A%2F%2Fm.stg.test.com%2F... (已缩略)",
                 "name": "yljMktTotal",
                 "chineseDesc": "养老",
                 "value": "3000.00",
                 "lastDayProfit": "0.00",
-                "linkUrl": "http://m.pingan.com/webvns?url=https%3A%2F%2Fm.stg.pingan.com%2F... (已缩略)",
+                "linkUrl": "http://m.test.com/webvns?url=https%3A%2F%2Fm.stg.test.com%2F... (已缩略)",
             ],
             "analyzeDataDetail": [
                 "key": "stock",
@@ -203,7 +203,7 @@ response = requests.request("POST", url, headers=headers, data=payload)
 }
 ```
 
-### 账户资产卡片字段映射关系
+### 账户资产卡片字段映射
 ```json
 {
     "total_assets": "results.rmb.totalAssetVal",
