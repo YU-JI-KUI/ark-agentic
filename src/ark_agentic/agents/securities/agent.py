@@ -141,7 +141,7 @@ def create_securities_agent(
     prompt_config = PromptConfig(
         agent_name="证券资产管理助手",
         agent_description="专业的证券资产查询与分析助手",
-        custom_instructions=SECURITIES_AGENT_PROMPT,
+        # custom_instructions=SECURITIES_AGENT_PROMPT,
     )
     
     # 创建 Runner 配置
