@@ -45,7 +45,7 @@ def runner_with_one_skill():
         )
 
         runner = AgentRunner(
-            llm_client=_MockLLM(),
+            llm=_MockLLM(),
             tool_registry=ToolRegistry(),
             session_manager=session_manager,
             skill_loader=loader,

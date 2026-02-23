@@ -49,7 +49,7 @@ class TestRunnerConfigurationPrecedence:
         
         # Mock ALL required dependencies
         runner = AgentRunner(
-            llm_client=Mock(),
+            llm=Mock(),
             session_manager=Mock(),
             tool_registry=Mock(),
             config=config
