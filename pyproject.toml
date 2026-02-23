@@ -14,6 +14,9 @@ dependencies = [
     "sentence-transformers>=3.3.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
+    # P0: LLM 层统一
+    "langchain-openai>=0.3",
+    "langchain-core>=0.3",
 ]
 
 [project.optional-dependencies]
@@ -21,8 +24,11 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
 ]
+pa-jt = [
+    "pycryptodome>=3.20.0",
+]
 all = [
-    "ark-agentic[dev]",
+    "ark-agentic[dev,pa-jt]",
 ]
 
 [project.scripts]
