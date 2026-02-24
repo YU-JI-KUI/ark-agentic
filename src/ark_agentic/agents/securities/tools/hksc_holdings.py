@@ -37,15 +37,21 @@ class HKSCHoldingsTool(AgentTool):
         context: dict[str, Any] | None = None,
     ) -> AgentToolResult:
         args = tool_call.arguments
-        # 优先 context，其次 args，最后 default
-        context_account_type = context.get("account_type") if context else None
-        account_type = args.get("account_type") or context_account_type or "normal"
-        user_id = context.get("user_id", "U001") if context else "U001"
+        context = context or {}
+        
+        # 上下文中的参数优先级高于 args
+        args.update(context)
+        
+        # HKSC 不区分账户类型，但仍保留参数兼容
+        account_type = args.get("account_type") or context.get("account_type", "normal")
+        user_id = context.get("user_id", "U001")
         
         try:
+            # 传递完整 context 给 adapter（用于参数映射和 header 认证）
             data = await self._adapter.call(
                 account_type=account_type,
                 user_id=user_id,
+                _context=context,  # 传递完整上下文
             )
             
             return AgentToolResult.json_result(

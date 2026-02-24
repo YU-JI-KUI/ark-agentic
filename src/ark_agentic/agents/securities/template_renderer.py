@@ -64,25 +64,45 @@ class TemplateRenderer:
         支持两种数据格式：
         1. 真实 API 格式（通过字段提取）: stock_list, total_market_value, total_profit
         2. 旧格式: holdings, summary
+        
+        HKSC 额外支持：
+        - available_hksc_share: 港股通可用额度
+        - pre_frozen_asset: 预冻结资产
+        - pre_frozen_list: 预冻结列表
         """
         # 检测数据格式
         if "stock_list" in data:
-            # 真实 API 格式（ETF 使用）
-            return {
+            # 真实 API 格式
+            summary = {
+                "total_market_value": data.get("total_market_value") or data.get("hold_market_value"),
+                "total_profit": data.get("total_profit") or data.get("day_total_profit"),
+                "total_profit_rate": data.get("total_profit_rate") or data.get("day_total_profit_rate"),
+                "total": data.get("total"),
+            }
+            
+            # HKSC 特有字段
+            if asset_class == "HKSC":
+                summary["available_hksc_share"] = data.get("available_hksc_share")
+                summary["limit_hksc_share"] = data.get("limit_hksc_share")
+                summary["total_hksc_share"] = data.get("total_hksc_share")
+                summary["pre_frozen_asset"] = data.get("pre_frozen_asset")
+            
+            result = {
                 "template_type": "holdings_list_card",
                 "asset_class": asset_class,
                 "data": {
                     "holdings": data.get("stock_list", []),
-                    "summary": {
-                        "total_market_value": data.get("total_market_value"),
-                        "total_profit": data.get("total_profit"),
-                        "total_profit_rate": data.get("total_profit_rate"),
-                        "total": data.get("total"),
-                    },
+                    "summary": summary,
                 }
             }
+            
+            # HKSC 预冻结列表
+            if asset_class == "HKSC" and data.get("pre_frozen_list"):
+                result["data"]["pre_frozen_list"] = data.get("pre_frozen_list")
+            
+            return result
         else:
-            # 旧格式（HKSC、Fund 使用）
+            # 旧格式
             return {
                 "template_type": "holdings_list_card",
                 "asset_class": asset_class,

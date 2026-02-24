@@ -7,7 +7,7 @@ import json
 url = "http://100.25.123.123/ais/userasset/acct/service/getUserAssetGrpHold"
 
 payload = json.dumps({
-    "assetGrpType": 7, # configrable value
+    "assetGrpType": 7, # 普通户：5，两融户：7 从context中获取的accountType进行对照并转换
     "appName": "AYLCAPP", # fixed value
     "limit": 20 # configrable value
 })

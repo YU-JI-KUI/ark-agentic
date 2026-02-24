@@ -304,23 +304,144 @@ class ETFHoldingsSchema(BaseModel):
         )
 
 
-# ============ 港股通持仓 ============
+# ============ 港股通持仓（真实 API 格式）============
+
+class HKSCHoldingItemSchema(BaseModel):
+    """港股通持仓项（真实 API 格式）
+    
+    从 field_extraction.extract_hksc_holdings() 提取后的数据创建。
+    """
+    
+    code: str = Field(..., description="证券代码")
+    name: str = Field(..., description="证券名称")
+    hold_cnt: str = Field(..., description="持仓数量")
+    share_bln: str | None = Field(None, description="可用份额")
+    market_value: str | None = Field(None, description="市值")
+    day_profit: str | None = Field(None, description="今日收益")
+    day_profit_rate: str | None = Field(None, description="今日收益率")
+    price: str | None = Field(None, description="当前价格")
+    cost_price: str | None = Field(None, description="成本价")
+    market_type: str | None = Field(None, description="市场类型")
+    hold_position_profit: str | None = Field(None, description="持仓盈亏")
+    hold_position_profit_rate: str | None = Field(None, description="持仓盈亏率")
+    position: str | None = Field(None, description="持仓位置")
+    secu_acc: str | None = Field(None, description="证券账户")
+    
+    model_config = {"populate_by_name": True}
+    
+    @classmethod
+    def from_api_response(cls, data: dict) -> HKSCHoldingItemSchema:
+        """从字段提取后的数据创建"""
+        return cls(
+            code=data.get("code", ""),
+            name=data.get("name", ""),
+            hold_cnt=data.get("hold_cnt", "0"),
+            share_bln=data.get("share_bln"),
+            market_value=data.get("market_value"),
+            day_profit=data.get("day_profit"),
+            day_profit_rate=data.get("day_profit_rate"),
+            price=data.get("price"),
+            cost_price=data.get("cost_price"),
+            market_type=data.get("market_type"),
+            hold_position_profit=data.get("hold_position_profit"),
+            hold_position_profit_rate=data.get("hold_position_profit_rate"),
+            position=data.get("position"),
+            secu_acc=data.get("secu_acc"),
+        )
+
+
+class HKSCPreFrozenItemSchema(BaseModel):
+    """港股通预冻结项"""
+    
+    code: str = Field(..., description="证券代码")
+    name: str = Field(..., description="证券名称")
+    pre_frozen_asset: str | None = Field(None, description="预冻结资产")
+    
+    model_config = {"populate_by_name": True}
+
 
 class HKSCHoldingsSchema(BaseModel):
-    """港股通持仓（复用 ETF 结构）"""
+    """港股通持仓完整模型
     
-    holdings: list[HoldingItemSchema]
-    summary: HoldingsSummarySchema
+    支持两种数据来源：
+    1. from_raw_data: 从旧格式/mock 数据创建
+    2. from_api_response: 从真实 API 响应创建（通过字段提取后的数据）
+    """
+    
+    # 真实 API 格式字段
+    hold_market_value: str = Field(default="0", description="持仓市值")
+    hold_position_profit: str | None = Field(None, description="持仓盈亏")
+    day_total_profit: str = Field(default="0", description="今日总收益")
+    day_total_profit_rate: str | None = Field(None, description="今日收益率")
+    total_hksc_share: str | None = Field(None, description="港股通总额度")
+    available_hksc_share: str | None = Field(None, description="港股通可用额度")
+    limit_hksc_share: str | None = Field(None, description="港股通限额")
+    pre_frozen_asset: str | None = Field(None, description="预冻结资产")
+    progress: int | None = Field(None, description="进度")
+    stock_list: list[HKSCHoldingItemSchema] = Field(default_factory=list, description="持仓列表")
+    pre_frozen_list: list[HKSCPreFrozenItemSchema] | None = Field(None, description="预冻结列表")
+    
+    # 旧格式字段（向后兼容）
+    holdings: list[HoldingItemSchema] = Field(default_factory=list, description="持仓列表（旧格式）")
+    summary: HoldingsSummarySchema | None = Field(None, description="持仓汇总（旧格式）")
+    
+    model_config = {"populate_by_name": True}
+    
+    @classmethod
+    def from_api_response(cls, data: dict) -> HKSCHoldingsSchema:
+        """从真实 API 响应创建（通过字段提取后的数据）
+        
+        用于从 field_extraction.extract_hksc_holdings() 提取后的数据创建。
+        字段已经是标准化的名称。
+        
+        Args:
+            data: 从 extract_hksc_holdings() 返回的标准化数据
+        
+        Returns:
+            HKSCHoldingsSchema 实例
+        """
+        stock_list_raw = data.get("stock_list", [])
+        pre_frozen_raw = data.get("pre_frozen_list", [])
+        
+        return cls(
+            hold_market_value=data.get("hold_market_value", "0"),
+            hold_position_profit=data.get("hold_position_profit"),
+            day_total_profit=data.get("day_total_profit", "0"),
+            day_total_profit_rate=data.get("day_total_profit_rate"),
+            total_hksc_share=data.get("total_hksc_share"),
+            available_hksc_share=data.get("available_hksc_share"),
+            limit_hksc_share=data.get("limit_hksc_share"),
+            pre_frozen_asset=data.get("pre_frozen_asset"),
+            progress=data.get("progress"),
+            stock_list=[HKSCHoldingItemSchema.from_api_response(s) for s in stock_list_raw],
+            pre_frozen_list=[HKSCPreFrozenItemSchema(**p) for p in pre_frozen_raw] if pre_frozen_raw else None,
+        )
     
     @classmethod
     def from_raw_data(cls, data: dict) -> HKSCHoldingsSchema:
-        """从原始数据创建"""
+        """从旧格式数据创建（向后兼容）"""
         holdings_raw = data.get("holdings", [])
         summary_raw = data.get("summary", {})
         
+        # 转换旧格式到新格式
+        stock_list = []
+        for h in holdings_raw:
+            stock_list.append({
+                "code": get_val(h, "securityCode", "code"),
+                "name": get_val(h, "securityName", "name"),
+                "hold_cnt": get_val(h, "quantity", "qty"),
+                "market_value": get_val(h, "marketValue", "mv"),
+                "day_profit": get_val(h, "todayProfit"),
+                "price": get_val(h, "currentPrice", "price"),
+                "cost_price": get_val(h, "costPrice", "cost"),
+            })
+        
         return cls(
+            hold_market_value=get_val(summary_raw, "totalMarketValue", "total_mv") or "0",
+            day_total_profit=get_val(summary_raw, "todayProfit", "today_profit") or "0",
+            stock_list=[HKSCHoldingItemSchema.from_api_response(s) for s in stock_list],
             holdings=[HoldingItemSchema.from_raw_data(h) for h in holdings_raw],
-            summary=HoldingsSummarySchema.from_raw_data(summary_raw),
+            summary=HoldingsSummarySchema.from_raw_data(summary_raw) if summary_raw else None,
         )
 
 

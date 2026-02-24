@@ -230,25 +230,64 @@ class ETFHoldingsAdapter(BaseServiceAdapter):
 
 
 class HKSCHoldingsAdapter(BaseServiceAdapter):
-    """港股通持仓服务适配器"""
+    """港股通持仓服务适配器
+    
+    使用真实 API 格式：
+    - 请求体: {"appName": "AYLCAPP", "model": 1, "limit": 20}
+    - Headers: {"Content-Type": "application/json", "validatedata": "...", "signature": "..."}
+    - 响应体: {"status": 1, "results": {"stockList": [...], "holdMktVal": ...}}
+    """
+    
+    def _build_request(
+        self,
+        account_type: str,
+        user_id: str,
+        params: dict[str, Any],
+    ) -> tuple[dict[str, str], dict[str, Any]]:
+        """构建请求（使用参数映射配置）"""
+        from .param_mapping import (
+            build_api_request,
+            SERVICE_PARAM_CONFIGS,
+            SERVICE_HEADER_CONFIGS,
+        )
+        
+        context = params.get("_context", {})
+        
+        # 使用参数映射构建请求体
+        config = SERVICE_PARAM_CONFIGS.get("hksc_holdings", {})
+        body = build_api_request(config, context)
+        
+        # 构建 headers（包含 validatedata 和 signature）
+        headers = {"Content-Type": "application/json"}
+        
+        # 从 context 获取 HKSC 专用认证 headers
+        header_config = SERVICE_HEADER_CONFIGS.get("hksc_holdings", {})
+        for header_name, source_def in header_config.items():
+            if source_def[0] == "context":
+                key = source_def[1]
+                value = context.get(key)
+                if value:
+                    headers[header_name] = value
+        
+        # 添加配置的认证（如果有的话）
+        if self.config.auth_type == "header" and self.config.auth_value:
+            headers[self.config.auth_key] = self.config.auth_value
+        
+        return headers, body
     
     def _normalize_response(
         self,
         raw_data: dict[str, Any],
         account_type: str,
     ) -> dict[str, Any]:
-        """使用 Pydantic 标准化字段"""
-        from ..schemas import HKSCHoldingsSchema
-        from pydantic import ValidationError
+        """返回原始数据，不做标准化（由 display_card 处理字段提取）"""
+        # 检查 API 响应状态
+        if raw_data.get("status") != 1:
+            error_msg = raw_data.get("errmsg") or raw_data.get("msg") or "Unknown API error"
+            raise ServiceError(f"API returned error: {error_msg}")
         
-        data = raw_data.get("data", {})
-        
-        try:
-            schema = HKSCHoldingsSchema.from_raw_data(data)
-            return schema.model_dump()
-        except ValidationError as e:
-            logger.error(f"HKSC holdings data validation failed: {e}")
-            raise ServiceError(f"Invalid HKSC data: {e}")
+        # 返回原始数据，字段提取由 display_card 工具完成
+        return raw_data
 
 
 class FundHoldingsAdapter(BaseServiceAdapter):
@@ -372,6 +411,10 @@ class MockServiceAdapter(BaseServiceAdapter):
             scenario = "margin_user" if account_type == "margin" else "normal_user"
         elif self.service_name == "cash_assets":
             scenario = "margin_user" if account_type == "margin" else "normal_user"
+        elif self.service_name == "etf_holdings":
+            scenario = "default"  # ETF 不区分账户类型
+        elif self.service_name == "hksc_holdings":
+            scenario = "default"  # HKSC 不区分账户类型
         
         # 加载数据
         raw_data = self._loader.load(
