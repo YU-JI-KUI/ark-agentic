@@ -49,3 +49,9 @@ testpaths = ["tests"]
 
 [tool.pyright]
 extraPaths = ["src"]
+
+[dependency-groups]
+dev = [
+    "flake8>=7.3.0",
+    "mypy>=1.19.1",
+]
