@@ -15,7 +15,7 @@ from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
 from ..template_renderer import TemplateRenderer
-from .field_extraction import extract_account_overview, extract_cash_assets
+from .field_extraction import extract_account_overview, extract_cash_assets, extract_etf_holdings
 
 
 # 数据工具名 → TemplateRenderer 调用方式
@@ -106,7 +106,14 @@ class DisplayCardTool(AgentTool):
 
         if render_type == "holdings_list":
             asset_class = _ASSET_CLASS_MAP[source_tool]
-            template = TemplateRenderer.render_holdings_list_card(asset_class, data)
+            
+            # ETF 使用字段提取工具从 API 响应中提取显示字段
+            if source_tool == "etf_holdings":
+                extracted_data = extract_etf_holdings(data)
+                template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
+            else:
+                # HKSC 和 Fund 暂时使用旧格式
+                template = TemplateRenderer.render_holdings_list_card(asset_class, data)
         elif render_type == "account_overview":
             # 使用字段提取工具从 API 响应中提取显示字段
             extracted_data = extract_account_overview(data)

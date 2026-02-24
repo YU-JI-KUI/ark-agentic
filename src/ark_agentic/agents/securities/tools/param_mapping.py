@@ -149,9 +149,30 @@ CASH_ASSETS_PARAM_CONFIG: dict[str, tuple] = {
     ),
 }
 
+# ETF 持仓 API 参数配置
+# 注意：ETF API 请求体结构与 account_overview/cash_assets 不同
+ETF_HOLDINGS_PARAM_CONFIG: dict[str, tuple] = {
+    # Body 参数 - ETF API 使用不同的请求结构
+    "assetGrpType": ("transform", "asset_grp_type", lambda x: x if x else 7),  # 默认 7 表示 ETF
+    "appName": ("static", "AYLCAPP"),
+    "limit": ("transform", "limit", lambda x: x if x else 20),  # 默认 20 条
+}
+
+# ETF 持仓 Header 认证配置
+# ETF API 需要特殊的 header 认证
+ETF_HOLDINGS_HEADER_CONFIG: dict[str, tuple] = {
+    "validatedata": ("context", "validatedata"),  # 从 context 获取
+    "signature": ("context", "signature"),         # 从 context 获取
+}
+
 # 服务参数配置注册表
 SERVICE_PARAM_CONFIGS: dict[str, dict[str, tuple]] = {
     "account_overview": ACCOUNT_OVERVIEW_PARAM_CONFIG,
     "cash_assets": CASH_ASSETS_PARAM_CONFIG,
-    # 其他服务可以在此添加
+    "etf_holdings": ETF_HOLDINGS_PARAM_CONFIG,  # 新增
+}
+
+# 服务 Header 配置注册表（用于需要特殊 header 的服务）
+SERVICE_HEADER_CONFIGS: dict[str, dict[str, tuple]] = {
+    "etf_holdings": ETF_HOLDINGS_HEADER_CONFIG,
 }

@@ -178,6 +178,89 @@ def extract_cash_assets(data: dict[str, Any]) -> dict[str, Any]:
     return extract_fields(data, CASH_ASSETS_LEGACY_MAPPING)
 
 
+# ============ ETF 持仓字段映射 ============
+
+# 汇总字段映射
+ETF_HOLDINGS_FIELD_MAPPING: dict[str, str] = {
+    "total": "results.total",
+    "total_market_value": "results.dayTotalMktVal",
+    "total_profit": "results.dayTotalPft",
+    "total_profit_rate": "results.dayTotalPftRate",
+    "account_type": "results.accountType",
+}
+
+# 列表项字段映射
+ETF_HOLDINGS_ITEM_MAPPING: dict[str, str] = {
+    "code": "secuCode",
+    "name": "secuName",
+    "hold_cnt": "holdCnt",
+    "market_value": "mktVal",
+    "day_profit": "dayPft",
+    "day_profit_rate": "dayPftRate",
+    "price": "price",
+    "cost_price": "costPrice",
+    "market_type": "marketType",
+    "hold_position_profit": "holdPositionPft",
+    "hold_position_profit_rate": "holdPositionPftRate",
+}
+
+# 旧格式字段映射（向后兼容）
+ETF_HOLDINGS_LEGACY_MAPPING: dict[str, str] = {
+    "holdings": "data.holdings",
+    "summary": "data.summary",
+}
+
+
+def extract_list_items(
+    items: list[dict[str, Any]],
+    field_mapping: dict[str, str],
+) -> list[dict[str, Any]]:
+    """提取列表项字段
+    
+    Args:
+        items: 原始列表数据
+        field_mapping: 字段映射 {显示名: API字段名}
+    
+    Returns:
+        提取后的列表数据
+    """
+    result = []
+    for item in items:
+        extracted = {}
+        for display_name, api_field in field_mapping.items():
+            value = item.get(api_field)
+            if value is not None:
+                extracted[display_name] = value
+        result.append(extracted)
+    return result
+
+
+def extract_etf_holdings(data: dict[str, Any]) -> dict[str, Any]:
+    """提取 ETF 持仓字段（自动检测格式）
+    
+    支持列表字段映射。
+    
+    Args:
+        data: API 响应数据
+    
+    Returns:
+        提取后的字段字典
+    """
+    # 检测真实 API 格式：有 results.stockList 结构
+    if "results" in data and isinstance(data.get("results"), dict):
+        results = data["results"]
+        if "stockList" in results and isinstance(results.get("stockList"), list):
+            # 提取汇总字段
+            extracted = extract_fields(data, ETF_HOLDINGS_FIELD_MAPPING)
+            # 提取列表字段
+            stock_list = results["stockList"]
+            extracted["stock_list"] = extract_list_items(stock_list, ETF_HOLDINGS_ITEM_MAPPING)
+            return extracted
+    
+    # 使用旧格式
+    return extract_fields(data, ETF_HOLDINGS_LEGACY_MAPPING)
+
+
 # ============ 服务字段配置注册表 ============
 
 # 存储每个服务的字段提取配置
@@ -189,6 +272,10 @@ SERVICE_FIELD_MAPPINGS: dict[str, dict[str, dict[str, str]]] = {
     "cash_assets": {
         "real": CASH_ASSETS_FIELD_MAPPING,
         "legacy": CASH_ASSETS_LEGACY_MAPPING,
+    },
+    "etf_holdings": {
+        "real": ETF_HOLDINGS_FIELD_MAPPING,
+        "legacy": ETF_HOLDINGS_LEGACY_MAPPING,
     },
 }
 
@@ -211,6 +298,9 @@ def extract_service_fields(
     
     if service_name == "cash_assets":
         return extract_cash_assets(data)
+    
+    if service_name == "etf_holdings":
+        return extract_etf_holdings(data)
     
     # 其他服务默认返回原始数据
     return data

@@ -59,15 +59,38 @@ class TemplateRenderer:
         asset_class: Literal["ETF", "HKSC", "Fund", "Cash"],
         data: dict[str, Any],
     ) -> dict[str, Any]:
-        """渲染持仓列表卡片"""
-        return {
-            "template_type": "holdings_list_card",
-            "asset_class": asset_class,
-            "data": {
-                "holdings": data.get("holdings", []),
-                "summary": data.get("summary", {}),
+        """渲染持仓列表卡片
+        
+        支持两种数据格式：
+        1. 真实 API 格式（通过字段提取）: stock_list, total_market_value, total_profit
+        2. 旧格式: holdings, summary
+        """
+        # 检测数据格式
+        if "stock_list" in data:
+            # 真实 API 格式（ETF 使用）
+            return {
+                "template_type": "holdings_list_card",
+                "asset_class": asset_class,
+                "data": {
+                    "holdings": data.get("stock_list", []),
+                    "summary": {
+                        "total_market_value": data.get("total_market_value"),
+                        "total_profit": data.get("total_profit"),
+                        "total_profit_rate": data.get("total_profit_rate"),
+                        "total": data.get("total"),
+                    },
+                }
             }
-        }
+        else:
+            # 旧格式（HKSC、Fund 使用）
+            return {
+                "template_type": "holdings_list_card",
+                "asset_class": asset_class,
+                "data": {
+                    "holdings": data.get("holdings", []),
+                    "summary": data.get("summary", {}),
+                }
+            }
     
     @staticmethod
     def render_cash_assets_card(data: dict[str, Any]) -> dict[str, Any]:

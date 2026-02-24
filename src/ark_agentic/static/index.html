@@ -1614,24 +1614,64 @@
             ac === 'Fund' ? '基金持仓' : '持仓明细';
 
         const holdings = (template.data && template.data.holdings) || [];
+        const summary = (template.data && template.data.summary) || {};
+        
+        // ETF卡片：上半部分显示市值和收益汇总，下半部分显示列表
+        const isETF = ac === 'ETF';
+        let summaryHtml = '';
+        
+        // 检查是否有 summary 数据（字段存在即可，包括 0 值）
+        const hasSummary = summary && (summary.total_market_value !== undefined || summary.total_profit !== undefined);
+        if (isETF && hasSummary) {
+          const totalProfit = toNum(summary.total_profit);
+          const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
+          const profitSign = totalProfit >= 0 ? '+' : '';
+          const profitRate = toNum(summary.total_profit_rate);
+          
+          summaryHtml = `
+            <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
+              <div style="text-align:center;flex:1;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">ETF市值</div>
+                <div class="tc-value">￥${formatNumber(summary.total_market_value)}</div>
+              </div>
+              <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">今日收益</div>
+                <div class="tc-value ${profitClass}">
+                  ${profitSign}￥${formatNumber(Math.abs(totalProfit))}
+                  ${profitRate !== 0 ? ` (${profitSign}${(profitRate * 100).toFixed(2)}%)` : ''}
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
         const holdingsHtml = holdings.map(h => {
-          const pr = toNum(h.profit_rate);
-          const profitClass = pr >= 0 ? 'profit' : 'loss';
-          const profitSign = pr >= 0 ? '+' : '';
+          // 支持两种字段名：真实API格式和旧格式
+          const code = h.code || h.security_code || '';
+          const name = h.name || h.security_name || '';
+          const holdCnt = h.hold_cnt || h.quantity || h.holding_quantity || '-';
+          const marketValue = h.market_value;
+          const dayProfit = toNum(h.day_profit != null ? h.day_profit : h.profit);
+          const dayProfitRate = toNum(h.day_profit_rate != null ? h.day_profit_rate : h.profit_rate);
+          
+          const profitClass = dayProfit >= 0 ? 'profit' : 'loss';
+          const profitSign = dayProfit >= 0 ? '+' : '';
+          
           return `
             <div class="tc-list-item">
               <div>
-                <div class="tc-item-name">${escHtml(h.security_name || h.name || h.security_code || h.code || '')}</div>
+                <div class="tc-item-name">${escHtml(name || code)}</div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
-                  ${escHtml(h.security_code || h.code || '')} · 持仓: ${h.quantity || h.holding_quantity || '-'}
+                  ${escHtml(code)} · 持仓: ${holdCnt}
                 </div>
               </div>
               <div style="text-align:right;">
                 <div class="tc-item-value ${profitClass}">
-                  ${profitSign}${(pr * 100).toFixed(2)}%
+                  ${profitSign}￥${formatNumber(Math.abs(dayProfit))}
+                  (${profitSign}${(dayProfitRate * 100).toFixed(2)}%)
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
-                  ￥${formatNumber(h.market_value)}
+                  市值: ￥${formatNumber(marketValue)}
                 </div>
               </div>
             </div>
@@ -1644,6 +1684,7 @@
             <div class="tc-badge">共 ${holdings.length} 项</div>
           </div>
           <div class="template-card-body">
+            ${summaryHtml}
             <div class="tc-list">${holdingsHtml || '<div style="text-align:center;color:var(--text-muted);padding:20px;">暂无持仓</div>'}</div>
           </div>
         `;

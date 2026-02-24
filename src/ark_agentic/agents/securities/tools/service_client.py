@@ -169,25 +169,64 @@ class AccountOverviewAdapter(BaseServiceAdapter):
 
 
 class ETFHoldingsAdapter(BaseServiceAdapter):
-    """ETF 持仓服务适配器"""
+    """ETF 持仓服务适配器
+    
+    使用真实 API 格式：
+    - 请求体: {"assetGrpType": 7, "appName": "AYLCAPP", "limit": 20}
+    - Headers: {"Content-Type": "application/json", "validatedata": "...", "signature": "..."}
+    - 响应体: {"status": 1, "results": {"stockList": [...]}}
+    """
+    
+    def _build_request(
+        self,
+        account_type: str,
+        user_id: str,
+        params: dict[str, Any],
+    ) -> tuple[dict[str, str], dict[str, Any]]:
+        """构建请求（使用参数映射配置）"""
+        from .param_mapping import (
+            build_api_request,
+            SERVICE_PARAM_CONFIGS,
+            SERVICE_HEADER_CONFIGS,
+        )
+        
+        context = params.get("_context", {})
+        
+        # 使用参数映射构建请求体
+        config = SERVICE_PARAM_CONFIGS.get("etf_holdings", {})
+        body = build_api_request(config, context)
+        
+        # 构建 headers（包含 validatedata 和 signature）
+        headers = {"Content-Type": "application/json"}
+        
+        # 从 context 获取 ETF 专用认证 headers
+        header_config = SERVICE_HEADER_CONFIGS.get("etf_holdings", {})
+        for header_name, source_def in header_config.items():
+            if source_def[0] == "context":
+                key = source_def[1]
+                value = context.get(key)
+                if value:
+                    headers[header_name] = value
+        
+        # 添加配置的认证（如果有的话）
+        if self.config.auth_type == "header" and self.config.auth_value:
+            headers[self.config.auth_key] = self.config.auth_value
+        
+        return headers, body
     
     def _normalize_response(
         self,
         raw_data: dict[str, Any],
         account_type: str,
     ) -> dict[str, Any]:
-        """使用 Pydantic 标准化字段"""
-        from ..schemas import ETFHoldingsSchema
-        from pydantic import ValidationError
+        """返回原始数据，不做标准化（由 display_card 处理字段提取）"""
+        # 检查 API 响应状态
+        if raw_data.get("status") != 1:
+            error_msg = raw_data.get("msg") or "Unknown API error"
+            raise ServiceError(f"API returned error: {error_msg}")
         
-        data = raw_data.get("data", {})
-        
-        try:
-            schema = ETFHoldingsSchema.from_raw_data(data)
-            return schema.model_dump()
-        except ValidationError as e:
-            logger.error(f"ETF holdings data validation failed: {e}")
-            raise ServiceError(f"Invalid ETF data: {e}")
+        # 返回原始数据，字段提取由 display_card 工具完成
+        return raw_data
 
 
 class HKSCHoldingsAdapter(BaseServiceAdapter):

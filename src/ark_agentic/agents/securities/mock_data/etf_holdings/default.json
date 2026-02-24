@@ -1,37 +1,65 @@
 {
-    "code": "0",
-    "message": "success",
-    "data": {
-        "holdings": [
+    "results": {
+        "total": 3,
+        "dayTotalMktVal": 514.90,
+        "dayTotalPft": "-27.80",
+        "stockList": [
             {
-                "securityCode": "510300",
-                "securityName": "沪深300ETF",
-                "quantity": "10000",
-                "costPrice": "4.5",
-                "currentPrice": "4.8",
-                "marketValue": "48000.0",
-                "profit": "3000.0",
-                "profitRate": "0.0667",
-                "todayProfit": "500.0"
+                "statDate": 20260213,
+                "secuCode": "159958",
+                "secuName": "创业板ETF工银",
+                "marketType": "SZ",
+                "price": "1.918",
+                "holdCnt": "100",
+                "mktVal": "191.80",
+                "costPrice": "1.8850",
+                "dayPft": "-8.80",
+                "dayPftRate": "-0.0439",
+                "holdPositionPft": "3.30",
+                "holdPositionPftRate": "0.0175",
+                "secuAcc": "0276525016",
+                "exchangeType": "2",
+                "position": 0.0000
             },
             {
-                "securityCode": "159915",
-                "securityName": "创业板ETF",
-                "quantity": "5000",
-                "costPrice": "2.2",
-                "currentPrice": "2.35",
-                "marketValue": "11750.0",
-                "profit": "750.0",
-                "profitRate": "0.0682",
-                "todayProfit": "-200.0"
+                "statDate": 20260213,
+                "secuCode": "158459",
+                "secuName": "消费电子ETF",
+                "marketType": "SZ",
+                "price": "1.318",
+                "holdCnt": "500",
+                "mktVal": "42.80",
+                "costPrice": "1.8850",
+                "dayPft": "10.80",
+                "dayPftRate": "0.0439",
+                "holdPositionPft": "3.30",
+                "holdPositionPftRate": "0.0175",
+                "secuAcc": "0276525016",
+                "exchangeType": "2",
+                "position": 0.0000
+            },
+            {
+                "statDate": 20260213,
+                "secuCode": "159391",
+                "secuName": "大盘价值ETF博时",
+                "marketType": "SZ",
+                "price": "1.012",
+                "holdCnt": "300",
+                "mktVal": "391.80",
+                "costPrice": "1.8850",
+                "dayPft": "11.80",
+                "dayPftRate": "0.0439",
+                "holdPositionPft": "3.30",
+                "holdPositionPftRate": "0.0175",
+                "secuAcc": "0276525016",
+                "exchangeType": "2",
+                "position": 0.0000
             }
         ],
-        "summary": {
-            "totalMarketValue": "59750.0",
-            "totalCost": "56000.0",
-            "totalProfit": "3750.0",
-            "totalProfitRate": "0.067",
-            "todayProfit": "300.0"
-        }
-    }
+        "accountType": 1,
+        "dayTotalPftRate": -0.0512
+    },
+    "err": 0,
+    "msg": "getUserAssetPftFromNtc_success",
+    "status": 1
 }

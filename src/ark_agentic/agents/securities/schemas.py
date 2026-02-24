@@ -124,7 +124,7 @@ class AccountOverviewSchema(BaseModel):
 # ============ ETF 持仓 ============
 
 class HoldingItemSchema(BaseModel):
-    """单个持仓项"""
+    """单个持仓项（旧格式，向后兼容）"""
     
     security_code: str = Field(..., alias="securityCode", description="证券代码")
     security_name: str = Field(..., alias="securityName", description="证券名称")
@@ -189,21 +189,118 @@ class HoldingsSummarySchema(BaseModel):
         )
 
 
-class ETFHoldingsSchema(BaseModel):
-    """ETF 持仓完整模型"""
+# ============ ETF 持仓（真实 API 格式）============
+
+class ETFHoldingItemSchema(BaseModel):
+    """ETF 持仓项（真实 API 格式）
     
-    holdings: list[HoldingItemSchema]
-    summary: HoldingsSummarySchema
+    从 field_extraction.extract_etf_holdings() 提取后的数据创建。
+    """
+    
+    code: str = Field(..., description="证券代码")
+    name: str = Field(..., description="证券名称")
+    hold_cnt: str = Field(..., description="持仓数量")
+    market_value: str = Field(..., description="市值")
+    day_profit: str | None = Field(None, description="今日收益")
+    day_profit_rate: str | None = Field(None, description="今日收益率")
+    price: str | None = Field(None, description="当前价格")
+    cost_price: str | None = Field(None, description="成本价")
+    market_type: str | None = Field(None, description="市场类型")
+    hold_position_profit: str | None = Field(None, description="持仓盈亏")
+    hold_position_profit_rate: str | None = Field(None, description="持仓盈亏率")
+    
+    model_config = {"populate_by_name": True}
+    
+    @classmethod
+    def from_api_response(cls, data: dict) -> ETFHoldingItemSchema:
+        """从字段提取后的数据创建"""
+        return cls(
+            code=data.get("code", ""),
+            name=data.get("name", ""),
+            hold_cnt=data.get("hold_cnt", "0"),
+            market_value=data.get("market_value", "0"),
+            day_profit=data.get("day_profit"),
+            day_profit_rate=data.get("day_profit_rate"),
+            price=data.get("price"),
+            cost_price=data.get("cost_price"),
+            market_type=data.get("market_type"),
+            hold_position_profit=data.get("hold_position_profit"),
+            hold_position_profit_rate=data.get("hold_position_profit_rate"),
+        )
+
+
+class ETFHoldingsSchema(BaseModel):
+    """ETF 持仓完整模型
+    
+    支持两种数据来源：
+    1. from_raw_data: 从旧格式/mock 数据创建
+    2. from_api_response: 从真实 API 响应创建（通过字段提取后的数据）
+    """
+    
+    # 真实 API 格式字段
+    total: int = Field(default=0, description="持仓数量")
+    total_market_value: str = Field(default="0", description="总市值")
+    total_profit: str = Field(default="0", description="今日总收益")
+    total_profit_rate: str | None = Field(None, description="今日收益率")
+    account_type: int | None = Field(None, description="账户类型")
+    stock_list: list[ETFHoldingItemSchema] = Field(default_factory=list, description="持仓列表")
+    
+    # 旧格式字段（向后兼容）
+    holdings: list[HoldingItemSchema] = Field(default_factory=list, description="持仓列表（旧格式）")
+    summary: HoldingsSummarySchema | None = Field(None, description="持仓汇总（旧格式）")
+    
+    model_config = {"populate_by_name": True}
+    
+    @classmethod
+    def from_api_response(cls, data: dict) -> ETFHoldingsSchema:
+        """从真实 API 响应创建（通过字段提取后的数据）
+        
+        用于从 field_extraction.extract_etf_holdings() 提取后的数据创建。
+        字段已经是标准化的名称。
+        
+        Args:
+            data: 从 extract_etf_holdings() 返回的标准化数据
+        
+        Returns:
+            ETFHoldingsSchema 实例
+        """
+        stock_list_raw = data.get("stock_list", [])
+        return cls(
+            total=data.get("total", 0),
+            total_market_value=data.get("total_market_value", "0"),
+            total_profit=data.get("total_profit", "0"),
+            total_profit_rate=data.get("total_profit_rate"),
+            account_type=data.get("account_type"),
+            stock_list=[ETFHoldingItemSchema.from_api_response(s) for s in stock_list_raw],
+        )
     
     @classmethod
     def from_raw_data(cls, data: dict) -> ETFHoldingsSchema:
-        """从原始数据创建"""
+        """从旧格式数据创建（向后兼容）"""
         holdings_raw = data.get("holdings", [])
         summary_raw = data.get("summary", {})
         
+        # 转换旧格式到新格式
+        stock_list = []
+        for h in holdings_raw:
+            stock_list.append({
+                "code": get_val(h, "securityCode", "code"),
+                "name": get_val(h, "securityName", "name"),
+                "hold_cnt": get_val(h, "quantity", "qty"),
+                "market_value": get_val(h, "marketValue", "mv"),
+                "day_profit": get_val(h, "todayProfit"),
+                "price": get_val(h, "currentPrice", "price"),
+                "cost_price": get_val(h, "costPrice", "cost"),
+            })
+        
         return cls(
+            total=len(stock_list),
+            total_market_value=get_val(summary_raw, "totalMarketValue", "total_mv") or "0",
+            total_profit=get_val(summary_raw, "todayProfit", "today_profit") or "0",
+            total_profit_rate=get_val(summary_raw, "totalProfitRate"),
+            stock_list=[ETFHoldingItemSchema.from_api_response(s) for s in stock_list],
             holdings=[HoldingItemSchema.from_raw_data(h) for h in holdings_raw],
-            summary=HoldingsSummarySchema.from_raw_data(summary_raw),
+            summary=HoldingsSummarySchema.from_raw_data(summary_raw) if summary_raw else None,
         )
 
 
