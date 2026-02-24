@@ -1,15 +1,16 @@
 """
-Mock LLM Protocol Wrapper (test fixture)
+Mock LLM Wrapper (test fixture)
 
-Adapts MockLLMClient to LangChainLLMProtocol for use with AgentRunner in tests.
+Adapts MockLLMClient to BaseChatModel interface for use with AgentRunner in tests.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, TYPE_CHECKING
 
-from ark_agentic.core.llm.protocol import LangChainLLMProtocol
+if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 from .mock import MockLLMClient
 
@@ -38,7 +39,7 @@ class MockAIMessageChunk:
 
 
 class MockLLMWrapper:
-    """Adapts MockLLMClient to LangChainLLMProtocol."""
+    """Adapts MockLLMClient to BaseChatModel interface (duck-typed for tests)."""
 
     def __init__(self, mock_client: MockLLMClient | None = None):
         self._mock_client = mock_client or MockLLMClient()
@@ -77,26 +78,16 @@ class MockLLMWrapper:
         chunk.usage_metadata = ai_message.usage_metadata
         yield chunk
 
-    def bind_tools(self, tools: list[dict[str, Any]]) -> LangChainLLMProtocol:
-        """Return self since MockLLMClient handles tools internally."""
+    def bind_tools(self, tools: list[dict[str, Any]], **kwargs: Any) -> "MockLLMWrapper":
         return self
 
-    def model_copy(self, *, update: dict[str, Any]) -> LangChainLLMProtocol:
-        """Return self since MockLLMClient doesn't need parameter updates."""
+    def model_copy(self, *, update: dict[str, Any]) -> "MockLLMWrapper":
         return self
 
-    def copy(self, *, update: dict[str, Any]) -> LangChainLLMProtocol:
-        """Return self since MockLLMClient doesn't need parameter updates."""
+    def copy(self, *, update: dict[str, Any]) -> "MockLLMWrapper":
         return self
 
 
-def wrap_mock_llm(mock_client: MockLLMClient | None = None) -> LangChainLLMProtocol:
-    """Wrap MockLLMClient as LangChainLLMProtocol.
-
-    Args:
-        mock_client: Optional MockLLMClient instance. If None, creates a new one.
-
-    Returns:
-        Wrapped MockLLMClient that implements LangChainLLMProtocol
-    """
+def wrap_mock_llm(mock_client: MockLLMClient | None = None) -> "MockLLMWrapper":
+    """Wrap MockLLMClient as duck-typed BaseChatModel for AgentRunner tests."""
     return MockLLMWrapper(mock_client)

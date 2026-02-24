@@ -38,11 +38,12 @@ from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.tools.registry import ToolRegistry
+from ark_agentic.core.tools.demo_a2ui import DemoA2UITool
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.llm import create_chat_model, PAModel
-from ark_agentic.core.llm.protocol import LangChainLLMProtocol
+from langchain_core.language_models.chat_models import BaseChatModel
 from ark_agentic.core.memory.manager import MemoryManager, MemoryConfig
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 
@@ -82,7 +83,7 @@ def get_llm_client(args: argparse.Namespace) -> Any:
 
 
 def create_insurance_agent(
-    llm: LangChainLLMProtocol,
+    llm: BaseChatModel,
     sessions_dir: str | Path | None = None,
     enable_persistence: bool = False,
     memory_dir: str | Path | None = None,
@@ -91,7 +92,7 @@ def create_insurance_agent(
     """创建保险取款智能体
 
     Args:
-        llm: LLM instance implementing LangChainLLMProtocol (e.g. ChatOpenAI)
+        llm: LLM instance (BaseChatModel, e.g. ChatOpenAI)
         sessions_dir: 会话持久化目录（None 则使用临时目录）
         enable_persistence: 是否启用持久化
         memory_dir: Memory 数据目录（用于向量存储等）
@@ -100,9 +101,11 @@ def create_insurance_agent(
     Returns:
         配置好的 AgentRunner
     """
-    # 1. 创建工具注册器并注册保险工具
+    # 1. 创建工具注册器并注册保险工具 + Demo A2UI 工具
     tool_registry = ToolRegistry()
     tool_registry.register_all(create_insurance_tools())
+    # DemoA2UITool: 专用于演示和联调 A2UI/AGUI 流式输出，不影响正常业务逻辑
+    tool_registry.register(DemoA2UITool())
 
     # 2. 创建会话管理器（支持持久化，使用 LLM 摘要器进行上下文压缩）
     if enable_persistence:

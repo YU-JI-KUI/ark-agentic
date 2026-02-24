@@ -28,7 +28,7 @@ def test_deepseek_works_without_pycryptodome():
 
 def test_pa_jt_fails_without_pycryptodome():
     """Test that PA-JT models raise when creation fails (e.g. missing pycryptodome)."""
-    with patch('ark_agentic.core.llm.factory._create_pa_jt_model') as mock_create:
+    with patch('ark_agentic.core.llm.pa_jt_llm.create_pa_jt_llm') as mock_create:
         mock_create.side_effect = ImportError(
             "PA-JT models require pycryptodome for RSA signing. Install with: uv add 'ark-agentic[pa-jt]' or uv add pycryptodome"
         )
@@ -49,7 +49,7 @@ def test_helpful_error_message_for_pa_jt():
     """Test that PA-JT models provide helpful error message."""
     # Test the actual transport error handling directly
     try:
-        from ark_agentic.core.llm.transport import rsa_sign
+        from ark_agentic.core.llm.pa_jt_llm import rsa_sign
 
         # Try to use RSA signing - should fail with helpful message if pycryptodome missing
         # Use a valid hex string for the RSA key (dummy hex data)
@@ -67,5 +67,5 @@ def test_helpful_error_message_for_pa_jt():
             assert True
 
     except ImportError:
-        # If we can't even import the transport module, that's also fine for this test
+        # If we can't even import the pa_jt_llm module, that's also fine for this test
         assert True

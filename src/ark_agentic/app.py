@@ -34,6 +34,9 @@ from pydantic import BaseModel, Field
 
 from ark_agentic.core.runner import AgentRunner
 from ark_agentic.core.types import RunOptions
+from ark_agentic.core.stream.event_bus import StreamEventBus
+from ark_agentic.core.stream.events import AgentStreamEvent
+from ark_agentic.core.stream.output_formatter import create_formatter
 from ark_agentic.agents.insurance.api import create_insurance_agent_from_env
 
 logger = logging.getLogger(__name__)
@@ -74,6 +77,10 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(None, description="会话 ID，为空则创建新会话")
     stream: bool = Field(False, description="是否启用 SSE 流式输出")
     run_options: RunOptions | None = Field(None, description="运行选项（模型、温度等覆盖）")
+    # 流式协议选择
+    protocol: str = Field("internal", description="流式输出协议 (agui/internal/enterprise/alone)")
+    source_bu_type: str = Field("", description="BU 来源（enterprise 模式使用）")
+    app_type: str = Field("", description="App 类型（enterprise 模式使用）")
     # 业务上下文字段
     user_id: str | None = Field(None, description="用户 ID")
     context: dict[str, Any] | None = Field(None, description="业务上下文数据")
@@ -218,13 +225,15 @@ async def chat(
             },
         )
 
-    # ---- 流式响应：使用 StreamEventBus ----
-    from ark_agentic.core.stream.event_bus import StreamEventBus
-    from ark_agentic.core.stream.events import AgentStreamEvent
-
+    # ---- 流式响应：使用 StreamEventBus + OutputFormatter ----
     queue: asyncio.Queue[AgentStreamEvent] = asyncio.Queue()
     done_event = asyncio.Event()
     bus = StreamEventBus(run_id=run_id, session_id=session_id, queue=queue)
+    formatter = create_formatter(
+        request.protocol,
+        source_bu_type=request.source_bu_type,
+        app_type=request.app_type,
+    )
 
     async def run_agent() -> None:
         bus.emit_created("收到您的消息，正在处理中…")
@@ -264,7 +273,9 @@ async def chat(
                     break
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=0.1)
-                    yield f"event: {event.type}\ndata: {event.model_dump_json(exclude_none=True)}\n\n"
+                    sse_line = formatter.format(event)
+                    if sse_line is not None:
+                        yield sse_line
                 except asyncio.TimeoutError:
                     continue
         finally:

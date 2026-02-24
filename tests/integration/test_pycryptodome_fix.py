@@ -89,7 +89,7 @@ def test_transport_error_handling():
     print("Testing transport RSA signing error handling...")
 
     try:
-        from ark_agentic.core.llm.transport import rsa_sign
+        from ark_agentic.core.llm.pa_jt_llm import rsa_sign
 
         # This should fail with helpful error message
         try:
@@ -115,7 +115,7 @@ def test_hmac_still_works():
     print("Testing HMAC signing (should work without pycryptodome)...")
 
     try:
-        from ark_agentic.core.llm.transport import hmac_sign
+        from ark_agentic.core.llm.pa_jt_llm import hmac_sign
 
         result = hmac_sign("test-key", "test-secret", "123456789")
         if isinstance(result, str) and len(result) > 0:

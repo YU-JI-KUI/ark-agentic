@@ -13,7 +13,6 @@ from dataclasses import dataclass, field, replace
 from typing import Any, TYPE_CHECKING, Callable, Awaitable
 
 from .llm.errors import LLMError, LLMErrorReason, classify_error
-from .llm.protocol import LangChainLLMProtocol
 from .prompt.builder import SystemPromptBuilder, PromptConfig
 from .session import SessionManager
 from .skills.base import SkillConfig
@@ -37,7 +36,8 @@ if TYPE_CHECKING:
     from .memory.manager import MemoryManager
     from langchain_openai import ChatOpenAI
     from langchain_core.messages import BaseMessage
-    from langchain_core.language_models.chat_models import BaseChatModel
+
+from langchain_core.language_models.chat_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class AgentRunner:
 
     def __init__(
         self,
-        llm: LangChainLLMProtocol,
+        llm: BaseChatModel,
         tool_registry: ToolRegistry | None = None,
         session_manager: SessionManager | None = None,
         skill_loader: SkillLoader | None = None,
@@ -583,7 +583,7 @@ class AgentRunner:
         tools = self.tool_registry.list_all()
         return [tool.get_json_schema() for tool in tools]
 
-    def _get_llm(self, model_override: str | None = None, temperature_override: float | None = None) -> LangChainLLMProtocol:
+    def _get_llm(self, model_override: str | None = None, temperature_override: float | None = None) -> BaseChatModel:
         """获取 LLM 实例，支持 per-call model/temperature 覆盖。"""
         updates: dict[str, Any] = {}
         if model_override:
@@ -749,7 +749,7 @@ class AgentRunner:
         async def execute_single(tc: ToolCall) -> AgentToolResult:
             logger.debug(f"[TOOL_START] {tc.name} args={tc.arguments}")
             if handler:
-                handler.on_tool_call_start(tc.name, tc.arguments)
+                handler.on_tool_call_start(tc.id, tc.name, tc.arguments)
                 status = self._TOOL_STATUS.get(tc.name, f"正在处理 {tc.name}…")
                 handler.on_step(status)
 
@@ -774,7 +774,10 @@ class AgentRunner:
                     result = AgentToolResult.error_result(tc.id, str(e))
 
             if handler:
-                handler.on_tool_call_result(tc.name, result.content)
+                handler.on_tool_call_result(tc.id, tc.name, result.content)
+                if result.metadata.get("ui_components"):
+                    for component in result.metadata["ui_components"]:
+                        handler.on_ui_component(component)
 
             logger.debug(f"[TOOL_DONE] {tc.name} error={result.is_error} size={len(str(result.content))}B")
             if result.is_error and handler:

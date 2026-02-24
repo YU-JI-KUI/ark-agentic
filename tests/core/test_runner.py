@@ -10,7 +10,6 @@ from ark_agentic.core.session import SessionManager
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import AgentMessage, AgentToolResult, ToolCall, MessageRole
-from ark_agentic.core.llm.protocol import wrap_chat_openai
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 
@@ -75,8 +74,7 @@ def _make_runner(
 ) -> tuple[AgentRunner, _MockTool]:
     """Create a fresh AgentRunner with mock dependencies."""
     mock_llm = MockChatModel(responses=responses or [], stream_responses=stream_responses or [])
-    # Wrap the mock LLM to conform to LangChainLLMProtocol
-    llm = wrap_chat_openai(mock_llm)
+    llm = mock_llm  # type: ignore[arg-type]  # duck-typed BaseChatModel for tests
     registry = ToolRegistry()
     tool = _MockTool()
     registry.register(tool)
@@ -163,17 +161,17 @@ async def test_run_streaming_text_response() -> None:
     class MockHandler:
         def on_content_delta(self, delta: str, index: int) -> None:
             captured_deltas.append(delta)
-            
-        def on_tool_call_start(self, name: str, args: str) -> None:
+
+        def on_tool_call_start(self, tool_call_id: str, name: str, args: str) -> None:
             pass
-            
-        def on_tool_call_result(self, name: str, result: str) -> None:
+
+        def on_tool_call_result(self, tool_call_id: str, name: str, result: str) -> None:
             pass
-            
+
         def on_step(self, status: str) -> None:
             pass
-            
-        def on_error(self, error: Exception) -> None:
+
+        def on_ui_component(self, component: dict) -> None:
             pass
 
     # Act
@@ -213,17 +211,17 @@ async def test_run_streaming_with_tool_call() -> None:
     class MockHandler:
         def on_content_delta(self, delta: str, index: int) -> None:
             captured_deltas.append(delta)
-            
-        def on_tool_call_start(self, name: str, args: str) -> None:
+
+        def on_tool_call_start(self, tool_call_id: str, name: str, args: str) -> None:
             captured_tool_starts.append(name)
-            
-        def on_tool_call_result(self, name: str, result: str) -> None:
+
+        def on_tool_call_result(self, tool_call_id: str, name: str, result: str) -> None:
             pass
-            
+
         def on_step(self, status: str) -> None:
             captured_steps.append(status)
-            
-        def on_error(self, error: Exception) -> None:
+
+        def on_ui_component(self, component: dict) -> None:
             pass
 
     # Act

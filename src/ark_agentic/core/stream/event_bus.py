@@ -1,14 +1,20 @@
 """
 流式事件总线
 
-职责（SRP）：将 Runner 内部回调翻译为 AgentStreamEvent 并推入队列。
+职责（SRP）：将 Runner 内部回调翻译为 AG-UI 原生 AgentStreamEvent 并推入队列。
 扩展性（OCP）：新事件类型通过扩展 AgentEventHandler Protocol 添加。
+
+状态管理：
+  - 自动配对 step_started / step_finished
+  - 自动配对 text_message_start / text_message_end
+  - 终结事件（run_finished / run_error）自动关闭所有活跃状态
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import Any, Protocol
 
 from .events import AgentStreamEvent
@@ -34,16 +40,16 @@ class AgentEventHandler(Protocol):
         """最终回答的文本增量（逐 token 流式输出）。"""
         ...
 
-    def on_tool_call_start(self, name: str, args: dict[str, Any]) -> None:
+    def on_tool_call_start(self, tool_call_id: str, name: str, args: dict[str, Any]) -> None:
         """工具调用开始。"""
         ...
 
-    def on_tool_call_result(self, name: str, result: Any) -> None:
+    def on_tool_call_result(self, tool_call_id: str, name: str, result: Any) -> None:
         """工具调用完成。"""
         ...
 
     def on_ui_component(self, component: dict[str, Any]) -> None:
-        """A2UI 组件描述（预留扩展）。"""
+        """A2UI 组件描述。"""
         ...
 
 
@@ -51,7 +57,9 @@ class AgentEventHandler(Protocol):
 
 
 class StreamEventBus:
-    """实现 AgentEventHandler，将回调转为 AgentStreamEvent 推入 asyncio.Queue。
+    """实现 AgentEventHandler，将回调转为 AG-UI 原生 AgentStreamEvent 推入 asyncio.Queue。
+
+    内部维护 step / text_message 的活跃状态，自动配对 start/finish 事件。
 
     用法::
 
@@ -63,7 +71,7 @@ class StreamEventBus:
 
         # app.py 消费 queue
         while event := await queue.get():
-            yield f"event: {event.type}\\ndata: {event.model_dump_json()}\\n\\n"
+            yield formatter.format(event)
     """
 
     def __init__(
@@ -76,6 +84,11 @@ class StreamEventBus:
         self._session_id = session_id
         self._queue = queue
         self._seq = 0
+
+        # 状态跟踪
+        self._active_step: str | None = None
+        self._text_started: bool = False
+        self._text_message_id: str | None = None
 
     def _next_seq(self) -> int:
         self._seq += 1
@@ -91,48 +104,82 @@ class StreamEventBus:
         )
         self._queue.put_nowait(event)
 
+    def _close_active_step(self) -> None:
+        """关闭当前活跃步骤（发送 step_finished）。"""
+        if self._active_step is not None:
+            self._emit(type="step_finished", step_name=self._active_step)
+            self._active_step = None
+
+    def _close_text_message(self) -> None:
+        """关闭当前活跃文本消息（发送 text_message_end）。"""
+        if self._text_started:
+            self._emit(type="text_message_end", message_id=self._text_message_id)
+            self._text_started = False
+            self._text_message_id = None
+
+    def _ensure_text_started(self) -> None:
+        """确保文本消息已开始。"""
+        if not self._text_started:
+            self._text_message_id = str(uuid.uuid4())
+            self._emit(type="text_message_start", message_id=self._text_message_id)
+            self._text_started = True
+
     # ---- AgentEventHandler 实现 ----
 
     def on_step(self, text: str) -> None:
         if not text:
             return
-        self._emit(type="response.step", content=text)
+        self._close_active_step()
+        self._active_step = text
+        self._emit(type="step_started", step_name=text)
 
     def on_content_delta(self, delta: str, output_index: int = 0) -> None:
         if not delta:
             return
-        self._emit(
-            type="response.content.delta",
-            delta=delta,
-            output_index=output_index,
-        )
+        self._ensure_text_started()
+        self._emit(type="text_message_content", delta=delta, message_id=self._text_message_id)
 
-    def on_tool_call_start(self, name: str, args: dict[str, Any]) -> None:
+    def on_tool_call_start(self, tool_call_id: str, name: str, args: dict[str, Any]) -> None:
         self._emit(
-            type="response.tool_call.start",
+            type="tool_call_start",
+            tool_call_id=tool_call_id,
+            tool_name=name,
+        )
+        self._emit(
+            type="tool_call_args",
+            tool_call_id=tool_call_id,
             tool_name=name,
             tool_args=args,
         )
 
-    def on_tool_call_result(self, name: str, result: Any) -> None:
-        # 截断过长的 tool result 避免 SSE 消息过大
+    def on_tool_call_result(self, tool_call_id: str, name: str, result: Any) -> None:
         result_str = str(result)
         if len(result_str) > 2000:
             result_str = result_str[:2000] + "... (truncated)"
         self._emit(
-            type="response.tool_call.result",
+            type="tool_call_end",
+            tool_call_id=tool_call_id,
+            tool_name=name,
+        )
+        self._emit(
+            type="tool_call_result",
+            tool_call_id=tool_call_id,
             tool_name=name,
             tool_result=result_str,
         )
 
     def on_ui_component(self, component: dict[str, Any]) -> None:
-        self._emit(type="response.ui.component", ui_component=component)
+        self._emit(
+            type="text_message_content",
+            content_kind="a2ui",
+            custom_data=component,
+        )
 
     # ---- 生命周期事件（由 app.py 直接调用）----
 
     def emit_created(self, content: str = "收到您的消息，正在处理中…") -> None:
-        """发送 response.created 事件。"""
-        self._emit(type="response.created", content=content)
+        """发送 run_started 事件。"""
+        self._emit(type="run_started", run_content=content)
 
     def emit_completed(
         self,
@@ -142,9 +189,11 @@ class StreamEventBus:
         turns: int = 0,
         usage: dict[str, int] | None = None,
     ) -> None:
-        """发送 response.completed 事件。"""
+        """发送 run_finished 事件。自动关闭活跃的 step 和 text_message。"""
+        self._close_text_message()
+        self._close_active_step()
         self._emit(
-            type="response.completed",
+            type="run_finished",
             message=message,
             tool_calls=tool_calls,
             turns=turns,
@@ -152,5 +201,7 @@ class StreamEventBus:
         )
 
     def emit_failed(self, error_message: str) -> None:
-        """发送 response.failed 事件。"""
-        self._emit(type="response.failed", error_message=error_message)
+        """发送 run_error 事件。自动关闭活跃的 step 和 text_message。"""
+        self._close_text_message()
+        self._close_active_step()
+        self._emit(type="run_error", error_message=error_message)

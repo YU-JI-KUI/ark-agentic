@@ -1,19 +1,13 @@
 """
 LLM Client 工厂（ChatOpenAI 统一入口）
 
-统一 PA 内部模型和 OpenAI 兼容模型的创建。
+统一 PA 内部模型和 OpenAI 兼容模型的创建，返回 BaseChatModel。
 
 模型分类：
 1. DeepSeek 等 OpenAI 兼容模型 — 标准 ChatOpenAI
 2. PA 内部模型：
-   A. PA-JT-*: 需要 PinganEAGWHeaderAsyncTransport（RSA + HMAC 签名）
-   B. PA-SX-*: 使用固定 header（Bearer token + trace headers）
-
-旧的 create_llm_client() / PAInternalClient 标记为废弃，
-新代码统一使用 create_chat_model()。
-
-所有返回的 ChatOpenAI 实例都通过 LangChainLLMProtocol 包装，
-以恢复依赖倒置并提供类型安全。
+   A. PA-JT-*: JT transport（RSA + HMAC 签名 + body 注入）
+   B. PA-SX-*: SX transport（trace headers + body 注入）
 """
 
 from __future__ import annotations
@@ -22,11 +16,10 @@ import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
 
-import httpx
-
-from .protocol import LangChainLLMProtocol, wrap_chat_openai
+if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
@@ -100,11 +93,14 @@ def _load_pa_model_config(model: PAModel) -> PAModelConfig:
     app_id_env = (
         "PA_SX_80B_APP_ID" if model == PAModel.PA_SX_80B else "PA_SX_235B_APP_ID"
     )
+    api_key_env = (
+        "PA_SX_80B_API_KEY" if model == PAModel.PA_SX_80B else "PA_SX_235B_API_KEY"
+    )
     return PAModelConfig(
         base_url=base_url,
         model_name=model.value,
         model_type="sx",
-        api_key=os.getenv("PA_SX_API_KEY", ""),
+        api_key=os.getenv(api_key_env, ""),
         trace_app_id=os.getenv(app_id_env, ""),
     )
 
@@ -118,25 +114,27 @@ def create_chat_model(
     temperature: float = 0.7,
     max_tokens: int = 4096,
     streaming: bool = False,
+    enable_thinking: bool = False,
     # DeepSeek / OpenAI 兼容专用
     api_key: str | None = None,
     base_url: str | None = None,
-    # 额外参数（允许调用方覆盖 extra_body 中的值，如 chat_template_kwargs）
+    # 额外参数（透传给 transport 的 extra_body_override）
     extra_body: dict[str, Any] | None = None,
-) -> LangChainLLMProtocol:
-    """创建 langchain ChatOpenAI 实例，失败时抛出异常。
+) -> "BaseChatModel":
+    """创建 LangChain ChatOpenAI 实例，返回 BaseChatModel。
 
     Args:
         model: 模型名称。PA-JT-80B / PA-SX-80B / PA-SX-235B / deepseek-chat / 其他
         temperature: 温度
         max_tokens: 最大 token
         streaming: 是否启用流式
+        enable_thinking: 是否启用 thinking
         api_key: API Key（DeepSeek 等需要；PA 模型从环境变量读取）
         base_url: API 端点（DeepSeek 等需要；PA 模型从环境变量读取）
-        extra_body: 额外 body 参数，会合并到默认值之上（可覆盖 chat_template_kwargs 等）
+        extra_body: 额外 body 字段，传递给 transport 的 extra_body_override（PA 模型）
 
     Returns:
-        ChatOpenAI 实例（包装为 LangChainLLMProtocol）
+        BaseChatModel 实例（ChatOpenAI 子类）
 
     Examples:
         # PA-SX（默认）
@@ -148,146 +146,42 @@ def create_chat_model(
         # DeepSeek
         llm = create_chat_model("deepseek-chat", api_key="sk-xxx")
     """
-    # 解析模型类型
     model_str = model.value if isinstance(model, PAModel) else model
 
     try:
-        from langchain_openai import ChatOpenAI
+        from langchain_openai import ChatOpenAI  # noqa: F401 – eagerly validate install
     except ImportError as e:
         raise ImportError(
-            f"langchain-openai is required for create_chat_model. Install with: pip install langchain-openai. {e}"
+            f"langchain-openai is required. Install with: pip install langchain-openai. {e}"
         ) from e
 
     if model_str.startswith("PA-JT"):
-        return _create_pa_jt_model(
-            model_str, temperature, max_tokens, streaming, extra_body
+        from .pa_jt_llm import create_pa_jt_llm
+        config = _load_pa_model_config(PAModel(model_str))
+        return create_pa_jt_llm(
+            config,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            streaming=streaming,
+            enable_thinking=enable_thinking,
+            extra_body_override=extra_body,
         )
-    elif model_str.startswith("PA-SX"):
-        return _create_pa_sx_model(model_str, temperature, max_tokens, streaming)
-    else:
-        return _create_openai_compat_model(
-            model_str, temperature, max_tokens, streaming, api_key, base_url
+
+    if model_str.startswith("PA-SX"):
+        from .pa_sx_llm import create_pa_sx_llm
+        config = _load_pa_model_config(PAModel(model_str))
+        return create_pa_sx_llm(
+            config,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            streaming=streaming,
+            enable_thinking=enable_thinking,
+            extra_body_override=extra_body,
         )
 
-
-# ============ PA-JT：需要 Transport ============
-
-
-def _create_pa_jt_model(
-    model_name: str,
-    temperature: float,
-    max_tokens: int,
-    streaming: bool,
-    extra_body_override: dict[str, Any] | None = None,
-) -> LangChainLLMProtocol:
-    """创建 PA-JT 系列模型（使用 PinganEAGWHeaderAsyncTransport）。
-
-    Raises:
-        ImportError: 如果 pycryptodome 未安装
-        ValueError: 如果必需的环境变量缺失
-    """
-    import uuid as _uuid
-
-    from langchain_openai import ChatOpenAI
-
-    try:
-        from .transport import PinganEAGWHeaderAsyncTransport
-    except ImportError as e:
-        logger.warning(
-            f"PA-JT models require pycryptodome for RSA signing. "
-            f"Install with: uv add 'ark-agentic[pa-jt]' or uv add pycryptodome. "
-            f"Error: {e}"
-        )
-        # Re-raise to let main create_chat_model handle graceful fallback
-        raise
-
-    pa_model = PAModel(model_name)
-    config = _load_pa_model_config(pa_model)
-
-    try:
-        transport = PinganEAGWHeaderAsyncTransport(
-            base_transport=httpx.AsyncHTTPTransport(retries=3),
-            api_code=config.open_api_code,
-            gateway_credential=config.open_api_credential,
-            gateway_key=config.rsa_private_key,
-            app_key=config.gpt_app_key,
-            app_secret=config.gpt_app_secret,
-            scene_id=config.scene_id,
-        )
-    except ImportError as e:
-        logger.warning(
-            f"PA-JT models require pycryptodome for RSA signing. "
-            f"Install with: uv add 'ark-agentic[pa-jt]' or uv add pycryptodome. "
-            f"Error: {e}"
-        )
-        # Re-raise to let main create_chat_model handle graceful fallback
-        raise
-
-    http_async_client = httpx.AsyncClient(transport=transport)
-    logger.info(f"ChatOpenAI: PA-JT transport enabled for {model_name}")
-
-    # 构建 extra_body（默认值 + 调用方覆盖）
-    jt_extra_body: dict[str, Any] = {
-        "request_id": _uuid.uuid4().hex,
-        "scene_id": config.scene_id,
-        "seed": 42,
-        "chat_template_kwargs": {
-            "enable_thinking": False,
-            "thinking": False,
-        },
-    }
-    if extra_body_override:
-        jt_extra_body.update(extra_body_override)
-
-    chat_openai = ChatOpenAI(
-        base_url=config.base_url,
-        api_key="EMPTY",  # JT 使用网关签名，无需 API Key
-        model=config.model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        streaming=streaming,
-        http_async_client=http_async_client,
-        extra_body=jt_extra_body,
+    return _create_openai_compat_model(
+        model_str, temperature, max_tokens, streaming, api_key, base_url
     )
-
-    return wrap_chat_openai(chat_openai)
-
-
-# ============ PA-SX：固定 Header ============
-
-
-def _create_pa_sx_model(
-    model_name: str,
-    temperature: float,
-    max_tokens: int,
-    streaming: bool,
-) -> LangChainLLMProtocol:
-    """创建 PA-SX 系列模型（使用固定 Bearer token + trace headers）。"""
-    from langchain_openai import ChatOpenAI
-
-    pa_model = PAModel(model_name)
-    config = _load_pa_model_config(pa_model)
-
-    # SX 模型通过固定 header 鉴权
-    default_headers = {
-        "trace-appId": config.trace_app_id,
-        "trace-source": "",
-        "trace-userId": "",
-    }
-
-    logger.info(f"ChatOpenAI: PA-SX model {model_name} with trace headers")
-
-    chat_openai = ChatOpenAI(
-        base_url=config.base_url,
-        api_key=config.api_key or "EMPTY",
-        model=config.model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        streaming=streaming,
-        default_headers=default_headers,
-    )
-
-    return wrap_chat_openai(chat_openai)
 
 
 # ============ DeepSeek / OpenAI 兼容 ============
@@ -312,11 +206,10 @@ def _create_openai_compat_model(
     streaming: bool,
     api_key: str | None,
     base_url: str | None,
-) -> LangChainLLMProtocol:
+) -> "BaseChatModel":
     """创建 OpenAI 兼容模型（DeepSeek 等）。"""
     from langchain_openai import ChatOpenAI
 
-    # 从预设或环境变量解析配置
     defaults = _PROVIDER_DEFAULTS.get(model_name, {})
 
     effective_base_url = base_url or defaults.get("base_url", "")
@@ -341,8 +234,7 @@ def _create_openai_compat_model(
     if effective_base_url:
         kwargs["base_url"] = effective_base_url
 
-    chat_openai = ChatOpenAI(**kwargs)
-    return wrap_chat_openai(chat_openai)
+    return ChatOpenAI(**kwargs)
 
 
 # ============ 便捷函数 ============
