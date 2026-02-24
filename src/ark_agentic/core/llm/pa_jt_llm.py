@@ -1,7 +1,6 @@
 """
-PA-JT LLM：科技网关（RSA + HMAC 签名）Transport + ChatOpenAI 构建。
-
-Header 与 Body 注入全部在本模块的 Transport 内完成。
+PA-JT LLM：鉴权 Header 由 Transport 注入，Body 由 ChatOpenAI(extra_body) 在构造时注入。
+从源头保证 Content-Length 正确，避免在 transport 中改 body。
 """
 
 from __future__ import annotations
@@ -9,7 +8,6 @@ from __future__ import annotations
 import base64
 import binascii
 import hmac
-import json as _json
 import logging
 import time
 import uuid
@@ -69,43 +67,13 @@ def hmac_sign(app_key: str, app_secret: str, request_time: str) -> str:
     return base64.b64encode(digest).decode("utf-8")
 
 
-def _merge_body(content: bytes, fields: dict[str, Any]) -> bytes:
-    """将 fields 合并进 JSON body；已存在的 key 不覆盖。"""
-    if not content:
-        return _json.dumps(fields).encode()
-    try:
-        body = _json.loads(content)
-    except (ValueError, _json.JSONDecodeError):
-        return content
-    injected = {k: v for k, v in fields.items() if k not in body}
-    if not injected:
-        return content
-    body.update(injected)
-    return _json.dumps(body).encode()
-
-
-def _rebuild_request(
-    request: httpx.Request,
-    extra_headers: dict[str, str],
-    new_content: bytes,
-) -> httpx.Request:
-    """基于原请求构造新 Request，合并 headers 并替换 body。"""
-    merged = dict(request.headers)
-    merged.update(extra_headers)
-    return httpx.Request(
-        method=request.method,
-        url=request.url,
-        headers=merged,
-        content=new_content,
-        extensions=request.extensions,
-    )
-
-
 # ============ JT Transport ============
+# 仅注入鉴权 Header，不修改 body。Body 由 ChatOpenAI(extra_body=...) 在构造请求时一次写入，
+# 由上游计算 Content-Length，从源头避免「改 body 导致 Content-Length 不一致」。
 
 
 class PinganEAGWHeaderAsyncTransport(httpx.AsyncBaseTransport):
-    """httpx 异步 Transport：为 PA-JT 请求注入鉴权 Header 与 PA Body 字段。"""
+    """httpx 异步 Transport：为 PA-JT 请求仅注入鉴权 Header（不修改 body）。"""
 
     def __init__(
         self,
@@ -117,8 +85,6 @@ class PinganEAGWHeaderAsyncTransport(httpx.AsyncBaseTransport):
         app_key: str = "",
         app_secret: str = "",
         scene_id: str = "",
-        enable_thinking: bool = False,
-        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._transport = base_transport or httpx.AsyncHTTPTransport(retries=3)
         self._api_code = api_code
@@ -127,8 +93,6 @@ class PinganEAGWHeaderAsyncTransport(httpx.AsyncBaseTransport):
         self._app_key = app_key
         self._app_secret = app_secret
         self._scene_id = scene_id
-        self._enable_thinking = enable_thinking
-        self._extra_body = extra_body or {}
 
     def _build_auth_headers(self, request_id: str, request_time: str) -> dict[str, str]:
         headers: dict[str, str] = {
@@ -148,26 +112,12 @@ class PinganEAGWHeaderAsyncTransport(httpx.AsyncBaseTransport):
             )
         return headers
 
-    def _build_body_fields(self, request_id: str) -> dict[str, Any]:
-        defaults: dict[str, Any] = {
-            "request_id": request_id,
-            "scene_id": self._scene_id,
-            "seed": 42,
-            "chat_template_kwargs": {
-                "enable_thinking": self._enable_thinking,
-                "thinking": self._enable_thinking,
-            },
-        }
-        return {**defaults, **self._extra_body}
-
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         request_id = uuid.uuid4().hex
         request_time = str(int(time.time() * 1000))
         auth_headers = self._build_auth_headers(request_id, request_time)
-        body_fields = self._build_body_fields(request_id)
-        new_content = _merge_body(request.content, body_fields)
-        new_request = _rebuild_request(request, auth_headers, new_content)
-        return await self._transport.handle_async_request(new_request)
+        request.headers.update(auth_headers)
+        return await self._transport.handle_async_request(request)
 
 
 # ============ Builder ============
@@ -182,7 +132,7 @@ def create_pa_jt_llm(
     enable_thinking: bool = False,
     extra_body_override: dict[str, Any] | None = None,
 ) -> "BaseChatModel":
-    """构建 PA-JT 系列 ChatOpenAI。Raises ImportError 若 pycryptodome 未安装。"""
+    """构建 PA-JT 系列 ChatOpenAI。Body 通过 extra_body 在构造时注入，从源头保证 Content-Length 正确。"""
     from langchain_openai import ChatOpenAI
 
     transport = PinganEAGWHeaderAsyncTransport(
@@ -193,11 +143,20 @@ def create_pa_jt_llm(
         app_key=config.gpt_app_key,
         app_secret=config.gpt_app_secret,
         scene_id=config.scene_id,
-        enable_thinking=enable_thinking,
-        extra_body=extra_body_override,
     )
     http_client = httpx.AsyncClient(transport=transport)
     logger.info(f"PA-JT transport enabled for {config.model_name}")
+
+    jt_extra_body: dict[str, Any] = {
+        "scene_id": config.scene_id,
+        "seed": 42,
+        "chat_template_kwargs": {
+            "enable_thinking": enable_thinking,
+            "thinking": enable_thinking,
+        },
+    }
+    if extra_body_override:
+        jt_extra_body.update(extra_body_override)
 
     return ChatOpenAI(
         base_url=config.base_url,
@@ -207,4 +166,5 @@ def create_pa_jt_llm(
         max_tokens=max_tokens,
         streaming=streaming,
         http_async_client=http_client,
+        extra_body=jt_extra_body,
     )

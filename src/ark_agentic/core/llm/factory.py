@@ -118,7 +118,7 @@ def create_chat_model(
     # DeepSeek / OpenAI 兼容专用
     api_key: str | None = None,
     base_url: str | None = None,
-    # 额外参数（透传给 transport 的 extra_body_override）
+    # 额外参数（PA 模型：合并进 ChatOpenAI.extra_body）
     extra_body: dict[str, Any] | None = None,
 ) -> "BaseChatModel":
     """创建 LangChain ChatOpenAI 实例，返回 BaseChatModel。
@@ -131,7 +131,7 @@ def create_chat_model(
         enable_thinking: 是否启用 thinking
         api_key: API Key（DeepSeek 等需要；PA 模型从环境变量读取）
         base_url: API 端点（DeepSeek 等需要；PA 模型从环境变量读取）
-        extra_body: 额外 body 字段，传递给 transport 的 extra_body_override（PA 模型）
+        extra_body: 额外 body 字段，合并进 ChatOpenAI.extra_body（PA 模型）
 
     Returns:
         BaseChatModel 实例（ChatOpenAI 子类）
