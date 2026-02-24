@@ -12,7 +12,7 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..types import SkillEntry, SkillMetadata, SkillLoadMode
+from ..types import SkillEntry, SkillLoadMode
 
 
 @dataclass

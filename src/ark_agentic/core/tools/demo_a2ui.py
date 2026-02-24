@@ -2,7 +2,8 @@
 Demo A2UI Tool
 
 模拟工具返回 A2UI 组件数据，用于测试完整的 A2UI 流式管道：
-  Tool → AgentToolResult.metadata["ui_components"] → Runner → handler.on_ui_component() → StreamEventBus → OutputFormatter → Frontend
+  Tool → AgentToolResult.metadata["ui_components"] → Runner →
+  handler.on_ui_component() → StreamEventBus → OutputFormatter → Frontend
 """
 
 from __future__ import annotations

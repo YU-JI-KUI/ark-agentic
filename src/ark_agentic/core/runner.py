@@ -12,6 +12,9 @@ import os
 from dataclasses import dataclass, field, replace
 from typing import Any, TYPE_CHECKING, Callable, Awaitable
 
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage
+
 from .llm.errors import LLMError, LLMErrorReason, classify_error
 from .prompt.builder import SystemPromptBuilder, PromptConfig
 from .session import SessionManager
@@ -27,17 +30,12 @@ from .types import (
     AgentToolResult,
     MessageRole,
     RunOptions,
-    SkillLoadMode,
     ToolCall,
 )
 from .validation import validate_response_against_tools
 
 if TYPE_CHECKING:
     from .memory.manager import MemoryManager
-    from langchain_openai import ChatOpenAI
-    from langchain_core.messages import BaseMessage
-
-from langchain_core.language_models.chat_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
@@ -312,10 +310,14 @@ class AgentRunner:
 
             messages = self._build_messages(session_id, context, skill_load_mode=skill_load_mode)
             tools = self._build_tools(context)
-            logger.info(f"Turn {turns} | messages={len(messages)} tools={len(tools)} model={model_override or self.config.model}")
+            logger.info(
+                f"Turn {turns} | messages={len(messages)} tools={len(tools)} "
+                f"model={model_override or self.config.model}"
+            )
 
             # 绑定当前 output_index 的 content 回调
             _current_idx = output_index
+
             def _scoped_content(text: str, _idx: int = _current_idx) -> None:
                 if handler:
                     handler.on_content_delta(text, _idx)
@@ -390,7 +392,10 @@ class AgentRunner:
 
             # 工具调用轮
             if response.tool_calls:
-                logger.info(f"[TOOLS] turn={turns} count={len(response.tool_calls)} names={[tc.name for tc in response.tool_calls]}")
+                logger.info(
+                    f"[TOOLS] turn={turns} count={len(response.tool_calls)} "
+                    f"names={[tc.name for tc in response.tool_calls]}"
+                )
                 all_tool_calls.extend(response.tool_calls)
 
                 tool_results = await self._execute_tools(
@@ -412,7 +417,10 @@ class AgentRunner:
                 continue
 
             # 最终轮：无工具调用
-            logger.info(f"[RUN_END] session={session_id[:8]} turns={turns} tool_calls={total_tool_calls} tokens={total_prompt_tokens}/{total_completion_tokens}")
+            logger.info(
+                f"[RUN_END] session={session_id[:8]} turns={turns} "
+                f"tool_calls={total_tool_calls} tokens={total_prompt_tokens}/{total_completion_tokens}"
+            )
             # 输出验证
             if self.config.enable_output_validation and all_tool_results and response.content:
                 validation = validate_response_against_tools(
@@ -798,14 +806,28 @@ class AgentRunner:
 
     # ============ 便捷方法 ============
 
-    async def create_session(self, model: str = "Qwen3-80B-Instruct", provider: str = "ark", metadata: dict[str, Any] | None = None) -> str:
+    async def create_session(
+        self,
+        model: str = "Qwen3-80B-Instruct",
+        provider: str = "ark",
+        metadata: dict[str, Any] | None = None
+    ) -> str:
         """创建新会话并返回 ID（异步，支持持久化）"""
-        session = await self.session_manager.create_session(model=model, provider=provider, metadata=metadata)
+        session = await self.session_manager.create_session(
+            model=model, provider=provider, metadata=metadata
+        )
         return session.session_id
 
-    def create_session_sync(self, model: str = "Qwen3-80B-Instruct", provider: str = "ark", metadata: dict[str, Any] | None = None) -> str:
+    def create_session_sync(
+        self,
+        model: str = "Qwen3-80B-Instruct",
+        provider: str = "ark",
+        metadata: dict[str, Any] | None = None
+    ) -> str:
         """创建新会话并返回 ID（同步，无持久化）"""
-        session = self.session_manager.create_session_sync(model=model, provider=provider, metadata=metadata)
+        session = self.session_manager.create_session_sync(
+            model=model, provider=provider, metadata=metadata
+        )
         return session.session_id
 
     def register_tool(self, tool: AgentTool) -> None:

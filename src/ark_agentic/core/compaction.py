@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-import os
-from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Any, Protocol, TYPE_CHECKING
 
 from .types import AgentMessage, MessageRole
 
@@ -26,7 +25,6 @@ MIN_CHUNK_RATIO = 0.15
 
 # 默认摘要回退文本
 DEFAULT_SUMMARY_FALLBACK = "No prior history."
-
 
 
 # ============ Token 估算 ============

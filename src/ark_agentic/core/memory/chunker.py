@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -208,7 +207,7 @@ class MarkdownChunker:
                 overlap_lines = self._get_overlap_lines(current_lines)
                 current_lines = overlap_lines + [line]
                 current_start = start_offset + i - len(overlap_lines)
-                current_size = sum(len(l) + 1 for l in current_lines)
+                current_size = sum(len(line) + 1 for line in current_lines)
             else:
                 current_lines.append(line)
                 current_size += line_size

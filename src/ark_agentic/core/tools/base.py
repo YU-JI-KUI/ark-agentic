@@ -134,11 +134,10 @@ class AgentTool(ABC):
         tool_self = self
         bound_context = context
 
-        import asyncio
-        import json
-
         async def _ainvoke(**kwargs: Any) -> str:
             """闭包：将 LangChain 调用转为 AgentTool.execute()"""
+            import json
+
             tc = ToolCall(
                 id=f"lc_{tool_self.name}",
                 name=tool_self.name,
@@ -148,11 +147,6 @@ class AgentTool(ABC):
             return result.output if result.output else json.dumps(
                 result.to_dict() if hasattr(result, "to_dict") else str(result)
             )
-
-        # 构建参数 schema
-        schema = self.get_json_schema()
-        func_schema = schema.get("function", {})
-        params = func_schema.get("parameters", {})
 
         return StructuredTool.from_function(
             coroutine=_ainvoke,

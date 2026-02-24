@@ -11,7 +11,6 @@ from .compaction import (
     CompactionConfig,
     CompactionResult,
     ContextCompactor,
-    LLMSummarizer,
     SummarizerProtocol,
     estimate_message_tokens,
 )
@@ -250,7 +249,7 @@ class SessionManager:
 
     def add_message_sync(self, session_id: str, message: AgentMessage) -> None:
         """同步添加消息（标记为待持久化）
-        
+
         消息会立即加入内存，但持久化会延迟到 sync_pending_messages() 调用时。
         """
         session = self.get_session_required(session_id)

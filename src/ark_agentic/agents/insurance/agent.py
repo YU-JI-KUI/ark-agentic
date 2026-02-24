@@ -29,23 +29,22 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from langchain_core.language_models.chat_models import BaseChatModel
+
+from ark_agentic.agents.insurance.tools import create_insurance_tools
+from ark_agentic.core.compaction import CompactionConfig
+from ark_agentic.core.llm import create_chat_model
+from ark_agentic.core.memory.manager import MemoryManager, MemoryConfig
+from ark_agentic.core.prompt.builder import PromptConfig
+from ark_agentic.core.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.session import SessionManager
+from ark_agentic.core.skills.base import SkillConfig
+from ark_agentic.core.skills.loader import SkillLoader
+from ark_agentic.core.tools.demo_a2ui import DemoA2UITool
+from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
 
 logger = logging.getLogger(__name__)
-
-# 导入 Agent 框架组件
-from ark_agentic.core.runner import AgentRunner, RunnerConfig
-from ark_agentic.core.session import SessionManager
-from ark_agentic.core.compaction import CompactionConfig
-from ark_agentic.core.tools.registry import ToolRegistry
-from ark_agentic.core.tools.demo_a2ui import DemoA2UITool
-from ark_agentic.core.skills.base import SkillConfig
-from ark_agentic.core.skills.loader import SkillLoader
-from ark_agentic.core.prompt.builder import PromptConfig
-from ark_agentic.core.llm import create_chat_model, PAModel
-from langchain_core.language_models.chat_models import BaseChatModel
-from ark_agentic.core.memory.manager import MemoryManager, MemoryConfig
-from ark_agentic.agents.insurance.tools import create_insurance_tools
 
 # 模块路径常量
 _AGENT_DIR = Path(__file__).resolve().parent
@@ -67,7 +66,7 @@ def get_llm_client(args: argparse.Namespace) -> Any:
 
     if not api_key:
         raise ValueError(
-            f"API key is required. Set --api-key or DEEPSEEK_API_KEY environment variable."
+            "API key is required. Set --api-key or DEEPSEEK_API_KEY environment variable."
         )
 
     logger.info(f"Using {provider.upper()} client (model: {args.model or 'default'})")
@@ -269,7 +268,7 @@ async def interactive_mode(agent: AgentRunner):
 
             if user_input.lower() == "stats":
                 stats = agent.session_manager.get_session_stats(session_id)
-                print(f"\n[会话统计]")
+                print("\n[会话统计]")
                 print(f"  消息数: {stats['message_count']}")
                 print(f"  估算 Token: {stats['estimated_tokens']}")
                 print()

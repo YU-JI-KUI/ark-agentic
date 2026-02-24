@@ -9,8 +9,8 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Optional
 
 from .types import MemoryChunk
 

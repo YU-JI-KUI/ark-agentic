@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 
 class MemorySearchTool(AgentTool):
     """Memory 语义搜索工具
-    
+
     搜索 MEMORY.md 和 memory/*.md 文件中的相关内容。
     使用混合搜索（向量 + 关键词）获取最相关的记忆片段。
-    
+
     参考: openclaw-main/src/agents/tools/memory-tool.ts - createMemorySearchTool
     """
 
@@ -123,10 +123,10 @@ class MemorySearchTool(AgentTool):
 
 class MemoryGetTool(AgentTool):
     """Memory 文件读取工具
-    
+
     读取 memory 文件的指定行范围。配合 memory_search 使用，
     在搜索到相关片段后获取更多上下文。
-    
+
     参考: openclaw-main/src/agents/tools/memory-tool.ts - createMemoryGetTool
     """
 

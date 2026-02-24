@@ -12,6 +12,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Union
 
+from pydantic import BaseModel as _PydanticBaseModel, Field as _Field
+
 
 class MessageRole(str, Enum):
     """消息角色"""
@@ -225,9 +227,6 @@ class SkillLoadMode(str, Enum):
     full = "full"
     dynamic = "dynamic"
     semantic = "semantic"
-
-
-from pydantic import BaseModel as _PydanticBaseModel, Field as _Field
 
 
 class RunOptions(_PydanticBaseModel):
