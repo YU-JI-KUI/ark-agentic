@@ -6,9 +6,7 @@ from ark_agentic.agents.securities.tools.field_extraction import (
     extract_fields,
     _get_by_path,
     extract_account_overview,
-    detect_response_format,
     ACCOUNT_OVERVIEW_FIELD_MAPPING,
-    ACCOUNT_OVERVIEW_LEGACY_MAPPING,
     SERVICE_FIELD_MAPPINGS,
     extract_service_fields,
 )
@@ -105,37 +103,6 @@ class TestExtractFields:
         assert "missing_field" not in result
 
 
-class TestDetectResponseFormat:
-    """Test API format detection."""
-
-    def test_detect_real_api_format(self):
-        """Test detecting real API format."""
-        data = {
-            "status": 1,
-            "results": {
-                "accountType": "1",
-                "rmb": {
-                    "totalAssetVal": "1000000.00"
-                }
-            }
-        }
-        assert detect_response_format(data) == "real"
-
-    def test_detect_legacy_format(self):
-        """Test detecting legacy format."""
-        data = {
-            "data": {
-                "totalAssets": "1000000.00"
-            }
-        }
-        assert detect_response_format(data) == "legacy"
-
-    def test_detect_empty_data(self):
-        """Test detecting empty data."""
-        data = {}
-        assert detect_response_format(data) == "legacy"
-
-
 class TestExtractAccountOverview:
     """Test account overview extraction."""
 
@@ -209,23 +176,6 @@ class TestExtractAccountOverview:
         assert result["total_liabilities"] == "945497.57"
         assert result["maintenance_margin_ratio"] == "35291.35"
 
-    def test_extract_legacy_format(self):
-        """Test extracting legacy format data (backward compatibility)."""
-        data = {
-            "data": {
-                "totalAssets": "1000000.00",
-                "cashBalance": "500000.00",
-                "stockValue": "500000.00",
-                "todayProfit": "10000.00"
-            }
-        }
-        
-        result = extract_account_overview(data)
-        
-        # Should use legacy mapping
-        assert result["total_assets"] == "1000000.00"
-        assert result["cash_balance"] == "500000.00"
-
     def test_extract_with_null_nested_object(self):
         """Test extraction when nested object is null."""
         data = {
@@ -262,16 +212,12 @@ class TestFieldMappingConfiguration:
         assert ACCOUNT_OVERVIEW_FIELD_MAPPING["cash_balance"] == "results.rmb.cashGainAssetsInfo.cashBalance"
         assert ACCOUNT_OVERVIEW_FIELD_MAPPING["net_assets"] == "results.rmb.rzrqAssetsInfo.netWorth"
 
-    def test_legacy_mapping_exists(self):
-        """Test that legacy mapping is defined."""
-        assert "total_assets" in ACCOUNT_OVERVIEW_LEGACY_MAPPING
-        assert "cash_balance" in ACCOUNT_OVERVIEW_LEGACY_MAPPING
-
     def test_service_field_mappings_registered(self):
         """Test that service field mappings are registered."""
         assert "account_overview" in SERVICE_FIELD_MAPPINGS
-        assert "real" in SERVICE_FIELD_MAPPINGS["account_overview"]
-        assert "legacy" in SERVICE_FIELD_MAPPINGS["account_overview"]
+        assert "cash_assets" in SERVICE_FIELD_MAPPINGS
+        assert "etf_holdings" in SERVICE_FIELD_MAPPINGS
+        assert "hksc_holdings" in SERVICE_FIELD_MAPPINGS
 
 
 class TestExtractServiceFields:

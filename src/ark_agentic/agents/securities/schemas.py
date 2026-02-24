@@ -2,7 +2,7 @@
 证券数据模型
 
 使用 Pydantic 定义标准化数据结构，支持：
-- 自动字段映射（通过 Field(alias=...)）
+- 自动字段映射
 - 类型校验
 - 数据验证
 """
@@ -16,19 +16,10 @@ from pydantic import BaseModel, Field, field_validator
 
 # ============ 账户总资产 ============
 
-def get_val(d: dict, *keys):
-    """获取第一个非 None 的值"""
-    for k in keys:
-        if k in d and d[k] is not None:
-            return d[k]
-    return None
-
 class AccountOverviewSchema(BaseModel):
     """账户总资产标准模型
     
-    支持两种数据来源：
-    1. from_raw_data: 从旧格式/mock 数据创建
-    2. from_api_response: 从真实 API 响应创建（通过字段提取后的数据）
+    从 field_extraction.extract_account_overview() 提取后的数据创建。
     """
     
     # 基础字段
@@ -36,59 +27,22 @@ class AccountOverviewSchema(BaseModel):
     cash_balance: str = Field(..., description="现金余额")
     stock_market_value: str = Field(..., description="股票市值")
     today_profit: str = Field(..., description="今日收益")
-    total_profit: str | None = Field(None, description="累计收益")
-    profit_rate: str | None = Field(None, description="收益率")
-    update_time: str | None = Field(None, description="更新时间")
     
-    # 新增字段（来自真实 API）
+    # 扩展字段
     fund_market_value: str | None = Field(None, description="基金市值")
     today_return_rate: str | None = Field(None, description="今日收益率")
+    account_type: str | None = Field(None, description="账户类型")
     
     # 两融账户专属字段（可选）
     net_assets: str | None = Field(None, description="净资产")
     total_liabilities: str | None = Field(None, description="总负债")
     maintenance_margin_ratio: str | None = Field(None, description="维持担保比例")
-    margin_ratio: str | None = Field(None, description="维持担保比率（兼容旧字段）")
-    risk_level: Literal["low", "medium", "high"] | None = Field(None, description="风险等级")
-    maintenance_margin: str | None = Field(None, description="维持保证金")
-    available_margin: str | None = Field(None, description="可用保证金")
     
     model_config = {"populate_by_name": True}
 
     @classmethod
-    def from_raw_data(cls, data: dict, account_type: str = "normal") -> AccountOverviewSchema:
-        """从原始数据创建（支持多种字段名）
-        
-        用于旧格式/mock 数据的解析。
-        """
-        # 标准化字段名
-        normalized = {
-            "total_assets": get_val(data, "totalAssets", "total_asset", "total_assets"),
-            "cash_balance": get_val(data, "cashBalance", "cash", "cash_balance"),
-            "stock_market_value": get_val(data, "stockValue", "stock_mv", "stock_market_value"),
-            "today_profit": get_val(data, "todayProfit", "profit_today", "today_profit"),
-            "total_profit": get_val(data, "totalProfit", "profit_total", "total_profit"),
-            "profit_rate": get_val(data, "profitRate", "profit_pct", "profit_rate"),
-            "update_time": get_val(data, "updateTime", "update_time"),
-            "fund_market_value": get_val(data, "fundMktVal", "fund_market_value"),
-            "today_return_rate": get_val(data, "todayReturnRate", "today_return_rate"),
-        }
-        
-        # 两融账户额外字段
-        if account_type == "margin":
-            normalized["net_assets"] = get_val(data, "netAssets", "net_assets", "netWorth")
-            normalized["total_liabilities"] = get_val(data, "totalLiabilities", "total_liabilities")
-            normalized["maintenance_margin_ratio"] = get_val(data, "maintenanceMarginRatio", "maintenance_margin_ratio", "mainRatio")
-            normalized["margin_ratio"] = get_val(data, "marginRatio", "margin_pct")
-            normalized["risk_level"] = get_val(data, "riskLevel", "risk")
-            normalized["maintenance_margin"] = get_val(data, "maintenanceMargin")
-            normalized["available_margin"] = get_val(data, "availableMargin")
-        
-        return cls(**normalized)
-    
-    @classmethod
     def from_api_response(cls, data: dict, account_type: str = "normal") -> AccountOverviewSchema:
-        """从真实 API 响应创建（通过字段提取后的数据）
+        """从 API 响应创建（通过字段提取后的数据）
         
         用于从 field_extraction.extract_account_overview() 提取后的数据创建。
         字段已经是标准化的名称。
@@ -105,94 +59,20 @@ class AccountOverviewSchema(BaseModel):
             cash_balance=data.get("cash_balance", "0"),
             stock_market_value=data.get("stock_market_value", "0"),
             today_profit=data.get("today_profit", "0"),
-            total_profit=data.get("total_profit"),
-            profit_rate=data.get("profit_rate"),
-            update_time=data.get("update_time"),
             fund_market_value=data.get("fund_market_value"),
             today_return_rate=data.get("today_return_rate"),
+            account_type=data.get("account_type"),
             # 两融账户字段
             net_assets=data.get("net_assets"),
             total_liabilities=data.get("total_liabilities"),
             maintenance_margin_ratio=data.get("maintenance_margin_ratio"),
-            margin_ratio=data.get("margin_ratio"),
-            risk_level=data.get("risk_level"),
-            maintenance_margin=data.get("maintenance_margin"),
-            available_margin=data.get("available_margin"),
         )
 
 
 # ============ ETF 持仓 ============
 
-class HoldingItemSchema(BaseModel):
-    """单个持仓项（旧格式，向后兼容）"""
-    
-    security_code: str = Field(..., alias="securityCode", description="证券代码")
-    security_name: str = Field(..., alias="securityName", description="证券名称")
-    quantity: str = Field(..., alias="quantity", description="持仓数量")
-    cost_price: str = Field(..., alias="costPrice", description="成本价")
-    current_price: str = Field(..., alias="currentPrice", description="当前价")
-    market_value: str = Field(..., alias="marketValue", description="市值")
-    profit: str = Field(..., alias="profit", description="盈亏金额")
-    profit_rate: str = Field(..., alias="profitRate", description="盈亏比率")
-    today_profit: str | None = Field(None, alias="todayProfit", description="今日盈亏")
-    
-    model_config = {"populate_by_name": True}
-
-    @field_validator("profit_rate")
-    @classmethod
-    def validate_profit_rate(cls, v: str) -> str:
-        """验证收益率范围"""
-        try:
-            val = float(v)
-        except (ValueError, TypeError):
-            # 可能是特殊字符，视业务需求而定，这里假设必须可转数字
-            raise ValueError(f"Invalid profit rate format: {v}")
-            
-        if not -1.0 <= val <= 10.0:  # 允许 -100% 到 1000%
-            raise ValueError(f"Profit rate out of range: {val}")
-        return v
-    
-    @classmethod
-    def from_raw_data(cls, data: dict) -> HoldingItemSchema:
-        """从原始数据创建"""
-        return cls(
-            security_code=get_val(data, "securityCode", "code"),
-            security_name=get_val(data, "securityName", "name"),
-            quantity=get_val(data, "quantity", "qty"),
-            cost_price=get_val(data, "costPrice", "cost"),
-            current_price=get_val(data, "currentPrice", "price"),
-            market_value=get_val(data, "marketValue", "mv"),
-            profit=get_val(data, "profit", "profitAmt"),
-            profit_rate=get_val(data, "profitRate", "profitPct"),
-            today_profit=get_val(data, "todayProfit"),
-        )
-
-
-class HoldingsSummarySchema(BaseModel):
-    """持仓汇总"""
-    
-    total_market_value: str = Field(..., description="总市值")
-    total_cost: str = Field(..., description="总成本")
-    total_profit: str = Field(..., description="总盈亏")
-    total_profit_rate: str = Field(..., description="总盈亏比率")
-    today_profit: str = Field(..., description="今日盈亏")
-    
-    @classmethod
-    def from_raw_data(cls, data: dict) -> HoldingsSummarySchema:
-        """从原始数据创建"""
-        return cls(
-            total_market_value=get_val(data, "totalMarketValue", "total_mv"),
-            total_cost=get_val(data, "totalCost", "total_cost"),
-            total_profit=get_val(data, "totalProfit", "total_profit"),
-            total_profit_rate=get_val(data, "totalProfitRate", "total_profit_pct"),
-            today_profit=get_val(data, "todayProfit", "today_profit"),
-        )
-
-
-# ============ ETF 持仓（真实 API 格式）============
-
 class ETFHoldingItemSchema(BaseModel):
-    """ETF 持仓项（真实 API 格式）
+    """ETF 持仓项
     
     从 field_extraction.extract_etf_holdings() 提取后的数据创建。
     """
@@ -232,12 +112,9 @@ class ETFHoldingItemSchema(BaseModel):
 class ETFHoldingsSchema(BaseModel):
     """ETF 持仓完整模型
     
-    支持两种数据来源：
-    1. from_raw_data: 从旧格式/mock 数据创建
-    2. from_api_response: 从真实 API 响应创建（通过字段提取后的数据）
+    从 field_extraction.extract_etf_holdings() 提取后的数据创建。
     """
     
-    # 真实 API 格式字段
     total: int = Field(default=0, description="持仓数量")
     total_market_value: str = Field(default="0", description="总市值")
     total_profit: str = Field(default="0", description="今日总收益")
@@ -245,15 +122,11 @@ class ETFHoldingsSchema(BaseModel):
     account_type: int | None = Field(None, description="账户类型")
     stock_list: list[ETFHoldingItemSchema] = Field(default_factory=list, description="持仓列表")
     
-    # 旧格式字段（向后兼容）
-    holdings: list[HoldingItemSchema] = Field(default_factory=list, description="持仓列表（旧格式）")
-    summary: HoldingsSummarySchema | None = Field(None, description="持仓汇总（旧格式）")
-    
     model_config = {"populate_by_name": True}
     
     @classmethod
     def from_api_response(cls, data: dict) -> ETFHoldingsSchema:
-        """从真实 API 响应创建（通过字段提取后的数据）
+        """从 API 响应创建（通过字段提取后的数据）
         
         用于从 field_extraction.extract_etf_holdings() 提取后的数据创建。
         字段已经是标准化的名称。
@@ -273,41 +146,12 @@ class ETFHoldingsSchema(BaseModel):
             account_type=data.get("account_type"),
             stock_list=[ETFHoldingItemSchema.from_api_response(s) for s in stock_list_raw],
         )
-    
-    @classmethod
-    def from_raw_data(cls, data: dict) -> ETFHoldingsSchema:
-        """从旧格式数据创建（向后兼容）"""
-        holdings_raw = data.get("holdings", [])
-        summary_raw = data.get("summary", {})
-        
-        # 转换旧格式到新格式
-        stock_list = []
-        for h in holdings_raw:
-            stock_list.append({
-                "code": get_val(h, "securityCode", "code"),
-                "name": get_val(h, "securityName", "name"),
-                "hold_cnt": get_val(h, "quantity", "qty"),
-                "market_value": get_val(h, "marketValue", "mv"),
-                "day_profit": get_val(h, "todayProfit"),
-                "price": get_val(h, "currentPrice", "price"),
-                "cost_price": get_val(h, "costPrice", "cost"),
-            })
-        
-        return cls(
-            total=len(stock_list),
-            total_market_value=get_val(summary_raw, "totalMarketValue", "total_mv") or "0",
-            total_profit=get_val(summary_raw, "todayProfit", "today_profit") or "0",
-            total_profit_rate=get_val(summary_raw, "totalProfitRate"),
-            stock_list=[ETFHoldingItemSchema.from_api_response(s) for s in stock_list],
-            holdings=[HoldingItemSchema.from_raw_data(h) for h in holdings_raw],
-            summary=HoldingsSummarySchema.from_raw_data(summary_raw) if summary_raw else None,
-        )
 
 
-# ============ 港股通持仓（真实 API 格式）============
+# ============ 港股通持仓 ============
 
 class HKSCHoldingItemSchema(BaseModel):
-    """港股通持仓项（真实 API 格式）
+    """港股通持仓项
     
     从 field_extraction.extract_hksc_holdings() 提取后的数据创建。
     """
@@ -363,12 +207,10 @@ class HKSCPreFrozenItemSchema(BaseModel):
 class HKSCHoldingsSchema(BaseModel):
     """港股通持仓完整模型
     
-    支持两种数据来源：
-    1. from_raw_data: 从旧格式/mock 数据创建
-    2. from_api_response: 从真实 API 响应创建（通过字段提取后的数据）
+    从 field_extraction.extract_hksc_holdings() 提取后的数据创建。
     """
     
-    # 真实 API 格式字段
+    # 汇总字段
     hold_market_value: str = Field(default="0", description="持仓市值")
     hold_position_profit: str | None = Field(None, description="持仓盈亏")
     day_total_profit: str = Field(default="0", description="今日总收益")
@@ -381,15 +223,11 @@ class HKSCHoldingsSchema(BaseModel):
     stock_list: list[HKSCHoldingItemSchema] = Field(default_factory=list, description="持仓列表")
     pre_frozen_list: list[HKSCPreFrozenItemSchema] | None = Field(None, description="预冻结列表")
     
-    # 旧格式字段（向后兼容）
-    holdings: list[HoldingItemSchema] = Field(default_factory=list, description="持仓列表（旧格式）")
-    summary: HoldingsSummarySchema | None = Field(None, description="持仓汇总（旧格式）")
-    
     model_config = {"populate_by_name": True}
     
     @classmethod
     def from_api_response(cls, data: dict) -> HKSCHoldingsSchema:
-        """从真实 API 响应创建（通过字段提取后的数据）
+        """从 API 响应创建（通过字段提取后的数据）
         
         用于从 field_extraction.extract_hksc_holdings() 提取后的数据创建。
         字段已经是标准化的名称。
@@ -416,36 +254,17 @@ class HKSCHoldingsSchema(BaseModel):
             stock_list=[HKSCHoldingItemSchema.from_api_response(s) for s in stock_list_raw],
             pre_frozen_list=[HKSCPreFrozenItemSchema(**p) for p in pre_frozen_raw] if pre_frozen_raw else None,
         )
-    
-    @classmethod
-    def from_raw_data(cls, data: dict) -> HKSCHoldingsSchema:
-        """从旧格式数据创建（向后兼容）"""
-        holdings_raw = data.get("holdings", [])
-        summary_raw = data.get("summary", {})
-        
-        # 转换旧格式到新格式
-        stock_list = []
-        for h in holdings_raw:
-            stock_list.append({
-                "code": get_val(h, "securityCode", "code"),
-                "name": get_val(h, "securityName", "name"),
-                "hold_cnt": get_val(h, "quantity", "qty"),
-                "market_value": get_val(h, "marketValue", "mv"),
-                "day_profit": get_val(h, "todayProfit"),
-                "price": get_val(h, "currentPrice", "price"),
-                "cost_price": get_val(h, "costPrice", "cost"),
-            })
-        
-        return cls(
-            hold_market_value=get_val(summary_raw, "totalMarketValue", "total_mv") or "0",
-            day_total_profit=get_val(summary_raw, "todayProfit", "today_profit") or "0",
-            stock_list=[HKSCHoldingItemSchema.from_api_response(s) for s in stock_list],
-            holdings=[HoldingItemSchema.from_raw_data(h) for h in holdings_raw],
-            summary=HoldingsSummarySchema.from_raw_data(summary_raw) if summary_raw else None,
-        )
 
 
 # ============ 基金理财 ============
+
+def get_val(d: dict, *keys):
+    """获取第一个非 None 的值"""
+    for k in keys:
+        if k in d and d[k] is not None:
+            return d[k]
+    return None
+
 
 class FundHoldingItemSchema(BaseModel):
     """基金持仓项"""
@@ -478,6 +297,27 @@ class FundHoldingItemSchema(BaseModel):
         )
 
 
+class HoldingsSummarySchema(BaseModel):
+    """持仓汇总"""
+    
+    total_market_value: str = Field(..., description="总市值")
+    total_cost: str = Field(..., description="总成本")
+    total_profit: str = Field(..., description="总盈亏")
+    total_profit_rate: str = Field(..., description="总盈亏比率")
+    today_profit: str = Field(..., description="今日盈亏")
+    
+    @classmethod
+    def from_raw_data(cls, data: dict) -> HoldingsSummarySchema:
+        """从原始数据创建"""
+        return cls(
+            total_market_value=get_val(data, "totalMarketValue", "total_mv"),
+            total_cost=get_val(data, "totalCost", "total_cost"),
+            total_profit=get_val(data, "totalProfit", "total_profit"),
+            total_profit_rate=get_val(data, "totalProfitRate", "total_profit_pct"),
+            today_profit=get_val(data, "todayProfit", "today_profit"),
+        )
+
+
 class FundHoldingsSchema(BaseModel):
     """基金理财持仓"""
     
@@ -501,12 +341,10 @@ class FundHoldingsSchema(BaseModel):
 class CashAssetsSchema(BaseModel):
     """现金资产标准模型
     
-    支持两种数据来源：
-    1. from_raw_data: 从旧格式/mock 数据创建
-    2. from_api_response: 从真实 API 响应创建（通过字段提取后的数据）
+    从 field_extraction.extract_cash_assets() 提取后的数据创建。
     """
     
-    # 基础字段（来自真实 API）
+    # 基础字段
     cash_balance: str = Field(..., description="现金总额")
     cash_available: str = Field(..., description="可用资金")
     draw_balance: str | None = Field(None, description="可取资金")
@@ -522,34 +360,11 @@ class CashAssetsSchema(BaseModel):
     in_transit_asset_total: str | None = Field(None, description="在途资产总额")
     in_transit_asset_detail: Any | None = Field(None, description="在途资产明细")
     
-    # 兼容旧字段
-    available_cash: str | None = Field(None, description="可用资金（兼容）")
-    frozen_cash: str | None = Field(None, description="冻结资金（兼容）")
-    total_cash: str | None = Field(None, description="总资金（兼容）")
-    update_time: str | None = Field(None, description="更新时间")
-    
     model_config = {"populate_by_name": True}
     
     @classmethod
-    def from_raw_data(cls, data: dict) -> CashAssetsSchema:
-        """从原始数据创建（支持多种字段名）
-        
-        用于旧格式/mock 数据的解析。
-        """
-        return cls(
-            cash_balance=get_val(data, "cashBalance", "cash_balance", "totalCash", "total_cash") or "0",
-            cash_available=get_val(data, "available", "cash_available", "availableCash") or "0",
-            draw_balance=get_val(data, "drawBalance", "draw_balance"),
-            today_profit=get_val(data, "dayProfit", "today_profit"),
-            available_cash=get_val(data, "availableCash", "available_cash"),
-            frozen_cash=get_val(data, "frozenCash", "frozen_cash"),
-            total_cash=get_val(data, "totalCash", "total_cash"),
-            update_time=get_val(data, "updateTime", "update_time"),
-        )
-    
-    @classmethod
     def from_api_response(cls, data: dict) -> CashAssetsSchema:
-        """从真实 API 响应创建（通过字段提取后的数据）
+        """从 API 响应创建（通过字段提取后的数据）
         
         用于从 field_extraction.extract_cash_assets() 提取后的数据创建。
         字段已经是标准化的名称。

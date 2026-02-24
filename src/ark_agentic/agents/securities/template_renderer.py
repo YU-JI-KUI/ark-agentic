@@ -45,12 +45,6 @@ class TemplateRenderer:
                 "net_assets": data.get("net_assets"),
                 "total_liabilities": data.get("total_liabilities"),
                 "maintenance_margin_ratio": data.get("maintenance_margin_ratio"),
-                # 兼容旧字段（可选）
-                "total_profit": data.get("total_profit"),
-                "profit_rate": data.get("profit_rate"),
-                "margin_ratio": data.get("margin_ratio"),
-                "risk_level": data.get("risk_level"),
-                "update_time": data.get("update_time"),
             }
         }
     
@@ -141,11 +135,6 @@ class TemplateRenderer:
                 "frozen_funds_total": data.get("frozen_funds_total"),
                 "frozen_funds_detail": data.get("frozen_funds_detail"),
                 "in_transit_asset_total": data.get("in_transit_asset_total"),
-                # 兼容旧字段
-                "available_cash": data.get("available_cash") or data.get("cash_available"),
-                "frozen_cash": data.get("frozen_cash") or data.get("frozen_funds_total"),
-                "total_cash": data.get("total_cash") or data.get("cash_balance"),
-                "update_time": data.get("update_time"),
             }
         }
     

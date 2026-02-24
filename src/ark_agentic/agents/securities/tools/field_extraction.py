@@ -1,6 +1,6 @@
 """API 响应字段提取工具
 
-用于从 API 响应中提取显示所需的字段，支持多种响应格式。
+用于从 API 响应中提取显示所需的字段。
 """
 
 from __future__ import annotations
@@ -59,7 +59,6 @@ def _get_by_path(data: dict[str, Any] | None, path: str) -> Any:
 
 # ============ 账户总览字段映射 ============
 
-# 真实 API 格式字段映射
 ACCOUNT_OVERVIEW_FIELD_MAPPING: dict[str, str] = {
     # 显示字段名 -> API 响应路径
     "account_type": "results.accountType",
@@ -75,27 +74,9 @@ ACCOUNT_OVERVIEW_FIELD_MAPPING: dict[str, str] = {
     "maintenance_margin_ratio": "results.rmb.rzrqAssetsInfo.mainRatio",
 }
 
-# 旧格式字段映射（向后兼容）
-ACCOUNT_OVERVIEW_LEGACY_MAPPING: dict[str, str] = {
-    "total_assets": "data.totalAssets",
-    "cash_balance": "data.cashBalance",
-    "stock_market_value": "data.stockValue",
-    "fund_market_value": "data.fundMarketValue",
-    "today_profit": "data.todayProfit",
-    "total_profit": "data.totalProfit",
-    "profit_rate": "data.profitRate",
-    # 两融字段
-    "margin_ratio": "data.marginRatio",
-    "risk_level": "data.riskLevel",
-    "maintenance_margin": "data.maintenanceMargin",
-    "available_margin": "data.availableMargin",
-}
-
 
 def extract_account_overview(data: dict[str, Any]) -> dict[str, Any]:
-    """提取账户总览字段（自动检测格式）
-    
-    自动检测 API 响应格式，选择对应的字段映射进行提取。
+    """提取账户总览字段
     
     Args:
         data: API 响应数据
@@ -103,35 +84,11 @@ def extract_account_overview(data: dict[str, Any]) -> dict[str, Any]:
     Returns:
         提取后的字段字典
     """
-    # 检测真实 API 格式：有 results.rmb 结构
-    if "results" in data and isinstance(data.get("results"), dict):
-        results = data["results"]
-        if "rmb" in results and isinstance(results.get("rmb"), dict):
-            return extract_fields(data, ACCOUNT_OVERVIEW_FIELD_MAPPING)
-    
-    # 使用旧格式
-    return extract_fields(data, ACCOUNT_OVERVIEW_LEGACY_MAPPING)
-
-
-def detect_response_format(data: dict[str, Any]) -> str:
-    """检测响应格式类型
-    
-    Args:
-        data: API 响应数据
-    
-    Returns:
-        格式类型: "real" 或 "legacy"
-    """
-    if "results" in data and isinstance(data.get("results"), dict):
-        results = data["results"]
-        if "rmb" in results:
-            return "real"
-    return "legacy"
+    return extract_fields(data, ACCOUNT_OVERVIEW_FIELD_MAPPING)
 
 
 # ============ 现金资产字段映射 ============
 
-# 真实 API 格式字段映射
 CASH_ASSETS_FIELD_MAPPING: dict[str, str] = {
     # 显示字段名 -> API 响应路径
     "account_type": "results.accountType",
@@ -148,19 +105,9 @@ CASH_ASSETS_FIELD_MAPPING: dict[str, str] = {
     "in_transit_asset_detail": "results.rmb.inTransitAssetDetail",
 }
 
-# 旧格式字段映射（向后兼容）
-CASH_ASSETS_LEGACY_MAPPING: dict[str, str] = {
-    "available_cash": "data.availableCash",
-    "frozen_cash": "data.frozenCash",
-    "total_cash": "data.totalCash",
-    "update_time": "data.updateTime",
-}
-
 
 def extract_cash_assets(data: dict[str, Any]) -> dict[str, Any]:
-    """提取现金资产字段（自动检测格式）
-    
-    自动检测 API 响应格式，选择对应的字段映射进行提取。
+    """提取现金资产字段
     
     Args:
         data: API 响应数据
@@ -168,14 +115,7 @@ def extract_cash_assets(data: dict[str, Any]) -> dict[str, Any]:
     Returns:
         提取后的字段字典
     """
-    # 检测真实 API 格式：有 results.rmb 结构
-    if "results" in data and isinstance(data.get("results"), dict):
-        results = data["results"]
-        if "rmb" in results and isinstance(results.get("rmb"), dict):
-            return extract_fields(data, CASH_ASSETS_FIELD_MAPPING)
-    
-    # 使用旧格式
-    return extract_fields(data, CASH_ASSETS_LEGACY_MAPPING)
+    return extract_fields(data, CASH_ASSETS_FIELD_MAPPING)
 
 
 # ============ ETF 持仓字段映射 ============
@@ -204,12 +144,6 @@ ETF_HOLDINGS_ITEM_MAPPING: dict[str, str] = {
     "hold_position_profit_rate": "holdPositionPftRate",
 }
 
-# 旧格式字段映射（向后兼容）
-ETF_HOLDINGS_LEGACY_MAPPING: dict[str, str] = {
-    "holdings": "data.holdings",
-    "summary": "data.summary",
-}
-
 
 def extract_list_items(
     items: list[dict[str, Any]],
@@ -236,7 +170,7 @@ def extract_list_items(
 
 
 def extract_etf_holdings(data: dict[str, Any]) -> dict[str, Any]:
-    """提取 ETF 持仓字段（自动检测格式）
+    """提取 ETF 持仓字段
     
     支持列表字段映射。
     
@@ -246,19 +180,17 @@ def extract_etf_holdings(data: dict[str, Any]) -> dict[str, Any]:
     Returns:
         提取后的字段字典
     """
-    # 检测真实 API 格式：有 results.stockList 结构
-    if "results" in data and isinstance(data.get("results"), dict):
-        results = data["results"]
-        if "stockList" in results and isinstance(results.get("stockList"), list):
-            # 提取汇总字段
-            extracted = extract_fields(data, ETF_HOLDINGS_FIELD_MAPPING)
-            # 提取列表字段
-            stock_list = results["stockList"]
-            extracted["stock_list"] = extract_list_items(stock_list, ETF_HOLDINGS_ITEM_MAPPING)
-            return extracted
+    results = data.get("results", {})
     
-    # 使用旧格式
-    return extract_fields(data, ETF_HOLDINGS_LEGACY_MAPPING)
+    # 提取汇总字段
+    extracted = extract_fields(data, ETF_HOLDINGS_FIELD_MAPPING)
+    
+    # 提取列表字段
+    stock_list = results.get("stockList", [])
+    if stock_list:
+        extracted["stock_list"] = extract_list_items(stock_list, ETF_HOLDINGS_ITEM_MAPPING)
+    
+    return extracted
 
 
 # ============ 港股通持仓字段映射 ============
@@ -301,15 +233,9 @@ HKSC_PRE_FROZEN_ITEM_MAPPING: dict[str, str] = {
     "pre_frozen_asset": "preFrozenAsset",
 }
 
-# 旧格式字段映射（向后兼容）
-HKSC_HOLDINGS_LEGACY_MAPPING: dict[str, str] = {
-    "holdings": "data.holdings",
-    "summary": "data.summary",
-}
-
 
 def extract_hksc_holdings(data: dict[str, Any]) -> dict[str, Any]:
-    """提取港股通持仓字段（自动检测格式）
+    """提取港股通持仓字段
     
     支持列表字段映射，包括持仓列表和预冻结列表。
     
@@ -319,45 +245,31 @@ def extract_hksc_holdings(data: dict[str, Any]) -> dict[str, Any]:
     Returns:
         提取后的字段字典
     """
-    # 检测真实 API 格式：有 results.stockList 结构
-    if "results" in data and isinstance(data.get("results"), dict):
-        results = data["results"]
-        if "stockList" in results and isinstance(results.get("stockList"), list):
-            # 提取汇总字段
-            extracted = extract_fields(data, HKSC_HOLDINGS_FIELD_MAPPING)
-            # 提取持仓列表字段
-            stock_list = results["stockList"]
-            extracted["stock_list"] = extract_list_items(stock_list, HKSC_HOLDINGS_ITEM_MAPPING)
-            # 提取预冻结列表字段（可选）
-            if "preFrozenStockList" in results and isinstance(results.get("preFrozenStockList"), list):
-                pre_frozen_list = results["preFrozenStockList"]
-                extracted["pre_frozen_list"] = extract_list_items(pre_frozen_list, HKSC_PRE_FROZEN_ITEM_MAPPING)
-            return extracted
+    results = data.get("results", {})
     
-    # 使用旧格式
-    return extract_fields(data, HKSC_HOLDINGS_LEGACY_MAPPING)
+    # 提取汇总字段
+    extracted = extract_fields(data, HKSC_HOLDINGS_FIELD_MAPPING)
+    
+    # 提取持仓列表字段
+    stock_list = results.get("stockList", [])
+    if stock_list:
+        extracted["stock_list"] = extract_list_items(stock_list, HKSC_HOLDINGS_ITEM_MAPPING)
+    
+    # 提取预冻结列表字段（可选）
+    pre_frozen_list = results.get("preFrozenStockList", [])
+    if pre_frozen_list:
+        extracted["pre_frozen_list"] = extract_list_items(pre_frozen_list, HKSC_PRE_FROZEN_ITEM_MAPPING)
+    
+    return extracted
 
 
 # ============ 服务字段配置注册表 ============
 
-# 存储每个服务的字段提取配置
-SERVICE_FIELD_MAPPINGS: dict[str, dict[str, dict[str, str]]] = {
-    "account_overview": {
-        "real": ACCOUNT_OVERVIEW_FIELD_MAPPING,
-        "legacy": ACCOUNT_OVERVIEW_LEGACY_MAPPING,
-    },
-    "cash_assets": {
-        "real": CASH_ASSETS_FIELD_MAPPING,
-        "legacy": CASH_ASSETS_LEGACY_MAPPING,
-    },
-    "etf_holdings": {
-        "real": ETF_HOLDINGS_FIELD_MAPPING,
-        "legacy": ETF_HOLDINGS_LEGACY_MAPPING,
-    },
-    "hksc_holdings": {
-        "real": HKSC_HOLDINGS_FIELD_MAPPING,
-        "legacy": HKSC_HOLDINGS_LEGACY_MAPPING,
-    },
+SERVICE_FIELD_MAPPINGS: dict[str, dict[str, str]] = {
+    "account_overview": ACCOUNT_OVERVIEW_FIELD_MAPPING,
+    "cash_assets": CASH_ASSETS_FIELD_MAPPING,
+    "etf_holdings": ETF_HOLDINGS_FIELD_MAPPING,
+    "hksc_holdings": HKSC_HOLDINGS_FIELD_MAPPING,
 }
 
 
@@ -365,7 +277,7 @@ def extract_service_fields(
     service_name: str,
     data: dict[str, Any],
 ) -> dict[str, Any]:
-    """提取指定服务的字段（自动检测格式）
+    """提取指定服务的字段
     
     Args:
         service_name: 服务名称

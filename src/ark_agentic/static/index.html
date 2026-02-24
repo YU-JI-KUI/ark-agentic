@@ -1646,13 +1646,13 @@
         }
 
         const holdingsHtml = holdings.map(h => {
-          // 支持两种字段名：真实API格式和旧格式
-          const code = h.code || h.security_code || '';
-          const name = h.name || h.security_name || '';
-          const holdCnt = h.hold_cnt || h.quantity || h.holding_quantity || '-';
+          // Real API format fields only
+          const code = h.security_code || '';
+          const name = h.security_name || '';
+          const holdCnt = h.hold_cnt || '-';
           const marketValue = h.market_value;
-          const dayProfit = toNum(h.day_profit != null ? h.day_profit : h.profit);
-          const dayProfitRate = toNum(h.day_profit_rate != null ? h.day_profit_rate : h.profit_rate);
+          const dayProfit = toNum(h.day_profit);
+          const dayProfitRate = toNum(h.day_profit_rate);
           
           const profitClass = dayProfit >= 0 ? 'profit' : 'loss';
           const profitSign = dayProfit >= 0 ? '+' : '';
@@ -1697,17 +1697,31 @@
           </div>
           <div class="template-card-body">
             <div class="tc-metric">
+              <span class="tc-label">现金余额</span>
+              <span class="tc-value">￥${formatNumber(data.cash_balance)}</span>
+            </div>
+            <div class="tc-metric">
               <span class="tc-label">可用资金</span>
-              <span class="tc-value">￥${formatNumber(data.available_cash)}</span>
+              <span class="tc-value">￥${formatNumber(data.cash_available)}</span>
             </div>
             <div class="tc-metric">
               <span class="tc-label">冻结资金</span>
-              <span class="tc-value">￥${formatNumber(data.frozen_cash)}</span>
+              <span class="tc-value">￥${formatNumber(data.frozen_funds_total)}</span>
             </div>
-            <div class="tc-metric">
-              <span class="tc-label">总现金</span>
-              <span class="tc-value">￥${formatNumber(data.total_cash)}</span>
-            </div>
+            ${data.today_profit ? `
+              <div class="tc-metric">
+                <span class="tc-label">今日收益</span>
+                <span class="tc-value ${toNum(data.today_profit) >= 0 ? 'profit' : 'loss'}">
+                  ${toNum(data.today_profit) >= 0 ? '+' : ''}￥${formatNumber(Math.abs(toNum(data.today_profit)))}
+                </span>
+              </div>
+            ` : ''}
+            ${data.fund_name ? `
+              <div class="tc-metric">
+                <span class="tc-label">理财名称</span>
+                <span class="tc-value">${escHtml(data.fund_name)} (${escHtml(data.fund_code || '')})</span>
+              </div>
+            ` : ''}
           </div>
         `;
       }
