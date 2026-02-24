@@ -15,7 +15,7 @@ from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
 from ..template_renderer import TemplateRenderer
-from .field_extraction import extract_account_overview
+from .field_extraction import extract_account_overview, extract_cash_assets
 
 
 # 数据工具名 → TemplateRenderer 调用方式
@@ -112,7 +112,9 @@ class DisplayCardTool(AgentTool):
             extracted_data = extract_account_overview(data)
             template = TemplateRenderer.render_account_overview_card(extracted_data)
         elif render_type == "cash_assets":
-            template = TemplateRenderer.render_cash_assets_card(data)
+            # 使用字段提取工具从 API 响应中提取显示字段
+            extracted_data = extract_cash_assets(data)
+            template = TemplateRenderer.render_cash_assets_card(extracted_data)
         elif render_type == "security_detail":
             template = TemplateRenderer.render_security_detail_card(data)
         else:

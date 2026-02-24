@@ -71,13 +71,37 @@ class TemplateRenderer:
     
     @staticmethod
     def render_cash_assets_card(data: dict[str, Any]) -> dict[str, Any]:
-        """渲染现金资产卡片"""
+        """渲染现金资产卡片
+        
+        支持的字段（来自真实 API 响应提取）：
+        - cash_balance: 现金总额
+        - cash_available: 可用资金
+        - draw_balance: 可取资金
+        - today_profit: 今日收益
+        - accu_profit: 累计收益
+        - fund_name: 理财产品名称
+        - frozen_funds_total: 冻结资金总额
+        - frozen_funds_detail: 冻结资金明细列表
+        """
         return {
             "template_type": "cash_assets_card",
             "data": {
-                "available_cash": data.get("available_cash"),
-                "frozen_cash": data.get("frozen_cash"),
-                "total_cash": data.get("total_cash"),
+                # 基础字段
+                "cash_balance": data.get("cash_balance"),
+                "cash_available": data.get("cash_available"),
+                "draw_balance": data.get("draw_balance"),
+                "today_profit": data.get("today_profit"),
+                # 扩展字段
+                "accu_profit": data.get("accu_profit"),
+                "fund_name": data.get("fund_name"),
+                "fund_code": data.get("fund_code"),
+                "frozen_funds_total": data.get("frozen_funds_total"),
+                "frozen_funds_detail": data.get("frozen_funds_detail"),
+                "in_transit_asset_total": data.get("in_transit_asset_total"),
+                # 兼容旧字段
+                "available_cash": data.get("available_cash") or data.get("cash_available"),
+                "frozen_cash": data.get("frozen_cash") or data.get("frozen_funds_total"),
+                "total_cash": data.get("total_cash") or data.get("cash_balance"),
                 "update_time": data.get("update_time"),
             }
         }

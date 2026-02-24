@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -281,21 +281,80 @@ class FundHoldingsSchema(BaseModel):
 # ============ 现金资产 ============
 
 class CashAssetsSchema(BaseModel):
-    """现金资产"""
+    """现金资产标准模型
     
-    available_cash: str = Field(..., description="可用资金")
-    frozen_cash: str = Field(..., description="冻结资金")
-    total_cash: str = Field(..., description="总资金")
+    支持两种数据来源：
+    1. from_raw_data: 从旧格式/mock 数据创建
+    2. from_api_response: 从真实 API 响应创建（通过字段提取后的数据）
+    """
+    
+    # 基础字段（来自真实 API）
+    cash_balance: str = Field(..., description="现金总额")
+    cash_available: str = Field(..., description="可用资金")
+    draw_balance: str | None = Field(None, description="可取资金")
+    today_profit: str | None = Field(None, description="今日收益")
+    
+    # 扩展字段
+    account_type: str | None = Field(None, description="账户类型")
+    accu_profit: str | None = Field(None, description="累计收益")
+    fund_name: str | None = Field(None, description="理财产品名称")
+    fund_code: str | None = Field(None, description="理财产品代码")
+    frozen_funds_total: str | None = Field(None, description="冻结资金总额")
+    frozen_funds_detail: list[dict] | None = Field(None, description="冻结资金明细")
+    in_transit_asset_total: str | None = Field(None, description="在途资产总额")
+    in_transit_asset_detail: Any | None = Field(None, description="在途资产明细")
+    
+    # 兼容旧字段
+    available_cash: str | None = Field(None, description="可用资金（兼容）")
+    frozen_cash: str | None = Field(None, description="冻结资金（兼容）")
+    total_cash: str | None = Field(None, description="总资金（兼容）")
     update_time: str | None = Field(None, description="更新时间")
+    
+    model_config = {"populate_by_name": True}
     
     @classmethod
     def from_raw_data(cls, data: dict) -> CashAssetsSchema:
-        """从原始数据创建"""
+        """从原始数据创建（支持多种字段名）
+        
+        用于旧格式/mock 数据的解析。
+        """
         return cls(
-            available_cash=get_val(data, "availableCash", "available"),
-            frozen_cash=get_val(data, "frozenCash", "frozen"),
-            total_cash=get_val(data, "totalCash", "total"),
+            cash_balance=get_val(data, "cashBalance", "cash_balance", "totalCash", "total_cash") or "0",
+            cash_available=get_val(data, "available", "cash_available", "availableCash") or "0",
+            draw_balance=get_val(data, "drawBalance", "draw_balance"),
+            today_profit=get_val(data, "dayProfit", "today_profit"),
+            available_cash=get_val(data, "availableCash", "available_cash"),
+            frozen_cash=get_val(data, "frozenCash", "frozen_cash"),
+            total_cash=get_val(data, "totalCash", "total_cash"),
             update_time=get_val(data, "updateTime", "update_time"),
+        )
+    
+    @classmethod
+    def from_api_response(cls, data: dict) -> CashAssetsSchema:
+        """从真实 API 响应创建（通过字段提取后的数据）
+        
+        用于从 field_extraction.extract_cash_assets() 提取后的数据创建。
+        字段已经是标准化的名称。
+        
+        Args:
+            data: 从 extract_cash_assets() 返回的标准化数据
+        
+        Returns:
+            CashAssetsSchema 实例
+        """
+        return cls(
+            cash_balance=data.get("cash_balance", "0"),
+            cash_available=data.get("cash_available", "0"),
+            draw_balance=data.get("draw_balance"),
+            today_profit=data.get("today_profit"),
+            account_type=data.get("account_type"),
+            accu_profit=data.get("accu_profit"),
+            fund_name=data.get("fund_name"),
+            fund_code=data.get("fund_code"),
+            frozen_funds_total=data.get("frozen_funds_total"),
+            frozen_funds_detail=data.get("frozen_funds_detail"),
+            in_transit_asset_total=data.get("in_transit_asset_total"),
+            in_transit_asset_detail=data.get("in_transit_asset_detail"),
         )
 
 

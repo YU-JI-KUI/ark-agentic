@@ -135,8 +135,23 @@ ACCOUNT_OVERVIEW_PARAM_CONFIG: dict[str, tuple] = {
     ),
 }
 
+# 现金资产 API 参数配置
+# 与 account_overview 使用相同的请求格式
+CASH_ASSETS_PARAM_CONFIG: dict[str, tuple] = {
+    # API 字段 -> (来源类型, 来源值, [转换函数])
+    "channel": ("static", "native"),
+    "appName": ("static", "AYLCAPP"),
+    "tokenId": ("context", "token_id"),  # 从扁平 context 获取
+    "body.accountType": (
+        "transform",
+        "account_type",  # 从扁平 context 获取
+        lambda x: "2" if x == "margin" else "1",
+    ),
+}
+
 # 服务参数配置注册表
 SERVICE_PARAM_CONFIGS: dict[str, dict[str, tuple]] = {
     "account_overview": ACCOUNT_OVERVIEW_PARAM_CONFIG,
+    "cash_assets": CASH_ASSETS_PARAM_CONFIG,
     # 其他服务可以在此添加
 }

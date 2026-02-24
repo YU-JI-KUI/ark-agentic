@@ -1,4 +1,10 @@
-"""现金资产工具"""
+"""现金资产工具
+
+从扁平 context 获取参数：
+- token_id: 用户令牌（必需，由前端传入）
+- account_type: 账户类型，normal 或 margin（可选，默认 normal）
+- user_id: 用户 ID（可选）
+"""
 
 from __future__ import annotations
 
@@ -15,7 +21,7 @@ class CashAssetsTool(AgentTool):
     """查询现金资产信息"""
     
     name = "cash_assets"
-    description = "查询用户的现金资产信息，包括可用资金、冻结资金、总资金等"
+    description = "查询用户的现金资产信息，包括现金总额、可用资金、可取资金、今日收益、冻结资金等。支持普通账户和两融账户。"
     parameters = [
         ToolParameter(
             name="account_type",
@@ -37,15 +43,21 @@ class CashAssetsTool(AgentTool):
         context: dict[str, Any] | None = None,
     ) -> AgentToolResult:
         args = tool_call.arguments
-        # 优先 context，其次 args，最后 default
-        context_account_type = context.get("account_type") if context else None
-        account_type = args.get("account_type") or context_account_type or "normal"
-        user_id = context.get("user_id", "U001") if context else "U001"
+        context = context or {}
+        # 上下文中的参数优先级高于 args，例如用户令牌或账户切换等信息。
+        args.update(context)
+        
+        # 从扁平 context 获取业务参数
+        # 优先级: args > context > 默认值
+        account_type = args.get("account_type") or context.get("account_type", "normal")
+        user_id = context.get("user_id", "U001")
         
         try:
+            # 传递完整 context 给 adapter（用于参数映射）
             data = await self._adapter.call(
                 account_type=account_type,
                 user_id=user_id,
+                _context=context,  # 传递完整上下文供参数映射使用
             )
             
             return AgentToolResult.json_result(
