@@ -16,6 +16,7 @@ from .base import (
 )
 from .registry import ToolRegistry
 from .memory import MemorySearchTool, MemoryGetTool, create_memory_tools
+from .pa_knowledge_api import PAKnowledgeAPIConfig, PAKnowledgeAPITool, create_pa_knowledge_api_tool
 
 __all__ = [
     # Base
@@ -33,4 +34,8 @@ __all__ = [
     "MemorySearchTool",
     "MemoryGetTool",
     "create_memory_tools",
+    # PA Knowledge API tool (optional, register via runner.register_tool())
+    "PAKnowledgeAPIConfig",
+    "PAKnowledgeAPITool",
+    "create_pa_knowledge_api_tool",
 ]

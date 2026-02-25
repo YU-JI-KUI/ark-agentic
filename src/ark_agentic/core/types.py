@@ -10,7 +10,9 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, Union
+
+from pydantic import BaseModel as _PydanticBaseModel, Field as _Field
 
 
 class MessageRole(str, Enum):
@@ -56,7 +58,7 @@ class AgentToolResult:
 
     tool_call_id: str
     result_type: ToolResultType
-    content: Any
+    content: Union[str, dict[str, Any], list[Any], int, float]
     is_error: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -219,10 +221,12 @@ class SkillEntry:
 # ============ Run Options ============
 
 
-SkillLoadMode = Literal["full", "dynamic", "semantic"]
+class SkillLoadMode(str, Enum):
+    """技能加载模式"""
 
-
-from pydantic import BaseModel as _PydanticBaseModel, Field as _Field
+    full = "full"
+    dynamic = "dynamic"
+    semantic = "semantic"
 
 
 class RunOptions(_PydanticBaseModel):

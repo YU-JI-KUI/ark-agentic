@@ -34,6 +34,9 @@ from pydantic import BaseModel, Field
 
 from ark_agentic.core.runner import AgentRunner
 from ark_agentic.core.types import RunOptions
+from ark_agentic.core.stream.event_bus import StreamEventBus
+from ark_agentic.core.stream.events import AgentStreamEvent
+from ark_agentic.core.stream.output_formatter import create_formatter
 from ark_agentic.agents.insurance.api import create_insurance_agent_from_env
 
 logger = logging.getLogger(__name__)
@@ -74,6 +77,10 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(None, description="会话 ID，为空则创建新会话")
     stream: bool = Field(False, description="是否启用 SSE 流式输出")
     run_options: RunOptions | None = Field(None, description="运行选项（模型、温度等覆盖）")
+    # 流式协议选择
+    protocol: str = Field("internal", description="流式输出协议 (agui/internal/enterprise/alone)")
+    source_bu_type: str = Field("", description="BU 来源（enterprise 模式使用）")
+    app_type: str = Field("", description="App 类型（enterprise 模式使用）")
     # 业务上下文字段
     user_id: str | None = Field(None, description="用户 ID")
     context: dict[str, Any] | None = Field(None, description="业务上下文数据")
@@ -87,34 +94,6 @@ class ChatResponse(BaseModel):
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     turns: int = 0
     usage: dict[str, int] | None = Field(None, description="Token 使用统计")
-
-
-class SSEEvent(BaseModel):
-    """SSE event — aligned with OpenAI Responses API naming.
-
-    Event types:
-      - response.created       : Run initialized
-      - response.step          : Agent lifecycle step (tool, status)
-      - response.content.delta : Final answer text chunk (typewriter)
-      - response.completed     : Run finished with metadata
-      - response.failed        : Error
-    """
-    type: str = Field(..., description="Event type (response.*)")
-    seq: int = Field(..., description="Sequence number")
-    run_id: str | None = Field(None)
-    session_id: str | None = Field(None)
-    # Step
-    content: str | None = Field(None, description="Step description text")
-    # Content delta
-    delta: str | None = Field(None, description="Answer text chunk")
-    output_index: int | None = Field(None, description="Output block index")
-    # Completed
-    message: str | None = Field(None, description="Full answer text")
-    usage: dict[str, int] | None = Field(None)
-    turns: int | None = Field(None)
-    tool_calls: list[dict[str, Any]] | None = Field(None)
-    # Failed
-    error_message: str | None = Field(None)
 
 
 class SessionCreateRequest(BaseModel):
@@ -246,51 +225,18 @@ async def chat(
             },
         )
 
-    # 流式响应
-    queue: asyncio.Queue[SSEEvent] = asyncio.Queue()
+    # ---- 流式响应：使用 StreamEventBus + OutputFormatter ----
+    queue: asyncio.Queue[AgentStreamEvent] = asyncio.Queue()
     done_event = asyncio.Event()
-    seq_counter = {"value": 0}
-
-    def next_seq() -> int:
-        seq_counter["value"] += 1
-        return seq_counter["value"]
-
-    # ---- Two callbacks only ----
-
-    def on_step(text: str) -> None:
-        """Agent lifecycle step → response.step"""
-        if not text:
-            return
-        queue.put_nowait(SSEEvent(
-            type="response.step",
-            seq=next_seq(),
-            run_id=run_id,
-            session_id=session_id,
-            content=text,
-        ))
-
-    def on_content(delta: str, output_index: int = 0) -> None:
-        """Final answer text chunk → response.content.delta"""
-        if not delta:
-            return
-        queue.put_nowait(SSEEvent(
-            type="response.content.delta",
-            seq=next_seq(),
-            run_id=run_id,
-            session_id=session_id,
-            delta=delta,
-            output_index=output_index,
-        ))
+    bus = StreamEventBus(run_id=run_id, session_id=session_id, queue=queue)
+    formatter = create_formatter(
+        request.protocol,
+        source_bu_type=request.source_bu_type,
+        app_type=request.app_type,
+    )
 
     async def run_agent() -> None:
-        # response.created
-        queue.put_nowait(SSEEvent(
-            type="response.created",
-            seq=next_seq(),
-            run_id=run_id,
-            session_id=session_id,
-            content="收到您的消息，正在处理中…",
-        ))
+        bus.emit_created("收到您的消息，正在处理中…")
         try:
             result = await agent.run(
                 session_id=session_id,
@@ -298,19 +244,13 @@ async def chat(
                 context=context,
                 stream_override=True,
                 run_options=request.run_options,
-                on_step=on_step,
-                on_content=on_content,
+                handler=bus,
             )
             tool_calls = []
             if result.tool_calls:
                 for tc in result.tool_calls:
                     tool_calls.append({"name": tc.name, "arguments": tc.arguments})
-            # response.completed
-            queue.put_nowait(SSEEvent(
-                type="response.completed",
-                seq=next_seq(),
-                run_id=run_id,
-                session_id=session_id,
+            bus.emit_completed(
                 message=result.response.content or "",
                 tool_calls=tool_calls if tool_calls else None,
                 turns=result.turns,
@@ -318,16 +258,10 @@ async def chat(
                     "prompt_tokens": result.prompt_tokens,
                     "completion_tokens": result.completion_tokens,
                 },
-            ))
+            )
         except Exception as exc:
             logger.exception(f"Agent run error: {exc}")
-            queue.put_nowait(SSEEvent(
-                type="response.failed",
-                seq=next_seq(),
-                run_id=run_id,
-                session_id=session_id,
-                error_message=str(exc),
-            ))
+            bus.emit_failed(str(exc))
         finally:
             done_event.set()
 
@@ -339,7 +273,9 @@ async def chat(
                     break
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=0.1)
-                    yield f"event: {event.type}\ndata: {event.model_dump_json(exclude_none=True)}\n\n"
+                    sse_line = formatter.format(event)
+                    if sse_line is not None:
+                        yield sse_line
                 except asyncio.TimeoutError:
                     continue
         finally:
@@ -404,7 +340,7 @@ async def list_sessions(agent_id: str = Query("insurance")):
     return {
         "sessions": [
             {
-                "session_id": s.id,
+                "session_id": s.session_id,
                 "message_count": len(s.messages),
                 "metadata": s.metadata,
             }

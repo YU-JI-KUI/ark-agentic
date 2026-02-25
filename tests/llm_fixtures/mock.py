@@ -1,5 +1,5 @@
 """
-Mock LLM Client
+Mock LLM Client (test fixture)
 
 用于演示和测试，不依赖真实 API。
 模拟保险取款场景的完整对话流程。
@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator
 
-from .base import BaseLLMClient, LLMConfig
+from ark_agentic.core.llm.base import BaseLLMClient, LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class MockLLMClient(BaseLLMClient):
     特性：
     - 无需 API Key 或网络连接
     - 预设的响应逻辑（工具调用 → 方案推荐 → 后续对话）
-    - 兼容 LLMClientProtocol 接口
+    - 用于演示和测试，无需 API 连接
     """
 
     def __init__(self, config: LLMConfig | None = None) -> None:
@@ -205,27 +205,3 @@ class MockLLMClient(BaseLLMClient):
                 }
             ]
         }
-
-
-# ============ 便捷函数 ============
-
-
-def create_mock_client(**kwargs: Any) -> MockLLMClient:
-    """创建 Mock 客户端
-
-    Args:
-        **kwargs: 额外配置参数（Mock 客户端会忽略大部分配置）
-
-    Returns:
-        MockLLMClient 实例
-
-    Examples:
-        # 创建 Mock 客户端
-        client = create_mock_client()
-
-        # 或通过工厂函数
-        from ark_agentic.core.llm import create_llm_client
-        client = create_llm_client("mock")
-    """
-    config = LLMConfig(provider="mock", api_key="", base_url="", model="mock-model", **kwargs)
-    return MockLLMClient(config)

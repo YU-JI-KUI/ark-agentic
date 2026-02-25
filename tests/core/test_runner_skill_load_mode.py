@@ -13,7 +13,7 @@ from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.registry import ToolRegistry
-from ark_agentic.core.types import AgentMessage, MessageRole
+from ark_agentic.core.types import AgentMessage, MessageRole, SkillLoadMode
 
 
 class _MockLLM:
@@ -32,7 +32,7 @@ def runner_with_one_skill():
         (skill_dir / "SKILL.md").write_text(
             "---\nname: Test Skill\ndescription: A test\nwhen_to_use: When testing\n---\n\nFull skill body here."
         )
-        config = SkillConfig(skill_directories=[tmpdir], default_load_mode="full")
+        config = SkillConfig(skill_directories=[tmpdir], default_load_mode=SkillLoadMode.full)
         loader = SkillLoader(config)
         loader.load_from_directories()
 
@@ -45,7 +45,7 @@ def runner_with_one_skill():
         )
 
         runner = AgentRunner(
-            llm_client=_MockLLM(),
+            llm=_MockLLM(),
             tool_registry=ToolRegistry(),
             session_manager=session_manager,
             skill_loader=loader,
@@ -105,33 +105,17 @@ def test_semantic_mode_falls_back_to_dynamic(
     assert "Full skill body here." not in prompt
 
 
-# ============ backward compatibility ============
-
-
-def test_backward_compat_metadata_maps_to_dynamic(
-    runner_with_one_skill,
-) -> None:
-    """Old 'metadata' value should produce same result as 'dynamic'."""
-    runner, session_id = runner_with_one_skill
-    # At _build_system_prompt level, "metadata" is not recognized by the
-    # if/elif chain and hits the else branch → full mode (no crash).
-    # The actual "metadata" → "dynamic" mapping happens in run().
-    prompt_result = runner._build_system_prompt(
-        {}, session_id=session_id, skill_load_mode="metadata"
-    )
-    assert "Test Skill" in prompt_result
-
 
 # ============ SkillConfig default_load_mode ============
 
 
 def test_skill_config_default_load_mode() -> None:
-    """SkillConfig.default_load_mode defaults to 'full'."""
+    """SkillConfig.default_load_mode defaults to full."""
     config = SkillConfig()
-    assert config.default_load_mode == "full"
+    assert config.default_load_mode == SkillLoadMode.full
 
 
 def test_skill_config_custom_load_mode() -> None:
-    """SkillConfig.default_load_mode can be set to 'dynamic'."""
-    config = SkillConfig(default_load_mode="dynamic")
-    assert config.default_load_mode == "dynamic"
+    """SkillConfig.default_load_mode can be set to dynamic."""
+    config = SkillConfig(default_load_mode=SkillLoadMode.dynamic)
+    assert config.default_load_mode == SkillLoadMode.dynamic

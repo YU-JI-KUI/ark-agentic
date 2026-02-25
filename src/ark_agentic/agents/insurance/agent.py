@@ -8,15 +8,12 @@
 - 工具调用（用户画像、保单查询、规则引擎）
 - 会话持久化（JSONL 格式）
 - 技能系统集成
-- 支持多种 LLM 提供商（DeepSeek, OpenAI, Mock）
+- 支持多种 LLM 提供商（DeepSeek, OpenAI, PA 等）
 
 使用方法：
     # 使用 DeepSeek（默认）
     export DEEPSEEK_API_KEY=sk-xxx
     python -m ark_agentic.agents.insurance.agent
-
-    # 使用 Mock 客户端（演示/测试）
-    python -m ark_agentic.agents.insurance.agent --mock --demo
 
     # 交互模式
     python -m ark_agentic.agents.insurance.agent -i
@@ -32,19 +29,22 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from langchain_core.language_models.chat_models import BaseChatModel
 
-# 导入 Agent 框架组件
+from ark_agentic.agents.insurance.tools import create_insurance_tools
+from ark_agentic.core.compaction import CompactionConfig
+from ark_agentic.core.llm import create_chat_model
+from ark_agentic.core.memory.manager import MemoryManager, MemoryConfig
+from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
-from ark_agentic.core.compaction import CompactionConfig
-from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
-from ark_agentic.core.prompt.builder import PromptConfig
-from ark_agentic.core.llm import create_llm_client, LLMClientProtocol
-from ark_agentic.core.memory.manager import MemoryManager, MemoryConfig
-from ark_agentic.agents.insurance.tools import create_insurance_tools
+from ark_agentic.core.tools.demo_a2ui import DemoA2UITool
+from ark_agentic.core.tools.registry import ToolRegistry
+from ark_agentic.core.types import SkillLoadMode
+
+logger = logging.getLogger(__name__)
 
 # 模块路径常量
 _AGENT_DIR = Path(__file__).resolve().parent
@@ -54,12 +54,8 @@ _SKILLS_DIR = _AGENT_DIR / "skills"
 # ============ 创建 LLM 客户端 ============
 
 
-def get_llm_client(args: argparse.Namespace) -> LLMClientProtocol:
-    """根据命令行参数创建 LLM 客户端"""
-    if args.mock:
-        logger.info("Using Mock LLM client")
-        return create_llm_client("mock")
-
+def get_llm_client(args: argparse.Namespace) -> Any:
+    """根据命令行参数创建 LLM"""
     provider = args.provider
     api_key = args.api_key
 
@@ -70,21 +66,15 @@ def get_llm_client(args: argparse.Namespace) -> LLMClientProtocol:
 
     if not api_key:
         raise ValueError(
-            f"API key is required. Set --api-key or DEEPSEEK_API_KEY environment variable."
+            "API key is required. Set --api-key or DEEPSEEK_API_KEY environment variable."
         )
 
     logger.info(f"Using {provider.upper()} client (model: {args.model or 'default'})")
 
-    kwargs = {}
-    if args.base_url:
-        kwargs["base_url"] = args.base_url
-    if args.model:
-        kwargs["model"] = args.model
-
-    return create_llm_client(
-        provider=provider,
+    return create_chat_model(
+        model=args.model or "deepseek-chat",
         api_key=api_key,
-        **kwargs,
+        base_url=args.base_url,
     )
 
 
@@ -92,7 +82,7 @@ def get_llm_client(args: argparse.Namespace) -> LLMClientProtocol:
 
 
 def create_insurance_agent(
-    llm_client: LLMClientProtocol,
+    llm: BaseChatModel,
     sessions_dir: str | Path | None = None,
     enable_persistence: bool = False,
     memory_dir: str | Path | None = None,
@@ -101,7 +91,7 @@ def create_insurance_agent(
     """创建保险取款智能体
 
     Args:
-        llm_client: LLM 客户端实例
+        llm: LLM instance (BaseChatModel, e.g. ChatOpenAI)
         sessions_dir: 会话持久化目录（None 则使用临时目录）
         enable_persistence: 是否启用持久化
         memory_dir: Memory 数据目录（用于向量存储等）
@@ -110,9 +100,11 @@ def create_insurance_agent(
     Returns:
         配置好的 AgentRunner
     """
-    # 1. 创建工具注册器并注册保险工具
+    # 1. 创建工具注册器并注册保险工具 + Demo A2UI 工具
     tool_registry = ToolRegistry()
     tool_registry.register_all(create_insurance_tools())
+    # DemoA2UITool: 专用于演示和联调 A2UI/AGUI 流式输出，不影响正常业务逻辑
+    tool_registry.register(DemoA2UITool())
 
     # 2. 创建会话管理器（支持持久化，使用 LLM 摘要器进行上下文压缩）
     if enable_persistence:
@@ -121,7 +113,7 @@ def create_insurance_agent(
         logger.info(f"Session persistence enabled: {sessions_dir}")
 
     from ark_agentic.core.compaction import LLMSummarizer
-    summarizer = LLMSummarizer(llm_client)
+    summarizer = LLMSummarizer(llm)
 
     session_manager = SessionManager(
         compaction_config=CompactionConfig(
@@ -138,7 +130,7 @@ def create_insurance_agent(
         skill_directories=[str(_SKILLS_DIR)],
         agent_id="insurance",
         enable_eligibility_check=True,
-        default_load_mode="full",  # 保险 Agent 默认全量加载（最可靠）
+        default_load_mode=SkillLoadMode.dynamic,  # 保险 Agent 默认全量加载（最可靠）
     )
     skill_loader = SkillLoader(skill_config)
 
@@ -192,7 +184,7 @@ def create_insurance_agent(
 
     # 6. 创建 Runner
     runner = AgentRunner(
-        llm_client=llm_client,
+        llm=llm,
         tool_registry=tool_registry,
         session_manager=session_manager,
         skill_loader=skill_loader,
@@ -276,7 +268,7 @@ async def interactive_mode(agent: AgentRunner):
 
             if user_input.lower() == "stats":
                 stats = agent.session_manager.get_session_stats(session_id)
-                print(f"\n[会话统计]")
+                print("\n[会话统计]")
                 print(f"  消息数: {stats['message_count']}")
                 print(f"  估算 Token: {stats['estimated_tokens']}")
                 print()
@@ -323,9 +315,6 @@ Examples:
   # 使用 DeepSeek（需要设置 DEEPSEEK_API_KEY 环境变量）
   python examples/insurance_withdrawal_agent.py
 
-  # 使用 Mock 客户端（演示模式）
-  python examples/insurance_withdrawal_agent.py --mock --demo
-
   # 交互模式
   python examples/insurance_withdrawal_agent.py -i
 """,
@@ -352,11 +341,6 @@ Examples:
     )
 
     # 运行模式
-    parser.add_argument(
-        "--mock",
-        action="store_true",
-        help="使用 Mock LLM 客户端（不需要真实 API）",
-    )
     parser.add_argument(
         "-i", "--interactive",
         action="store_true",
@@ -411,14 +395,12 @@ async def main():
         llm_client = get_llm_client(args)
     except ValueError as e:
         print(f"[错误] {e}")
-        print("\n提示：")
-        print("  - 使用 --mock 可以在没有 API Key 的情况下运行演示")
-        print("  - 设置 DEEPSEEK_API_KEY 环境变量使用 DeepSeek")
+        print("\n提示：设置 DEEPSEEK_API_KEY 或使用 --api-key 指定 API Key")
         return
 
     # 创建 Agent
     agent = create_insurance_agent(
-        llm_client=llm_client,
+        llm=llm_client,
         sessions_dir=args.sessions_dir,
         enable_persistence=args.persistence,
         memory_dir=args.memory_dir,

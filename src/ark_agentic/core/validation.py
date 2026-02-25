@@ -11,9 +11,9 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Union
 
-from .types import AgentMessage, AgentToolResult, ToolCall
+from .types import AgentToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,10 @@ def extract_numbers_from_tool_results(
     return numbers
 
 
-def _collect_numbers(data: Any, output: set[float]) -> None:
+def _collect_numbers(
+    data: Union[str, int, float, dict[str, Any], list[Any], tuple[Any, ...]],
+    output: set[float]
+) -> None:
     """递归收集数据结构中的所有数字值。"""
     if isinstance(data, (int, float)):
         if data != 0:  # 忽略 0

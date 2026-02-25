@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -209,7 +209,7 @@ class SystemPromptBuilder:
 
     def add_memory_instructions(self) -> SystemPromptBuilder:
         """添加 Memory 使用指令
-        
+
         当 Agent 配置了 memory_search/memory_get 工具时调用。
         指导 LLM 在回答历史相关问题前先搜索 memory。
         """

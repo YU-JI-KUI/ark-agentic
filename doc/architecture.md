@@ -34,10 +34,7 @@ graph TD
     end
 
     subgraph LLM["LLM 层 (core/llm/)"]
-        FACTORY["create_llm_client()"]
-        OPENAI["OpenAICompatibleClient"]
-        PA["PAInternalClient"]
-        MOCK["MockLLMClient"]
+        FACTORY["create_chat_model()"]
     end
 
     subgraph Tools["工具系统 (core/tools/)"]
@@ -220,7 +217,7 @@ sequenceDiagram
 
 **关键设计:**
 - `AgentRegistry`: 多 Agent 注册表 (agent_id → AgentRunner)
-- `SSEEvent`: 对齐 OpenAI Responses API 事件格式
+- `AgentStreamEvent`: 流式事件 (core.stream.events)，对齐 OpenAI Responses API
 - 自定义 Headers: `x-ark-session-key` / `x-ark-user-id` / `x-ark-trace-id`
 - 幂等键: `idempotency_key` 防止重复请求
 
@@ -239,10 +236,7 @@ src/ark_agentic/
 │   ├── validation.py          # 输入校验
 │   ├── llm/
 │   │   ├── base.py            # LLMClientProtocol + LLMConfig
-│   │   ├── factory.py         # create_llm_client()
-│   │   ├── openai_compat.py   # OpenAI 兼容客户端
-│   │   ├── pa_internal_llm.py # PA 内部 LLM
-│   │   ├── mock.py            # Mock 客户端
+│   │   ├── factory.py         # create_chat_model() (PA-JT/PA-SX/OpenAI)
 │   │   └── errors.py          # LLM 错误处理
 │   ├── tools/
 │   │   ├── base.py            # AgentTool 基类

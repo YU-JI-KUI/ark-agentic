@@ -4,15 +4,17 @@ ark-agentic - 轻量级 ReAct 智能体框架
 ## 快速开始
 
 ```python
-from ark_agentic.core import AgentRunner, ToolRegistry, SessionManager, create_llm_client
+from ark_agentic.core.llm import create_chat_model, PAModel
 
-# 创建 LLM 客户端
-llm_client = create_llm_client("deepseek", api_key="sk-xxx")
+# 创建 LLM
+llm = create_chat_model(model=PAModel.PA_SX_80B)
 
 # 创建组件
+from ark_agentic.core.runner import AgentRunner
+from ark_agentic.core.tools.registry import ToolRegistry
+
 tool_registry = ToolRegistry()
-session_manager = SessionManager()
-runner = AgentRunner(llm_client, tool_registry, session_manager)
+runner = AgentRunner(llm, tool_registry)
 
 # 运行
 session_id = await runner.create_session()
@@ -35,8 +37,8 @@ from .core import (
     SessionManager,
     AgentMessage,
     ToolCall,
-    create_llm_client,
-    LLMClientProtocol,
+    PAModel,
+    create_chat_model,
 )
 from .core.tools.base import AgentTool, ToolParameter
 from .core.tools.registry import ToolRegistry
@@ -52,8 +54,8 @@ __all__ = [
     "AgentMessage",
     "ToolCall",
     # LLM
-    "create_llm_client",
-    "LLMClientProtocol",
+    "PAModel",
+    "create_chat_model",
     # Tools
     "AgentTool",
     "ToolParameter",

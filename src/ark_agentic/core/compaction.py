@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
-import os
-from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from dataclasses import dataclass
+from typing import Any, Protocol, TYPE_CHECKING
 
 from .types import AgentMessage, MessageRole
+
+if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
@@ -23,34 +25,6 @@ MIN_CHUNK_RATIO = 0.15
 
 # 默认摘要回退文本
 DEFAULT_SUMMARY_FALLBACK = "No prior history."
-
-
-# ============ LLM 客户端协议 ============
-
-
-class LLMClientProtocol(Protocol):
-    """LLM 客户端协议（用于摘要生成）
-
-    实现此协议的客户端需要提供异步的 chat 方法。
-    """
-
-    async def chat(
-        self,
-        messages: list[dict[str, str]],
-        max_tokens: int = 500,
-        temperature: float = float(os.getenv("DEFAULT_TEMPERATURE", "0.7")),
-    ) -> dict[str, Any]:
-        """异步聊天接口
-
-        Args:
-            messages: 消息列表，每条消息包含 role 和 content
-            max_tokens: 最大生成 token 数
-            temperature: 采样温度（默认使用环境变量 DEFAULT_TEMPERATURE）
-
-        Returns:
-            响应字典，应包含 choices 列表，每个 choice 包含 message.content
-        """
-        ...
 
 
 # ============ Token 估算 ============
@@ -282,7 +256,7 @@ class SimpleSummarizer:
 class LLMSummarizer:
     """基于 LLM 的摘要生成器
 
-    使用 LLM 生成高质量摘要。
+    支持 ChatOpenAI 或任何实现了 ainvoke() 的 LLM 实例。
     """
 
     DEFAULT_INSTRUCTIONS = """生成对话摘要，保留以下关键信息：
@@ -297,12 +271,12 @@ class LLMSummarizer:
     MERGE_INSTRUCTIONS = """合并以下多个部分摘要为一个统一的摘要。
 保留所有重要的决策、待办事项、问题和约束条件。"""
 
-    def __init__(self, llm_client: LLMClientProtocol) -> None:
+    def __init__(self, llm: BaseChatModel) -> None:
         """
         Args:
-            llm_client: LLM 客户端（需实现 LLMClientProtocol 协议）
+            llm: ChatOpenAI 实例（或任何实现了 ainvoke 的 LangChain chat model）
         """
-        self.llm_client = llm_client
+        self.llm = llm
 
     async def summarize(
         self,
@@ -314,7 +288,6 @@ class LLMSummarizer:
         """使用 LLM 生成摘要"""
         instructions = custom_instructions or self.DEFAULT_INSTRUCTIONS
 
-        # 构建提示
         prompt_parts = [f"## 摘要指令\n{instructions}"]
 
         if previous_summary:
@@ -326,21 +299,14 @@ class LLMSummarizer:
         prompt = "\n\n".join(prompt_parts)
 
         try:
-            response = await self.llm_client.chat(
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens,
-                temperature=float(os.getenv("COMPACTION_TEMPERATURE", "0.3")),  # 低温度保证稳定性
+            ai_msg = await self.llm.ainvoke(
+                [{"role": "user", "content": prompt}]
             )
-
-            # 解析响应
-            choices = response.get("choices", [])
-            if choices:
-                return choices[0].get("message", {}).get("content", DEFAULT_SUMMARY_FALLBACK)
-            return DEFAULT_SUMMARY_FALLBACK
+            content = ai_msg.content if hasattr(ai_msg, "content") else str(ai_msg)
+            return content or DEFAULT_SUMMARY_FALLBACK
 
         except Exception as e:
             logger.warning(f"LLM summarization failed: {e}")
-            # 回退到简单截断
             simple = SimpleSummarizer()
             return await simple.summarize(text, max_tokens, custom_instructions, previous_summary)
 
@@ -617,7 +583,7 @@ class ContextCompactor:
     async def _compact_history(
         self, history: list[AgentMessage]
     ) -> tuple[list[AgentMessage], int]:
-        """压缩历史消息（简化版，保留兼容性）"""
+        """压缩历史消息（简化版，委托 _compact_history_staged）"""
         return await self._compact_history_staged(history)
 
     def _chunk_to_text(self, chunk: MessageChunk) -> str:
@@ -720,13 +686,13 @@ def estimate_context_usage(
 
 
 def create_compactor_with_llm(
-    llm_client: Any,
+    llm_client: BaseChatModel,
     config: CompactionConfig | None = None,
 ) -> ContextCompactor:
     """创建使用 LLM 摘要的压缩器
 
     Args:
-        llm_client: LLM 客户端（需实现 chat 方法）
+        llm_client: LLM 客户端（LangChain BaseChatModel 实例）
         config: 压缩配置
 
     Returns:

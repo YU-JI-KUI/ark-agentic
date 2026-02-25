@@ -216,7 +216,7 @@ class LLMResponse:
         )
 
     def to_openai_dict(self) -> dict[str, Any]:
-        """转换为 OpenAI 格式（用于兼容现有代码）"""
+        """转换为 OpenAI 格式"""
         choices = []
         for choice in self.choices:
             choice_dict: dict[str, Any] = {

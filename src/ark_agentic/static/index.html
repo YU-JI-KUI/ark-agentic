@@ -893,9 +893,28 @@ body {
         let event;
         try { event = JSON.parse(jsonStr); } catch { continue; }
 
-        // Use event.type from JSON (authoritative), fallback to event: line
-        const eventType = event.type || currentEventType || '';
+        // AG-UI → legacy alias map for unified switch handling
+        const EVENT_ALIASES = {
+          'run_started': 'response.created',
+          'step_started': 'response.step',
+          'step_finished': 'response.step.done',
+          'text_message_content': 'response.content.delta',
+          'text_message_start': '_skip',
+          'text_message_end': '_skip',
+          'tool_call_start': 'response.tool_call.start',
+          'tool_call_args': '_skip',
+          'tool_call_end': '_skip',
+          'tool_call_result': 'response.tool_call.result',
+          'custom': 'response.ui.component',
+          'run_finished': 'response.completed',
+          'run_error': 'response.failed',
+        };
+
+        const rawType = event.type || currentEventType || '';
+        const eventType = EVENT_ALIASES[rawType] || rawType;
         currentEventType = null;
+
+        if (eventType === '_skip') continue;
 
         if (event.session_id && !sessionId) {
           sessionId = event.session_id;
@@ -904,24 +923,25 @@ body {
         }
 
         switch (eventType) {
-          // ---- response.created: initial acknowledgement ----
+          // ---- response.created / run_started ----
           case 'response.created': {
-            if (event.content) {
+            const text = event.content || event.run_content || '';
+            if (text) {
               hadThinkingContent = true;
               thinkCard.style.display = '';
               const step = document.createElement('div');
               step.className = 'think-step active';
-              step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(event.content) + '</span></div>';
+              step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(text) + '</span></div>';
               thinkContent.appendChild(step);
               currentStepEl = step;
-              thinkCard.dataset.latestStep = event.content;
-              statusText.textContent = thinkCard.classList.contains('collapsed') ? event.content : '正在思考中…';
+              thinkCard.dataset.latestStep = text;
+              statusText.textContent = thinkCard.classList.contains('collapsed') ? text : '正在思考中…';
             }
             scrollToBottom();
             break;
           }
 
-          // ---- response.step: thinking panel ----
+          // ---- response.step / step_started ----
           case 'response.step': {
             hadThinkingContent = true;
             thinkCard.style.display = '';
@@ -929,25 +949,29 @@ body {
               currentStepEl.classList.remove('active');
               currentStepEl.classList.add('done');
             }
+            const stepText = event.content || event.step_name || '';
             const step = document.createElement('div');
             step.className = 'think-step active';
-            step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(event.content || '') + '</span></div>';
+            step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(stepText) + '</span></div>';
             thinkContent.appendChild(step);
             currentStepEl = step;
-            thinkCard.dataset.latestStep = event.content || '思考中…';
-            statusText.textContent = thinkCard.classList.contains('collapsed') ? (event.content || '思考中…') : '正在思考中…';
+            thinkCard.dataset.latestStep = stepText || '思考中…';
+            statusText.textContent = thinkCard.classList.contains('collapsed') ? (stepText || '思考中…') : '正在思考中…';
             scrollToBottom();
             break;
           }
 
-          // ---- response.content.delta: real-time typewriter in answer area ----
-          case 'response.content.delta': {
-            // output_index change → clear previous content (rare edge case)
-            const idx = event.output_index ?? 0;
-            if (idx !== currentOutputIndex) {
-              currentOutputIndex = idx;
-              finalText = '';
+          // ---- step_finished (mark current step done) ----
+          case 'response.step.done': {
+            if (currentStepEl) {
+              currentStepEl.classList.remove('active');
+              currentStepEl.classList.add('done');
             }
+            break;
+          }
+
+          // ---- response.content.delta / text_message_content ----
+          case 'response.content.delta': {
             answerBubble.classList.remove('hidden');
             finalText += event.delta || '';
             answerBubble.innerHTML = md(finalText);
@@ -955,7 +979,7 @@ body {
             break;
           }
 
-          // ---- response.completed: finalize ----
+          // ---- response.completed / run_finished ----
           case 'response.completed': {
             if (currentStepEl) {
               currentStepEl.classList.remove('active');
@@ -964,7 +988,6 @@ body {
             }
             if (hadThinkingContent) {
               thinkCard.classList.add('collapsed');
-              // Swap spinning clock → checkmark
               thinkIcon.outerHTML = '<svg class="th-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
               statusText.textContent = '思考完成';
             } else {
@@ -987,7 +1010,7 @@ body {
             break;
           }
 
-          // ---- response.failed: error ----
+          // ---- response.failed / run_error ----
           case 'response.failed': {
             thinkCard.style.display = 'none';
             appendErrorMessage(event.error_message || '\u672A\u77E5\u9519\u8BEF');
