@@ -102,6 +102,7 @@ class TestStreamEventBusTextMessage:
         assert events[0].message_id is not None
         assert events[1].type == "text_message_content"
         assert events[1].delta == "Hi"
+        assert events[1].turn == 1  # default 1-based ReAct turn
 
     def test_multiple_deltas_share_message_id(self) -> None:
         bus, q = _make_bus()

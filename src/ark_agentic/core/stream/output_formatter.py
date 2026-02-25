@@ -104,7 +104,7 @@ class LegacyInternalFormatter:
             base["content"] = event.step_name
         elif internal_type == "response.content.delta":
             base["delta"] = event.delta
-            base["output_index"] = 0
+            base["turn"] = event.turn if event.turn is not None else 1
         elif internal_type == "response.tool_call.start":
             base["tool_name"] = event.tool_name
             base["tool_args"] = event.tool_args
@@ -170,6 +170,7 @@ class EnterpriseAGUIFormatter:
             else:
                 dp.ui_protocol = "text"
                 dp.ui_data = event.delta or ""
+                dp.turn = event.turn if event.turn is not None else 1
         elif event.type in ("step_started", "step_finished"):
             dp.ui_protocol = "json"
             status = 1 if event.type == "step_started" else 0
@@ -253,7 +254,11 @@ class AloneFormatter:
         if alone_type == "sa_ready":
             return {"status": "ready", "message": "Agent initialized"}
         elif alone_type == "sa_stream_chunk":
-            return {"content": event.delta or "", "index": event.seq}
+            return {
+                "content": event.delta or "",
+                "index": event.seq,
+                "turn": event.turn if event.turn is not None else 1,
+            }
         elif alone_type == "sa_stream_think":
             return {"thought": event.step_name or ""}
         elif alone_type == "sa_stream_complete":

@@ -36,8 +36,8 @@ class AgentEventHandler(Protocol):
         """Agent 生命周期步骤（如: "正在调用工具...", "正在思考..."）。"""
         ...
 
-    def on_content_delta(self, delta: str, output_index: int = 0) -> None:
-        """最终回答的文本增量（逐 token 流式输出）。"""
+    def on_content_delta(self, delta: str, turn: int = 1) -> None:
+        """最终回答的文本增量（逐 token 流式输出）。turn 为 ReAct 轮次（1-based）。"""
         ...
 
     def on_tool_call_start(self, tool_call_id: str, name: str, args: dict[str, Any]) -> None:
@@ -133,11 +133,11 @@ class StreamEventBus:
         self._active_step = text
         self._emit(type="step_started", step_name=text)
 
-    def on_content_delta(self, delta: str, output_index: int = 0) -> None:
+    def on_content_delta(self, delta: str, turn: int = 1) -> None:
         if not delta:
             return
         self._ensure_text_started()
-        self._emit(type="text_message_content", delta=delta, message_id=self._text_message_id)
+        self._emit(type="text_message_content", delta=delta, message_id=self._text_message_id, turn=turn)
 
     def on_tool_call_start(self, tool_call_id: str, name: str, args: dict[str, Any]) -> None:
         self._emit(

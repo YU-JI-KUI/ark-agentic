@@ -159,7 +159,7 @@ async def test_run_streaming_text_response() -> None:
     captured_deltas = []
     
     class MockHandler:
-        def on_content_delta(self, delta: str, index: int) -> None:
+        def on_content_delta(self, delta: str, turn: int = 1) -> None:
             captured_deltas.append(delta)
 
         def on_tool_call_start(self, tool_call_id: str, name: str, args: str) -> None:
@@ -209,7 +209,7 @@ async def test_run_streaming_with_tool_call() -> None:
     captured_steps = []
     
     class MockHandler:
-        def on_content_delta(self, delta: str, index: int) -> None:
+        def on_content_delta(self, delta: str, turn: int = 1) -> None:
             captured_deltas.append(delta)
 
         def on_tool_call_start(self, tool_call_id: str, name: str, args: str) -> None:

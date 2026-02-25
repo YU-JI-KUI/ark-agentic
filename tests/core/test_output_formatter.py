@@ -74,6 +74,15 @@ class TestLegacyInternalFormatter:
         etype, data = _parse_sse(result)
         assert etype == "response.content.delta"
         assert data["delta"] == "Hi"
+        assert data["turn"] == 1  # default 1-based ReAct turn when not set
+
+    def test_text_message_content_includes_turn(self) -> None:
+        f = LegacyInternalFormatter()
+        ev = _event(type="text_message_content", delta="ok", turn=2)
+        result = f.format(ev)
+        etype, data = _parse_sse(result)
+        assert etype == "response.content.delta"
+        assert data["turn"] == 2
 
     def test_run_finished_maps_to_response_completed(self) -> None:
         f = LegacyInternalFormatter()
@@ -205,6 +214,7 @@ class TestAloneFormatter:
         etype, data = _parse_sse(result)
         assert etype == "sa_stream_chunk"
         assert data["content"] == "hello"
+        assert data["turn"] == 1  # default 1-based ReAct turn
 
     def test_step_started_maps_to_sa_stream_think(self) -> None:
         f = AloneFormatter()
