@@ -17,6 +17,7 @@ from .base import (
 from .registry import ToolRegistry
 from .memory import MemorySearchTool, MemoryGetTool, create_memory_tools
 from .pa_knowledge_api import PAKnowledgeAPIConfig, PAKnowledgeAPITool, create_pa_knowledge_api_tool
+from .demo_state import SetStateDemoTool, GetStateDemoTool
 
 __all__ = [
     # Base
@@ -38,4 +39,7 @@ __all__ = [
     "PAKnowledgeAPIConfig",
     "PAKnowledgeAPITool",
     "create_pa_knowledge_api_tool",
+    # Demo state tools (session state read/write)
+    "SetStateDemoTool",
+    "GetStateDemoTool",
 ]
