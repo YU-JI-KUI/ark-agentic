@@ -15,5 +15,5 @@ data/*
 # Worktrees
 .worktrees/
 doc/*
-.env
 scripts/*
+.env
