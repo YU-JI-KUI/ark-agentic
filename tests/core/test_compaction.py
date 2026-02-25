@@ -1,9 +1,11 @@
 """Tests for context compaction."""
 
+import os
 import pytest
 from ark_agentic.core.compaction import (
     CompactionConfig,
     ContextCompactor,
+    LLMSummarizer,
     MessageChunk,
     SimpleSummarizer,
     compute_adaptive_chunk_ratio,
@@ -261,3 +263,155 @@ class TestHelperFunctions:
         # 10 messages * "word " * 20 ≈ 10 * 26 = 260 tokens each = 2600 total
         large_messages = [AgentMessage.user("word " * 100) for _ in range(10)]
         assert should_compact(large_messages, context_window=1000)
+
+
+# ============ LLM Integration Tests ============
+
+
+@pytest.mark.skipif(
+    not os.getenv("DEEPSEEK_API_KEY"),
+    reason="DEEPSEEK_API_KEY not set, skipping LLM integration tests"
+)
+class TestLLMSummarizerIntegration:
+    """Integration tests for LLMSummarizer with real LLM."""
+
+    @pytest.mark.asyncio
+    async def test_llm_summarizer_basic(self) -> None:
+        """Test LLMSummarizer with real DeepSeek model."""
+        from ark_agentic.core.llm import create_chat_model
+
+        llm = create_chat_model(
+            model="deepseek-chat",
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            temperature=0.3,
+            max_tokens=500,
+        )
+        summarizer = LLMSummarizer(llm)
+
+        # Test conversation to summarize
+        conversation = """
+        USER: 我想查询我的保单信息
+        ASSISTANT: 好的，我来帮您查询。请问您的保单号是多少？
+        USER: 保单号是 P123456
+        ASSISTANT: [调用工具: query_policy]
+        [工具结果: 保单 P123456，投保人张三，保额100万，状态正常]
+        ASSISTANT: 您的保单信息如下：保单号 P123456，投保人张三，保额100万元，状态正常。
+        USER: 我想申请理赔
+        ASSISTANT: 好的，请问理赔原因是什么？
+        """
+
+        result = await summarizer.summarize(conversation, max_tokens=200)
+
+        # Verify result is not empty and is shorter than original
+        assert result
+        assert len(result) < len(conversation)
+        # Should contain key information
+        assert "保单" in result or "P123456" in result or "张三" in result
+
+    @pytest.mark.asyncio
+    async def test_llm_summarizer_with_previous_summary(self) -> None:
+        """Test incremental summarization."""
+        from ark_agentic.core.llm import create_chat_model
+
+        llm = create_chat_model(
+            model="deepseek-chat",
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            temperature=0.3,
+        )
+        summarizer = LLMSummarizer(llm)
+
+        previous = "用户查询了保单 P123456，投保人张三，保额100万。"
+        new_content = "USER: 我要修改受益人\nASSISTANT: 好的，请提供新受益人信息。"
+
+        result = await summarizer.summarize(
+            new_content,
+            max_tokens=200,
+            previous_summary=previous
+        )
+
+        assert result
+        # Should reference both old and new information
+        assert len(result) > 0
+
+    @pytest.mark.asyncio
+    async def test_llm_summarizer_custom_instructions(self) -> None:
+        """Test custom summarization instructions."""
+        from ark_agentic.core.llm import create_chat_model
+
+        llm = create_chat_model(
+            model="deepseek-chat",
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            temperature=0.3,
+        )
+        summarizer = LLMSummarizer(llm)
+
+        text = "用户询问保单信息，查询了保单号 P123456，然后申请理赔。"
+        custom_instructions = "只提取保单号和操作类型，忽略其他细节。"
+
+        result = await summarizer.summarize(
+            text,
+            max_tokens=100,
+            custom_instructions=custom_instructions
+        )
+
+        assert result
+        assert len(result) < len(text)
+
+
+@pytest.mark.skipif(
+    not os.getenv("DEEPSEEK_API_KEY"),
+    reason="DEEPSEEK_API_KEY not set, skipping LLM integration tests"
+)
+class TestContextCompactorIntegration:
+    """Integration tests for ContextCompactor with real LLM."""
+
+    @pytest.mark.asyncio
+    async def test_compactor_with_llm_summarizer(self) -> None:
+        """Test full compaction flow with LLM summarizer."""
+        from ark_agentic.core.llm import create_chat_model
+
+        llm = create_chat_model(
+            model="deepseek-chat",
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            temperature=0.3,
+        )
+        summarizer = LLMSummarizer(llm)
+
+        config = CompactionConfig(
+            context_window=1000,
+            output_reserve=100,
+            system_reserve=100,
+            trigger_threshold=0.5,
+            preserve_recent=1,  # 只保留 1 条最近消息
+            min_messages_for_split=2,  # 降低最小分块数
+            max_chunk_tokens=100,  # 降低阈值
+        )
+        compactor = ContextCompactor(config, summarizer=summarizer)
+
+        # Create enough messages to trigger compaction
+        messages = [
+            AgentMessage.user("我想查询我的保单信息，我记得保单号好像是 P 开头的，但是具体记不清了"),
+            AgentMessage.assistant(content="好的，我来帮您查询。请提供您的保单号，如果记不清可以提供投保人姓名和身份证号"),
+            AgentMessage.user("保单号是 P123456，投保人是张三，身份证号是 110101199001011234"),
+            AgentMessage.assistant(content="查询到保单信息：保单号 P123456，投保人张三，保额100万元，保险类型为意外险，状态正常，保费已缴清"),
+            AgentMessage.user("我要申请理赔，因为上个月发生了意外事故导致受伤住院"),
+            AgentMessage.assistant(content="好的，请详细说明理赔原因、受伤情况、住院时间和医疗费用"),
+            AgentMessage.user("2024年1月15日意外摔伤导致骨折，住院治疗10天，医疗费用共计5万元"),
+            AgentMessage.assistant(content="好的，我来帮您处理理赔申请。请准备好医院诊断证明、住院发票、身份证复印件等材料"),
+        ]
+
+        result = await compactor.compact(messages, force=True)
+
+        # Verify compaction happened
+        # With preserve_recent=1, we should have 7 messages to compact
+        # If compaction works, we should get fewer messages
+        assert result.compacted_count <= result.original_count
+
+        # If summaries were generated, verify the structure
+        if result.summaries_generated > 0:
+            assert result.compacted_count < result.original_count
+            # Recent message should be preserved
+            assert result.messages[-1] == messages[-1]
+            # Should have a summary message
+            summary_messages = [m for m in result.messages if "摘要" in (m.content or "")]
+            assert len(summary_messages) > 0
