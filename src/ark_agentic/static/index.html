@@ -336,6 +336,15 @@ body {
 }
 .think-step.active .ts-icon { background: var(--orange); box-shadow: 0 0 0 3px rgba(240,118,43,0.15); }
 .think-step.done .ts-icon { background: #34a853; }
+/* Previous turn output moved into thinking panel when turn changes */
+.turn-output {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 6px 14px 8px;
+  border-left: 2px solid var(--border);
+  line-height: 1.55;
+  word-break: break-word;
+}
 .ts-expand {
   margin-left: auto;
   font-size: 10px;
@@ -864,7 +873,7 @@ body {
     let hadThinkingContent = false;
     let currentStepEl = null;
     let finalText = '';
-    let currentOutputIndex = -1;  // track output_index for rare edge-case clearing
+    let currentTurn = 0;  // ReAct turn (1-based); 0 = no segment yet
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -972,6 +981,19 @@ body {
 
           // ---- response.content.delta / text_message_content ----
           case 'response.content.delta': {
+            const turn = Number(event.turn) || 1;
+            if (turn !== currentTurn) {
+              if (currentTurn !== 0 && finalText.trim()) {
+                hadThinkingContent = true;
+                thinkCard.style.display = '';
+                const prevBlock = document.createElement('div');
+                prevBlock.className = 'turn-output';
+                prevBlock.innerHTML = md(finalText);
+                thinkContent.appendChild(prevBlock);
+              }
+              currentTurn = turn;
+              finalText = '';
+            }
             answerBubble.classList.remove('hidden');
             finalText += event.delta || '';
             answerBubble.innerHTML = md(finalText);

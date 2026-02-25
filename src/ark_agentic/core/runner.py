@@ -303,7 +303,6 @@ class AgentRunner:
         total_completion_tokens = 0
         all_tool_calls: list[ToolCall] = []
         all_tool_results: list[AgentToolResult] = []
-        output_index = 0
 
         while turns < self.config.max_turns:
             turns += 1
@@ -315,12 +314,12 @@ class AgentRunner:
                 f"model={model_override or self.config.model}"
             )
 
-            # 绑定当前 output_index 的 content 回调
-            _current_idx = output_index
+            # 绑定当前 ReAct 轮次到 content 回调（1-based）
+            _current_turn = turns
 
-            def _scoped_content(text: str, _idx: int = _current_idx) -> None:
+            def _scoped_content(text: str, _turn: int = _current_turn) -> None:
                 if handler:
-                    handler.on_content_delta(text, _idx)
+                    handler.on_content_delta(text, _turn)
 
             try:
                 if use_streaming:
@@ -410,7 +409,6 @@ class AgentRunner:
                 if all(tr.is_error for tr in tool_results):
                     logger.warning(f"[TOOLS_FAIL] turn={turns} all_failed=True")
 
-                output_index += 1
                 if handler:
                     handler.on_step("信息收集完毕，正在为您总结…")
 

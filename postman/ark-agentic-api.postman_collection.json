@@ -25,8 +25,12 @@
         "method": "GET",
         "url": {
           "raw": "{{baseUrl}}/health",
-          "host": ["{{baseUrl}}"],
-          "path": ["health"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
         }
       }
     },
@@ -46,8 +50,12 @@
         },
         "url": {
           "raw": "{{baseUrl}}/chat",
-          "host": ["{{baseUrl}}"],
-          "path": ["chat"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "chat"
+          ]
         }
       }
     },
@@ -75,13 +83,17 @@
         },
         "url": {
           "raw": "{{baseUrl}}/chat",
-          "host": ["{{baseUrl}}"],
-          "path": ["chat"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "chat"
+          ]
         }
       }
     },
     {
-      "name": "Chat (SSE stream)",
+      "name": "Chat (SSE stream - internal)",
       "request": {
         "method": "POST",
         "header": [
@@ -96,14 +108,108 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"我想取点钱\",\n  \"stream\": true,\n  \"user_id\": \"{{user_id}}\",\n  \"context\": {\n    \"channel\": \"web\"\n  }\n}"
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"我想取点钱\",\n  \"stream\": true,\n  \"protocol\": \"internal\",\n  \"user_id\": \"{{user_id}}\",\n  \"context\": {\n    \"channel\": \"web\"\n  }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/chat",
-          "host": ["{{baseUrl}}"],
-          "path": ["chat"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "chat"
+          ]
         },
-        "description": "SSE 流式响应。事件格式:\n- state=delta: 增量内容\n- state=final: 完整响应\n- state=error: 错误信息\n\n每个事件包含 run_id, session_id, seq (序列号)"
+        "description": "SSE 流式响应，使用 legacy internal 协议（response.* 事件），适配现有前端：\\n- response.created / response.step / response.step.done\\n- response.content.delta\\n- response.completed / response.failed"
+      }
+    },
+    {
+      "name": "Chat (SSE stream - AGUI native)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "text/event-stream"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"AGUI 裸事件测试\",\n  \"stream\": true,\n  \"protocol\": \"agui\",\n  \"user_id\": \"{{user_id}}\",\n  \"context\": {\n    \"channel\": \"web\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "chat"
+          ]
+        },
+        "description": "SSE 流式响应，使用 bare AG-UI（AgentStreamEvent JSON 原生输出），事件类型如：\\n- run_started / step_started / step_finished\\n- text_message_start / text_message_content / text_message_end\\n- tool_call_start / tool_call_args / tool_call_end / tool_call_result\\n- custom(a2ui) / run_finished / run_error"
+      }
+    },
+    {
+      "name": "Chat (SSE stream - Enterprise AGUI)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "text/event-stream"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"企业 AGUI 流式测试\",\n  \"stream\": true,\n  \"protocol\": \"enterprise\",\n  \"source_bu_type\": \"shouxian\",\n  \"app_type\": \"hcz\",\n  \"user_id\": \"{{user_id}}\",\n  \"context\": {\n    \"channel\": \"web\",\n    \"bu\": \"shouxian\",\n    \"app\": \"hcz\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "chat"
+          ]
+        },
+        "description": "SSE 流式响应，使用企业 AGUIEnvelope 格式：\\n- 顶层: protocol=AGUI, event, id, source_bu_type, app_type\\n- data: message_id, conversation_id, ui_protocol(text/json/A2UI), ui_data"
+      }
+    },
+    {
+      "name": "Chat (SSE - Enterprise AGUI A2UI demo)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "text/event-stream"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"agent_id\": \"insurance\",\n  \"message\": \"请调用 demo_a2ui_card 工具返回一个保单信息 A2UI 卡片\",\n  \"stream\": true,\n  \"protocol\": \"enterprise\",\n  \"source_bu_type\": \"shouxian\",\n  \"app_type\": \"hcz\",\n  \"user_id\": \"{{user_id}}\",\n  \"context\": {\n    \"channel\": \"web\",\n    \"bu\": \"shouxian\",\n    \"app\": \"hcz\",\n    \"force_demo_a2ui\": true\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "chat"
+          ]
+        },
+        "description": "流式触发 DemoA2UITool，检查企业 AGUIEnvelope data.ui_protocol=\"A2UI\" 且 ui_data 为 JSON 卡片结构（包含 answerDict/result）。"
       }
     },
     {
@@ -122,8 +228,12 @@
         },
         "url": {
           "raw": "{{baseUrl}}/chat",
-          "host": ["{{baseUrl}}"],
-          "path": ["chat"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "chat"
+          ]
         },
         "description": "使用幂等键防止重复请求"
       }
@@ -148,8 +258,12 @@
         },
         "url": {
           "raw": "{{baseUrl}}/chat",
-          "host": ["{{baseUrl}}"],
-          "path": ["chat"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "chat"
+          ]
         },
         "description": "通过 header 传递 session_id 继续已有会话"
       }
@@ -170,8 +284,12 @@
         },
         "url": {
           "raw": "{{baseUrl}}/sessions",
-          "host": ["{{baseUrl}}"],
-          "path": ["sessions"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "sessions"
+          ]
         }
       }
     },
@@ -181,8 +299,13 @@
         "method": "GET",
         "url": {
           "raw": "{{baseUrl}}/sessions/{{session_id}}?agent_id=insurance",
-          "host": ["{{baseUrl}}"],
-          "path": ["sessions", "{{session_id}}"],
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "sessions",
+            "{{session_id}}"
+          ],
           "query": [
             {
               "key": "agent_id",
@@ -198,8 +321,13 @@
         "method": "DELETE",
         "url": {
           "raw": "{{baseUrl}}/sessions/{{session_id}}?agent_id=insurance",
-          "host": ["{{baseUrl}}"],
-          "path": ["sessions", "{{session_id}}"],
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "sessions",
+            "{{session_id}}"
+          ],
           "query": [
             {
               "key": "agent_id",
@@ -215,8 +343,12 @@
         "method": "GET",
         "url": {
           "raw": "{{baseUrl}}/sessions?agent_id=insurance",
-          "host": ["{{baseUrl}}"],
-          "path": ["sessions"],
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "sessions"
+          ],
           "query": [
             {
               "key": "agent_id",
@@ -228,3 +360,4 @@
     }
   ]
 }
+

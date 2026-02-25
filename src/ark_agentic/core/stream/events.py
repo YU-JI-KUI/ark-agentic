@@ -85,6 +85,7 @@ class AgentStreamEvent(BaseModel):
 
     # text_message_content
     delta: str | None = Field(None, description="文本 delta")
+    turn: int | None = Field(None, description="本条文本所属的 ReAct 轮次（1-based），用于区分中间轮与最终轮")
     content_kind: Literal["text", "a2ui"] | None = Field(
         None,
         description="text_message_content 时：text=普通文本，a2ui=A2UI 组件",

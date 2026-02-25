@@ -26,6 +26,7 @@ class AGUIDataPayload(BaseModel):
 
     ui_protocol: Literal["text", "json", "A2UI"] = "text"
     ui_data: Any = None
+    turn: int | None = None  # ReAct 轮次（1-based），text_message_content 时设
 
     by: str | None = None
     to: str | None = None
