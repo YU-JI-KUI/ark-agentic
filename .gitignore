@@ -16,3 +16,4 @@ data/*
 .worktrees/
 doc/*
 .env
+scripts/*
