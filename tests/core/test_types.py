@@ -129,6 +129,33 @@ class TestSessionEntry:
         assert session.token_usage.prompt_tokens == 150
         assert session.token_usage.completion_tokens == 75
 
+    def test_get_state(self) -> None:
+        """Test state read via get_state."""
+        session = SessionEntry.create(state={"user:id": "U1", "auth_token": "tok"})
+        assert session.get_state("user:id") == "U1"
+        assert session.get_state("missing") is None
+        assert session.get_state("missing", "default") == "default"
+
+    def test_update_state(self) -> None:
+        """Test shallow merge via update_state."""
+        session = SessionEntry.create(state={"a": 1})
+        session.update_state({"b": 2, "a": 10})
+        assert session.state == {"a": 10, "b": 2}
+
+    def test_strip_temp_state(self) -> None:
+        """Test temp: keys are removed."""
+        session = SessionEntry.create(state={
+            "user:id": "U1",
+            "temp:trace_id": "t1",
+            "temp:x": "y",
+            "auth_token": "tok",
+        })
+        session.strip_temp_state()
+        assert "temp:trace_id" not in session.state
+        assert "temp:x" not in session.state
+        assert session.state["user:id"] == "U1"
+        assert session.state["auth_token"] == "tok"
+
 
 class TestSkillMetadata:
     """Tests for SkillMetadata."""

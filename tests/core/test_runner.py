@@ -127,7 +127,7 @@ async def test_run_with_tool_call() -> None:
     session = runner.session_manager.create_session_sync()
     
     # Act
-    result = await runner.run(session.session_id, "Use the tool!", context={"input_val": "123"})
+    result = await runner.run(session.session_id, "Use the tool!", input_context={"input_val": "123"})
     
     # Assert
 
@@ -225,7 +225,7 @@ async def test_run_streaming_with_tool_call() -> None:
             pass
 
     # Act
-    result = await runner.run(session.session_id, "Use tool", handler=MockHandler(), context={"input_val": "abc"})
+    result = await runner.run(session.session_id, "Use tool", handler=MockHandler(), input_context={"input_val": "abc"})
     
     # Assert
 
@@ -237,3 +237,86 @@ async def test_run_streaming_with_tool_call() -> None:
     assert captured_tool_starts == ["mock_tool"]
     # Verify on_step was called
     assert len(captured_steps) > 0
+
+
+# ============ State Mechanism Tests ============
+
+
+class _StateDeltaTool(AgentTool):
+    """Tool that writes state_delta in result metadata."""
+
+    name = "state_delta_tool"
+    description = "A tool that returns state_delta"
+    parameters = [
+        ToolParameter(name="key", type="string", description="ignored"),
+    ]
+
+    async def execute(self, tool_call: ToolCall, context: dict[str, Any] | None = None) -> AgentToolResult:
+        return AgentToolResult(
+            tool_call_id=tool_call.id,
+            result_type="json",
+            content={"ok": True},
+            metadata={"state_delta": {"auth_token": "tok_abc", "user:name": "Alice"}},
+        )
+
+
+@pytest.mark.asyncio
+async def test_state_delta_merge() -> None:
+    """Tool's state_delta is merged into session.state and visible in next turn."""
+    responses = [
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "state_delta_tool", "args": {"key": "x"}, "id": "call_sd1"}],
+        ),
+        AIMessage(content="Done."),
+    ]
+    mock_llm = MockChatModel(responses=responses)
+    registry = ToolRegistry()
+    registry.register(_StateDeltaTool())
+    session_mgr = SessionManager(enable_persistence=False)
+    config = RunnerConfig(max_turns=5, enable_streaming=False, auto_compact=False)
+    runner = AgentRunner(llm=mock_llm, tool_registry=registry, session_manager=session_mgr, config=config)
+
+    session = session_mgr.create_session_sync()
+    result = await runner.run(session.session_id, "login")
+
+    assert result.response.content == "Done."
+    state = session.state
+    assert state["auth_token"] == "tok_abc"
+    assert state["user:name"] == "Alice"
+
+
+@pytest.mark.asyncio
+async def test_temp_state_stripped_after_run() -> None:
+    """temp: keys from input_context are available during run but stripped after."""
+    responses = [AIMessage(content="ok")]
+    runner, _ = _make_runner(responses=responses)
+    session = runner.session_manager.create_session_sync()
+
+    await runner.run(
+        session.session_id,
+        "hi",
+        input_context={"temp:trace_id": "t1", "user:id": "U1"},
+    )
+
+    state = session.state
+    assert "temp:trace_id" not in state
+    assert state["user:id"] == "U1"
+
+
+@pytest.mark.asyncio
+async def test_input_context_seed_only() -> None:
+    """Non-temp input_context keys seed state only if not present (no overwrite)."""
+    responses = [AIMessage(content="ok")]
+    runner, _ = _make_runner(responses=responses)
+    session = runner.session_manager.create_session_sync(state={"user:id": "existing"})
+
+    await runner.run(
+        session.session_id,
+        "hi",
+        input_context={"user:id": "new_value", "temp:x": "t"},
+    )
+
+    state = session.state
+    assert state["user:id"] == "existing"
+    assert "temp:x" not in state

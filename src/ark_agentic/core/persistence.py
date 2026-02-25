@@ -569,7 +569,7 @@ class SessionStoreEntry:
     total_tokens: int = 0
     compaction_count: int = 0
     active_skills: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    state: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -583,7 +583,7 @@ class SessionStoreEntry:
             "totalTokens": self.total_tokens,
             "compactionCount": self.compaction_count,
             "activeSkills": self.active_skills,
-            "metadata": self.metadata,
+            "state": self.state,
         }
 
     @classmethod
@@ -599,7 +599,7 @@ class SessionStoreEntry:
             total_tokens=data.get("totalTokens", 0),
             compaction_count=data.get("compactionCount", 0),
             active_skills=data.get("activeSkills", []),
-            metadata=data.get("metadata", {}),
+            state=data.get("state", {}),
         )
 
 

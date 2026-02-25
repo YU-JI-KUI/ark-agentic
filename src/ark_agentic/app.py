@@ -98,13 +98,13 @@ class ChatResponse(BaseModel):
 
 class SessionCreateRequest(BaseModel):
     agent_id: str = Field("insurance", description="Agent ID")
-    metadata: dict[str, Any] | None = Field(None, description="会话元数据")
+    state: dict[str, Any] | None = Field(None, description="会话初始状态")
 
 
 class SessionResponse(BaseModel):
     session_id: str
     message_count: int
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    state: dict[str, Any] = Field(default_factory=dict)
 
 
 class MessageItem(BaseModel):
@@ -171,23 +171,26 @@ async def chat(
     """Chat 端点，支持流式和非流式响应"""
     agent = _get_agent(request.agent_id)
 
-    # 构建业务上下文：合并 body 和 headers
-    context = request.context.copy() if request.context else {}
-    # 优先使用 body 中的 user_id，其次是 header
+    # 构建 input_context：合并 body 和 headers，使用 ADK 风格前缀
+    # request.context 中的条目统一加 user: 前缀
+    input_context: dict[str, Any] = {}
+    if request.context:
+        for k, v in request.context.items():
+            input_context[f"user:{k}" if ":" not in k else k] = v
     user_id = request.user_id or x_ark_user_id
     if user_id:
-        context["user_id"] = user_id
+        input_context["user:id"] = user_id
     if x_ark_trace_id:
-        context["trace_id"] = x_ark_trace_id
+        input_context["temp:trace_id"] = x_ark_trace_id
     if request.idempotency_key:
-        context["idempotency_key"] = request.idempotency_key
+        input_context["temp:idempotency_key"] = request.idempotency_key
 
     # 解析 session_id：优先 body，其次 header
     session_id = request.session_id or x_ark_session_key
     if not session_id:
         # 创建新会话（使用异步版本以支持持久化）
-        session_metadata = {"user_id": user_id} if user_id else {}
-        session = await agent.session_manager.create_session(metadata=session_metadata)
+        session_state = {"user:id": user_id} if user_id else {}
+        session = await agent.session_manager.create_session(state=session_state)
         session_id = session.session_id
         logger.info(f"Created new session: {session_id}")
     else:
@@ -207,7 +210,7 @@ async def chat(
         result = await agent.run(
             session_id=session_id,
             user_input=request.message,
-            context=context,
+            input_context=input_context,
             run_options=run_options,
         )
         tool_calls = []
@@ -241,7 +244,7 @@ async def chat(
             result = await agent.run(
                 session_id=session_id,
                 user_input=request.message,
-                context=context,
+                input_context=input_context,
                 stream_override=True,
                 run_options=request.run_options,
                 handler=bus,
@@ -290,12 +293,12 @@ async def create_session(request: SessionCreateRequest | None = None):
     agent_id = request.agent_id if request else "insurance"
     agent = _get_agent(agent_id)
     session = agent.session_manager.create_session_sync(
-        metadata=request.metadata if request else None
+        state=request.state if request else None
     )
     return SessionResponse(
         session_id=session.session_id,
         message_count=len(session.messages),
-        metadata=session.metadata,
+        state=session.state,
     )
 
 
@@ -342,7 +345,7 @@ async def list_sessions(agent_id: str = Query("insurance")):
             {
                 "session_id": s.session_id,
                 "message_count": len(s.messages),
-                "metadata": s.metadata,
+                "state": s.state,
             }
             for s in sessions
         ]

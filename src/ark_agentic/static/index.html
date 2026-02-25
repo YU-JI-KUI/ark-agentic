@@ -382,6 +382,60 @@ body {
 }
 
 /* ============================================================
+   A2UI card components
+   ============================================================ */
+.a2ui-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;   /* separation from answer-bubble above */
+}
+.a2ui-card {
+  background: var(--white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
+  border-left: 4px solid var(--orange);
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: fadeIn .2s ease;
+}
+.a2ui-card-text {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.a2ui-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+.a2ui-btn {
+  padding: 7px 20px;
+  background: transparent;
+  color: var(--orange);
+  border: 1.5px solid var(--orange);
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
+}
+.a2ui-btn:hover { background: var(--orange); color: var(--white); }
+.a2ui-fallback {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--step-bg);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ============================================================
    Bottom bar (pills + input)
    ============================================================ */
 .bottom-bar {
@@ -868,6 +922,7 @@ body {
     const thinkIcon = msgEl.querySelector('.th-icon');
     const statusText = msgEl.querySelector('.status-text');
     const answerBubble = msgEl.querySelector('.answer-bubble');
+    const a2uiContainer = msgEl.querySelector('.a2ui-container');
     const metaEl = msgEl.querySelector('.msg-meta');
 
     let hadThinkingContent = false;
@@ -1001,6 +1056,17 @@ body {
             break;
           }
 
+          // ---- response.ui.component / A2UI card ----
+          case 'response.ui.component': {
+            const comp = event.ui_component;
+            if (comp && a2uiContainer) {
+              a2uiContainer.classList.remove('hidden');
+              a2uiContainer.appendChild(renderA2UIComponent(comp));
+              scrollToBottom();
+            }
+            break;
+          }
+
           // ---- response.completed / run_finished ----
           case 'response.completed': {
             if (currentStepEl) {
@@ -1048,6 +1114,51 @@ body {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  // ---- A2UI renderer ----
+  function renderA2UIComponent(component) {
+    const container = document.createElement('div');
+    container.className = 'a2ui-card';
+
+    try {
+      const answerList = component.answerDict.result.answerList;
+      answerList.forEach(function(answer) {
+        const dataList = answer.dataList || [];
+        const textItems = dataList.filter(function(d) { return d.component === 'text'; });
+        const btnItems  = dataList.filter(function(d) { return d.component === 'button'; });
+
+        textItems.forEach(function(item) {
+          const p = document.createElement('div');
+          p.className = 'a2ui-card-text';
+          p.textContent = item.text || '';
+          container.appendChild(p);
+        });
+
+        if (btnItems.length) {
+          const actions = document.createElement('div');
+          actions.className = 'a2ui-card-actions';
+          btnItems.forEach(function(item) {
+            const btn = document.createElement('button');
+            btn.className = 'a2ui-btn';
+            btn.textContent = item.text || '';
+            btn.addEventListener('click', function() {
+              console.log('[A2UI] button action:', item.action);
+            });
+            actions.appendChild(btn);
+          });
+          container.appendChild(actions);
+        }
+      });
+    } catch (_) {
+      // fallback: dump raw JSON
+      const pre = document.createElement('pre');
+      pre.className = 'a2ui-fallback';
+      pre.textContent = JSON.stringify(component, null, 2);
+      container.appendChild(pre);
+    }
+
+    return container;
+  }
+
   // ---- DOM helpers ----
   function appendUserMessage(text) {
     const div = document.createElement('div');
@@ -1072,6 +1183,7 @@ body {
         '<div class="thinking-content"></div>' +
       '</div>' +
       '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>' +
+      '<div class="a2ui-container hidden"></div>' +
       '<div class="msg-meta hidden"></div>';
     // Wire up collapse toggle
     const header = div.querySelector('.thinking-header');

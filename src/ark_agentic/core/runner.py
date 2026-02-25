@@ -30,7 +30,9 @@ from .types import (
     AgentToolResult,
     MessageRole,
     RunOptions,
+    SessionEntry,
     ToolCall,
+    ToolResultType,
 )
 from .validation import validate_response_against_tools
 
@@ -146,7 +148,7 @@ class AgentRunner:
         self,
         session_id: str,
         user_input: str,
-        context: dict[str, Any] | None = None,
+        input_context: dict[str, Any] | None = None,
         *,
         run_options: RunOptions | None = None,
         stream_override: bool | None = None,
@@ -157,7 +159,7 @@ class AgentRunner:
         Args:
             session_id: 会话 ID
             user_input: 用户输入
-            context: 额外上下文
+            input_context: 每次请求的调用方上下文，合并进 session.state
             run_options: 本次运行选项（model/temperature），优先于 config 默认值
             stream_override: 覆盖 config.enable_streaming
             handler: AgentEventHandler 实例（用于接收流式事件）
@@ -165,7 +167,7 @@ class AgentRunner:
         Returns:
             执行结果
         """
-        context = context or {}
+        input_context = input_context or {}
 
         # 解析 model / temperature：run_options 优先，其次 config 默认值
         effective_model = (
@@ -185,8 +187,12 @@ class AgentRunner:
         if self._memory_manager and not self._memory_manager._initialized:
             await self._memory_manager.initialize()
 
-        # 添加用户消息
-        user_message = AgentMessage.user(user_input, metadata=context)
+        # 将 input_context 合并到 session.state（前缀感知策略）
+        session = self.session_manager.get_session_required(session_id)
+        self._merge_input_context(session, input_context)
+
+        # 添加用户消息（input_context 存入消息 metadata 用于审计）
+        user_message = AgentMessage.user(user_input, metadata=input_context)
         self.session_manager.add_message_sync(session_id, user_message)
 
         # 自动压缩
@@ -200,7 +206,7 @@ class AgentRunner:
 
         try:
             result = await self._run_loop(
-                session_id, context,
+                session_id,
                 use_streaming=use_streaming,
                 model_override=effective_model,
                 temperature_override=effective_temperature,
@@ -211,10 +217,24 @@ class AgentRunner:
             # 无论成功或失败，同步待写入消息到持久化存储
             await self.session_manager.sync_pending_messages(session_id)
 
-        # 同步元数据到持久化存储
-        await self.session_manager.sync_session_metadata(session_id)
+        # 移除临时状态键后同步到持久化存储
+        session.strip_temp_state()
+        await self.session_manager.sync_session_state(session_id)
 
         return result
+
+    @staticmethod
+    def _merge_input_context(session: SessionEntry, input_context: dict[str, Any]) -> None:
+        """将 input_context 合并到 session.state（前缀感知策略）
+
+        - temp: 键始终覆盖（每次请求的临时数据）
+        - 非 temp: 键仅在 state 中不存在时写入（避免覆盖工具写入的状态）
+        """
+        for k, v in input_context.items():
+            if k.startswith("temp:"):
+                session.state[k] = v
+            elif k not in session.state:
+                session.state[k] = v
 
     def _make_pre_compact_callback(self) -> Callable[[str, list[AgentMessage]], Awaitable[None]]:
         """创建压缩前回调：将即将丢弃的消息摘要写入 MEMORY.md"""
@@ -287,7 +307,6 @@ class AgentRunner:
     async def _run_loop(
         self,
         session_id: str,
-        context: dict[str, Any],
         *,
         use_streaming: bool = True,
         model_override: str | None = None,
@@ -304,11 +323,14 @@ class AgentRunner:
         all_tool_calls: list[ToolCall] = []
         all_tool_results: list[AgentToolResult] = []
 
+        session = self.session_manager.get_session_required(session_id)
+
         while turns < self.config.max_turns:
             turns += 1
 
-            messages = self._build_messages(session_id, context, skill_load_mode=skill_load_mode)
-            tools = self._build_tools(context)
+            state = session.state
+            messages = self._build_messages(session_id, state, skill_load_mode=skill_load_mode)
+            tools = self._build_tools()
             logger.info(
                 f"Turn {turns} | messages={len(messages)} tools={len(tools)} "
                 f"model={model_override or self.config.model}"
@@ -398,10 +420,16 @@ class AgentRunner:
                 all_tool_calls.extend(response.tool_calls)
 
                 tool_results = await self._execute_tools(
-                    response.tool_calls, {**context, "session_id": session_id}, handler=handler,
+                    response.tool_calls, {**state, "session_id": session_id}, handler=handler,
                 )
                 total_tool_calls += len(response.tool_calls)
                 all_tool_results.extend(tool_results)
+
+                # 合并工具返回的 state_delta 到 session.state
+                for tr in tool_results:
+                    state_delta = tr.metadata.get("state_delta")
+                    if state_delta and isinstance(state_delta, dict):
+                        session.update_state(state_delta)
 
                 tool_message = AgentMessage.tool(tool_results)
                 self.session_manager.add_message_sync(session_id, tool_message)
@@ -468,7 +496,7 @@ class AgentRunner:
     def _build_messages(
         self,
         session_id: str,
-        context: dict[str, Any],
+        state: dict[str, Any],
         *,
         skill_load_mode: str = "full",
     ) -> list[dict[str, Any]]:
@@ -480,7 +508,7 @@ class AgentRunner:
 
         # 系统提示
         system_prompt = self._build_system_prompt(
-            context, session_id=session_id, skill_load_mode=skill_load_mode
+            state, session_id=session_id, skill_load_mode=skill_load_mode
         )
         messages.append({"role": "system", "content": system_prompt})
 
@@ -527,7 +555,7 @@ class AgentRunner:
 
     def _build_system_prompt(
         self,
-        context: dict[str, Any],
+        state: dict[str, Any],
         session_id: str | None = None,
         *,
         skill_load_mode: str = "full",
@@ -535,8 +563,8 @@ class AgentRunner:
         """构建系统提示"""
         tools = self.tool_registry.list_all()
 
-        # 将已注册的工具名注入 context，供 skill 资格检查使用
-        skill_context = {**context, "available_tools": {t.name for t in tools}}
+        # 将已注册的工具名注入，供 skill 资格检查使用
+        skill_context = {**state, "available_tools": {t.name for t in tools}}
 
         # 提取最近的用户查询（供 skill matcher 做相关性判断）
         user_query: str | None = None
@@ -576,15 +604,18 @@ class AgentRunner:
             use_skill_metadata_only = False
         prompt_config = replace(base_config, use_skill_metadata_only=use_skill_metadata_only)
 
+        # 默认只注入 user: 前缀的状态到提示词，减少噪声
+        user_state = {k: v for k, v in state.items() if k.startswith("user:")}
+
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
-            context=context,
+            context=user_state,
             config=prompt_config,
             include_memory_instructions=include_memory,
         )
 
-    def _build_tools(self, context: dict[str, Any]) -> list[dict[str, Any]]:
+    def _build_tools(self) -> list[dict[str, Any]]:
         """构建工具定义"""
         tools = self.tool_registry.list_all()
         return [tool.get_json_schema() for tool in tools]
@@ -658,18 +689,22 @@ class AgentRunner:
                     if content_callback:
                         content_callback(chunk.content)
 
-                # Tool call chunks
+                # Tool call chunks (dict or ToolCallChunk-like; index may be int or str)
                 if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
                     for tc_chunk in chunk.tool_call_chunks:
-                        idx = tc_chunk.get("index", 0)
+                        raw = tc_chunk if isinstance(tc_chunk, dict) else dict(tc_chunk)
+                        idx = int(raw.get("index") or 0)
                         if idx not in tool_calls_data:
                             tool_calls_data[idx] = {"id": "", "name": "", "args": ""}
-                        if tc_chunk.get("id"):
-                            tool_calls_data[idx]["id"] = tc_chunk["id"]
-                        if tc_chunk.get("name"):
-                            tool_calls_data[idx]["name"] = tc_chunk["name"]
-                        if tc_chunk.get("args"):
-                            tool_calls_data[idx]["args"] += tc_chunk["args"]
+                        if raw.get("id"):
+                            tool_calls_data[idx]["id"] = str(raw["id"])
+                        if raw.get("name"):
+                            tool_calls_data[idx]["name"] = str(raw["name"])
+                        args_delta = raw.get("args")
+                        if args_delta is not None and args_delta != "":
+                            tool_calls_data[idx]["args"] += (
+                                args_delta if isinstance(args_delta, str) else str(args_delta)
+                            )
 
                 # Response metadata (last chunk)
                 if hasattr(chunk, "response_metadata") and chunk.response_metadata:
@@ -781,8 +816,13 @@ class AgentRunner:
 
             if handler:
                 handler.on_tool_call_result(tc.id, tc.name, result.content)
-                if result.metadata.get("ui_components"):
-                    for component in result.metadata["ui_components"]:
+                if result.result_type == ToolResultType.A2UI:
+                    components = (
+                        [result.content]
+                        if isinstance(result.content, dict)
+                        else result.content
+                    )
+                    for component in components:
                         handler.on_ui_component(component)
 
             logger.debug(f"[TOOL_DONE] {tc.name} error={result.is_error} size={len(str(result.content))}B")
@@ -808,11 +848,11 @@ class AgentRunner:
         self,
         model: str = "Qwen3-80B-Instruct",
         provider: str = "ark",
-        metadata: dict[str, Any] | None = None
+        state: dict[str, Any] | None = None,
     ) -> str:
         """创建新会话并返回 ID（异步，支持持久化）"""
         session = await self.session_manager.create_session(
-            model=model, provider=provider, metadata=metadata
+            model=model, provider=provider, state=state
         )
         return session.session_id
 
@@ -820,11 +860,11 @@ class AgentRunner:
         self,
         model: str = "Qwen3-80B-Instruct",
         provider: str = "ark",
-        metadata: dict[str, Any] | None = None
+        state: dict[str, Any] | None = None,
     ) -> str:
         """创建新会话并返回 ID（同步，无持久化）"""
         session = self.session_manager.create_session_sync(
-            model=model, provider=provider, metadata=metadata
+            model=model, provider=provider, state=state
         )
         return session.session_id
 

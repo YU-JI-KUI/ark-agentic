@@ -6,7 +6,7 @@ import json
 import pytest
 
 from ark_agentic.core.tools.demo_a2ui import DemoA2UITool
-from ark_agentic.core.types import ToolCall
+from ark_agentic.core.types import ToolCall, ToolResultType
 from ark_agentic.core.stream.event_bus import StreamEventBus
 from ark_agentic.core.stream.events import AgentStreamEvent
 from ark_agentic.core.stream.output_formatter import EnterpriseAGUIFormatter
@@ -19,12 +19,10 @@ async def test_demo_a2ui_tool_returns_ui_components() -> None:
     result = await tool.execute(tc, context={"session_id": "s1"})
 
     assert not result.is_error
-    assert "ui_components" in result.metadata
-    assert len(result.metadata["ui_components"]) == 1
-
-    component = result.metadata["ui_components"][0]
-    assert component["sessionId"] == "s1"
-    assert "answerDict" in component
+    assert result.result_type == ToolResultType.A2UI
+    assert isinstance(result.content, dict)
+    assert result.content["sessionId"] == "s1"
+    assert "answerDict" in result.content
 
 
 @pytest.mark.asyncio
@@ -37,12 +35,12 @@ async def test_a2ui_component_flows_through_event_bus() -> None:
     tc = ToolCall(id="tc_demo", name="demo_a2ui_card", arguments={})
     result = await tool.execute(tc, context={})
 
-    # Simulate what Runner does after tool execution
+    # Simulate what Runner does after tool execution (A2UI: content is the component)
     bus.on_tool_call_start(tc.id, tc.name, tc.arguments)
     bus.on_tool_call_result(tc.id, tc.name, result.content)
-    if result.metadata.get("ui_components"):
-        for component in result.metadata["ui_components"]:
-            bus.on_ui_component(component)
+    if result.result_type == ToolResultType.A2UI:
+        component = result.content if isinstance(result.content, dict) else result.content[0]
+        bus.on_ui_component(component)
 
     events = []
     while not queue.empty():
@@ -63,8 +61,10 @@ async def test_demo_a2ui_tool_default_values() -> None:
     tc = ToolCall(id="tc_1", name="demo_a2ui_card", arguments={})
     result = await tool.execute(tc)
 
-    assert result.content["title"] == "保单信息"
-    assert result.content["status"] == "success"
+    assert result.result_type == ToolResultType.A2UI
+    # content is A2UI component dict; default card_content is in answerList[0].card_content_desc
+    al = result.content["answerDict"]["result"]["answerList"]
+    assert al[0]["card_content_desc"] == "您的保单状态正常，保障至 2027-12-31。"
 
 
 @pytest.mark.asyncio
@@ -78,12 +78,12 @@ async def test_a2ui_component_encoded_as_enterprise_ui_data_json() -> None:
     tc = ToolCall(id="tc_demo", name="demo_a2ui_card", arguments={})
     result = await tool.execute(tc, context={"session_id": "s1"})
 
-    # Simulate Runner tool execution + ui_components forwarding
+    # Simulate Runner: A2UI result content is the component
     bus.on_tool_call_start(tc.id, tc.name, tc.arguments)
     bus.on_tool_call_result(tc.id, tc.name, result.content)
-    if result.metadata.get("ui_components"):
-        for component in result.metadata["ui_components"]:
-            bus.on_ui_component(component)
+    if result.result_type == ToolResultType.A2UI:
+        comp = result.content if isinstance(result.content, dict) else result.content[0]
+        bus.on_ui_component(comp)
 
     # Drain queue, pick the text_message_content+a2ui event and format it
     events_list: list[AgentStreamEvent] = []

@@ -51,11 +51,11 @@ class SessionManager:
         self,
         model: str = "Qwen3-80B-Instruct",
         provider: str = "ark",
-        metadata: dict[str, Any] | None = None,
+        state: dict[str, Any] | None = None,
     ) -> SessionEntry:
         """创建新会话"""
         session = SessionEntry.create(
-            model=model, provider=provider, metadata=metadata or {}
+            model=model, provider=provider, state=state or {}
         )
         self._sessions[session.session_id] = session
 
@@ -70,7 +70,7 @@ class SessionManager:
                 ),
                 model=model,
                 provider=provider,
-                metadata=metadata or {},
+                state=state or {},
             )
             await self._session_store.update(session.session_id, store_entry)
 
@@ -81,11 +81,11 @@ class SessionManager:
         self,
         model: str = "Qwen3-80B-Instruct",
         provider: str = "ark",
-        metadata: dict[str, Any] | None = None,
+        state: dict[str, Any] | None = None,
     ) -> SessionEntry:
         """同步创建新会话（不持久化，用于测试）"""
         session = SessionEntry.create(
-            model=model, provider=provider, metadata=metadata or {}
+            model=model, provider=provider, state=state or {}
         )
         self._sessions[session.session_id] = session
         logger.info(f"Created session (sync): {session.session_id}")
@@ -165,7 +165,7 @@ class SessionManager:
             provider=store_entry.provider if store_entry else "ark",
             messages=messages,
             active_skills=store_entry.active_skills if store_entry else [],
-            metadata=store_entry.metadata if store_entry else {},
+            state=store_entry.state if store_entry else {},
         )
 
         # 恢复 token 统计
@@ -192,8 +192,8 @@ class SessionManager:
             session._pending_messages = []
             logger.debug(f"Synced {len(pending)} pending messages for session {session_id}")
 
-    async def sync_session_metadata(self, session_id: str) -> None:
-        """同步会话元数据和待写入消息到存储"""
+    async def sync_session_state(self, session_id: str) -> None:
+        """同步会话状态和待写入消息到存储"""
         # 先同步待写入的消息
         await self.sync_pending_messages(session_id)
 
@@ -219,7 +219,7 @@ class SessionManager:
             total_tokens=session.token_usage.total_tokens,
             compaction_count=session.compaction_stats.compacted_messages,
             active_skills=session.active_skills,
-            metadata=session.metadata,
+            state=session.state,
         )
 
         await self._session_store.update(session_id, store_entry)
@@ -367,7 +367,7 @@ class SessionManager:
         )
 
         # 同步元数据
-        await self.sync_session_metadata(session_id)
+        await self.sync_session_state(session_id)
 
         return result
 
@@ -408,18 +408,18 @@ class SessionManager:
         session = self.get_session_required(session_id)
         return session.active_skills
 
-    # ============ 元数据 ============
+    # ============ 状态管理 ============
 
-    def update_metadata(self, session_id: str, metadata: dict[str, Any]) -> None:
-        """更新会话元数据"""
+    def update_state(self, session_id: str, state: dict[str, Any]) -> None:
+        """更新会话状态"""
         session = self.get_session_required(session_id)
-        session.metadata.update(metadata)
+        session.state.update(state)
         session.updated_at = datetime.now()
 
-    def get_metadata(self, session_id: str) -> dict[str, Any]:
-        """获取会话元数据"""
+    def get_state(self, session_id: str) -> dict[str, Any]:
+        """获取会话状态"""
         session = self.get_session_required(session_id)
-        return session.metadata
+        return session.state
 
     # ============ 统计信息 ============
 

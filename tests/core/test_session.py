@@ -164,17 +164,17 @@ class TestSessionManagerSkills:
         assert skills == ["skill1", "skill2"]
 
 
-class TestSessionManagerMetadata:
-    """Tests for metadata management."""
+class TestSessionManagerState:
+    """Tests for state management."""
 
-    def test_update_metadata(self) -> None:
-        """Test metadata update."""
+    def test_update_state(self) -> None:
+        """Test state update."""
         manager = SessionManager(enable_persistence=False)
         session = manager.create_session_sync()
 
-        manager.update_metadata(session.session_id, {"key": "value"})
-        meta = manager.get_metadata(session.session_id)
-        assert meta["key"] == "value"
+        manager.update_state(session.session_id, {"key": "value"})
+        state = manager.get_state(session.session_id)
+        assert state["key"] == "value"
 
     def test_get_session_stats(self) -> None:
         """Test session statistics."""
