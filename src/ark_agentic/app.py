@@ -241,21 +241,6 @@ async def chat(
 
     # 生成本次执行 ID
     run_id = str(uuid.uuid4())
-
-    # 🆕 为 securities agent 设置会话上下文
-    if request.agent_id == "securities":
-        # 从请求上下文或环境变量获取账户类型和用户 ID
-        account_type = context.get("account_type") or os.getenv("SECURITIES_ACCOUNT_TYPE", "normal")
-        # user_id 已在上面从 request 或 header 中提取
-        
-        # 始终更新 account_type（用户可能在同一会话中切换账户类型）
-        agent.session_manager.set_context(session_id, "account_type", account_type)
-        logger.info(f"Set securities context: account_type={account_type}")
-        
-        if user_id:
-            agent.session_manager.set_context(session_id, "user_id", user_id)
-            logger.info(f"Set securities context: user_id={user_id}")
-
     if not request.stream:
         # 非流式响应
         run_options = request.run_options
@@ -305,26 +290,10 @@ async def chat(
             if result.tool_calls:
                 for tc in result.tool_calls:
                     tool_calls.append({"name": tc.name, "arguments": tc.arguments})
-            
-            # 🆕 从工具结果中提取模板事件（结构化路径，替代 LLM 文本提取）
-            for tr in (result.tool_results or []):
-                template = tr.metadata.get("template") if tr.metadata else None
-                if template and isinstance(template, dict) and "template_type" in template:
-                    queue.put_nowait(SSEEvent(
-                        type="response.template",
-                        seq=next_seq(),
-                        run_id=run_id,
-                        session_id=session_id,
-                        template=template,
-                    ))
-                    logger.info(f"Template from tool result: {template.get('template_type')}")
+
             
             # response.completed
-            queue.put_nowait(SSEEvent(
-                type="response.completed",
-                seq=next_seq(),
-                run_id=run_id,
-                session_id=session_id,
+            bus.emit_completed(
                 message=result.response.content or "",
                 tool_calls=tool_calls if tool_calls else None,
                 turns=result.turns,

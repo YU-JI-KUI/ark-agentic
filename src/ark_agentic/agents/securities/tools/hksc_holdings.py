@@ -53,10 +53,11 @@ class HKSCHoldingsTool(AgentTool):
                 user_id=user_id,
                 _context=context,  # 传递完整上下文
             )
-            
+            state_delta = {self.name: data}
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
                 data=data,
+                metadata={"state_delta": state_delta}
             )
         except Exception as e:
             return AgentToolResult.error_result(

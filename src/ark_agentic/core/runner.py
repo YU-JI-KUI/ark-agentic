@@ -319,14 +319,7 @@ class AgentRunner:
     ) -> RunResult:
         """ReAct 循环: LLM → Tool → LLM → ... → Response"""
         logger.info(f"[RUN] session={session_id[:8]} streaming={use_streaming}")
-        
-        # 🆕 合并会话上下文到请求上下文（工具执行时可访问）
-        session_context = self.session_manager.get_all_context(session_id)
-        if session_context:
-            # 会话上下文作为基础，请求上下文覆盖
-            context = {**session_context, **context}
-            logger.info(f"[RUN] Merged session context: {list(session_context.keys())}")
-        
+                
         turns = 0
         total_tool_calls = 0
         total_prompt_tokens = 0

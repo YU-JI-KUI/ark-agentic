@@ -77,11 +77,9 @@ class DisplayCardTool(AgentTool):
             )
 
         # 从 context 获取数据工具的返回内容（由 runner 注入，只含原始数据）
-        results_by_name: dict[str, Any] = (
-            (context or {}).get("_tool_results_by_name") or {}
+        source_data: dict[str, Any] = (
+            (context or {}).get(source_tool) or {}
         )
-
-        source_data = results_by_name.get(source_tool)
 
         if source_data is None:
             return AgentToolResult.error_result(

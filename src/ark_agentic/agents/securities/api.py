@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 from .agent import create_securities_agent
-from ark_agentic.core.llm import create_llm_client, PAModel
+from ark_agentic.core.llm import create_chat_model, PAModel
 from ark_agentic.core.runner import AgentRunner
 
 logger = logging.getLogger(__name__)
@@ -21,8 +21,8 @@ def create_securities_agent_from_env(
     sessions_dir: str | Path | None = None,
     enable_persistence: bool = True,
 ) -> AgentRunner:
-    """从环境变量创建证券智能体
-    
+    """从环境变量创建保险智能体
+
     环境变量:
         LLM_PROVIDER: LLM 提供商 (pa/deepseek/openai)，默认 pa
         PA_MODEL: PA 模型选择 (PA-JT-80B/PA-SX-80B/PA-SX-235B)，默认 PA-SX-80B
@@ -31,61 +31,61 @@ def create_securities_agent_from_env(
         DEEPSEEK_API_KEY: DeepSeek API Key（当 provider=deepseek 时使用）
         LLM_BASE_URL: 自定义 LLM API 地址
         SESSIONS_DIR: 会话持久化目录
-        SECURITIES_SERVICE_MOCK: 是否启用 Mock 模式（true/false），默认 false
-        SECURITIES_ACCOUNT_TYPE: 默认账户类型（normal/margin），默认 normal
-        SECURITIES_USER_ID: 默认用户 ID，默认 U001
     """
+
     provider = os.getenv("LLM_PROVIDER", "pa")
     pa_model_str = os.getenv("PA_MODEL", "PA-SX-80B")
     api_key = os.getenv("DEEPSEEK_API_KEY")
     base_url = os.getenv("LLM_BASE_URL")
 
     if provider == "pa":
-        # PA Internal LLM
         try:
             pa_model = PAModel(pa_model_str)
         except ValueError:
             pa_model = PAModel.PA_SX_80B
             logger.warning(f"Invalid PA_MODEL: {pa_model_str}, using PA-SX-80B")
-        
-        try:
-            llm_client = create_llm_client(provider="pa", pa_model=pa_model)
-            logger.info(f"Using PA Internal LLM: {pa_model.value}")
-        except Exception as e:
-            logger.error(f"Failed to create PA LLM client: {e}, falling back to DeepSeek")
-            provider = "deepseek"
-            # 继续到下面的 deepseek 分支
 
-    if provider == "deepseek":
-        # DeepSeek LLM
-        if not api_key:
-            raise ValueError("DEEPSEEK_API_KEY is required when LLM_PROVIDER=deepseek")
-        llm_client = create_llm_client(
-            provider="deepseek",
+        llm = create_chat_model(model=pa_model)
+        logger.info(f"Using PA Internal LLM: {pa_model.value}")
+    elif api_key:
+        llm = create_chat_model(
+            model="deepseek-chat" if provider == "deepseek" else provider,
             api_key=api_key,
             base_url=base_url,
         )
-        logger.info("Using DeepSeek LLM")
-    elif provider == "openai":
-        # OpenAI-compatible LLM
-        if not api_key:
-            raise ValueError("API key is required for OpenAI provider")
-        llm_client = create_llm_client(
-            provider="openai",
-            api_key=api_key,
-            base_url=base_url,
+        logger.info(f"Using {provider} LLM client")
+    else:
+        raise ValueError(
+            "LLM_PROVIDER is not 'pa' and no API key found. "
+            "Set DEEPSEEK_API_KEY or use LLM_PROVIDER=pa with PA_* env."
         )
-        logger.info(f"Using OpenAI-compatible LLM at {base_url or 'default'}")
-    elif provider == "mock":
-        # Mock LLM for testing
-        llm_client = create_llm_client(provider="mock")
-        logger.info("Using Mock LLM")
 
-    # 创建证券智能体（已经返回 AgentRunner）
+    # 从环境变量或参数获取会话目录
+    if sessions_dir is None:
+        sessions_dir = os.getenv("SESSIONS_DIR")
+
+    if enable_persistence and sessions_dir is None:
+        sessions_dir = Path("data") / "ark_sessions"
+    
+    if sessions_dir:
+        sessions_dir = Path(sessions_dir)
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Session persistence enabled: {sessions_dir}")
+
+    # Memory 目录
+    memory_dir = os.getenv("MEMORY_DIR")
+    if memory_dir is None:
+        memory_dir = Path("data") / "ark_insurance_memory"
+    else:
+        memory_dir = Path(memory_dir)
+    memory_dir.mkdir(parents=True, exist_ok=True)
+
     runner = create_securities_agent(
-        llm_client=llm_client,
-        sessions_dir=sessions_dir or os.getenv("SESSIONS_DIR"),
+        llm=llm,
+        sessions_dir=sessions_dir,
         enable_persistence=enable_persistence,
+        memory_dir=memory_dir,
+        enable_memory=False,
     )
     
     # 记录配置信息

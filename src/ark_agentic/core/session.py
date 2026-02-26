@@ -421,51 +421,6 @@ class SessionManager:
         session = self.get_session_required(session_id)
         return session.state
 
-    # ============ 上下文管理 ============
-
-    def set_context(self, session_id: str, key: str, value: Any) -> None:
-        """设置会话上下文（存储在 metadata 中）
-        
-        上下文会在整个会话生命周期内保持，并自动注入到 LLM 系统提示中。
-        
-        Args:
-            session_id: 会话 ID
-            key: 上下文键
-            value: 上下文值
-        
-        Example:
-            session_manager.set_context(session_id, "account_type", "margin")
-            session_manager.set_context(session_id, "user_id", "U001")
-        """
-        self.update_metadata(session_id, {f"context.{key}": value})
-
-    def get_context(self, session_id: str, key: str, default: Any = None) -> Any:
-        """获取会话上下文
-        
-        Args:
-            session_id: 会话 ID
-            key: 上下文键
-            default: 默认值
-        
-        Returns:
-            上下文值
-        """
-        metadata = self.get_metadata(session_id)
-        return metadata.get(f"context.{key}", default)
-
-    def get_all_context(self, session_id: str) -> dict[str, Any]:
-        """获取所有会话上下文
-        
-        Returns:
-            上下文字典（去除 context. 前缀）
-        """
-        metadata = self.get_metadata(session_id)
-        context = {}
-        for key, value in metadata.items():
-            if key.startswith("context."):
-                context[key[8:]] = value  # 去除 "context." 前缀
-        return context
-
     # ============ 统计信息 ============
 
     def get_session_stats(self, session_id: str) -> dict[str, Any]:
