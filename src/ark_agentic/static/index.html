@@ -440,76 +440,53 @@
       padding: 4px 0;
     }
 
-    /* Individual step items */
-    .think-step {
-      padding: 8px 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      border-left: 2px solid transparent;
-      transition: background 0.2s;
-    }
-
-    .think-step:hover {
-      background: rgba(0, 0, 0, 0.02);
-    }
-
-    .think-step.active {
-      border-left-color: var(--orange);
-      background: rgba(240, 118, 43, 0.04);
-    }
-
-    .ts-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    .ts-icon {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #ddd;
-      flex-shrink: 0;
-      transition: all 0.3s;
-    }
-
-    .think-step.active .ts-icon {
-      background: var(--orange);
-      box-shadow: 0 0 0 3px rgba(240, 118, 43, 0.15);
-    }
-
-    .think-step.done .ts-icon {
-      background: #34a853;
-    }
-
-    .ts-expand {
-      margin-left: auto;
-      font-size: 10px;
-      color: var(--text-muted);
-      transition: transform 0.2s;
-    }
-
-    .ts-expand.open {
-      transform: rotate(90deg);
-    }
-
-    .ts-detail {
-      font-size: 12px;
-      color: var(--text-secondary);
-      padding: 4px 0 2px 16px;
-      line-height: 1.55;
-      word-break: break-word;
-      white-space: pre-wrap;
-      display: none;
-    }
-
-    .ts-detail.open {
-      display: block;
-      animation: fadeIn 0.3s;
-    }
+/* Individual step items */
+.think-step {
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 2px solid transparent;
+  transition: background 0.2s;
+}
+.think-step:hover { background: rgba(0,0,0,0.02); }
+.think-step.active { border-left-color: var(--orange); background: rgba(240,118,43,0.04); }
+.ts-header { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+.ts-icon {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #ddd;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+.think-step.active .ts-icon { background: var(--orange); box-shadow: 0 0 0 3px rgba(240,118,43,0.15); }
+.think-step.done .ts-icon { background: #34a853; }
+/* Previous turn output moved into thinking panel when turn changes */
+.turn-output {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 6px 14px 8px;
+  border-left: 2px solid var(--border);
+  line-height: 1.55;
+  word-break: break-word;
+}
+.ts-expand {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+.ts-expand.open { transform: rotate(90deg); }
+.ts-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 0 2px 16px;
+  line-height: 1.55;
+  word-break: break-word;
+  white-space: pre-wrap;
+  display: none;
+}
+.ts-detail.open { display: block; animation: fadeIn 0.3s; }
 
     /* Typing cursor */
     .typing-cursor::after {
@@ -519,48 +496,74 @@
       margin-left: 2px;
     }
 
-    @keyframes spin {
-      100% {
-        transform: rotate(360deg);
-      }
-    }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.25;} }
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
+.msg-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  padding: 0 4px;
+}
+.msg-error .msg-bubble {
+  background: #fff2f0;
+  color: #c44;
+  border: 1px solid #fdd;
+}
 
-    @keyframes pulse {
-
-      0%,
-      100% {
-        opacity: 1;
-      }
-
-      50% {
-        opacity: .25;
-      }
-    }
-
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(4px);
-      }
-
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .msg-meta {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 4px;
-      padding: 0 4px;
-    }
-
-    .msg-error .msg-bubble {
-      background: #fff2f0;
-      color: #c44;
-      border: 1px solid #fdd;
-    }
+/* ============================================================
+   A2UI card components
+   ============================================================ */
+.a2ui-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;   /* separation from answer-bubble above */
+}
+.a2ui-card {
+  background: var(--white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
+  border-left: 4px solid var(--orange);
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: fadeIn .2s ease;
+}
+.a2ui-card-text {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.a2ui-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+.a2ui-btn {
+  padding: 7px 20px;
+  background: transparent;
+  color: var(--orange);
+  border: 1.5px solid var(--orange);
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
+}
+.a2ui-btn:hover { background: var(--orange); color: var(--white); }
+.a2ui-fallback {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--step-bg);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
     /* ============================================================
    Bottom bar (pills + input)
@@ -1296,18 +1299,19 @@
           throw new Error('HTTP ' + resp.status + ': ' + detail);
         }
 
-        const msgEl = createAssistantContainer();
-        const thinkCard = msgEl.querySelector('.thinking-card');
-        const thinkContent = msgEl.querySelector('.thinking-content');
-        const thinkIcon = msgEl.querySelector('.th-icon');
-        const statusText = msgEl.querySelector('.status-text');
-        const answerBubble = msgEl.querySelector('.answer-bubble');
-        const metaEl = msgEl.querySelector('.msg-meta');
+    const msgEl = createAssistantContainer();
+    const thinkCard = msgEl.querySelector('.thinking-card');
+    const thinkContent = msgEl.querySelector('.thinking-content');
+    const thinkIcon = msgEl.querySelector('.th-icon');
+    const statusText = msgEl.querySelector('.status-text');
+    const answerBubble = msgEl.querySelector('.answer-bubble');
+    const a2uiContainer = msgEl.querySelector('.a2ui-container');
+    const metaEl = msgEl.querySelector('.msg-meta');
 
-        let hadThinkingContent = false;
-        let currentStepEl = null;
-        let finalText = '';
-        let currentOutputIndex = -1;  // track output_index for rare edge-case clearing
+    let hadThinkingContent = false;
+    let currentStepEl = null;
+    let finalText = '';
+    let currentTurn = 0;  // ReAct turn (1-based); 0 = no segment yet
 
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
@@ -1336,9 +1340,28 @@
             let event;
             try { event = JSON.parse(jsonStr); } catch { continue; }
 
-            // Use event.type from JSON (authoritative), fallback to event: line
-            const eventType = event.type || currentEventType || '';
-            currentEventType = null;
+        // AG-UI → legacy alias map for unified switch handling
+        const EVENT_ALIASES = {
+          'run_started': 'response.created',
+          'step_started': 'response.step',
+          'step_finished': 'response.step.done',
+          'text_message_content': 'response.content.delta',
+          'text_message_start': '_skip',
+          'text_message_end': '_skip',
+          'tool_call_start': 'response.tool_call.start',
+          'tool_call_args': '_skip',
+          'tool_call_end': '_skip',
+          'tool_call_result': 'response.tool_call.result',
+          'custom': 'response.ui.component',
+          'run_finished': 'response.completed',
+          'run_error': 'response.failed',
+        };
+
+        const rawType = event.type || currentEventType || '';
+        const eventType = EVENT_ALIASES[rawType] || rawType;
+        currentEventType = null;
+
+        if (eventType === '_skip') continue;
 
             if (event.session_id && !sessionId) {
               sessionId = event.session_id;
@@ -1346,114 +1369,178 @@
               updateSessionLabel();
             }
 
-            switch (eventType) {
-              // ---- response.created: initial acknowledgement ----
-              case 'response.created': {
-                if (event.content) {
-                  hadThinkingContent = true;
-                  thinkCard.style.display = '';
-                  const step = document.createElement('div');
-                  step.className = 'think-step active';
-                  step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(event.content) + '</span></div>';
-                  thinkContent.appendChild(step);
-                  currentStepEl = step;
-                  thinkCard.dataset.latestStep = event.content;
-                  statusText.textContent = thinkCard.classList.contains('collapsed') ? event.content : '正在思考中…';
-                }
-                scrollToBottom();
-                break;
-              }
+        switch (eventType) {
+          // ---- response.created / run_started ----
+          case 'response.created': {
+            const text = event.content || event.run_content || '';
+            if (text) {
+              hadThinkingContent = true;
+              thinkCard.style.display = '';
+              const step = document.createElement('div');
+              step.className = 'think-step active';
+              step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(text) + '</span></div>';
+              thinkContent.appendChild(step);
+              currentStepEl = step;
+              thinkCard.dataset.latestStep = text;
+              statusText.textContent = thinkCard.classList.contains('collapsed') ? text : '正在思考中…';
+            }
+            scrollToBottom();
+            break;
+          }
 
-              // ---- response.step: thinking panel ----
-              case 'response.step': {
+          // ---- response.step / step_started ----
+          case 'response.step': {
+            hadThinkingContent = true;
+            thinkCard.style.display = '';
+            if (currentStepEl) {
+              currentStepEl.classList.remove('active');
+              currentStepEl.classList.add('done');
+            }
+            const stepText = event.content || event.step_name || '';
+            const step = document.createElement('div');
+            step.className = 'think-step active';
+            step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(stepText) + '</span></div>';
+            thinkContent.appendChild(step);
+            currentStepEl = step;
+            thinkCard.dataset.latestStep = stepText || '思考中…';
+            statusText.textContent = thinkCard.classList.contains('collapsed') ? (stepText || '思考中…') : '正在思考中…';
+            scrollToBottom();
+            break;
+          }
+
+          // ---- step_finished (mark current step done) ----
+          case 'response.step.done': {
+            if (currentStepEl) {
+              currentStepEl.classList.remove('active');
+              currentStepEl.classList.add('done');
+            }
+            break;
+          }
+
+          // ---- response.content.delta / text_message_content ----
+          case 'response.content.delta': {
+            const turn = Number(event.turn) || 1;
+            if (turn !== currentTurn) {
+              if (currentTurn !== 0 && finalText.trim()) {
                 hadThinkingContent = true;
                 thinkCard.style.display = '';
-                if (currentStepEl) {
-                  currentStepEl.classList.remove('active');
-                  currentStepEl.classList.add('done');
-                }
-                const step = document.createElement('div');
-                step.className = 'think-step active';
-                step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(event.content || '') + '</span></div>';
-                thinkContent.appendChild(step);
-                currentStepEl = step;
-                thinkCard.dataset.latestStep = event.content || '思考中…';
-                statusText.textContent = thinkCard.classList.contains('collapsed') ? (event.content || '思考中…') : '正在思考中…';
-                scrollToBottom();
-                break;
+                const prevBlock = document.createElement('div');
+                prevBlock.className = 'turn-output';
+                prevBlock.innerHTML = md(finalText);
+                thinkContent.appendChild(prevBlock);
               }
-
-              // ---- response.content.delta: real-time typewriter in answer area ----
-              case 'response.content.delta': {
-                // output_index change → clear previous content (rare edge case)
-                const idx = event.output_index ?? 0;
-                if (idx !== currentOutputIndex) {
-                  currentOutputIndex = idx;
-                  finalText = '';
-                }
-                answerBubble.classList.remove('hidden');
-                finalText += event.delta || '';
-                answerBubble.innerHTML = md(finalText);
-                scrollToBottom();
-                break;
-              }
-
-              // 🆕 ---- response.template: JSON card rendering ----
-              case 'response.template': {
-                if (event.template) {
-                  renderTemplateCard(event.template, msgEl);
-                  scrollToBottom();
-                }
-                break;
-              }
-
-              // ---- response.completed: finalize ----
-              case 'response.completed': {
-                if (currentStepEl) {
-                  currentStepEl.classList.remove('active');
-                  currentStepEl.classList.add('done');
-                  currentStepEl = null;
-                }
-                if (hadThinkingContent) {
-                  thinkCard.classList.add('collapsed');
-                  // Swap spinning clock → checkmark
-                  thinkIcon.outerHTML = '<svg class="th-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
-                  statusText.textContent = '思考完成';
-                } else {
-                  thinkCard.style.display = 'none';
-                }
-                answerBubble.classList.remove('typing-cursor');
-                if (event.usage) {
-                  const inp = event.usage.prompt_tokens || 0;
-                  const out = event.usage.completion_tokens || 0;
-                  metaEl.textContent = (event.turns || '-') + ' \u8F6E \u00B7 ' + (inp + out) + ' tokens';
-                  metaEl.classList.remove('hidden');
-                }
-                if (event.session_id) {
-                  sessionId = event.session_id;
-                  sessionStorage.setItem('ark_session_id', sessionId);
-                  updateSessionLabel();
-                }
-                $statusText.textContent = '';
-                scrollToBottom();
-                break;
-              }
-
-              // ---- response.failed: error ----
-              case 'response.failed': {
-                thinkCard.style.display = 'none';
-                appendErrorMessage(event.error_message || '\u672A\u77E5\u9519\u8BEF');
-                $statusText.textContent = '';
-                break;
-              }
+              currentTurn = turn;
+              finalText = '';
             }
+            answerBubble.classList.remove('hidden');
+            finalText += event.delta || '';
+            answerBubble.innerHTML = md(finalText);
+            scrollToBottom();
+            break;
+          }
+
+          // ---- response.ui.component / A2UI card ----
+          case 'response.ui.component': {
+            const comp = event.ui_component;
+            if (comp && a2uiContainer) {
+              a2uiContainer.classList.remove('hidden');
+              a2uiContainer.appendChild(renderA2UIComponent(comp));
+              scrollToBottom();
+            }
+            break;
+          }
+
+          // ---- response.completed / run_finished ----
+          case 'response.completed': {
+            if (currentStepEl) {
+              currentStepEl.classList.remove('active');
+              currentStepEl.classList.add('done');
+              currentStepEl = null;
+            }
+            if (hadThinkingContent) {
+              thinkCard.classList.add('collapsed');
+              thinkIcon.outerHTML = '<svg class="th-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
+              statusText.textContent = '思考完成';
+            } else {
+              thinkCard.style.display = 'none';
+            }
+            answerBubble.classList.remove('typing-cursor');
+            if (event.usage) {
+              const inp = event.usage.prompt_tokens || 0;
+              const out = event.usage.completion_tokens || 0;
+              metaEl.textContent = (event.turns || '-') + ' \u8F6E \u00B7 ' + (inp + out) + ' tokens';
+              metaEl.classList.remove('hidden');
+            }
+            if (event.session_id) {
+              sessionId = event.session_id;
+              sessionStorage.setItem('ark_session_id', sessionId);
+              updateSessionLabel();
+            }
+            $statusText.textContent = '';
+            scrollToBottom();
+            break;
+          }
+
+          // ---- response.failed / run_error ----
+          case 'response.failed': {
+            thinkCard.style.display = 'none';
+            appendErrorMessage(event.error_message || '\u672A\u77E5\u9519\u8BEF');
+            $statusText.textContent = '';
+            break;
           }
         }
       }
+    }
+  }
 
-      function escHtml(s) {
-        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      }
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ---- A2UI renderer ----
+  function renderA2UIComponent(component) {
+    const container = document.createElement('div');
+    container.className = 'a2ui-card';
+
+    try {
+      const answerList = component.answerDict.result.answerList;
+      answerList.forEach(function(answer) {
+        const dataList = answer.dataList || [];
+        const textItems = dataList.filter(function(d) { return d.component === 'text'; });
+        const btnItems  = dataList.filter(function(d) { return d.component === 'button'; });
+
+        textItems.forEach(function(item) {
+          const p = document.createElement('div');
+          p.className = 'a2ui-card-text';
+          p.textContent = item.text || '';
+          container.appendChild(p);
+        });
+
+        if (btnItems.length) {
+          const actions = document.createElement('div');
+          actions.className = 'a2ui-card-actions';
+          btnItems.forEach(function(item) {
+            const btn = document.createElement('button');
+            btn.className = 'a2ui-btn';
+            btn.textContent = item.text || '';
+            btn.addEventListener('click', function() {
+              console.log('[A2UI] button action:', item.action);
+            });
+            actions.appendChild(btn);
+          });
+          container.appendChild(actions);
+        }
+      });
+    } catch (_) {
+      // fallback: dump raw JSON
+      const pre = document.createElement('pre');
+      pre.className = 'a2ui-fallback';
+      pre.textContent = JSON.stringify(component, null, 2);
+      container.appendChild(pre);
+    }
+
+    return container;
+  }
 
       // ---- DOM helpers ----
       function appendUserMessage(text) {
@@ -1475,27 +1562,28 @@
           '<span class="status-text">思考中\u2026</span>' +
           '</div>' +
           '<span class="th-chevron">&#9660;</span>' +
-          '</div>' +
-          '<div class="thinking-content"></div>' +
-          '</div>' +
-          '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>' +
-          '<div class="msg-meta hidden"></div>';
-        // Wire up collapse toggle
-        const header = div.querySelector('.thinking-header');
-        const card = div.querySelector('.thinking-card');
-        header.addEventListener('click', () => {
-          card.classList.toggle('collapsed');
-          // Dynamic title: collapsed shows latest step, expanded shows generic label
-          const st = card.querySelector('.status-text');
-          if (st && !card.querySelector('.th-icon.done')) {
-            const latest = card.dataset.latestStep || '思考中…';
-            st.textContent = card.classList.contains('collapsed') ? latest : '正在思考中…';
-          }
-        });
-        $chat.appendChild(div);
-        scrollToBottom();
-        return div;
+        '</div>' +
+        '<div class="thinking-content"></div>' +
+      '</div>' +
+      '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>' +
+      '<div class="a2ui-container hidden"></div>' +
+      '<div class="msg-meta hidden"></div>';
+    // Wire up collapse toggle
+    const header = div.querySelector('.thinking-header');
+    const card = div.querySelector('.thinking-card');
+    header.addEventListener('click', () => {
+      card.classList.toggle('collapsed');
+      // Dynamic title: collapsed shows latest step, expanded shows generic label
+      const st = card.querySelector('.status-text');
+      if (st && !card.querySelector('.th-icon.done')) {
+        const latest = card.dataset.latestStep || '思考中…';
+        st.textContent = card.classList.contains('collapsed') ? latest : '正在思考中…';
       }
+    });
+    $chat.appendChild(div);
+    scrollToBottom();
+    return div;
+  }
 
       function appendAssistantMessage(text, usage) {
         const div = document.createElement('div');
@@ -1786,7 +1874,283 @@
           </div>
         `;
       }
+      // 🆕 ---- Template card rendering ----
+      function renderTemplateCard(template, containerEl) {
+        const cardDiv = document.createElement('div');
+        cardDiv.className = 'template-card';
 
+        switch (template.template_type) {
+          case 'account_overview_card':
+            cardDiv.innerHTML = renderAccountOverviewCard(template.data);
+            break;
+          case 'holdings_list_card':
+            cardDiv.innerHTML = renderHoldingsListCard(template);
+            break;
+          case 'cash_assets_card':
+            cardDiv.innerHTML = renderCashAssetsCard(template.data);
+            break;
+          case 'security_detail_card':
+            cardDiv.innerHTML = renderSecurityDetailCard(template.data);
+            break;
+          default:
+            cardDiv.innerHTML = renderGenericCard(template);
+        }
+
+        // 插入到 thinking-card 之后、answer-bubble 之前
+        const answerBubble = containerEl.querySelector('.answer-bubble');
+        containerEl.insertBefore(cardDiv, answerBubble);
+      }
+
+      function formatNumber(num) {
+        if (num == null) return '0.00';
+        const n = typeof num === 'string' ? parseFloat(num) : num;
+        if (isNaN(n)) return '0.00';
+        return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+
+      function toNum(v) {
+        if (v == null) return 0;
+        const n = typeof v === 'string' ? parseFloat(v) : v;
+        return isNaN(n) ? 0 : n;
+      }
+
+      function renderAccountOverviewCard(data) {
+        const accountTypeBadge = data.account_type === 'margin' ? '两融账户' : '普通账户';
+        const todayProfit = toNum(data.today_profit);
+        const profitClass = todayProfit >= 0 ? 'profit' : 'loss';
+        const profitSign = todayProfit >= 0 ? '+' : '';
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">账户总览</div>
+            <div class="tc-badge">${accountTypeBadge}</div>
+          </div>
+          <div class="template-card-body">
+            <div class="tc-metric">
+              <span class="tc-label">总资产</span>
+              <span class="tc-value">￥${formatNumber(data.total_assets)}</span>
+            </div>
+            <div class="tc-metric">
+              <span class="tc-label">现金余额</span>
+              <span class="tc-value">￥${formatNumber(data.cash_balance)}</span>
+            </div>
+            <div class="tc-metric">
+              <span class="tc-label">持仓市值</span>
+              <span class="tc-value">￥${formatNumber(data.stock_market_value)}</span>
+            </div>
+            <div class="tc-metric">
+              <span class="tc-label">今日收益</span>
+              <span class="tc-value ${profitClass}">
+                ${profitSign}￥${formatNumber(Math.abs(todayProfit))}
+                (${profitSign}${(toNum(data.profit_rate) * 100).toFixed(2)}%)
+              </span>
+            </div>
+            ${data.account_type === 'margin' ? `
+              <div class="tc-metric">
+                <span class="tc-label">净资产</span>
+                <span class="tc-value">￥${formatNumber(data.net_assets)}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">总负债</span>
+                <span class="tc-value">￥${formatNumber(data.total_liabilities)}</span>
+              </div>
+              ${data.maintenance_margin_ratio ? `
+                <div class="tc-metric">
+                  <span class="tc-label">维持担保比率</span>
+                  <span class="tc-value ${toNum(data.maintenance_margin_ratio) < 150 ? 'warning' : ''}">${data.maintenance_margin_ratio}%</span>
+                </div>
+              ` : ''}
+              ${data.risk_level ? `
+                <div class="tc-metric">
+                  <span class="tc-label">风险等级</span>
+                  <span class="tc-value">${data.risk_level}</span>
+                </div>
+              ` : ''}
+            ` : ''}
+          </div>
+        `;
+      }
+
+      function renderHoldingsListCard(template) {
+        const ac = template.asset_class || '';
+        const title = ac === 'ETF' ? 'ETF持仓' :
+          ac === 'HKSC' ? '港股通持仓' :
+            ac === 'Fund' ? '基金持仓' : '持仓明细';
+
+        const holdings = (template.data && template.data.holdings) || [];
+        const summary = (template.data && template.data.summary) || {};
+        
+        // ETF卡片：上半部分显示市值和收益汇总，下半部分显示列表
+        const isETF = ac === 'ETF';
+        let summaryHtml = '';
+        
+        // 检查是否有 summary 数据（字段存在即可，包括 0 值）
+        const hasSummary = summary && (summary.total_market_value !== undefined || summary.total_profit !== undefined);
+        if (isETF && hasSummary) {
+          const totalProfit = toNum(summary.total_profit);
+          const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
+          const profitSign = totalProfit >= 0 ? '+' : '';
+          const profitRate = toNum(summary.total_profit_rate);
+          
+          summaryHtml = `
+            <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
+              <div style="text-align:center;flex:1;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">ETF市值</div>
+                <div class="tc-value">￥${formatNumber(summary.total_market_value)}</div>
+              </div>
+              <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">今日收益</div>
+                <div class="tc-value ${profitClass}">
+                  ${profitSign}￥${formatNumber(Math.abs(totalProfit))}
+                  ${profitRate !== 0 ? ` (${profitSign}${(profitRate * 100).toFixed(2)}%)` : ''}
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        const holdingsHtml = holdings.map(h => {
+          // Real API format fields only
+          const code = h.security_code || '';
+          const name = h.security_name || '';
+          const holdCnt = h.hold_cnt || '-';
+          const marketValue = h.market_value;
+          const dayProfit = toNum(h.day_profit);
+          const dayProfitRate = toNum(h.day_profit_rate);
+          
+          const profitClass = dayProfit >= 0 ? 'profit' : 'loss';
+          const profitSign = dayProfit >= 0 ? '+' : '';
+          
+          return `
+            <div class="tc-list-item">
+              <div>
+                <div class="tc-item-name">${escHtml(name || code)}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                  ${escHtml(code)} · 持仓: ${holdCnt}
+                </div>
+              </div>
+              <div style="text-align:right;">
+                <div class="tc-item-value ${profitClass}">
+                  ${profitSign}￥${formatNumber(Math.abs(dayProfit))}
+                  (${profitSign}${(dayProfitRate * 100).toFixed(2)}%)
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                  市值: ￥${formatNumber(marketValue)}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${title}</div>
+            <div class="tc-badge">共 ${holdings.length} 项</div>
+          </div>
+          <div class="template-card-body">
+            ${summaryHtml}
+            <div class="tc-list">${holdingsHtml || '<div style="text-align:center;color:var(--text-muted);padding:20px;">暂无持仓</div>'}</div>
+          </div>
+        `;
+      }
+
+      function renderCashAssetsCard(data) {
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">现金资产</div>
+          </div>
+          <div class="template-card-body">
+            <div class="tc-metric">
+              <span class="tc-label">现金余额</span>
+              <span class="tc-value">￥${formatNumber(data.cash_balance)}</span>
+            </div>
+            <div class="tc-metric">
+              <span class="tc-label">可用资金</span>
+              <span class="tc-value">￥${formatNumber(data.cash_available)}</span>
+            </div>
+            <div class="tc-metric">
+              <span class="tc-label">冻结资金</span>
+              <span class="tc-value">￥${formatNumber(data.frozen_funds_total)}</span>
+            </div>
+            ${data.today_profit ? `
+              <div class="tc-metric">
+                <span class="tc-label">今日收益</span>
+                <span class="tc-value ${toNum(data.today_profit) >= 0 ? 'profit' : 'loss'}">
+                  ${toNum(data.today_profit) >= 0 ? '+' : ''}￥${formatNumber(Math.abs(toNum(data.today_profit)))}
+                </span>
+              </div>
+            ` : ''}
+            ${data.fund_name ? `
+              <div class="tc-metric">
+                <span class="tc-label">理财名称</span>
+                <span class="tc-value">${escHtml(data.fund_name)} (${escHtml(data.fund_code || '')})</span>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }
+
+      function renderSecurityDetailCard(data) {
+        const holding = data.holding || {};
+        const market = data.market_info || {};
+        const pr = toNum(holding.profit_rate);
+        const profitClass = pr >= 0 ? 'profit' : 'loss';
+        const profitSign = pr >= 0 ? '+' : '';
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${escHtml(data.security_name || data.security_code || '标的详情')}</div>
+            <div class="tc-badge">${escHtml(data.security_type || data.market || '')}</div>
+          </div>
+          <div class="template-card-body">
+            ${market.current_price ? `
+              <div class="tc-metric">
+                <span class="tc-label">现价</span>
+                <span class="tc-value">￥${formatNumber(market.current_price)}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">涨跌幅</span>
+                <span class="tc-value ${toNum(market.change_rate) >= 0 ? 'profit' : 'loss'}">
+                  ${toNum(market.change_rate) >= 0 ? '+' : ''}${(toNum(market.change_rate) * 100).toFixed(2)}%
+                </span>
+              </div>
+            ` : ''}
+            ${holding.quantity ? `
+              <div class="tc-metric">
+                <span class="tc-label">持仓数量</span>
+                <span class="tc-value">${holding.quantity}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">持仓成本</span>
+                <span class="tc-value">￥${formatNumber(holding.cost_price)}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">持仓市值</span>
+                <span class="tc-value">￥${formatNumber(holding.market_value)}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">盈亏</span>
+                <span class="tc-value ${profitClass}">
+                  ${profitSign}￥${formatNumber(Math.abs(toNum(holding.profit)))}
+                  (${profitSign}${(pr * 100).toFixed(2)}%)
+                </span>
+              </div>
+            ` : '<div style="text-align:center;color:var(--text-muted);padding:12px;">当前未持仓</div>'}
+          </div>
+        `;
+      }
+
+      function renderGenericCard(template) {
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${escHtml(template.template_type || '数据卡片')}</div>
+          </div>
+          <div class="template-card-body">
+            <pre style="font-size:12px;overflow-x:auto;">${escHtml(JSON.stringify(template.data, null, 2))}</pre>
+          </div>
+        `;
+      }
+      
       function appendErrorMessage(text) {
         const div = document.createElement('div');
         div.className = 'msg msg-assistant msg-error';

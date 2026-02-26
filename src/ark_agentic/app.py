@@ -38,6 +38,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ark_agentic.core.runner import AgentRunner
+from ark_agentic.core.types import RunOptions
+from ark_agentic.core.stream.event_bus import StreamEventBus
+from ark_agentic.core.stream.events import AgentStreamEvent
+from ark_agentic.core.stream.output_formatter import create_formatter
 from ark_agentic.agents.insurance.api import create_insurance_agent_from_env
 from ark_agentic.agents.securities.api import create_securities_agent_from_env
 
@@ -78,8 +82,11 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息内容")
     session_id: str | None = Field(None, description="会话 ID，为空则创建新会话")
     stream: bool = Field(False, description="是否启用 SSE 流式输出")
-    model: str | None = Field(None, description="模型名称覆盖，为空则使用默认模型")
-    temperature: float | None = Field(None, ge=0.0, le=2.0, description="采样温度覆盖（0.0-2.0），为空则使用环境变量 DEFAULT_TEMPERATURE 的值")
+    run_options: RunOptions | None = Field(None, description="运行选项（模型、温度等覆盖）")
+    # 流式协议选择
+    protocol: str = Field("internal", description="流式输出协议 (agui/internal/enterprise/alone)")
+    source_bu_type: str = Field("", description="BU 来源（enterprise 模式使用）")
+    app_type: str = Field("", description="App 类型（enterprise 模式使用）")
     # 业务上下文字段
     user_id: str | None = Field(None, description="用户 ID")
     context: dict[str, Any] | None = Field(None, description="业务上下文数据")
@@ -128,13 +135,13 @@ class SSEEvent(BaseModel):
 
 class SessionCreateRequest(BaseModel):
     agent_id: str = Field("insurance", description="Agent ID")
-    metadata: dict[str, Any] | None = Field(None, description="会话元数据")
+    state: dict[str, Any] | None = Field(None, description="会话初始状态")
 
 
 class SessionResponse(BaseModel):
     session_id: str
     message_count: int
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    state: dict[str, Any] = Field(default_factory=dict)
 
 
 class MessageItem(BaseModel):
@@ -202,23 +209,26 @@ async def chat(
     """Chat 端点，支持流式和非流式响应"""
     agent = _get_agent(request.agent_id)
 
-    # 构建业务上下文：合并 body 和 headers
-    context = request.context.copy() if request.context else {}
-    # 优先使用 body 中的 user_id，其次是 header
+    # 构建 input_context：合并 body 和 headers，使用 ADK 风格前缀
+    # request.context 中的条目统一加 user: 前缀
+    input_context: dict[str, Any] = {}
+    if request.context:
+        for k, v in request.context.items():
+            input_context[f"user:{k}" if ":" not in k else k] = v
     user_id = request.user_id or x_ark_user_id
     if user_id:
-        context["user_id"] = user_id
+        input_context["user:id"] = user_id
     if x_ark_trace_id:
-        context["trace_id"] = x_ark_trace_id
+        input_context["temp:trace_id"] = x_ark_trace_id
     if request.idempotency_key:
-        context["idempotency_key"] = request.idempotency_key
+        input_context["temp:idempotency_key"] = request.idempotency_key
 
     # 解析 session_id：优先 body，其次 header
     session_id = request.session_id or x_ark_session_key
     if not session_id:
         # 创建新会话（使用异步版本以支持持久化）
-        session_metadata = {"user_id": user_id} if user_id else {}
-        session = await agent.session_manager.create_session(metadata=session_metadata)
+        session_state = {"user:id": user_id} if user_id else {}
+        session = await agent.session_manager.create_session(state=session_state)
         session_id = session.session_id
         logger.info(f"Created new session: {session_id}")
     else:
@@ -248,12 +258,12 @@ async def chat(
 
     if not request.stream:
         # 非流式响应
+        run_options = request.run_options
         result = await agent.run(
             session_id=session_id,
             user_input=request.message,
-            context=context,
-            model_override=request.model,
-            temperature_override=request.temperature,
+            input_context=input_context,
+            run_options=run_options,
         )
         tool_calls = []
         if result.tool_calls:
@@ -270,61 +280,26 @@ async def chat(
             },
         )
 
-    # 流式响应
-    queue: asyncio.Queue[SSEEvent] = asyncio.Queue()
+    # ---- 流式响应：使用 StreamEventBus + OutputFormatter ----
+    queue: asyncio.Queue[AgentStreamEvent] = asyncio.Queue()
     done_event = asyncio.Event()
-    seq_counter = {"value": 0}
-
-    def next_seq() -> int:
-        seq_counter["value"] += 1
-        return seq_counter["value"]
-
-    # ---- Two callbacks only ----
-
-    def on_step(text: str) -> None:
-        """Agent lifecycle step → response.step"""
-        if not text:
-            return
-        queue.put_nowait(SSEEvent(
-            type="response.step",
-            seq=next_seq(),
-            run_id=run_id,
-            session_id=session_id,
-            content=text,
-        ))
-
-    def on_content(delta: str, output_index: int = 0) -> None:
-        """Final answer text chunk → response.content.delta"""
-        if not delta:
-            return
-        queue.put_nowait(SSEEvent(
-            type="response.content.delta",
-            seq=next_seq(),
-            run_id=run_id,
-            session_id=session_id,
-            delta=delta,
-            output_index=output_index,
-        ))
+    bus = StreamEventBus(run_id=run_id, session_id=session_id, queue=queue)
+    formatter = create_formatter(
+        request.protocol,
+        source_bu_type=request.source_bu_type,
+        app_type=request.app_type,
+    )
 
     async def run_agent() -> None:
-        # response.created
-        queue.put_nowait(SSEEvent(
-            type="response.created",
-            seq=next_seq(),
-            run_id=run_id,
-            session_id=session_id,
-            content="收到您的消息，正在处理中…",
-        ))
+        bus.emit_created("收到您的消息，正在处理中…")
         try:
             result = await agent.run(
                 session_id=session_id,
                 user_input=request.message,
-                context=context,
+                input_context=input_context,
                 stream_override=True,
-                model_override=request.model,
-                temperature_override=request.temperature,
-                on_step=on_step,
-                on_content=on_content,
+                run_options=request.run_options,
+                handler=bus,
             )
             tool_calls = []
             if result.tool_calls:
@@ -357,16 +332,10 @@ async def chat(
                     "prompt_tokens": result.prompt_tokens,
                     "completion_tokens": result.completion_tokens,
                 },
-            ))
+            )
         except Exception as exc:
             logger.exception(f"Agent run error: {exc}")
-            queue.put_nowait(SSEEvent(
-                type="response.failed",
-                seq=next_seq(),
-                run_id=run_id,
-                session_id=session_id,
-                error_message=str(exc),
-            ))
+            bus.emit_failed(str(exc))
         finally:
             done_event.set()
 
@@ -378,7 +347,9 @@ async def chat(
                     break
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=0.1)
-                    yield f"event: {event.type}\ndata: {event.model_dump_json(exclude_none=True)}\n\n"
+                    sse_line = formatter.format(event)
+                    if sse_line is not None:
+                        yield sse_line
                 except asyncio.TimeoutError:
                     continue
         finally:
@@ -393,12 +364,12 @@ async def create_session(request: SessionCreateRequest | None = None):
     agent_id = request.agent_id if request else "insurance"
     agent = _get_agent(agent_id)
     session = agent.session_manager.create_session_sync(
-        metadata=request.metadata if request else None
+        state=request.state if request else None
     )
     return SessionResponse(
         session_id=session.session_id,
         message_count=len(session.messages),
-        metadata=session.metadata,
+        state=session.state,
     )
 
 
@@ -443,9 +414,9 @@ async def list_sessions(agent_id: str = Query("insurance")):
     return {
         "sessions": [
             {
-                "session_id": s.id,
+                "session_id": s.session_id,
                 "message_count": len(s.messages),
-                "metadata": s.metadata,
+                "state": s.state,
             }
             for s in sessions
         ]

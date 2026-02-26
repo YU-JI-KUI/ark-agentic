@@ -28,10 +28,8 @@ from .persistence import (
     FileLock,
 )
 from .llm import (
-    LLMClientProtocol,
-    LLMConfig,
-    create_llm_client,
-    OpenAICompatibleClient,
+    PAModel,
+    create_chat_model,
 )
 
 __all__ = [
@@ -64,8 +62,6 @@ __all__ = [
     "SessionStoreEntry",
     "FileLock",
     # LLM
-    "LLMClientProtocol",
-    "LLMConfig",
-    "create_llm_client",
-    "OpenAICompatibleClient",
+    "PAModel",
+    "create_chat_model",
 ]

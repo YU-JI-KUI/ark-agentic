@@ -1,6 +1,8 @@
 ---
 name: 方案改写
-description: 根据用户反馈调整已推荐的取款方案，支持调总额、改方向、调单保单等多种场景
+description: |
+  根据用户反馈调整已推荐的取款方案，支持调总额、改方向、调单保单等多种场景。
+  When to use: 用户对已推荐的取款方案提出修改意见时。
 version: "4.0.0"
 invocation_policy: auto
 group: insurance

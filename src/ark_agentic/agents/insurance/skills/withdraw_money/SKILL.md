@@ -1,6 +1,8 @@
 ---
 name: 保险取款
-description: 帮助用户从保险保单中取款，根据保单数据和用户情况推荐最优方案
+description: |
+  帮助用户从保险保单中取款，根据保单数据和用户情况推荐最优方案。
+  When to use: 用户已明确取款金额，需要推荐或办理取款方案时。
 version: "4.0.0"
 invocation_policy: auto
 group: insurance

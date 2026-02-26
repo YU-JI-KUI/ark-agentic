@@ -515,14 +515,35 @@ class MockDataServiceClient:
             },
         ]
         transactions = [
-            {"id": "TXN001", "date": "2024-06-15", "type": "premium_payment", "policy_id": "POL001", "amount": 12000, "status": "completed", "description": "年度保费缴纳"},
-            {"id": "TXN002", "date": "2024-03-20", "type": "partial_withdrawal", "policy_id": "POL002", "amount": -30000, "status": "completed", "description": "部分领取"},
-            {"id": "TXN003", "date": "2023-12-01", "type": "premium_payment", "policy_id": "POL002", "amount": 50000, "status": "completed", "description": "年度保费缴纳"},
+            {
+                "id": "TXN001", "date": "2024-06-15", "type": "premium_payment",
+                "policy_id": "POL001", "amount": 12000, "status": "completed",
+                "description": "年度保费缴纳"
+            },
+            {
+                "id": "TXN002", "date": "2024-03-20", "type": "partial_withdrawal",
+                "policy_id": "POL002", "amount": -30000, "status": "completed",
+                "description": "部分领取"
+            },
+            {
+                "id": "TXN003", "date": "2023-12-01", "type": "premium_payment",
+                "policy_id": "POL002", "amount": 50000, "status": "completed",
+                "description": "年度保费缴纳"
+            },
         ]
         service_records = [
-            {"id": "SVC001", "date": "2024-07-20", "type": "inquiry", "channel": "app", "summary": "咨询取款方案", "status": "resolved"},
-            {"id": "SVC002", "date": "2024-03-15", "type": "withdrawal", "channel": "app", "summary": "办理部分领取", "status": "completed"},
-            {"id": "SVC003", "date": "2023-11-10", "type": "inquiry", "channel": "phone", "summary": "咨询保单权益", "status": "resolved"},
+            {
+                "id": "SVC001", "date": "2024-07-20", "type": "inquiry",
+                "channel": "app", "summary": "咨询取款方案", "status": "resolved"
+            },
+            {
+                "id": "SVC002", "date": "2024-03-15", "type": "withdrawal",
+                "channel": "app", "summary": "办理部分领取", "status": "completed"
+            },
+            {
+                "id": "SVC003", "date": "2023-11-10", "type": "inquiry",
+                "channel": "phone", "summary": "咨询保单权益", "status": "resolved"
+            },
         ]
 
         if it == "identity":
@@ -540,13 +561,22 @@ class MockDataServiceClient:
             return {
                 "user_id": user_id,
                 "transactions": transactions,
-                "summary": {"total_premium_paid": 212000, "total_withdrawals": 30000, "last_transaction_date": "2024-06-15"},
+                "summary": {
+                    "total_premium_paid": 212000,
+                    "total_withdrawals": 30000,
+                    "last_transaction_date": "2024-06-15"
+                },
             }
         if it == "service_history":
             return {
                 "user_id": user_id,
                 "service_records": service_records,
-                "statistics": {"total_interactions": 12, "app_interactions": 8, "phone_interactions": 4, "avg_satisfaction_score": 4.8},
+                "statistics": {
+                    "total_interactions": 12,
+                    "app_interactions": 8,
+                    "phone_interactions": 4,
+                    "avg_satisfaction_score": 4.8
+                },
             }
         # full
         return {

@@ -8,6 +8,15 @@ wheels/
 
 # Virtual environments
 .venv
+data/*
+.cursor/*
+.pytest_cache/*
+
+# Worktrees
+.worktrees/
+doc/*
+.env
+scripts/*
 
 # Claude
 CLAUDE.md

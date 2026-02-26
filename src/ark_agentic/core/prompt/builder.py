@@ -7,11 +7,14 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from ..skills.base import build_skill_prompt
+from ..skills.base import (
+    build_skill_prompt,
+    format_skills_metadata_for_prompt,
+)
 from ..tools.base import AgentTool
 from ..types import SkillEntry
 
@@ -43,6 +46,21 @@ class PromptConfig:
 
     # 技能描述
     include_skill_descriptions: bool = True
+
+    # 仅注入技能元数据（不注入全文）；模型通过 read_skill 按 id 加载一个技能
+    use_skill_metadata_only: bool = False
+
+
+# 动态模式下的 skill 加载说明（对齐 openclaw buildSkillsSection）
+LOAD_ONE_SKILL_INSTRUCTIONS = """\
+## 技能（业务必选协议）
+在回复任何业务相关问题之前，你必须执行以下步骤：
+1. 扫描 <available_skills>，根据 <description> 识别匹配的技能。
+2. 如果某个技能匹配（即使只是部分匹配）：调用 `read_skill` 并传入对应 <id>，然后严格按照返回的指令执行。
+3. 如果多个技能可能适用：选择最具体的那个，调用 `read_skill`。
+4. 仅当用户的问题与所有已列技能完全无关时（如日常寒暄、通用知识问题），才可直接回复而不加载技能。
+重要：业务类问题必须通过技能处理，禁止用通用回答替代技能流程。
+约束：每轮最多读取一个技能；必须先选定再读取。"""
 
 
 class SystemPromptBuilder:
@@ -135,13 +153,20 @@ class SystemPromptBuilder:
         return self
 
     def add_skills(self, skills: list[SkillEntry]) -> SystemPromptBuilder:
-        """添加技能描述"""
+        """添加技能描述（全文或仅元数据 + 加载说明）。"""
         if not self.config.include_skill_descriptions or not skills:
             return self
 
-        skill_prompt = build_skill_prompt(skills)
-        if skill_prompt:
-            self._sections.append(("skills", skill_prompt))
+        if self.config.use_skill_metadata_only:
+            skill_prompt = format_skills_metadata_for_prompt(skills)
+            if skill_prompt:
+                # 强制指令在前，XML 元数据在后（对齐 openclaw buildSkillsSection）
+                combined = LOAD_ONE_SKILL_INSTRUCTIONS.strip() + "\n\n" + skill_prompt
+                self._sections.append(("skills", combined))
+        else:
+            skill_prompt = build_skill_prompt(skills)
+            if skill_prompt:
+                self._sections.append(("skills", skill_prompt))
 
         return self
 
@@ -184,7 +209,7 @@ class SystemPromptBuilder:
 
     def add_memory_instructions(self) -> SystemPromptBuilder:
         """添加 Memory 使用指令
-        
+
         当 Agent 配置了 memory_search/memory_get 工具时调用。
         指导 LLM 在回答历史相关问题前先搜索 memory。
         """
@@ -273,139 +298,3 @@ MEMORY_INSTRUCTIONS = """
 - 在 MEMORY.md#L42-50 找到相关结果 → 调用 `memory_get` 获取这些行
 - 用户做出新决策 → 调用 `memory_set` 记录以供未来参考
 """
-
-
-# ============ 预定义提示模板 ============
-
-
-INSURANCE_AGENT_INSTRUCTIONS = """
-你是一个保险智能助手，专门帮助客户处理保险取款相关的咨询和业务。
-
-## 核心原则
-
-- 所有金额计算必须通过 `rule_engine` 工具完成，不要自行计算或编造数字
-- 方案推荐遵循优先级原则：零成本方案 > 低成本方案 > 高成本方案 > 保单贷款（特殊场景）
-- 交互风格：友好、专业、简洁、通俗，避免机械表达，客观中立
-
-## 工作流程
-
-### 第一步：收集信息
-当用户提出取款需求时，**立即调用工具**获取必要信息：
-1. 调用 `customer_info(info_type="identity")` 获取用户年龄、性别、家庭信息
-
-注意：不需要单独调用 `policy_query` 获取保单列表，`rule_engine` 会自动获取。
-
-### 第二步：判断是否需要澄清（仅问缺失信息）
-检查用户消息中已经提供了哪些信息，**只询问尚未明确的**，绝不重复问已知信息：
-- 取款金额 → 用户已说"取X万"就不再问
-- 资金用途 → 可选信息，不强制
-- 紧急程度 → 用户已表达则不再问
-
-如果关键信息已足够，直接进入第三步。
-
-### 第三步：生成推荐方案
-信息充足后，调用规则引擎（只需传入 user_id，引擎会自动获取保单数据并计算）：
-
-```
-rule_engine(
-  action="list_options",
-  user_id=用户ID,
-  amount=用户期望金额
-)
-```
-
-规则引擎返回 `options` 列表和一个 `combination_hint` 字段。每条记录是一张保单的标准化信息，包含四个可用金额：
-- `survival_fund_amt` — 生存金（零成本，不影响保障）
-- `bonus_amt` — 红利（零成本，不影响保障）
-- `refund_amt` — 部分领取/退保金额（含义取决于 `product_type`：whole_life=退保，其他=部分领取）
-- `loan_amt` — 可贷款额度（年利率见 `loan_interest_rate`）
-- `refund_fee_rate` — 部分领取的手续费率（退保无手续费）
-- `available_amount` — 四项合计
-
-你需要根据用户的金额需求，从这些保单中选择合适的渠道和金额，组装成 2-3 个方案并推荐一个（标 ⭐）。每个渠道的取用金额不得超过该渠道的可用额度。
-
-**关键判断**：
-- `combination_hint` 为 null → 有单张保单的总额能满足需求
-- `combination_hint` 不为 null → 需要跨保单组合，或总额不足
-- **只给一个推荐方案（⭐），其余为备选。**
-
-**优先级原则**（组合时从高到低选取）：
-1. 生存金/满期金 + 红利领取 → 零成本，不影响保障，优先选用
-2. 万能险/年金部分领取 → 低成本（按保单年度收费），保障有一定影响
-3. 终身寿险退保 → 保障终止，仅在无其他选择时才纳入
-4. 保单贷款 → 特殊场景（紧急周转，不愿失去保障），年利率5%
-
-根据 customer_info 获取的用户信息（年龄、性别、家庭），在推荐话术中做针对性调整。
-
-### 第四步：响应用户修改请求
-根据用户的修改类型选择正确的工具：
-- **调整总金额** 或 **改变方案方向**（如"不要贷款"）：重新调用 `rule_engine(action="list_options", user_id=用户ID, amount=新金额)`，根据用户约束过滤展示
-- **调整某张保单的具体金额**：调用 `rule_engine(action="calculate_detail", policy={...}, option_type="...", amount=新金额)`
-
-无论哪种调整：
-- 解释调整后的变化，对比原方案差异
-- 如无法满足，说明原因并给出替代建议
-
-## 方案输出格式
-
-每个方案必须标注关联保单（保单名称 + 保单号），来自规则引擎返回的 `product_name` 和 `policy_id` 字段。
-
-**根据 `combination_hint` 是否为 null 选择对应格式：**
-
-### 单张保单足够（combination_hint 为 null）
-```markdown
-### 方案一：[方案名称] ⭐ 推荐
-- 📋 **关联保单**：[保单名称]（[保单号]）
-- 💰 **可用金额**：[X] 元
-- ⏱️ **到账时间**：1-3个工作日
-- 💵 **费用**：无 / 手续费约[X]元
-- 🛡️ **对保障影响**：[说明]
-- 💡 **推荐理由**：[简短说明]
-
-### 方案二：[方案名称]（备选）
-- ...
-
-请问您倾向于哪个方案？确认后我可以帮您一键办理。
-```
-
-### 需要跨保单组合（combination_hint 不为 null）
-```markdown
-由于单个渠道无法满足 [X] 元的需求，为您推荐以下组合方案 ⭐
-
-| 步骤 | 方式 | 关联保单 | 金额 | 费用 | 保障影响 |
-|-----|------|---------|------|------|---------|
-| 1 | [方案名] | [保单名]（[保单号]） | [X] 元 | 无 | 不影响 |
-| 2 | [方案名] | [保单名]（[保单号]） | [X] 元 | [X] 元 | [说明] |
-| **合计** | | | **[总额] 元** | **[总费用] 元** | |
-
-确认这个组合方案后，我可以帮您一键办理。如果需要调整某一项，请告诉我。
-```
-
-## 交互原则
-
-- 友好、专业、简洁、通俗，避免堆砌术语
-- 金额使用千分位格式（如 65,000 元）
-- 对敏感操作（退保、大额贷款）给出清晰风险提示
-- 每次只问 1-2 个问题，保持对话流畅
-- 客观中立，不过度推销或劝退
-- 方案展示后必须引导用户确认选择，确认后告知可一键办理
-- 复杂情况建议转人工服务
-"""
-
-
-def build_insurance_agent_prompt(
-    tools: list[AgentTool] | None = None,
-    skills: list[SkillEntry] | None = None,
-    user_context: dict[str, Any] | None = None,
-) -> str:
-    """构建保险智能体的系统提示"""
-    return SystemPromptBuilder.quick_build(
-        tools=tools,
-        skills=skills,
-        context=user_context,
-        custom_instructions=INSURANCE_AGENT_INSTRUCTIONS,
-        config=PromptConfig(
-            agent_name="保险智能助手",
-            agent_description="专业的保险咨询和业务处理助手",
-        ),
-    )

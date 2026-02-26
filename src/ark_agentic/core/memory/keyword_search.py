@@ -9,8 +9,8 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Optional
 
 from .types import MemoryChunk
 
@@ -31,7 +31,7 @@ class JiebaBM25Searcher:
 
     def __init__(self, config: BM25Config | None = None) -> None:
         self.config = config or BM25Config()
-        self._jieba: Any = None
+        self._jieba: Optional[Any] = None  # jieba module, kept as Any due to optional dependency
 
         # 索引数据
         self._chunks: dict[str, MemoryChunk] = {}  # id -> chunk

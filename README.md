@@ -21,6 +21,23 @@ uv add git+https://github.com/your-org/ark-agentic.git
 uv pip install -e .
 ```
 
+### 可选依赖
+
+根据使用的 LLM 提供商，可能需要安装额外依赖：
+
+```bash
+# PA-JT 系列模型（需要 RSA 签名）
+uv add 'ark-agentic[pa-jt]'
+
+# 开发环境（包含测试工具）
+uv add 'ark-agentic[dev]'
+
+# 全部依赖
+uv add 'ark-agentic[all]'
+```
+
+**注意**: PA-SX 系列和 DeepSeek 模型无需额外依赖，只有 PA-JT 系列模型需要 `pycryptodome` 进行 RSA 签名。
+
 ## 快速开始
 
 ```python
@@ -58,23 +75,28 @@ POST /chat
 Content-Type: application/json
 
 {
+  "agent_id": "insurance",
   "message": "用户消息",
   "session_id": "可选会话ID",
   "stream": true,
-  "context": {"user_id": "U001"}
+  "user_id": "U001",
+  "context": {"custom_key": "value"},
+  "idempotency_key": "req-12345"
 }
 ```
 
-**SSE 事件格式**:
+**SSE 事件格式** (OpenAI-compatible):
 ```json
 {
+  "type": "response.content.delta",
+  "seq": 2,
   "run_id": "uuid",
   "session_id": "uuid",
-  "state": "delta|final|error",
-  "content": "流式片段",
-  "usage": {"input_tokens": 100, "output_tokens": 50}
+  "delta": "流式片段",
+  "output_index": 0
 }
 ```
+*事件类型支持: `response.created`, `response.step`, `response.content.delta`, `response.completed`, `response.failed`*
 
 **自定义 Headers**:
 ```
@@ -152,6 +174,8 @@ invocation_policy: auto
 - 保单贷款: 最高 80% 现金价值
 ```
 
+**技能加载模式**（full / dynamic / semantic）为 Agent 级别配置：在创建 agent 时通过 `SkillConfig(default_load_mode=SkillLoadMode.full)` 等传入 `RunnerConfig(skill_config=...)`，使用 `ark_agentic.core.types.SkillLoadMode` 枚举。
+
 ### 会话压缩
 
 ```python
@@ -219,10 +243,9 @@ src/ark_agentic/
 │   ├── session.py         # SessionManager (会话管理)
 │   ├── compaction.py      # 上下文压缩
 │   ├── llm/               # LLM 客户端
-│   │   ├── factory.py     # create_llm_client()
-│   │   ├── openai_compat.py
-│   │   ├── pa_internal_llm.py
-│   │   └── mock.py
+│   │   ├── base.py        # BaseLLMClient + LLMConfig
+│   │   ├── factory.py     # create_chat_model()
+│   │   └── errors.py     # LLM 错误处理
 │   ├── tools/             # 工具系统
 │   │   ├── base.py        # AgentTool 基类
 │   │   ├── registry.py    # ToolRegistry
@@ -293,6 +316,8 @@ uv run python script.py
 - **FAISS 索引**: 向量检索支持百万级文档
 - **会话压缩**: 自动总结历史消息，保持上下文窗口稳定
 
-## 许可
+## TODOs
+- [P0] **存储层解耦**: 实现基于 Redis/Database 的 Session 和 Memory 存储，支持 Cloud-Native 分布式部署。
+- [P1] **CLI 工具 (ark-cli)**: 开发命令行工具，支持一键生成 Agent 骨架，降低上手门槛。
+- [P2] **UI 适配**: 支持内部 AG-UI 的 Schema 设定。
 
-MIT

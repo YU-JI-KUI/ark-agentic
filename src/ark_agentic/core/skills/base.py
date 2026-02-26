@@ -12,7 +12,7 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..types import SkillEntry, SkillMetadata
+from ..types import SkillEntry, SkillLoadMode
 
 
 @dataclass
@@ -22,6 +22,9 @@ class SkillConfig:
     # 技能目录列表（按优先级排序，越前面优先级越高）
     skill_directories: list[str] = field(default_factory=list)
 
+    # Agent ID，用于构建全局唯一的 skill id（格式: agent_id.skill_name）
+    agent_id: str = ""
+
     # 是否启用资格检查
     enable_eligibility_check: bool = True
 
@@ -30,6 +33,9 @@ class SkillConfig:
 
     # 是否允许未知技能
     allow_unknown_skills: bool = False
+
+    # Agent 级别默认加载模式
+    default_load_mode: SkillLoadMode = SkillLoadMode.full
 
 
 def check_skill_eligibility(
@@ -121,8 +127,46 @@ def should_include_skill(
         return True
 
 
-# 别名函数，保持向后兼容
-check_skill_requirements = check_skill_eligibility
+def _escape_xml(text: str) -> str:
+    """XML 特殊字符转义"""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
+
+def format_skills_metadata_for_prompt(skills: list[SkillEntry]) -> str:
+    """格式化技能元数据为 XML 格式（对齐 pi-coding-agent formatSkillsForPrompt）。
+
+    用于「仅元数据」模式：模型先看 <available_skills> 列表，
+    再通过 read_skill 按需加载正文。
+
+    Args:
+        skills: 技能列表
+
+    Returns:
+        XML 格式的元数据文本，不含 skill.content
+    """
+    if not skills:
+        return ""
+
+    lines = [
+        "The following skills provide specialized instructions for specific tasks.",
+        "Use the read_skill tool to load a skill when the task matches its description.",
+        "",
+        "<available_skills>",
+    ]
+    for skill in skills:
+        lines.append("  <skill>")
+        lines.append(f"    <id>{_escape_xml(skill.id)}</id>")
+        lines.append(f"    <name>{_escape_xml(skill.metadata.name)}</name>")
+        lines.append(f"    <description>{_escape_xml(skill.metadata.description)}</description>")
+        lines.append("  </skill>")
+    lines.append("</available_skills>")
+    return "\n".join(lines)
 
 
 def build_skill_prompt(skills: list[SkillEntry]) -> str:

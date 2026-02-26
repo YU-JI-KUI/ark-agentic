@@ -14,8 +14,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class BGEEmbedding:
 
     def __init__(self, config: BGEConfig | None = None) -> None:
         self.config = config or BGEConfig()
-        self._model: Any = None
+        self._model: Optional[Any] = None  # SentenceTransformer model, kept as Any due to optional dependency
         self._dimensions: int = 0
 
     @property

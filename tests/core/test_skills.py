@@ -7,7 +7,8 @@ from pathlib import Path
 from ark_agentic.core.skills.base import (
     SkillConfig,
     build_skill_prompt,
-    check_skill_requirements,
+    check_skill_eligibility,
+    format_skills_metadata_for_prompt,
 )
 from ark_agentic.core.skills.loader import (
     SkillLoader,
@@ -43,7 +44,7 @@ class TestCheckSkillRequirements:
             content="Test content",
             metadata=SkillMetadata(name="test", description="Test"),
         )
-        is_eligible, reasons = check_skill_requirements(skill)
+        is_eligible, reasons = check_skill_eligibility(skill)
         assert is_eligible
         assert len(reasons) == 0
 
@@ -62,7 +63,7 @@ class TestCheckSkillRequirements:
                 required_os=[current_os]
             ),
         )
-        is_eligible, reasons = check_skill_requirements(skill)
+        is_eligible, reasons = check_skill_eligibility(skill)
         assert is_eligible
         assert len(reasons) == 0
 
@@ -78,9 +79,57 @@ class TestCheckSkillRequirements:
                 required_os=["nonexistent_os"]
             ),
         )
-        is_eligible, reasons = check_skill_requirements(skill)
+        is_eligible, reasons = check_skill_eligibility(skill)
         assert not is_eligible
         assert len(reasons) > 0
+
+
+class TestFormatSkillsMetadataForPrompt:
+    """Tests for format_skills_metadata_for_prompt (metadata-only, no full content)."""
+
+    def test_empty_skills(self) -> None:
+        """Test with no skills."""
+        assert format_skills_metadata_for_prompt([]) == ""
+
+    def test_single_skill_metadata_only(self) -> None:
+        """Output contains id, name, description (when_to_use merged in) but NOT skill content."""
+        skill = SkillEntry(
+            id="test",
+            path="/test",
+            content="This is the full skill body that must not appear.",
+            metadata=SkillMetadata(
+                name="Test Skill",
+                description="A test\nWhen to use: When user asks for X",
+            ),
+        )
+        prompt = format_skills_metadata_for_prompt([skill])
+        assert "test" in prompt
+        assert "Test Skill" in prompt
+        assert "A test" in prompt
+        assert "When user asks for X" in prompt
+        assert "This is the full skill body that must not appear." not in prompt
+
+    def test_multiple_skills_metadata_only(self) -> None:
+        """Multiple skills: metadata list only, no content."""
+        skills = [
+            SkillEntry(
+                id="skill1",
+                path="/skill1",
+                content="Secret content 1",
+                metadata=SkillMetadata(name="Skill 1", description="First\nWhen to use: When A"),
+            ),
+            SkillEntry(
+                id="skill2",
+                path="/skill2",
+                content="Secret content 2",
+                metadata=SkillMetadata(name="Skill 2", description="Second"),
+            ),
+        ]
+        prompt = format_skills_metadata_for_prompt(skills)
+        assert "skill1" in prompt and "Skill 1" in prompt and "When A" in prompt
+        assert "skill2" in prompt and "Skill 2" in prompt
+        assert "Secret content 1" not in prompt
+        assert "Secret content 2" not in prompt
 
 
 class TestBuildSkillPrompt:
@@ -164,6 +213,25 @@ class TestSkillLoader:
             skill = skills["test_skill"]
             assert skill.metadata.name == "Test Skill"
             assert "This is the skill content." in skill.content
+
+    def test_load_skill_with_when_to_use(self) -> None:
+        """Test loading skill with when_to_use in frontmatter: merged into description."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._create_skill_directory(
+                tmpdir,
+                "withdraw_money",
+                "Full skill body here.",
+                "name: Withdraw\ndescription: Withdraw money\nwhen_to_use: When user asks to withdraw or surrender"
+            )
+
+            loader = SkillLoader(SkillConfig(skill_directories=[tmpdir]))
+            skills = loader.load_from_directories()
+
+            assert "withdraw_money" in skills
+            skill = skills["withdraw_money"]
+            assert "When to use:" in skill.metadata.description
+            assert "When user asks to withdraw or surrender" in skill.metadata.description
+            assert "Full skill body here." in skill.content
 
     def test_load_skill_without_frontmatter(self) -> None:
         """Test loading skill without YAML frontmatter."""

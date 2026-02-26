@@ -10,7 +10,9 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, Union
+
+from pydantic import BaseModel as _PydanticBaseModel, Field as _Field
 
 
 class MessageRole(str, Enum):
@@ -28,6 +30,7 @@ class ToolResultType(str, Enum):
     JSON = "json"
     TEXT = "text"
     IMAGE = "image"
+    A2UI = "a2ui"  # 前端组件描述（A2UI 协议），content 为组件 dict 或 list[dict]
     ERROR = "error"
 
 
@@ -56,7 +59,7 @@ class AgentToolResult:
 
     tool_call_id: str
     result_type: ToolResultType
-    content: Any
+    content: Union[str, dict[str, Any], list[Any], int, float]
     is_error: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -97,6 +100,21 @@ class AgentToolResult:
             tool_call_id=tool_call_id,
             result_type=ToolResultType.IMAGE,
             content={"data": base64_data, "media_type": media_type},
+            metadata=metadata or {},
+        )
+
+    @classmethod
+    def a2ui_result(
+        cls,
+        tool_call_id: str,
+        data: Union[dict[str, Any], list[dict[str, Any]]],
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentToolResult:
+        """创建 A2UI 前端组件结果。data 为单个组件 dict 或组件列表。"""
+        return cls(
+            tool_call_id=tool_call_id,
+            result_type=ToolResultType.A2UI,
+            content=data,
             metadata=metadata or {},
         )
 
@@ -186,6 +204,9 @@ class SkillMetadata:
     group: str | None = None
     tags: list[str] = field(default_factory=list)
 
+    # 何时使用（简短说明，用于“是否加载该技能”决策）
+    when_to_use: str | None = None
+
 
 @dataclass
 class SkillEntry:
@@ -211,6 +232,29 @@ class SkillEntry:
 
     # 是否启用
     enabled: bool = True
+
+
+# ============ Run Options ============
+
+
+class SkillLoadMode(str, Enum):
+    """技能加载模式"""
+
+    full = "full"
+    dynamic = "dynamic"
+    semantic = "semantic"
+
+
+class RunOptions(_PydanticBaseModel):
+    """单次运行的选项（模型、温度等）。
+
+    用于 API 层按请求覆盖模型和温度。
+    技能加载模式由 SkillConfig.default_load_mode 在 Agent 级别配置,
+    不在单次请求中指定。
+    """
+
+    model: str | None = _Field(None, description="模型名称覆盖")
+    temperature: float | None = _Field(None, ge=0.0, le=2.0, description="采样温度覆盖（0.0-2.0）")
 
 
 # ============ Session Types ============
@@ -269,8 +313,8 @@ class SessionEntry:
     # 活跃技能快照
     active_skills: list[str] = field(default_factory=list)
 
-    # 会话元数据
-    metadata: dict[str, Any] = field(default_factory=dict)
+    # 会话状态（ADK-style session scratchpad）
+    state: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def create(
@@ -299,3 +343,16 @@ class SessionEntry:
         self.token_usage.completion_tokens += completion_tokens
         self.token_usage.cache_read_tokens += cache_read
         self.token_usage.cache_creation_tokens += cache_creation
+
+    def get_state(self, key: str, default: Any = None) -> Any:
+        """读取 state 中的值"""
+        return self.state.get(key, default)
+
+    def update_state(self, delta: dict[str, Any]) -> None:
+        """浅合并 delta 到 state"""
+        self.state.update(delta)
+        self.updated_at = datetime.now()
+
+    def strip_temp_state(self) -> None:
+        """移除 temp: 前缀的临时状态键"""
+        self.state = {k: v for k, v in self.state.items() if not k.startswith("temp:")}
