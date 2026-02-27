@@ -59,4 +59,5 @@ extraPaths = ["src"]
 dev = [
     "flake8>=7.3.0",
     "mypy>=1.19.1",
+    "twine>=6.0.0"
 ]
