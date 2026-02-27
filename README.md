@@ -25,20 +25,21 @@ uv pip install -e .
 
 ### 可选依赖
 
-根据使用的 LLM 提供商，可能需要安装额外依赖：
-
 ```bash
+# Memory：向量记忆（FAISS + Sentence-Transformers）
+uv add 'ark-agentic[memory]'
+
 # PA-JT 系列模型（需要 RSA 签名）
 uv add 'ark-agentic[pa-jt]'
 
 # 开发环境（包含测试工具）
 uv add 'ark-agentic[dev]'
 
-# 全部依赖
+# 全部依赖（含 memory + PA-JT + dev）
 uv add 'ark-agentic[all]'
 ```
 
-**注意**: PA-SX 系列和 DeepSeek 模型无需额外依赖，只有 PA-JT 系列模型需要 `pycryptodome` 进行 RSA 签名。
+**注意**: 默认安装不包含 Memory 相关的大型依赖（FAISS / Sentence-Transformers），只有在显式启用 `ark-agentic[memory]` 时才会安装；PA-SX 系列和 DeepSeek 模型无需额外依赖，只有 PA-JT 系列模型需要 `pycryptodome` 进行 RSA 签名。
 
 ## 快速开始
 

@@ -104,6 +104,8 @@ def _cmd_init(args: argparse.Namespace) -> None:
         if include_api else ""
     )
 
+    ark_dep = '"ark-agentic[memory]>=0.1.0",' if include_memory else '"ark-agentic>=0.1.0",'
+
     fmt = dict(
         project_name=project_name,
         package_name=package_name,
@@ -111,6 +113,7 @@ def _cmd_init(args: argparse.Namespace) -> None:
         agent_name_snake="default",
         agent_display_name="Default",
         api_deps=api_deps,
+        ark_dep=ark_dep,
     )
 
     # pyproject.toml

@@ -13,7 +13,7 @@ version = "0.1.0"
 description = "{project_name} - Built with ark-agentic"
 requires-python = ">=3.10"
 dependencies = [
-    "ark-agentic>=0.1.0",
+    {ark_dep}
     "python-dotenv>=1.0.0",{api_deps}
 ]
 
