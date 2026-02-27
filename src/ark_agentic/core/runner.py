@@ -89,6 +89,9 @@ class RunResult:
     # 所有工具调用（用于返回给客户端）
     tool_calls: list[ToolCall] = field(default_factory=list)
 
+    # 所有工具结果（用于提取结构化数据，如模板卡片）
+    tool_results: list[AgentToolResult] = field(default_factory=list)
+
     # Token 使用
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -316,6 +319,7 @@ class AgentRunner:
     ) -> RunResult:
         """ReAct 循环: LLM → Tool → LLM → ... → Response"""
         logger.info(f"[RUN] session={session_id[:8]} streaming={use_streaming}")
+                
         turns = 0
         total_tool_calls = 0
         total_prompt_tokens = 0
@@ -472,6 +476,7 @@ class AgentRunner:
                 turns=turns,
                 tool_calls_count=total_tool_calls,
                 tool_calls=all_tool_calls,
+                tool_results=all_tool_results,
                 prompt_tokens=total_prompt_tokens,
                 completion_tokens=total_completion_tokens,
             )

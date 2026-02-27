@@ -1,0 +1,58 @@
+{
+    "err": 0,
+    "errmsg": "success",
+    "msg": "success",
+    "status": 1,
+    "results": {
+        "progress": 0,
+        "holdMktVal": 1000500.33,
+        "holdPositionPft": 1000.22,
+        "dayTotalPft": 100,
+        "dayTotalPftRate": 0.03,
+        "totalHkscShare": 10000,
+        "availableHkscShare": 6000,
+        "limitHkscShare": 4000,
+        "preFrozenAsset": 6000.22,
+        "stockList": [
+            {
+                "marketType": "HK",
+                "mktVal": 500000.00,
+                "dayPft": 50.55,
+                "dayPftRate": 0.0522,
+                "holdPositionPft": 500.11,
+                "holdPositionPftRate": 0.011,
+                "position": "0.0000",
+                "holdCnt": "1000",
+                "shareBln": "500",
+                "price": "500.00",
+                "costPrice": "499.50",
+                "secuCode": "00700",
+                "secuName": "腾讯控股",
+                "secuAcc": "E022922565"
+            },
+            {
+                "marketType": "HK",
+                "mktVal": 500500.33,
+                "dayPft": 49.45,
+                "dayPftRate": 0.0488,
+                "holdPositionPft": 500.11,
+                "holdPositionPftRate": 0.031,
+                "position": "0.0000",
+                "holdCnt": "2000",
+                "shareBln": "1000",
+                "price": "250.25",
+                "costPrice": "249.75",
+                "secuCode": "09988",
+                "secuName": "阿里巴巴-SW",
+                "secuAcc": "E022922565"
+            }
+        ],
+        "preFrozenStockList": [
+            {
+                "secuName": "阿里巴巴-SW",
+                "secuCode": "09988",
+                "preFrozenAsset": 6000.22
+            }
+        ]
+    }
+}

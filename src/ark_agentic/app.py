@@ -19,12 +19,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ---- 全局日志配置 ----
+_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
-    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    level=_log_level,
     format="%(asctime)s %(levelname)-5s %(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     force=True,
 )
+
+# 抑制第三方库的 DEBUG 日志（即使 LOG_LEVEL=DEBUG）
+for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
+    logging.getLogger(_lib).setLevel(logging.WARNING)
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +43,7 @@ from ark_agentic.core.stream.event_bus import StreamEventBus
 from ark_agentic.core.stream.events import AgentStreamEvent
 from ark_agentic.core.stream.output_formatter import create_formatter
 from ark_agentic.agents.insurance.api import create_insurance_agent_from_env
+from ark_agentic.agents.securities.api import create_securities_agent_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +78,7 @@ def _get_agent(agent_id: str) -> AgentRunner:
 
 class ChatRequest(BaseModel):
     """Chat 请求模型"""
-    agent_id: str = Field("insurance", description="Agent ID")
+    agent_id: str = Field("insurance", description="Agent ID (insurance/securities)")
     message: str = Field(..., description="用户消息内容")
     session_id: str | None = Field(None, description="会话 ID，为空则创建新会话")
     stream: bool = Field(False, description="是否启用 SSE 流式输出")
@@ -94,6 +100,37 @@ class ChatResponse(BaseModel):
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     turns: int = 0
     usage: dict[str, int] | None = Field(None, description="Token 使用统计")
+
+
+class SSEEvent(BaseModel):
+    """SSE event — aligned with OpenAI Responses API naming.
+
+    Event types:
+      - response.created       : Run initialized
+      - response.step          : Agent lifecycle step (tool, status)
+      - response.content.delta : Final answer text chunk (typewriter)
+      - response.template      : JSON template card (🆕)
+      - response.completed     : Run finished with metadata
+      - response.failed        : Error
+    """
+    type: str = Field(..., description="Event type (response.*)")
+    seq: int = Field(..., description="Sequence number")
+    run_id: str | None = Field(None)
+    session_id: str | None = Field(None)
+    # Step
+    content: str | None = Field(None, description="Step description text")
+    # Content delta
+    delta: str | None = Field(None, description="Answer text chunk")
+    output_index: int | None = Field(None, description="Output block index")
+    # Template (🆕)
+    template: dict[str, Any] | None = Field(None, description="JSON template card data")
+    # Completed
+    message: str | None = Field(None, description="Full answer text")
+    usage: dict[str, int] | None = Field(None)
+    turns: int | None = Field(None)
+    tool_calls: list[dict[str, Any]] | None = Field(None)
+    # Failed
+    error_message: str | None = Field(None)
 
 
 class SessionCreateRequest(BaseModel):
@@ -121,7 +158,8 @@ class SessionHistoryResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _registry.register("insurance", create_insurance_agent_from_env())
-    logger.info("Unified API started")
+    _registry.register("securities", create_securities_agent_from_env())
+    logger.info("Unified API started with agents: insurance, securities")
     yield
     logger.info("Unified API shutting down")
 
@@ -203,7 +241,6 @@ async def chat(
 
     # 生成本次执行 ID
     run_id = str(uuid.uuid4())
-
     if not request.stream:
         # 非流式响应
         run_options = request.run_options
@@ -253,6 +290,9 @@ async def chat(
             if result.tool_calls:
                 for tc in result.tool_calls:
                     tool_calls.append({"name": tc.name, "arguments": tc.arguments})
+
+            
+            # response.completed
             bus.emit_completed(
                 message=result.response.content or "",
                 tool_calls=tool_calls if tool_calls else None,

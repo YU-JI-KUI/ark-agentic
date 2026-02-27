@@ -17,3 +17,17 @@ data/*
 doc/*
 scripts/*
 .env
+# Claude
+CLAUDE.md
+
+# Sessions
+data/ark_securities
+data/ark_sessions
+
+
+# Claude
+CLAUDE.md
+
+# Sessions
+data/ark_securities
+data/ark_sessions

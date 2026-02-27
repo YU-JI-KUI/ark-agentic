@@ -1,7 +1,7 @@
 """
-保险智能体 API 支持模块
+证券智能体 API 支持模块
 
-提供保险智能体的构建与配置，供统一 FastAPI 服务调用。
+提供证券智能体的构建与配置，供统一 FastAPI 服务调用。
 """
 
 from __future__ import annotations
@@ -9,18 +9,15 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-from .agent import create_insurance_agent
+from .agent import create_securities_agent
 from ark_agentic.core.llm import create_chat_model, PAModel
-
-if TYPE_CHECKING:
-    from ark_agentic.core.runner import AgentRunner
+from ark_agentic.core.runner import AgentRunner
 
 logger = logging.getLogger(__name__)
 
 
-def create_insurance_agent_from_env(
+def create_securities_agent_from_env(
     sessions_dir: str | Path | None = None,
     enable_persistence: bool = True,
 ) -> AgentRunner:
@@ -83,10 +80,17 @@ def create_insurance_agent_from_env(
         memory_dir = Path(memory_dir)
     memory_dir.mkdir(parents=True, exist_ok=True)
 
-    return create_insurance_agent(
+    runner = create_securities_agent(
         llm=llm,
         sessions_dir=sessions_dir,
         enable_persistence=enable_persistence,
         memory_dir=memory_dir,
         enable_memory=False,
     )
+    
+    # 记录配置信息
+    mock_mode = os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1")
+    account_type = os.getenv("SECURITIES_ACCOUNT_TYPE", "normal")
+    logger.info(f"Securities Agent created: mock={mock_mode}, account_type={account_type}")
+    
+    return runner

@@ -43,29 +43,28 @@ class ValidationResult:
 
 
 def extract_numbers_from_text(text: str) -> list[float]:
-    """从文本中提取所有数字（包括千分位格式）。
+    """提取文本中的数字（支持千分位、小数、负数、百分号）"""
 
-    支持: 65000, 65,000, 65000.5, ￥65,000, 5.5% 等。
-    """
     if not text:
         return []
 
-    # 移除千分位逗号再匹配
-    cleaned = re.sub(r"(\d),(\d{3})", r"\1\2", text)
-    # 匹配所有数字（整数和小数）
-    pattern = r"(?<!\w)(\d+(?:\.\d+)?)(?:\s*%)?(?!\w)"
+    # 清理千分位
+    cleaned = re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
+
+    # 匹配数字
+    pattern = r"(?<!\w)(-?\d+(?:\.\d+)?)(?:\s*%)?(?!\w)"
     matches = re.findall(pattern, cleaned)
 
     results = []
     for m in matches:
-        try:
-            val = float(m)
-            # 过滤掉明显不是金额/费率的数字（如年份、日期片段）
-            if val > 1900 and val < 2100:
-                continue  # 可能是年份
-            results.append(val)
-        except ValueError:
+        # 过滤 4 位年份
+        if re.fullmatch(r"\d{4}", m) and 1900 <= int(m) <= 2100:
             continue
+
+        try:
+            results.append(float(m))
+        except ValueError:
+            pass
 
     return results
 

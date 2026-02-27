@@ -1,0 +1,36 @@
+{
+    "actionAuth": null,
+    "status": 1,
+    "errmsg": null,
+    "requestid": "MOCK_cash_normal_001",
+    "results": {
+        "accountType": "1",
+        "rmb": {
+            "cashBalance": "50000.00",
+            "available": "48000.00",
+            "avaliableDetail": {
+                "drawBalance": "45000.00",
+                "hkStock": null,
+                "cashBalanceDetail": {
+                    "isSupportFastRedeem": "1",
+                    "fundName": "现金宝",
+                    "fundCode": "970172",
+                    "dayProfit": "15.50",
+                    "accuProfit": "1250.00"
+                }
+            },
+            "otdFundsTotal": null,
+            "otdFundsDetail": null,
+            "frozenFundsTotal": "2000.00",
+            "frozenFundsDetail": [
+                {
+                    "name": "stockFreeze",
+                    "value": "2000.00",
+                    "chineseDesc": "股票交易冻结"
+                }
+            ],
+            "inTransitAssetTotal": null,
+            "inTransitAssetDetail": null
+        }
+    }
+}
