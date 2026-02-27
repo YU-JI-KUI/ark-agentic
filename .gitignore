@@ -15,7 +15,6 @@ data/*
 # Worktrees
 .worktrees/
 doc/*
-scripts/*
 .env
 # Claude
 CLAUDE.md
