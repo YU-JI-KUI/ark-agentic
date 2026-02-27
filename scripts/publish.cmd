@@ -33,7 +33,7 @@ echo ==> Version: %VERSION%
 REM Build ark-agentic (core + CLI only, agents/app/static excluded via pyproject)
 echo ==> Building ark-agentic...
 cd /d "%REPO_ROOT%"
-python -m build --outdir "%DIST_DIR%" || goto :error
+uv build --out-dir "%DIST_DIR%" || goto :error
 
 echo.
 echo ==> Build artifacts:

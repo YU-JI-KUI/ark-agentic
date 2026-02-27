@@ -42,7 +42,7 @@ echo "==> Version: $VERSION"
 # 1) Build ark-agentic (core + CLI only, agents/app/static excluded via pyproject)
 echo "==> Building ark-agentic..."
 cd "$REPO_ROOT"
-python3 -m build --outdir \"$DIST_DIR\"
+uv build --out-dir "$DIST_DIR"
 
 echo ""
 echo "==> Build artifacts:"

@@ -29,7 +29,7 @@ Write-Host "==> Version: $Version"
 # Build ark-agentic (core + CLI only, agents/app/static excluded via pyproject)
 Write-Host "==> Building ark-agentic..."
 Set-Location $RepoRoot
-python -m build --outdir $DistDir
+uv build --out-dir $DistDir
 
 Write-Host ""
 Write-Host "==> Build artifacts:"
