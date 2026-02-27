@@ -159,6 +159,63 @@ python -m ark_agentic.agents.insurance.agent -i \
   --memory --memory-dir ./data/memory
 ```
 
+## 框架 CLI (ark-agentic)
+
+在本仓库根目录，使用 `uv run` 直接调用 CLI（无需单独安装）：
+
+```bash
+cd /home/willis/codebase/ark-agentic-space/ark-agentic
+
+# 查看帮助
+uv run ark-agentic --help
+
+# 初始化新项目（默认 deepseek）
+uv run ark-agentic init my-agent
+
+# 指定 LLM 提供商
+uv run ark-agentic init my-openai-agent --llm-provider deepseek
+# 添加FastAPI，chat API支持流式和非流式
+uv run ark-agentic init my-pa-agent --llm-provider deepseek --api
+
+# 在已生成项目中添加新的业务智能体
+cd my-agent
+uv run ark-agentic add-agent risk-engine
+```
+
+`ark-agentic init` 会生成：
+
+- `pyproject.toml`（依赖 `ark-agentic`）
+- `src/<package>/main.py`（交互式入口）
+- `src/<package>/agents/default/`（默认智能体骨架）
+- `.env-sample`（根据 `--llm-provider` 写入对应的环境变量占位符）
+
+其中 `.env-sample` 的 LLM 部分示例：
+
+- 当 `--llm-provider=deepseek`（默认）:
+
+  ```bash
+  LLM_PROVIDER=deepseek
+  DEEPSEEK_API_KEY=sk-xxx
+  # LLM_BASE_URL=https://api.deepseek.com
+  ```
+
+- 当 `--llm-provider=openai`:
+
+  ```bash
+  LLM_PROVIDER=openai
+  DEEPSEEK_API_KEY=sk-xxx
+  # LLM_BASE_URL=https://api.openai.com/v1
+  ```
+
+- 当 `--llm-provider=pa`:
+
+  ```bash
+  LLM_PROVIDER=pa
+  PA_MODEL=PA-SX-80B
+  # PA_SX_BASE_URL=https://pa-sx.example.com
+  # PA_JT_BASE_URL=https://pa-jt.example.com
+  ```
+
 ## 核心概念
 
 ### 工具定义
@@ -345,7 +402,6 @@ src/ark_agentic/
 │   │   ├── factory.py     # create_chat_model()
 │   │   ├── pa_jt_llm.py   # PA-JT 系列支持
 │   │   ├── pa_sx_llm.py   # PA-SX 系列支持
-│   │   ├── base.py        # LLM 基类 (289 行)
 │   │   └── errors.py      # 错误分类
 │   ├── tools/             # 工具系统
 │   │   ├── base.py        # AgentTool 基类 (282 行)
@@ -399,7 +455,7 @@ src/ark_agentic/
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `DEEPSEEK_API_KEY` | DeepSeek API Key | - |
+| `DEEPSEEK_API_KEY` | DeepSeek / OpenAI 兼容端点 API Key | - |
 | `DEFAULT_TEMPERATURE` | LLM 温度 | `0.7` |
 | `API_HOST` | API 监听地址 | `0.0.0.0` |
 | `API_PORT` | API 端口 | `8080` |

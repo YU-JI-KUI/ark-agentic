@@ -4,13 +4,12 @@ import os
 import json
 import asyncio
 from typing import Any, List, Dict, AsyncIterator
-from ark_agentic.core.llm import LLMClientProtocol
 
 # Ensure mock environment
 os.environ["SECURITIES_SERVICE_MOCK"] = "true"
 
 
-class SmarterMockLLM(LLMClientProtocol):
+class SmarterMockLLM:
     """Mock LLM that supports both streaming and non-streaming modes."""
     
     def _get_tool_call_response(self) -> Dict[str, Any]:
