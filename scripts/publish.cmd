@@ -28,10 +28,10 @@ set PYPROJECT_PATH=%REPO_ROOT%\pyproject.toml
 for /f "usebackq delims=" %%v in (`python -c "import tomllib, pathlib; d = tomllib.loads(pathlib.Path(r'%PYPROJECT_PATH%').read_text()); print(d['project']['version'])"`) do (
   set VERSION=%%v
 )
-echo ==> Version: %VERSION%
+echo [Version] %VERSION%
 
 REM Build ark-agentic (core + CLI only, agents/app/static excluded via pyproject)
-echo ==> Building ark-agentic...
+echo [Building] ark-agentic...
 cd /d "%REPO_ROOT%"
 uv build --out-dir "%DIST_DIR%" || goto :error
 
@@ -40,17 +40,17 @@ echo ==> Build artifacts:
 dir "%DIST_DIR%"
 
 if "%DRY_RUN%"=="true" (
-  echo ==> Dry run — skipping upload
+  echo [Dry run] skipping upload
   goto :eof
 )
 
 REM Upload to internal PyPI
-echo ==> Uploading to %INTERNAL_REPO_URL% ...
+echo [Uploading] to %INTERNAL_REPO_URL% ...
 twine upload ^
   --repository-url "%INTERNAL_REPO_URL%" ^
   "%DIST_DIR%\ark_agentic-%VERSION%*" || goto :error
 
-echo ==> Published ark-agentic==%VERSION%
+echo [Done] Published ark-agentic==%VERSION%
 goto :eof
 
 :error
