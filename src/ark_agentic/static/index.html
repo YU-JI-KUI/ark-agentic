@@ -1442,9 +1442,15 @@
           // ---- response.ui.component / A2UI card ----
           case 'response.ui.component': {
             const comp = event.ui_component;
-            if (comp && a2uiContainer) {
-              a2uiContainer.classList.remove('hidden');
-              a2uiContainer.appendChild(renderA2UIComponent(comp));
+            if (comp) {
+              // 检查是否包含 template_type 属性，如果是则调用 renderTemplateCard
+              if (comp.template_type !== undefined) {
+                renderTemplateCard(comp, msgEl);
+              } else if (a2uiContainer) {
+                // 否则使用原有的 A2UI 组件渲染逻辑
+                a2uiContainer.classList.remove('hidden');
+                a2uiContainer.appendChild(renderA2UIComponent(comp));
+              }
               scrollToBottom();
             }
             break;
@@ -1596,33 +1602,6 @@
         div.innerHTML = '<div class="msg-bubble">' + md(text) + '</div>' + meta;
         $chat.appendChild(div);
         scrollToBottom();
-      }
-
-      // 🆕 ---- Template card rendering ----
-      function renderTemplateCard(template, containerEl) {
-        const cardDiv = document.createElement('div');
-        cardDiv.className = 'template-card';
-
-        switch (template.template_type) {
-          case 'account_overview_card':
-            cardDiv.innerHTML = renderAccountOverviewCard(template.data);
-            break;
-          case 'holdings_list_card':
-            cardDiv.innerHTML = renderHoldingsListCard(template);
-            break;
-          case 'cash_assets_card':
-            cardDiv.innerHTML = renderCashAssetsCard(template.data);
-            break;
-          case 'security_detail_card':
-            cardDiv.innerHTML = renderSecurityDetailCard(template.data);
-            break;
-          default:
-            cardDiv.innerHTML = renderGenericCard(template);
-        }
-
-        // 插入到 thinking-card 之后、answer-bubble 之前
-        const answerBubble = containerEl.querySelector('.answer-bubble');
-        containerEl.insertBefore(cardDiv, answerBubble);
       }
 
       function formatNumber(num) {
