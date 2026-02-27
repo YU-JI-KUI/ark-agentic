@@ -234,9 +234,6 @@ class AgentRunner:
         - 非 temp: 键仅在 state 中不存在时写入（避免覆盖工具写入的状态）
         """
         for k, v in input_context.items():
-            if k.startswith("temp:"):
-                session.state[k] = v
-            elif k not in session.state:
                 session.state[k] = v
 
     def _make_pre_compact_callback(self) -> Callable[[str, list[AgentMessage]], Awaitable[None]]:
