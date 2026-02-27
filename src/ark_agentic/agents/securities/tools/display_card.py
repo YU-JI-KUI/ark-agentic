@@ -131,8 +131,7 @@ class DisplayCardTool(AgentTool):
                 error=f"不支持的渲染类型: {render_type}",
             )
 
-        return AgentToolResult.json_result(
+        return AgentToolResult.a2ui_result(
             tool_call_id=tool_call.id,
-            data="卡片已推送至前端展示。",
-            metadata={ToolResultType.A2UI: template},
+            data=template
         )
