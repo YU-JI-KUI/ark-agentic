@@ -286,6 +286,8 @@ class LLMSummarizer:
         previous_summary: str | None = None,
     ) -> str:
         """使用 LLM 生成摘要"""
+        from langchain_core.messages import HumanMessage
+
         instructions = custom_instructions or self.DEFAULT_INSTRUCTIONS
 
         prompt_parts = [f"## 摘要指令\n{instructions}"]
@@ -300,9 +302,19 @@ class LLMSummarizer:
 
         try:
             ai_msg = await self.llm.ainvoke(
-                [{"role": "user", "content": prompt}]
+                [HumanMessage(content=prompt)]
             )
-            content = ai_msg.content if hasattr(ai_msg, "content") else str(ai_msg)
+            # Handle different content types from LangChain
+            if hasattr(ai_msg, "content"):
+                content = ai_msg.content
+                # If content is a list, join it into a string
+                if isinstance(content, list):
+                    content = " ".join(str(item) for item in content)
+                elif not isinstance(content, str):
+                    content = str(content)
+            else:
+                content = str(ai_msg)
+
             return content or DEFAULT_SUMMARY_FALLBACK
 
         except Exception as e:

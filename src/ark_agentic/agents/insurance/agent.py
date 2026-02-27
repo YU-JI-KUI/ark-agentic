@@ -41,6 +41,7 @@ from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.demo_a2ui import DemoA2UITool
+from ark_agentic.core.tools.demo_state import SetStateDemoTool, GetStateDemoTool
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
 
@@ -103,8 +104,9 @@ def create_insurance_agent(
     # 1. 创建工具注册器并注册保险工具 + Demo A2UI 工具
     tool_registry = ToolRegistry()
     tool_registry.register_all(create_insurance_tools())
-    # DemoA2UITool: 专用于演示和联调 A2UI/AGUI 流式输出，不影响正常业务逻辑
     tool_registry.register(DemoA2UITool())
+    tool_registry.register(SetStateDemoTool())
+    tool_registry.register(GetStateDemoTool())
 
     # 2. 创建会话管理器（支持持久化，使用 LLM 摘要器进行上下文压缩）
     if enable_persistence:
