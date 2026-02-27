@@ -36,7 +36,7 @@ cd /d "%REPO_ROOT%"
 uv build --out-dir "%DIST_DIR%" || goto :error
 
 echo.
-echo ==> Build artifacts:
+echo [Build artifacts]
 dir "%DIST_DIR%"
 
 if "%DRY_RUN%"=="true" (
