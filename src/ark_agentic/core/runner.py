@@ -228,13 +228,9 @@ class AgentRunner:
 
     @staticmethod
     def _merge_input_context(session: SessionEntry, input_context: dict[str, Any]) -> None:
-        """将 input_context 合并到 session.state（前缀感知策略）
-
-        - temp: 键始终覆盖（每次请求的临时数据）
-        - 非 temp: 键仅在 state 中不存在时写入（避免覆盖工具写入的状态）
-        """
+        """将 input_context 合并到 session.state，所有键始终覆盖已有值。"""
         for k, v in input_context.items():
-                session.state[k] = v
+            session.state[k] = v
 
     def _make_pre_compact_callback(self) -> Callable[[str, list[AgentMessage]], Awaitable[None]]:
         """创建压缩前回调：将即将丢弃的消息摘要写入 MEMORY.md"""

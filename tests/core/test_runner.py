@@ -306,7 +306,10 @@ async def test_temp_state_stripped_after_run() -> None:
 
 @pytest.mark.asyncio
 async def test_input_context_seed_only() -> None:
-    """Non-temp input_context keys seed state only if not present (no overwrite)."""
+    """input_context keys always overwrite session.state (覆盖语义).
+
+    temp: prefixed keys are stripped after run() by strip_temp_state().
+    """
     responses = [AIMessage(content="ok")]
     runner, _ = _make_runner(responses=responses)
     session = runner.session_manager.create_session_sync(state={"user:id": "existing"})
@@ -318,5 +321,5 @@ async def test_input_context_seed_only() -> None:
     )
 
     state = session.state
-    assert state["user:id"] == "existing"
+    assert state["user:id"] == "new_value"
     assert "temp:x" not in state
