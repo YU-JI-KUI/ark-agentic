@@ -203,14 +203,14 @@ async def test_agent_margin_context_e2e():
     from ark_agentic.agents.securities.agent import create_securities_agent
     
     mock_llm = SmarterMockLLM()
-    agent = create_securities_agent(llm_client=mock_llm)
+    agent = create_securities_agent(llm=mock_llm)
     
     # Session setup
     session = await agent.session_manager.create_session()
-    # KEY STEP: Inject "margin" context
-    agent.session_manager.set_context(session.session_id, "account_type", "margin")
-    agent.session_manager.set_context(session.session_id, "user_id", "U001")
-    
+    # KEY STEP: Inject "margin" context via session state
+    session.state["account_type"] = "margin"
+    session.state["user_id"] = "U001"
+
     # Run
     print("Starting Agent Run...")
     result = await agent.run(

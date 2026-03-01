@@ -123,7 +123,7 @@ SECURITIES_SERVICE_MOCK=true uv run python -m ark_agentic.app
 | `response.created` | Run 初始化 |
 | `response.step` | Agent 执行步骤（工具调用等） |
 | `response.content.delta` | 最终回答文本片段（打字机效果） |
-| `response.template` | JSON 模板卡片数据 |
+| `response.ui.component` | JSON 模板卡片数据（A2UI 组件） |
 | `response.completed` | Run 完成 |
 | `response.failed` | 错误 |
 
@@ -164,15 +164,17 @@ SECURITIES_SERVICE_MOCK=true uv run python -m ark_agentic.app
 }
 ```
 
-#### response.template
+#### response.ui.component
+
+前端收到此事件后，根据 `ui_component.template_type` 渲染对应的卡片组件。
 
 ```json
 {
-  "type": "response.template",
+  "type": "response.ui.component",
   "seq": 4,
   "run_id": "run_abc123",
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "template": {
+  "ui_component": {
     "template_type": "account_overview_card",
     "data": {
       "total_assets": "1000000.00",
@@ -219,7 +221,7 @@ SECURITIES_SERVICE_MOCK=true uv run python -m ark_agentic.app
 
 ## 模板卡片类型
 
-前端收到 `response.template` 事件后，根据 `template_type` 渲染对应的卡片组件。
+前端收到 `response.ui.component` 事件后，根据 `template_type` 渲染对应的卡片组件。
 
 ### account_overview_card（账户总览卡片）
 
@@ -457,8 +459,8 @@ async function sendMessage(message, context) {
 // 处理 SSE 事件
 function handleSSEEvent(event) {
   switch (event.type) {
-    case 'response.template':
-      renderTemplateCard(event.template);
+    case 'response.ui.component':
+      renderTemplateCard(event.ui_component);
       break;
     case 'response.content.delta':
       appendText(event.delta);
@@ -570,7 +572,7 @@ agents/securities/
 │     display_card 返回 ──────────► {template_type, data}             │
 │                                    │                                 │
 │                                    ▼                                 │
-│  6. SSE 推送                     response.template 事件              │
+│  6. SSE 推送                     response.ui.component 事件         │
 │     app.py 直发 ────────────────► 前端渲染卡片                       │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -688,7 +690,7 @@ SECURITIES_SERVICE_MOCK=true uv run pytest tests/ -v -k "securities or context_i
 4. **适配器模式** — 每个服务一个 Adapter 子类，新增服务只需 3 步（Schema + Adapter + 注册）
 5. **配置驱动** — 参数映射和字段提取均通过配置字典管理，易于扩展新服务
 6. **关注点分离** — 数据工具返回原始数据，display_card 负责字段提取和模板渲染
-7. **SSE 直推** — 模板数据通过 `response.template` 事件直推前端，无需解析 LLM 文本
+7. **SSE 直推** — 模板数据通过 `response.ui.component` 事件直推前端，无需解析 LLM 文本
 
 ## 扩展新服务
 

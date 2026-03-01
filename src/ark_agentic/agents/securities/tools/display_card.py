@@ -12,7 +12,7 @@ import json
 from typing import Any
 
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
-from ark_agentic.core.types import AgentToolResult, ToolCall
+from ark_agentic.core.types import AgentToolResult, ToolCall, ToolResultType
 
 from ..template_renderer import TemplateRenderer
 from .field_extraction import extract_account_overview, extract_cash_assets, extract_etf_holdings, extract_hksc_holdings
@@ -81,7 +81,7 @@ class DisplayCardTool(AgentTool):
             (context or {}).get(source_tool) or {}
         )
 
-        if source_data is None:
+        if len(source_data) == 0:
             return AgentToolResult.error_result(
                 tool_call_id=tool_call.id,
                 error=f"未找到 {source_tool} 的数据结果，请先调用 {source_tool} 获取数据。",
@@ -131,8 +131,7 @@ class DisplayCardTool(AgentTool):
                 error=f"不支持的渲染类型: {render_type}",
             )
 
-        return AgentToolResult.json_result(
+        return AgentToolResult.a2ui_result(
             tool_call_id=tool_call.id,
-            data="卡片已推送至前端展示。",
-            metadata={"template": template},
+            data=template
         )

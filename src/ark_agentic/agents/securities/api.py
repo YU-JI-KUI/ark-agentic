@@ -21,7 +21,7 @@ def create_securities_agent_from_env(
     sessions_dir: str | Path | None = None,
     enable_persistence: bool = True,
 ) -> AgentRunner:
-    """从环境变量创建保险智能体
+    """从环境变量创建证券智能体
 
     环境变量:
         LLM_PROVIDER: LLM 提供商 (pa/deepseek/openai)，默认 pa
@@ -66,7 +66,7 @@ def create_securities_agent_from_env(
 
     if enable_persistence and sessions_dir is None:
         sessions_dir = Path("data") / "ark_sessions"
-    
+
     if sessions_dir:
         sessions_dir = Path(sessions_dir)
         sessions_dir.mkdir(parents=True, exist_ok=True)
@@ -75,7 +75,7 @@ def create_securities_agent_from_env(
     # Memory 目录
     memory_dir = os.getenv("MEMORY_DIR")
     if memory_dir is None:
-        memory_dir = Path("data") / "ark_insurance_memory"
+        memory_dir = Path("data") / "ark_securities_memory"
     else:
         memory_dir = Path(memory_dir)
     memory_dir.mkdir(parents=True, exist_ok=True)
@@ -87,10 +87,12 @@ def create_securities_agent_from_env(
         memory_dir=memory_dir,
         enable_memory=False,
     )
-    
+
     # 记录配置信息
     mock_mode = os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1")
     account_type = os.getenv("SECURITIES_ACCOUNT_TYPE", "normal")
-    logger.info(f"Securities Agent created: mock={mock_mode}, account_type={account_type}")
-    
+    logger.info(
+        f"Securities Agent created: mock={mock_mode}, account_type={account_type}"
+    )
+
     return runner
