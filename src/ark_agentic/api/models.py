@@ -74,25 +74,3 @@ class SSEEvent(BaseModel):
     error_message: str | None = Field(None)
 
 
-# ── Sessions ────────────────────────────────────────────────────────
-
-class SessionCreateRequest(BaseModel):
-    agent_id: str = Field("insurance", description="Agent ID")
-    state: dict[str, Any] | None = Field(None, description="会话初始状态")
-
-
-class SessionResponse(BaseModel):
-    session_id: str
-    message_count: int
-    state: dict[str, Any] = Field(default_factory=dict)
-
-
-class MessageItem(BaseModel):
-    role: str
-    content: str | None
-    tool_calls: list[dict[str, Any]] | None = None
-
-
-class SessionHistoryResponse(BaseModel):
-    session_id: str
-    messages: list[MessageItem]

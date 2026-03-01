@@ -52,13 +52,15 @@ def temp_agents_dir(tmp_path: Path) -> Path:
     return agents_root
 
 
+from ark_agentic.api import deps
+
 @pytest.fixture
 def client(temp_agents_dir: Path) -> TestClient:
     """Create a FastAPI TestClient with the studio agents router
     and a patched _agents_root pointing to the temp directory."""
     app = FastAPI()
     registry = AgentRegistry()
-    agents_api.init(registry)
+    deps.init_registry(registry)
     app.include_router(agents_api.router, prefix="/api/studio")
 
     with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):

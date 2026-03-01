@@ -1,7 +1,7 @@
 # Ark-Agentic Studio — 实施方案
 
 > 本文档记录 Studio 模块的整体架构设计、分阶段实施计划及当前进展。
-> 最后更新: 2026-03-01
+> 最后更新: 2026-03-01 (Phase 3 Session 内聚)
 
 ## 设计约束
 
@@ -34,9 +34,8 @@ src/ark_agentic/
 ├── api/                    # FastAPI 路由层 (从 app.py 拆分)
 │   ├── __init__.py
 │   ├── deps.py             # 共享依赖注入 (init_registry, get_agent)
-│   ├── models.py           # Pydantic Request/Response Models
-│   ├── chat.py             # /chat 路由 (APIRouter)
-│   └── sessions.py         # /sessions 路由 (APIRouter)
+│   ├── models.py           # Pydantic Request/Response Models (Chat + SSE only)
+│   └── chat.py             # /chat 路由 (APIRouter)
 │
 ├── studio/                 # Studio 模块 (条件挂载)
 │   ├── __init__.py         # setup_studio(app) 入口 + SPA catch-all
@@ -98,12 +97,10 @@ sequenceDiagram
     participant App as app.py
     participant Deps as api/deps.py
     participant Chat as api/chat.py
-    participant Sessions as api/sessions.py
     participant StudioSessions as studio/api/sessions.py
 
-    App->>Deps: init_registry(registry) — 唯一入口
+    App->>Deps: init_registry(registry)
     Chat->>Deps: get_agent(agent_id)
-    Sessions->>Deps: get_agent(agent_id)
     StudioSessions->>Deps: get_registry()
 ```
 
@@ -119,10 +116,9 @@ sequenceDiagram
 |---|---|---|
 | **[NEW]** | `core/registry.py` | 从 app.py 提取 `AgentRegistry` |
 | **[NEW]** | `api/deps.py` | 共享依赖注入 (`init_registry`, `get_agent`) |
-| **[NEW]** | `api/models.py` | 7 个 Pydantic 模型 |
+| **[NEW]** | `api/models.py` | 3 个 Pydantic 模型 (Chat + SSE) |
 | **[NEW]** | `api/chat.py` | `/chat` 路由 (APIRouter) |
-| **[NEW]** | `api/sessions.py` | `/sessions` 路由 (APIRouter) |
-| **[MODIFY]** | `app.py` | 413 → ~125 行 |
+| **[MODIFY]** | `app.py` | 413 → ~120 行 |
 
 ### Phase 1: Studio 骨架 + Agent Dashboard ✅ 已完成
 
@@ -178,11 +174,50 @@ sequenceDiagram
 | **[MODIFY]** | `index.css` | 新增 7 个共享 CSS 类 |
 | **[MODIFY]** | 全部 4 个 View 组件 | 内联 style → CSS 类 |
 
-### Phase 3: CRUD + 前后端联调 📋 待实施
+### Phase 3: Session API 内聚到 Studio ✅ 已完成
 
-**目标**: 实现 Skill 的创建/编辑/删除，Tool 模板生成，前后端完全联调。
+**目标**: 将 Session 管理能力从业务 API 层剥离，完全内聚到 Studio 模块。
 
-### Phase 4: Meta-Agent (远期) 🔮 规划中
+| 操作 | 文件 | 说明 |
+|---|---|---|
+| **[DELETE]** | `api/sessions.py` | 业务 API 不再暴露 Session CRUD |
+| **[MODIFY]** | `api/models.py` | 移除 4 个 Session 模型 |
+| **[MODIFY]** | `app.py` | 移除 sessions 路由挂载 |
+| **[MODIFY]** | `deps.py` | 更新 docstring |
+| **[MODIFY]** | `studio/api/sessions.py` | 吸收完整 CRUD (4 个端点) |
+| **[MODIFY]** | `cli/templates.py` | 移除 Session 模型和端点 (Option B) |
+| **[REWRITE]** | `test_studio_sessions_memory.py` | 9/9 测试通过 |
+
+### Phase 4: Skill CRUD & Tool Scaffold ✅ 已完成
+
+**目标**: 实现 Skill 和 Tool 的创建/编辑/删除管理能力，同时分离 Service 业务逻辑层。
+
+| 操作 | 文件 | 说明 |
+|---|---|---|
+| **[NEW]** | `studio/services/__init__.py` | 服务层切面 |
+| **[NEW]** | `studio/services/skill_service.py` | 提取并完善 Skill CRUD / 解析能力 |
+| **[NEW]** | `studio/services/tool_service.py` | 提取 Tool 解析和模板生成能力 |
+| **[NEW]** | `studio/services/agent_service.py` | (Phase 5 预留) 动态创建 Agent 服务 |
+| **[MODIFY]** | `studio/api/skills.py` | 瘦身为仅处理 HTTP 传输（依赖注入 Service） |
+| **[MODIFY]** | `studio/api/tools.py` | 同上 |
+| **[REWRITE]**| `SkillsView.tsx` | 新增 CRUD UI、表单编辑、确认弹窗 |
+| **[REWRITE]**| `ToolsView.tsx` | 新增脚手架表单 UI、新建工具能力 |
+| **[MODIFY]** | `index.css` | 补充表单 (Form)、弹窗 (Dialog)、操作反馈 (Toast) 及 Action 按钮样式 |
+| **[NEW]** | `tests/test_skill_service.py` | 纯业务逻辑单测，脱离 HTTP 容器 (15 个用例) |
+| **[NEW]** | `tests/test_tool_service.py` | 工具解析及脚手架代码生成机制测试 (11 个用例) |
+
+### Phase 4.5: UI Polish ✅ 已完成
+
+**目标**: 提升 UI 交互细腻度和专业感。
+
+| 操作 | 文件 | 说明 |
+|---|---|---|
+| **[MODIFY]** | `index.css` | 修复弹窗文本对比度 (换为 ``--color-text-secondary``)，提升 `.btn-action` 拟物感交互 |
+| **[MODIFY]** | `skill_service.py` | 改用 `pyyaml` 解析完整的 frontmatter (Version, Policy, Group, Tags) |
+| **[MODIFY]** | `api.ts` | 扩展 `SkillMeta` 业务接口以容纳以上 4 项 metadata |
+| **[MODIFY]** | `SkillsView.tsx` | Emoji 替换为 Lucide SVG 图标；多维元数据卡片布局 |
+
+### Phase 5: Meta-Agent (远期) 🔮 规划中
 
 **目标**: 实现 AI 原生的对话式操作体验。
 
@@ -211,6 +246,13 @@ sequenceDiagram
 ### 4. SPA 路由 (studio/__init__.py)
 
 `FileResponse` 统一导入到文件顶部，使用 catch-all 路由支持 React Router 深层链接。
+
+### 5. Session 内聚 (Phase 3)
+
+Session CRUD 是调试/运维能力，不是 Agent 业务接口。用户只需通过 `/chat` 返回的 `session_id` 继续对话：
+- 业务 API 层只保留 `/chat`
+- Session 管理完全由 Studio 提供（需 `ENABLE_STUDIO=true`）
+- CLI 生成的项目不包含 Session 端点（Option B）
 
 ---
 

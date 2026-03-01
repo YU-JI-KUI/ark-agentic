@@ -36,7 +36,6 @@ from fastapi.staticfiles import StaticFiles
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
-from ark_agentic.api import sessions as sessions_api
 from ark_agentic.agents.insurance.api import create_insurance_agent_from_env
 from ark_agentic.agents.securities.api import create_securities_agent_from_env
 
@@ -73,7 +72,6 @@ app.add_middleware(
 
 # ---- 挂载路由 ----
 app.include_router(chat_api.router)
-app.include_router(sessions_api.router)
 
 # ---- 静态文件 & 测试 UI ----
 _STATIC_DIR = Path(__file__).parent / "static"

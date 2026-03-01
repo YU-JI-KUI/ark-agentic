@@ -1,7 +1,7 @@
 # Ark-Agentic Studio — TODO 跟踪
 
 > 统一跟踪所有待办事项、已完成事项和远期规划。
-> 最后更新: 2026-03-01
+> 最后更新: 2026-03-01 (Phase 3 Session 内聚)
 
 ---
 
@@ -11,7 +11,7 @@
 - [x] 提取 `AgentRegistry` → `core/registry.py`
 - [x] 提取 Pydantic Models → `api/models.py`
 - [x] 提取 `/chat` 路由 → `api/chat.py` (APIRouter)
-- [x] 提取 `/sessions` 路由 → `api/sessions.py` (APIRouter)
+- [x] ~~提取 `/sessions` 路由 → `api/sessions.py`~~ (Phase 3 已移除，内聚到 Studio)
 - [x] 瘦身 `app.py` (413 → ~125 行)
 - [x] 跑通 `pytest` 确保无回归 (32/32 passed)
 
@@ -52,34 +52,46 @@
 - [x] **[P2]** `studio/__init__.py` 去重 3× `FileResponse` 导入
 - [x] **[P2]** `setup_studio(app)` 简化签名 (不再需要 `registry` 参数)
 
+### Phase 3: Session API 内聚到 Studio
+- [x] **删除** `api/sessions.py` — 业务 API 不再暴露 Session CRUD
+- [x] **清理** `api/models.py` — 移除 4 个 Session 模型
+- [x] **清理** `app.py` — 移除 sessions 路由挂载
+- [x] **更新** `deps.py` — 修正 docstring 僵尸引用
+- [x] **增强** `studio/api/sessions.py` — 吸收 CRUD (list/create/detail/delete) + `Field(default_factory=dict)`
+- [x] **清理** `cli/templates.py` — 移除 Session 模型和端点 (Option B: 彻底移除)
+- [x] **重写** `test_studio_sessions_memory.py` — 10 个测试, 9/9 通过
+
 ---
 
 ## 📋 待办 (TODO)
 
-### Phase 3: CRUD + 前后端联调
+### Phase 4: Skill CRUD & Tool Scaffold
+- [x] `POST /api/studio/agents/{id}/skills` — 创建新 Skill (生成目录 + SKILL.md)
+- [x] `PUT /api/studio/agents/{id}/skills/{skill_id}` — 更新 SKILL.md 内容
+- [x] `DELETE /api/studio/agents/{id}/skills/{skill_id}` — 删除技能目录
+- [x] `POST /api/studio/agents/{id}/tools` — 生成 Python 工具代码模板
+- [x] SkillsView: 增加「新建技能」按钮和表单
+- [x] SkillsView: 增加「编辑」和「删除」操作按钮
+- [x] ToolsView: 增加「生成工具模板」按钮和参数配置表单
+- [x] 所有表单: 增加操作反馈 (Toast/成功提示)
+- [x] 重构抽象 `studio/services` (分离业务逻辑与 HTTP 传输)
+- [x] E2E: 通过 UI 创建/更新/删除 Skill 后端状态均对齐
+- [x] E2E: 通过 UI 生成 Tool 模板 `.py` 成功生成
 
-#### 后端 API
-- [ ] `POST /api/studio/agents/{id}/skills` — 创建新 Skill (生成目录 + SKILL.md)
-- [ ] `PUT /api/studio/agents/{id}/skills/{skill_id}` — 更新 SKILL.md 内容
-- [ ] `DELETE /api/studio/agents/{id}/skills/{skill_id}` — 删除技能目录
-- [ ] `POST /api/studio/agents/{id}/tools` — 生成 Python 工具代码模板
+### Phase 4.5: UI Polish
+- [x] Skills/Tools 详情页：丰富多维元数据展示 (Version, Group, Tags)
+- [x] SkillsView 动作按钮专业化：移除 Emoji，引入 Lucide SVG
+- [x] 全局确认弹窗体验：修复了 `color-text-muted` 的白底对比度问题
 
-#### 前端页面
-- [ ] SkillsView: 增加「新建技能」按钮和表单
-- [ ] SkillsView: 增加「编辑」和「删除」操作按钮
-- [ ] ToolsView: 增加「生成工具模板」按钮和参数配置表单
-- [ ] 所有表单: 增加操作反馈 (Toast/成功提示)
+---
 
-#### CLI 部署支持
+## 📋 待办 (TODO)
+
+### CLI 部署支持
 - [ ] `cli/templates.py` 增加 `STUDIO_INIT_TEMPLATE`
 - [ ] `cli/main.py` `_cmd_init` 生成 `studio/` 目录和 `__init__.py`
 - [ ] 将 `frontend/dist/` 预构建产物打包进 Python 包 (`package_data`)
 - [ ] `.env-sample` 模板增加 `ENABLE_STUDIO=true` 和 `AGENTS_ROOT` 配置项
-
-#### 联调验证
-- [ ] E2E: 通过 UI 创建 Skill → 检查文件系统中 SKILL.md 已生成
-- [ ] E2E: 通过 UI 删除 Skill → 检查文件系统中目录已移除
-- [ ] E2E: 通过 UI 生成 Tool 模板 → 检查文件系统中 `.py` 已生成
 
 ---
 

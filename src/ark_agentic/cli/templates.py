@@ -270,26 +270,6 @@ class SSEEvent(BaseModel):
     error_message: str | None = None
 
 
-class SessionCreateRequest(BaseModel):
-    state: dict[str, Any] | None = Field(None)
-
-
-class SessionResponse(BaseModel):
-    session_id: str
-    message_count: int
-    state: dict[str, Any] = Field(default_factory=dict)
-
-
-class MessageItem(BaseModel):
-    role: str
-    content: str | None
-    tool_calls: list[dict[str, Any]] | None = None
-
-
-class SessionHistoryResponse(BaseModel):
-    session_id: str
-    messages: list[MessageItem]
-
 
 @app.get("/", include_in_schema=False)
 async def root():
@@ -418,60 +398,6 @@ async def chat(
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-
-@app.post("/sessions", response_model=SessionResponse)
-async def create_session(request: SessionCreateRequest | None = None):
-    assert _runner is not None
-    session = _runner.session_manager.create_session_sync(
-        state=request.state if request else None
-    )
-    return SessionResponse(
-        session_id=session.session_id,
-        message_count=len(session.messages),
-        state=session.state,
-    )
-
-
-@app.get("/sessions/{{session_id}}", response_model=SessionHistoryResponse)
-async def get_session(session_id: str):
-    assert _runner is not None
-    session = _runner.session_manager.get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail=f"Session not found: {{session_id}}")
-    messages = [
-        MessageItem(
-            role=msg.role.value if hasattr(msg.role, "value") else str(msg.role),
-            content=msg.content,
-            tool_calls=[{{"name": tc.name, "arguments": tc.arguments}} for tc in msg.tool_calls] if msg.tool_calls else None,
-        )
-        for msg in session.messages
-    ]
-    return SessionHistoryResponse(session_id=session_id, messages=messages)
-
-
-@app.delete("/sessions/{{session_id}}")
-async def delete_session(session_id: str):
-    assert _runner is not None
-    success = _runner.session_manager.delete_session_sync(session_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Session not found: {{session_id}}")
-    return {{"status": "deleted", "session_id": session_id}}
-
-
-@app.get("/sessions")
-async def list_sessions():
-    assert _runner is not None
-    sessions = _runner.session_manager.list_sessions()
-    return {{
-        "sessions": [
-            {{
-                "session_id": s.session_id,
-                "message_count": len(s.messages),
-                "state": s.state,
-            }}
-            for s in sessions
-        ]
-    }}
 
 
 def main() -> None:

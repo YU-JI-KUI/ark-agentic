@@ -13,10 +13,6 @@ import pytest
 from ark_agentic.api.models import (
     ChatRequest,
     ChatResponse,
-    MessageItem,
-    SessionCreateRequest,
-    SessionHistoryResponse,
-    SessionResponse,
     SSEEvent,
 )
 
@@ -99,27 +95,3 @@ class TestSSEEvent:
         """P1: Failed event carries error message."""
         event = SSEEvent(type="response.failed", seq=99, error_message="timeout")
         assert event.error_message == "timeout"
-
-
-class TestSessionModels:
-    """Session-related models."""
-
-    def test_session_create_request_defaults(self):
-        """P0: Default agent_id is 'insurance'."""
-        req = SessionCreateRequest()
-        assert req.agent_id == "insurance"
-        assert req.state is None
-
-    def test_session_response(self):
-        """P0: SessionResponse serialization."""
-        resp = SessionResponse(session_id="s-001", message_count=5, state={"k": "v"})
-        assert resp.session_id == "s-001"
-        assert resp.message_count == 5
-
-    def test_session_history_response(self):
-        """P0: SessionHistoryResponse with message items."""
-        msg = MessageItem(role="assistant", content="Hi", tool_calls=None)
-        hist = SessionHistoryResponse(session_id="s-001", messages=[msg])
-        assert len(hist.messages) == 1
-        assert hist.messages[0].role == "assistant"
-        assert hist.messages[0].content == "Hi"

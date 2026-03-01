@@ -151,8 +151,11 @@ def test_display_card_tool():
 
     # 模拟数据工具结果（etf_holdings 返回的原始数据）
     etf_data = {
-        "holdings": [{"code": "510300", "name": "沪深300ETF", "market_value": 48000}],
-        "summary": {"total_value": 48000, "total_profit": 3000},
+        "results": {
+            "dayTotalMktVal": 48000,
+            "dayTotalPft": 3000,
+            "stockList": [{"secuCode": "510300", "secuName": "沪深300ETF", "mktVal": 48000}],
+        }
     }
 
     # 模拟 runner 注入的 context（存储原始 content 数据，非 AgentToolResult）

@@ -4,6 +4,63 @@
 
 ---
 
+## 2026-03-01 — Phase 4 Skill CRUD, Tool Scaffold & Phase 4.5 UI Polish
+
+### ✨ New Features (Phase 4)
+
+- **[Skill CRUD]**
+  - 后端增加了 `studio/services/skill_service.py` 处理业务逻辑。
+  - API 层 `studio/api/skills.py` 提供 POST, PUT, DELETE 接口。
+  - 前端 `SkillsView.tsx` 实现了完整的列表切换、新增技能表单、内联内容编辑和删除确认操作。
+- **[Tool Scaffold]**
+  - 后端增加了 `studio/services/tool_service.py`，支持基于模板动态生成 Python Tool 代码。
+  - API 层 `studio/api/tools.py` 提供 POST 脚手架生成接口。
+  - 前端 `ToolsView.tsx` 实现了新建工具表单及交互。
+- **[Architecture & Tests]**
+  - 提取了纯业务逻辑 Service 层 (`studio/services/*`)，为后续 Meta-Agent 预留接口。
+  - 补充了高覆盖率的核心业务逻辑单元测试 `test_skill_service.py` 和 `test_tool_service.py` (26 test cases)。
+
+### 🎨 UI Polish (Phase 4.5)
+
+- **[Metadata 解析强化]** 后端换用 `pyyaml` 解析 `SKILL.md` 的 Frontmatter，提取 `version`, `invocation_policy`, `group`, 和 `tags`。
+- **[Metadata 视觉呈现]** 前端扩展 `SkillMeta` 并在详情卡片中渲染丰富标签。
+- **[交互质感提升]**
+  - Emoji 操作按钮全量替换为 **Lucide SVG** 图标。
+  - 重构 `.btn-action`，增加边框阴影及 hover 动效。
+  - 修复 Delete 确认弹窗说明文本在白底上对比度不足的问题 (`--color-text-secondary`)。
+
+## 2026-03-01 — Phase 3 Session API 内聚到 Studio
+
+### 🏗️ Architecture
+
+- **[DELETE api/sessions.py]** 业务 API 层不再暴露 Session CRUD
+  - 4 个端点 (`POST/GET/DELETE /sessions`) 全部移除
+  - 用户通过 `/chat` 返回的 `session_id` 即可继续对话
+
+- **[MODIFY studio/api/sessions.py]** 吸收完整 Session CRUD
+  - `GET /agents/{id}/sessions` — 列表（保留）
+  - `POST /agents/{id}/sessions` — 创建
+  - `GET /agents/{id}/sessions/{sid}` — 详情 + 消息历史
+  - `DELETE /agents/{id}/sessions/{sid}` — 删除
+  - 所有模型 (`SessionItem`, `MessageItem`, `SessionDetailResponse`) 内聚在此文件
+  - `SessionItem.state` 修复为 `Field(default_factory=dict)`
+
+- **[MODIFY api/models.py]** 移除 `SessionCreateRequest`, `SessionResponse`, `MessageItem`, `SessionHistoryResponse`
+
+- **[MODIFY app.py]** 移除 `sessions_api` 导入和路由挂载
+
+- **[MODIFY deps.py]** 更新 docstring，移除对已删除 `sessions.py` 的引用
+
+- **[MODIFY cli/templates.py]** 移除 Session 模型和 4 个端点 (Option B: 彻底移除)
+
+### ✅ Tests
+
+- **[REWRITE test_studio_sessions_memory.py]** 使用 `deps.init_registry()` + autouse fixture
+- 新增 CRUD 端点测试覆盖 (create, get detail, delete)
+- **9/9 passed** ✅
+
+---
+
 ## 2026-03-01 — Phase 2.5 代码评审整改
 
 ### 🔧 Architecture (P0)

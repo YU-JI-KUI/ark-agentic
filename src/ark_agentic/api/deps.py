@@ -2,8 +2,7 @@
 API 共享依赖
 
 将 AgentRegistry 的获取和 Agent 查找逻辑统一到此处，
-消除 chat.py / sessions.py / studio 各模块中重复的
-global _registry + init() + _get_agent() 模式。
+供 chat.py 及 studio 各模块共享使用。
 """
 
 from __future__ import annotations

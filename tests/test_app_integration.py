@@ -20,7 +20,7 @@ def client() -> TestClient:
 @pytest.fixture
 def mock_agent_runner():
     """Mock the insurance agent runner."""
-    with patch("ark_agentic.api.chat._get_agent") as mock_get:
+    with patch("ark_agentic.api.deps.get_agent") as mock_get:
         runner = AsyncMock(spec=AgentRunner)
         # Mock session manager
         runner.session_manager = AsyncMock()

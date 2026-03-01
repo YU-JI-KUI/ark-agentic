@@ -1,102 +1,93 @@
 """
-Studio Skills API
+Studio Skills API — 薄 HTTP 层
 
-读取 Agent 目录下的 skills/ 中的 SKILL.md 文件。
+参数校验 + 调用 skill_service，不含业务逻辑。
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .agents import _agents_root
+from ..services import skill_service
+from ..services.skill_service import SkillMeta
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-class SkillMeta(BaseModel):
-    id: str
-    name: str
-    description: str = ""
-    file_path: str = ""
-    content: str = ""
+# ── Request Models ──────────────────────────────────────────────────
+
+class SkillCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, description="技能名称")
+    description: str = Field("", description="描述")
+    content: str = Field("", description="Markdown 指令正文")
+
+
+class SkillUpdateRequest(BaseModel):
+    name: str | None = Field(None, description="更新名称")
+    description: str | None = Field(None, description="更新描述")
+    content: str | None = Field(None, description="更新 SKILL.md 正文")
 
 
 class SkillListResponse(BaseModel):
     skills: list[SkillMeta]
 
 
-def _parse_skill_md(skill_dir: Path) -> SkillMeta | None:
-    """解析 SKILL.md 文件，提取 name 和 description (YAML frontmatter)."""
-    skill_file = skill_dir / "SKILL.md"
-    if not skill_file.is_file():
-        # 尝试直接读取 .md 文件
-        md_files = list(skill_dir.glob("*.md"))
-        if not md_files:
-            return None
-        skill_file = md_files[0]
-
-    try:
-        content = skill_file.read_text(encoding="utf-8")
-    except Exception as e:
-        logger.warning("Failed to read %s: %s", skill_file, e)
-        return None
-
-    # 简单解析 YAML frontmatter
-    name = skill_dir.name
-    description = ""
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            frontmatter = parts[1]
-            lines = frontmatter.strip().split("\n")
-            i = 0
-            while i < len(lines):
-                line = lines[i]
-                if line.startswith("name:"):
-                    name = line[5:].strip().strip('"').strip("'")
-                elif line.startswith("description:"):
-                    desc = line[12:].strip()
-                    if desc == "|":
-                        desc_lines = []
-                        i += 1
-                        while i < len(lines) and (lines[i].startswith(" ") or lines[i].strip() == ""):
-                            if lines[i].strip():
-                                desc_lines.append(lines[i].strip())
-                            i += 1
-                        description = " ".join(desc_lines)
-                        continue
-                    else:
-                        description = desc.strip('"').strip("'")
-                i += 1
-
-    return SkillMeta(
-        id=skill_dir.name,
-        name=name,
-        description=description,
-        file_path=str(skill_file.relative_to(skill_dir.parent.parent)),
-        content=content,
-    )
-
+# ── Endpoints ───────────────────────────────────────────────────────
 
 @router.get("/agents/{agent_id}/skills", response_model=SkillListResponse)
 async def list_skills(agent_id: str):
     """列出 Agent 的所有 Skills。"""
     root = _agents_root()
-    skills_dir = root / agent_id / "skills"
-    if not skills_dir.is_dir():
+    try:
+        skills = skill_service.list_skills(root, agent_id)
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
-
-    skills: list[SkillMeta] = []
-    for child in sorted(skills_dir.iterdir()):
-        if child.is_dir() and not child.name.startswith(("_", ".")):
-            meta = _parse_skill_md(child)
-            if meta:
-                skills.append(meta)
-
     return SkillListResponse(skills=skills)
+
+
+@router.post("/agents/{agent_id}/skills", response_model=SkillMeta)
+async def create_skill(agent_id: str, req: SkillCreateRequest):
+    """创建新 Skill。"""
+    root = _agents_root()
+    try:
+        return skill_service.create_skill(
+            root, agent_id, req.name, req.description, req.content,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail=f"Skill already exists")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/agents/{agent_id}/skills/{skill_id}", response_model=SkillMeta)
+async def update_skill(agent_id: str, skill_id: str, req: SkillUpdateRequest):
+    """更新 Skill 内容。"""
+    root = _agents_root()
+    try:
+        return skill_service.update_skill(
+            root, agent_id, skill_id,
+            name=req.name, description=req.description, content=req.content,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
+
+
+@router.delete("/agents/{agent_id}/skills/{skill_id}")
+async def delete_skill(agent_id: str, skill_id: str):
+    """删除 Skill。"""
+    root = _agents_root()
+    try:
+        skill_service.delete_skill(root, agent_id, skill_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "deleted", "skill_id": skill_id}

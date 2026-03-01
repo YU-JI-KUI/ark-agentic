@@ -17,6 +17,10 @@ export interface SkillMeta {
     description: string
     file_path: string
     content: string
+    version?: string
+    invocation_policy?: string
+    group?: string
+    tags?: string[]
 }
 
 export interface ToolMeta {
@@ -33,6 +37,26 @@ export interface SessionItem {
     state: Record<string, unknown>
 }
 
+// ── Mutation Input Types ───────────────────────────────────────────
+
+export interface SkillCreateInput {
+    name: string
+    description?: string
+    content?: string
+}
+
+export interface SkillUpdateInput {
+    name?: string
+    description?: string
+    content?: string
+}
+
+export interface ToolScaffoldInput {
+    name: string
+    description?: string
+    parameters?: { name: string; description?: string; type?: string; required?: boolean }[]
+}
+
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     const res = await fetch(url, init)
     if (!res.ok) {
@@ -42,6 +66,8 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     return res.json()
 }
 
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
 export const api = {
     // Agents
     listAgents: () =>
@@ -50,15 +76,38 @@ export const api = {
     getAgent: (id: string) =>
         fetchJSON<AgentMeta>(`${API_BASE}/agents/${id}`),
 
-    // Skills
+    // Skills - Read
     listSkills: (agentId: string) =>
         fetchJSON<{ skills: SkillMeta[] }>(`${API_BASE}/agents/${agentId}/skills`).then(r => r.skills),
 
-    // Tools
+    // Skills - Mutations
+    createSkill: (agentId: string, data: SkillCreateInput) =>
+        fetchJSON<SkillMeta>(`${API_BASE}/agents/${agentId}/skills`, {
+            method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data),
+        }),
+
+    updateSkill: (agentId: string, skillId: string, data: SkillUpdateInput) =>
+        fetchJSON<SkillMeta>(`${API_BASE}/agents/${agentId}/skills/${skillId}`, {
+            method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(data),
+        }),
+
+    deleteSkill: (agentId: string, skillId: string) =>
+        fetchJSON<{ status: string }>(`${API_BASE}/agents/${agentId}/skills/${skillId}`, {
+            method: 'DELETE',
+        }),
+
+    // Tools - Read
     listTools: (agentId: string) =>
         fetchJSON<{ tools: ToolMeta[] }>(`${API_BASE}/agents/${agentId}/tools`).then(r => r.tools),
+
+    // Tools - Scaffold
+    scaffoldTool: (agentId: string, data: ToolScaffoldInput) =>
+        fetchJSON<ToolMeta>(`${API_BASE}/agents/${agentId}/tools`, {
+            method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data),
+        }),
 
     // Sessions
     listSessions: (agentId: string) =>
         fetchJSON<{ sessions: SessionItem[] }>(`${API_BASE}/agents/${agentId}/sessions`).then(r => r.sessions),
 }
+
