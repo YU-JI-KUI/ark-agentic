@@ -1,4 +1,15 @@
-"""ark-agentic Core: ReAct Agent 框架"""
+"""ark-agentic Core: ReAct Agent 框架
+
+Public API surface — 外部项目应仅使用此模块及子模块 __all__ 中列出的符号。
+
+子模块:
+    core.tools   — AgentTool, ToolRegistry 等
+    core.memory  — MemoryManager, FAISSVectorStore 等
+    core.skills  — SkillLoader, SkillMatcher 等
+    core.stream  — StreamAssembler, StreamEventBus 等
+    core.prompt  — SystemPromptBuilder, PromptConfig
+    core.llm     — create_chat_model, PAModel 等
+"""
 
 from .types import (
     AgentMessage,
@@ -7,10 +18,12 @@ from .types import (
     SessionEntry,
     SkillEntry,
     SkillMetadata,
+    SkillLoadMode,
     TokenUsage,
     CompactionStats,
     MessageRole,
     ToolResultType,
+    RunOptions,
 )
 from .runner import AgentRunner, RunnerConfig, RunResult
 from .session import SessionManager
@@ -18,6 +31,7 @@ from .compaction import (
     ContextCompactor,
     CompactionConfig,
     CompactionResult,
+    SummarizerProtocol,
     estimate_tokens,
     estimate_message_tokens,
 )
@@ -29,7 +43,10 @@ from .persistence import (
 )
 from .llm import (
     PAModel,
+    PAModelConfig,
     create_chat_model,
+    LLMError,
+    LLMErrorReason,
 )
 
 __all__ = [
@@ -40,10 +57,12 @@ __all__ = [
     "SessionEntry",
     "SkillEntry",
     "SkillMetadata",
+    "SkillLoadMode",
     "TokenUsage",
     "CompactionStats",
     "MessageRole",
     "ToolResultType",
+    "RunOptions",
     # Runner
     "AgentRunner",
     "RunnerConfig",
@@ -54,6 +73,7 @@ __all__ = [
     "ContextCompactor",
     "CompactionConfig",
     "CompactionResult",
+    "SummarizerProtocol",
     "estimate_tokens",
     "estimate_message_tokens",
     # Persistence
@@ -63,5 +83,8 @@ __all__ = [
     "FileLock",
     # LLM
     "PAModel",
+    "PAModelConfig",
     "create_chat_model",
+    "LLMError",
+    "LLMErrorReason",
 ]
