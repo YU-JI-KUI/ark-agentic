@@ -72,19 +72,10 @@ def create_securities_agent_from_env(
         sessions_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Session persistence enabled: {sessions_dir}")
 
-    # Memory 目录
-    memory_dir = os.getenv("MEMORY_DIR")
-    if memory_dir is None:
-        memory_dir = Path("data") / "ark_insurance_memory"
-    else:
-        memory_dir = Path(memory_dir)
-    memory_dir.mkdir(parents=True, exist_ok=True)
-
     runner = create_securities_agent(
         llm=llm,
         sessions_dir=sessions_dir,
         enable_persistence=enable_persistence,
-        memory_dir=memory_dir,
         enable_memory=False,
     )
     

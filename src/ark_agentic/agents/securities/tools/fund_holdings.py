@@ -11,6 +11,22 @@ from ark_agentic.core.types import AgentToolResult, ToolCall
 from .service_client import create_service_adapter
 
 
+def _normalize_context(context: dict[str, Any] | None) -> dict[str, Any]:
+    """标准化 context，兼容 user: 前缀与旧键名。"""
+    raw = context or {}
+    normalized = dict(raw)
+
+    for key, value in raw.items():
+        if key.startswith("user:"):
+            plain_key = key.split(":", 1)[1]
+            normalized.setdefault(plain_key, value)
+
+    if "id" in normalized:
+        normalized.setdefault("user_id", normalized["id"])
+
+    return normalized
+
+
 class FundHoldingsTool(AgentTool):
     """查询基金理财持仓信息"""
     
@@ -36,11 +52,12 @@ class FundHoldingsTool(AgentTool):
         tool_call: ToolCall,
         context: dict[str, Any] | None = None,
     ) -> AgentToolResult:
-        args = tool_call.arguments
+        args = dict(tool_call.arguments or {})
+        context = _normalize_context(context)
         # 优先 context，其次 args，最后 default
-        context_account_type = context.get("account_type") if context else None
+        context_account_type = context.get("account_type")
         account_type = args.get("account_type") or context_account_type or "normal"
-        user_id = context.get("user_id", "U001") if context else "U001"
+        user_id = context.get("user_id", "U001")
         
         try:
             data = await self._adapter.call(

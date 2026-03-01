@@ -17,6 +17,22 @@ from ark_agentic.core.types import AgentToolResult, ToolCall
 from .service_client import create_service_adapter
 
 
+def _normalize_context(context: dict[str, Any] | None) -> dict[str, Any]:
+    """标准化 context，兼容 user: 前缀与旧键名。"""
+    raw = context or {}
+    normalized = dict(raw)
+
+    for key, value in raw.items():
+        if key.startswith("user:"):
+            plain_key = key.split(":", 1)[1]
+            normalized.setdefault(plain_key, value)
+
+    if "id" in normalized:
+        normalized.setdefault("user_id", normalized["id"])
+
+    return normalized
+
+
 class CashAssetsTool(AgentTool):
     """查询现金资产信息"""
     
@@ -42,8 +58,8 @@ class CashAssetsTool(AgentTool):
         tool_call: ToolCall,
         context: dict[str, Any] | None = None,
     ) -> AgentToolResult:
-        args = tool_call.arguments
-        context = context or {}
+        args = dict(tool_call.arguments or {})
+        context = _normalize_context(context)
         # 上下文中的参数优先级高于 args，例如用户令牌或账户切换等信息。
         args.update(context)
         
