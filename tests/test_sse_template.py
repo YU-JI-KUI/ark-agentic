@@ -147,19 +147,23 @@ def test_display_card_tool():
     print("测试 DisplayCardTool")
     print("=" * 60)
 
-    from ark_agentic.core.types import AgentToolResult, ToolCall
+    from ark_agentic.core.types import AgentToolResult, ToolCall, ToolResultType
 
-    # 模拟数据工具结果（etf_holdings 返回的原始数据）
+    # 模拟数据工具结果（etf_holdings 返回的原始数据，符合真实 API 格式）
     etf_data = {
-        "holdings": [{"code": "510300", "name": "沪深300ETF", "market_value": 48000}],
-        "summary": {"total_value": 48000, "total_profit": 3000},
+        "results": {
+            "total": 1,
+            "dayTotalMktVal": 48000,
+            "dayTotalPft": 3000,
+            "stockList": [
+                {"secuCode": "510300", "secuName": "沪深300ETF", "mktVal": 48000, "holdCnt": 1000}
+            ],
+        }
     }
 
-    # 模拟 runner 注入的 context（存储原始 content 数据，非 AgentToolResult）
+    # 模拟 runner 注入的 context（state_delta 会将工具结果合并到 state）
     context = {
-        "_tool_results_by_name": {
-            "etf_holdings": etf_data,
-        },
+        "etf_holdings": etf_data,
         "user_id": "U001",
     }
 
@@ -173,10 +177,11 @@ def test_display_card_tool():
 
     # 验证
     assert not result.is_error, f"DisplayCardTool 返回了错误: {result.content}"
-    assert "template" in result.metadata
-    template = result.metadata["template"]
+    assert result.result_type == ToolResultType.A2UI
+    template = result.content
     assert template["template_type"] == "holdings_list_card"
     assert template["asset_class"] == "ETF"
+    # stock_list 被 render_holdings_list_card 转换为 holdings
     assert len(template["data"]["holdings"]) == 1
     print("   ✓ 成功从 context 读取 etf_holdings 结果")
     print(f"   ✓ template_type={template['template_type']}, asset_class={template['asset_class']}")

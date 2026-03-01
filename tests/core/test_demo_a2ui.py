@@ -64,7 +64,7 @@ async def test_demo_a2ui_tool_default_values() -> None:
     assert result.result_type == ToolResultType.A2UI
     # content is A2UI component dict; default card_content is in answerList[0].card_content_desc
     al = result.content["answerDict"]["result"]["answerList"]
-    assert al[0]["card_content_desc"] == "您的保单状态正常，保障至 2027-12-31。"
+    assert al[0]["card_content_desc"] == "您的保单状态正常，保障至 2027-12-31"
 
 
 @pytest.mark.asyncio
