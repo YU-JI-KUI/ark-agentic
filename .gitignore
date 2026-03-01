@@ -20,6 +20,10 @@ scripts/*
 
 # Claude
 CLAUDE.md
+.agent/
+.claude/
+.continue/
+.tasks/
 
 # Sessions
 data/ark_securities
