@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from ark_agentic.app import app, _get_agent
+from ark_agentic.app import app
 from ark_agentic.core.runner import AgentRunner, RunResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
@@ -20,7 +20,7 @@ def client() -> TestClient:
 @pytest.fixture
 def mock_agent_runner():
     """Mock the insurance agent runner."""
-    with patch("ark_agentic.app._get_agent") as mock_get:
+    with patch("ark_agentic.api.chat._get_agent") as mock_get:
         runner = AsyncMock(spec=AgentRunner)
         # Mock session manager
         runner.session_manager = AsyncMock()

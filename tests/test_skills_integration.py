@@ -162,7 +162,7 @@ async def test_cash_assets_data_and_card():
     assert card_result.result_type == ToolResultType.JSON
     template = card_result.metadata["template"]
     assert template["template_type"] == "cash_assets_card"
-    assert "total_cash" in template["data"]
+    assert "cash_balance" in template["data"]
 
 
 @pytest.mark.asyncio

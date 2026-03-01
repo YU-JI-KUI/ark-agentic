@@ -113,7 +113,7 @@ def test_sse_event_model():
     print("测试 SSE 事件模型")
     print("=" * 60)
 
-    from ark_agentic.app import SSEEvent
+    from ark_agentic.api.models import SSEEvent
 
     template = {
         "template_type": "account_overview_card",

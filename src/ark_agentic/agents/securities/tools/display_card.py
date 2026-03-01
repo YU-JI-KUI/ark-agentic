@@ -76,10 +76,9 @@ class DisplayCardTool(AgentTool):
                       f"可选值: {', '.join(_RENDER_MAP.keys())}",
             )
 
-        # 从 context 获取数据工具的返回内容（由 runner 注入，只含原始数据）
-        source_data: dict[str, Any] = (
-            (context or {}).get(source_tool) or {}
-        )
+        # 从 context 获取数据工具的返回内容（由 runner 注入，或者测试脚本注入）
+        tool_results: dict[str, Any] = (context or {}).get("_tool_results_by_name") or (context or {})
+        source_data: dict[str, Any] = tool_results.get(source_tool) or {}
 
         if source_data is None:
             return AgentToolResult.error_result(
