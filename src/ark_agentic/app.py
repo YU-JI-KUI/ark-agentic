@@ -109,7 +109,7 @@ class SSEEvent(BaseModel):
       - response.created       : Run initialized
       - response.step          : Agent lifecycle step (tool, status)
       - response.content.delta : Final answer text chunk (typewriter)
-      - response.template      : JSON template card (🆕)
+      - response.ui.component  : A2UI/卡片组件事件
       - response.completed     : Run finished with metadata
       - response.failed        : Error
     """
