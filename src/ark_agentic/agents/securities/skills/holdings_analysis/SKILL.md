@@ -1,13 +1,19 @@
 ---
 name: holdings_analysis
-description: 查询、分析用户的持仓情况，包括 ETF、港股通、基金等
+description: |
+  查询、分析用户的持仓情况，包括 ETF、港股通、基金等。
+  When to use: 用户想要查看持仓明细、ETF持仓、港股通持仓、基金持仓或询问"我买了什么股票"时使用。
 version: "1.0"
 invocation_policy: auto
 group: securities
-priority: high
 tags:
   - holdings
   - asset_holdings
+required_tools:
+  - etf_holdings
+  - hksc_holdings
+  - fund_holdings
+  - display_card
 ---
 
 # 用户资产持仓技能
