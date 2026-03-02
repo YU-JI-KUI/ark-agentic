@@ -5,6 +5,7 @@ import SkillsView from './SkillsView'
 import ToolsView from './ToolsView'
 import SessionsView from './SessionsView'
 import MemoryView from './MemoryView'
+import ChatPanel from './ChatPanel'
 
 export default function AgentShell() {
     const { agentId } = useParams<{ agentId: string }>()
@@ -66,40 +67,14 @@ export default function AgentShell() {
                     </div>
                 </div>
 
-                {/* Right LUI Panel (Meta-Agent Placeholder) */}
+                {/* Right LUI Panel — Meta-Agent Chat */}
                 <div className="panel-lui">
                     <div className="lui-header">
-                        <div className="lui-status-dot"></div>
-                        <strong style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>Meta-Agent (A2UI)</strong>
-                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginLeft: 'auto' }}>Standing by</span>
+                        <div className="lui-status-dot lui-status-dot-active"></div>
+                        <strong style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>Meta-Agent</strong>
+                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginLeft: 'auto' }}>对 {agentId}</span>
                     </div>
-
-                    <div className="lui-chat-history">
-                        <div style={{
-                            background: 'var(--color-surface)',
-                            padding: '16px',
-                            borderRadius: '12px',
-                            border: '1px solid var(--color-border)',
-                            display: 'inline-block',
-                            maxWidth: '85%',
-                            marginBottom: '16px',
-                            boxShadow: 'var(--shadow-sm)'
-                        }}>
-                            <p style={{ margin: 0, fontSize: '13px', lineHeight: '1.6', color: 'var(--color-text-secondary)' }}>
-                                你好！我是 Ark-Agentic Meta-Agent。<br />
-                                你可以用自然语言让我帮你创建技能、编写 Tool 逻辑，或审查当前的报错信息。<br />
-                                尝试说：<em>"帮我给当前智能体加上退保拦截的 Skill。"</em>
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="lui-input-area">
-                        <textarea
-                            className="lui-input-box"
-                            placeholder="Chat with Meta-Agent to configure..."
-                            disabled
-                        />
-                    </div>
+                    <ChatPanel agentId={agentId} />
                 </div>
 
             </div>

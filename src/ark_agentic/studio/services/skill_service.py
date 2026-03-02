@@ -7,6 +7,8 @@ Skill Service — 纯业务逻辑
 
 from __future__ import annotations
 
+from ark_agentic.core.utils.env import resolve_agent_dir
+
 import logging
 import re
 import shutil
@@ -41,7 +43,10 @@ class SkillMeta(BaseModel):
 
 def list_skills(agents_root: Path, agent_id: str) -> list[SkillMeta]:
     """扫描 skills/ 目录，解析 SKILL.md，返回 SkillMeta 列表。"""
-    skills_dir = agents_root / agent_id / "skills"
+    agent_dir = resolve_agent_dir(agents_root, agent_id)
+    if not agent_dir:
+        raise FileNotFoundError(f"Agent not found: {agent_id}")
+    skills_dir = agent_dir / "skills"
     if not skills_dir.is_dir():
         raise FileNotFoundError(f"Agent not found: {agent_id}")
 
@@ -71,7 +76,10 @@ def create_skill(
     if not name or not name.strip():
         raise ValueError("Skill name must not be empty")
 
-    skills_dir = agents_root / agent_id / "skills"
+    agent_dir = resolve_agent_dir(agents_root, agent_id)
+    if not agent_dir:
+        raise FileNotFoundError(f"Agent not found: {agent_id}")
+    skills_dir = agent_dir / "skills"
     if not skills_dir.is_dir():
         raise FileNotFoundError(f"Agent not found: {agent_id}")
 
@@ -108,7 +116,10 @@ def update_skill(
     Raises:
         FileNotFoundError: Skill 目录不存在
     """
-    skills_dir = agents_root / agent_id / "skills"
+    agent_dir = resolve_agent_dir(agents_root, agent_id)
+    if not agent_dir:
+        raise FileNotFoundError(f"Agent not found: {agent_id}")
+    skills_dir = agent_dir / "skills"
     skill_dir = skills_dir / skill_id
 
     if not skill_dir.is_dir():
@@ -155,7 +166,10 @@ def delete_skill(
         FileNotFoundError: 目录不存在
         ValueError: 路径安全检查失败
     """
-    skills_dir = agents_root / agent_id / "skills"
+    agent_dir = resolve_agent_dir(agents_root, agent_id)
+    if not agent_dir:
+        raise FileNotFoundError(f"Agent not found: {agent_id}")
+    skills_dir = agent_dir / "skills"
     skill_dir = skills_dir / skill_id
 
     if not skill_dir.is_dir():

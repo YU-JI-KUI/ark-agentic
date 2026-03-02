@@ -15,6 +15,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ark_agentic.core.utils.env import get_agents_root, resolve_agent_dir
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -46,33 +48,6 @@ class AgentListResponse(BaseModel):
 
 # ── 辅助函数 ──────────────────────────────────────────────────────────
 
-def _agents_root() -> Path:
-    """获取 agents/ 根目录路径。
-
-    优先级:
-      1. 环境变量 AGENTS_ROOT (显式配置, CLI 部署场景)
-      2. 框架内部 src/ark_agentic/agents/ (开发场景)
-    """
-    if env_root := os.getenv("AGENTS_ROOT"):
-        return Path(env_root).resolve()
-
-    # 基于当前文件向上查找带 pyproject.toml 的项目根
-    cursor = Path(__file__).resolve().parent
-    for _ in range(8):  # 最多向上 8 层
-        if (cursor / "pyproject.toml").exists():
-            project_agents = cursor / "src" / "ark_agentic" / "agents"
-            if project_agents.is_dir():
-                return project_agents
-            # CLI 生成的项目: agents/ 与 src/ 同级
-            if (cursor / "agents").is_dir():
-                return cursor / "agents"
-            break
-        cursor = cursor.parent
-
-    # 最终回退
-    return Path(__file__).resolve().parents[2] / "agents"
-
-
 def _read_agent_meta(agent_dir: Path) -> AgentMeta | None:
     """从 agent 目录读取 agent.json。"""
     meta_file = agent_dir / "agent.json"
@@ -101,10 +76,10 @@ def _write_agent_meta(agent_dir: Path, meta: AgentMeta) -> None:
 @router.get("/agents", response_model=AgentListResponse)
 async def list_agents():
     """扫描 agents/ 目录，列出所有 Agent。"""
-    root = _agents_root()
+    agents_root = get_agents_root(__file__)
     agents: list[AgentMeta] = []
-    if root.is_dir():
-        for child in sorted(root.iterdir()):
+    if agents_root.is_dir():
+        for child in sorted(agents_root.iterdir()):
             if child.is_dir() and not child.name.startswith(("_", ".")):
                 meta = _read_agent_meta(child)
                 if meta:
@@ -118,9 +93,9 @@ async def list_agents():
 @router.get("/agents/{agent_id}", response_model=AgentMeta)
 async def get_agent(agent_id: str):
     """获取单个 Agent 的元数据。"""
-    root = _agents_root()
-    agent_dir = root / agent_id
-    if not agent_dir.is_dir():
+    agents_root = get_agents_root(__file__)
+    agent_dir = resolve_agent_dir(agents_root, agent_id)
+    if not agent_dir:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
     meta = _read_agent_meta(agent_dir)
     if not meta:
@@ -131,8 +106,8 @@ async def get_agent(agent_id: str):
 @router.post("/agents", response_model=AgentMeta, status_code=201)
 async def create_agent(request: AgentCreateRequest):
     """创建新的 Agent 目录和 agent.json。"""
-    root = _agents_root()
-    agent_dir = root / request.id
+    agents_root = get_agents_root(__file__)
+    agent_dir = agents_root / request.id
     if agent_dir.exists():
         raise HTTPException(status_code=409, detail=f"Agent already exists: {request.id}")
 

@@ -7,6 +7,8 @@ Tool Service — 纯业务逻辑
 
 from __future__ import annotations
 
+from ark_agentic.core.utils.env import resolve_agent_dir
+
 import ast
 import logging
 import re
@@ -38,7 +40,10 @@ class ToolParameterSpec(BaseModel):
 
 def list_tools(agents_root: Path, agent_id: str) -> list[ToolMeta]:
     """列出 Agent 的所有 Tools (AST 解析)。"""
-    tools_dir = agents_root / agent_id / "tools"
+    agent_dir = resolve_agent_dir(agents_root, agent_id)
+    if not agent_dir:
+        raise FileNotFoundError(f"Agent not found: {agent_id}")
+    tools_dir = agent_dir / "tools"
     if not tools_dir.is_dir():
         raise FileNotFoundError(f"Agent not found: {agent_id}")
 
@@ -69,7 +74,10 @@ def scaffold_tool(
     if not name or not name.isidentifier():
         raise ValueError(f"Tool name must be a valid Python identifier: {name}")
 
-    tools_dir = agents_root / agent_id / "tools"
+    agent_dir = resolve_agent_dir(agents_root, agent_id)
+    if not agent_dir:
+        raise FileNotFoundError(f"Agent not found: {agent_id}")
+    tools_dir = agent_dir / "tools"
     if not tools_dir.is_dir():
         raise FileNotFoundError(f"Agent not found: {agent_id}")
 

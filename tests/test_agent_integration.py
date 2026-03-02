@@ -195,6 +195,64 @@ class SmarterMockLLM:
             return self._stream_response(response)
         return response
 
+    def bind_tools(self, tools: list[dict[str, Any]], **kwargs) -> 'SmarterMockLLM':
+        return self
+
+    def model_copy(self, update: dict[str, Any] = None) -> 'SmarterMockLLM':
+        return self
+
+    async def ainvoke(self, messages: list[Any], **kwargs) -> Any:
+        from langchain_core.messages import AIMessage
+        
+        dict_msgs = []
+        for m in messages:
+            if hasattr(m, "content"):
+                role_val = getattr(m, "type", "user")
+                dict_msgs.append({"role": role_val, "content": m.content})
+            else:
+                dict_msgs.append(m)
+                
+        res = await self.chat(dict_msgs, stream=False)
+        message = res["choices"][0]["message"]
+        tool_calls = message.get("tool_calls", [])
+        
+        parsed_tc = []
+        import json
+        for tc in tool_calls:
+            args_str = tc["function"]["arguments"]
+            try:
+                args = json.loads(args_str)
+            except:
+                args = {}
+            parsed_tc.append({
+                "name": tc["function"]["name"],
+                "args": args,
+                "id": tc["id"]
+            })
+            
+        ai_msg = AIMessage(content=message.get("content") or "", tool_calls=parsed_tc)
+        ai_msg.response_metadata = {"finish_reason": res["choices"][0]["finish_reason"]}
+        ai_msg.usage_metadata = {
+            "input_tokens": res.get("usage", {}).get("prompt_tokens", 0),
+            "output_tokens": res.get("usage", {}).get("completion_tokens", 0),
+        }
+        return ai_msg
+        
+    async def astream(self, messages: list[Any], **kwargs) -> Any:
+        # ainvoke is enough for agent integration mock because run_loop checks for streaming
+        # but if streams, it uses astream. So just yield the same chunk as ainvoke
+        from langchain_core.messages import AIMessageChunk
+        res = await self.ainvoke(messages, **kwargs)
+        yield AIMessageChunk(
+            content=res.content, 
+            tool_call_chunks=[{
+                "name": tc["name"], 
+                "args": json.dumps(tc["args"]), 
+                "id": tc["id"],
+                "index": i
+            } for i, tc in enumerate(res.tool_calls)]
+        )
+
 @pytest.mark.asyncio
 async def test_agent_margin_context_e2e():
     import logging
@@ -203,13 +261,15 @@ async def test_agent_margin_context_e2e():
     from ark_agentic.agents.securities.agent import create_securities_agent
     
     mock_llm = SmarterMockLLM()
-    agent = create_securities_agent(llm_client=mock_llm)
+    agent = create_securities_agent(llm=mock_llm)
     
     # Session setup
     session = await agent.session_manager.create_session()
     # KEY STEP: Inject "margin" context
-    agent.session_manager.set_context(session.session_id, "account_type", "margin")
-    agent.session_manager.set_context(session.session_id, "user_id", "U001")
+    agent.session_manager.update_state(session.session_id, {
+        "account_type": "margin",
+        "user_id": "U001"
+    })
     
     # Run
     print("Starting Agent Run...")

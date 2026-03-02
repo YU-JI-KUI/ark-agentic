@@ -18,9 +18,9 @@ client = TestClient(app)
 @pytest.fixture
 def mock_agents_root(tmp_path, monkeypatch):
     """Mock the _agents_root function to return a temp directory."""
-    def mock_root():
+    def mock_root(*args, **kwargs):
         return tmp_path
-    monkeypatch.setattr("ark_agentic.studio.api.skills._agents_root", mock_root)
+    monkeypatch.setattr("ark_agentic.studio.api.skills.get_agents_root", mock_root)
     return tmp_path
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,16 +17,34 @@ from ark_agentic.core.types import AgentMessage, MessageRole
 def client() -> TestClient:
     return TestClient(app)
 
+@pytest.fixture(autouse=True)
+def init_agent_registry():
+    from ark_agentic.api import deps
+    from ark_agentic.core.registry import AgentRegistry
+    # 初始化一个临时的空的 registry
+    deps.init_registry(AgentRegistry())
+    yield
+    # 清理（如果需要，或者允许其保持原样）
+
 @pytest.fixture
 def mock_agent_runner():
     """Mock the insurance agent runner."""
-    with patch("ark_agentic.api.deps.get_agent") as mock_get:
+    from ark_agentic.core.types import SessionEntry
+    with patch("ark_agentic.api.chat.get_agent") as mock_get:
         runner = AsyncMock(spec=AgentRunner)
-        # Mock session manager
-        runner.session_manager = AsyncMock()
-        runner.session_manager.create_session.return_value = AsyncMock(session_id="test-session")
-        runner.session_manager.get_session.return_value = AsyncMock(session_id="test-session")
-        runner.session_manager.load_session.return_value = AsyncMock(session_id="test-session")
+        # Mock session manager with proper SessionEntry
+        runner.session_manager = MagicMock()
+        mock_session = SessionEntry(session_id="test-session", model="mock", provider="mock", state={}, active_skills=[], messages=[])
+        
+        async def mock_create_session(*args, **kwargs):
+            return mock_session
+            
+        async def mock_load_session(*args, **kwargs):
+            return mock_session
+
+        runner.session_manager.create_session = mock_create_session
+        runner.session_manager.load_session = mock_load_session
+        runner.session_manager.get_session.return_value = mock_session
         
         # Mock run result
         runner.run.return_value = RunResult(

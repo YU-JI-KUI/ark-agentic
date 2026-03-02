@@ -57,13 +57,13 @@ from ark_agentic.api import deps
 @pytest.fixture
 def client(temp_agents_dir: Path) -> TestClient:
     """Create a FastAPI TestClient with the studio agents router
-    and a patched _agents_root pointing to the temp directory."""
+    and a patched get_agents_root pointing to the temp directory."""
     app = FastAPI()
     registry = AgentRegistry()
     deps.init_registry(registry)
     app.include_router(agents_api.router, prefix="/api/studio")
 
-    with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+    with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
         yield TestClient(app)
 
 
@@ -119,7 +119,7 @@ class TestListAgentsEndpoint:
 
     def test_list_agents_returns_all(self, client: TestClient, temp_agents_dir: Path):
         """Should list all agents (with and without agent.json), skip hidden dirs."""
-        with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+        with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
             response = client.get("/api/studio/agents")
         assert response.status_code == 200
         data = response.json()
@@ -130,14 +130,14 @@ class TestListAgentsEndpoint:
 
     def test_list_agents_insurance_has_name(self, client: TestClient, temp_agents_dir: Path):
         """Insurance agent should have the full name from agent.json."""
-        with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+        with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
             response = client.get("/api/studio/agents")
         agents = {a["id"]: a for a in response.json()["agents"]}
         assert agents["insurance"]["name"] == "保险理赔助手"
 
     def test_list_agents_bare_gets_fallback_name(self, client: TestClient, temp_agents_dir: Path):
         """Agent without agent.json should get its directory name as fallback."""
-        with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+        with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
             response = client.get("/api/studio/agents")
         agents = {a["id"]: a for a in response.json()["agents"]}
         assert agents["bare-agent"]["name"] == "bare-agent"
@@ -148,20 +148,20 @@ class TestGetAgentEndpoint:
 
     def test_get_existing_agent(self, client: TestClient, temp_agents_dir: Path):
         """Should return the agent metadata."""
-        with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+        with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
             response = client.get("/api/studio/agents/insurance")
         assert response.status_code == 200
         assert response.json()["name"] == "保险理赔助手"
 
     def test_get_nonexistent_agent_returns_404(self, client: TestClient, temp_agents_dir: Path):
         """Should return 404 for missing agent."""
-        with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+        with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
             response = client.get("/api/studio/agents/nonexistent")
         assert response.status_code == 404
 
     def test_get_bare_agent_returns_fallback(self, client: TestClient, temp_agents_dir: Path):
         """Agent without agent.json should return fallback meta."""
-        with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+        with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
             response = client.get("/api/studio/agents/bare-agent")
         assert response.status_code == 200
         assert response.json()["id"] == "bare-agent"
@@ -172,7 +172,7 @@ class TestCreateAgentEndpoint:
 
     def test_create_new_agent(self, client: TestClient, temp_agents_dir: Path):
         """Should create directory, agent.json, skills/ and tools/ subdirs."""
-        with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+        with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
             response = client.post("/api/studio/agents", json={
                 "id": "new-agent",
                 "name": "新助手",
@@ -194,7 +194,7 @@ class TestCreateAgentEndpoint:
 
     def test_create_duplicate_agent_returns_409(self, client: TestClient, temp_agents_dir: Path):
         """Should return 409 if agent already exists."""
-        with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+        with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
             response = client.post("/api/studio/agents", json={
                 "id": "insurance",
                 "name": "Duplicate",
@@ -203,7 +203,7 @@ class TestCreateAgentEndpoint:
 
     def test_create_agent_missing_required_field(self, client: TestClient, temp_agents_dir: Path):
         """Should return 422 if required 'id' or 'name' is missing."""
-        with patch("ark_agentic.studio.api.agents._agents_root", return_value=temp_agents_dir):
+        with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
             response = client.post("/api/studio/agents", json={
                 "description": "No id or name",
             })

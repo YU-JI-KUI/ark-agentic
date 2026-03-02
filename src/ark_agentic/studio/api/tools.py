@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .agents import _agents_root
+from ark_agentic.core.utils.env import get_agents_root
 from ..services import tool_service
 from ..services.tool_service import ToolMeta
 
@@ -41,7 +41,7 @@ class ToolListResponse(BaseModel):
 @router.get("/agents/{agent_id}/tools", response_model=ToolListResponse)
 async def list_tools(agent_id: str):
     """列出 Agent 的所有 Tools (AST 解析)。"""
-    root = _agents_root()
+    root = get_agents_root(__file__)
     try:
         tools = tool_service.list_tools(root, agent_id)
     except FileNotFoundError:
@@ -52,7 +52,7 @@ async def list_tools(agent_id: str):
 @router.post("/agents/{agent_id}/tools", response_model=ToolMeta)
 async def scaffold_tool(agent_id: str, req: ToolScaffoldRequest):
     """生成 AgentTool Python 脚手架。"""
-    root = _agents_root()
+    root = get_agents_root(__file__)
     try:
         return tool_service.scaffold_tool(
             root, agent_id, req.name, req.description, req.parameters,

@@ -1,6 +1,82 @@
 /* API client for Studio backend */
 
 const API_BASE = '/api/studio'
+const CHAT_URL = '/chat'
+
+// ── Chat / SSE Streaming ──────────────────────────────────────────
+
+export interface ChatRequest {
+    agent_id: string
+    message: string
+    session_id?: string
+    stream?: boolean
+    context?: Record<string, string>
+}
+
+export interface AgentStreamEvent {
+    type: string
+    seq: number
+    run_id: string
+    session_id: string
+    // text
+    delta?: string
+    message_id?: string
+    turn?: number
+    content_kind?: 'text' | 'a2ui'
+    // tool_call
+    tool_call_id?: string
+    tool_name?: string
+    tool_args?: Record<string, unknown>
+    tool_result?: unknown
+    // step
+    step_name?: string
+    // life-cycle
+    run_content?: string
+    message?: string
+    error_message?: string
+}
+
+/**
+ * Open a streaming chat connection to /chat.
+ * Returns an async generator of parsed AgentStreamEvent objects.
+ */
+export async function* streamChat(req: ChatRequest): AsyncGenerator<AgentStreamEvent> {
+    const body: ChatRequest = { ...req, stream: true }
+    const response = await fetch(CHAT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    })
+    if (!response.ok || !response.body) {
+        const detail = await response.text()
+        throw new Error(`Chat API Error ${response.status}: ${detail}`)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''   // keep partial last line
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                const data = line.slice(6).trim()
+                if (data && data !== '[DONE]') {
+                    try {
+                        yield JSON.parse(data) as AgentStreamEvent
+                    } catch {
+                        // skip non-JSON lines
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 export interface AgentMeta {
     id: string

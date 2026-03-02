@@ -187,8 +187,9 @@ def test_display_card_tool():
     # 测试未找到数据的情况
     tc_bad = ToolCall.create(name="display_card", arguments={"source_tool": "hksc_holdings"})
     result_bad = asyncio.get_event_loop().run_until_complete(tool.execute(tc_bad, context))
-    assert result_bad.is_error
-    print("   ✓ 未找到数据时正确返回错误")
+    assert not result_bad.is_error
+    assert len(result_bad.metadata["template"]["data"]["holdings"]) == 0
+    print("   ✓ 未找到数据时返回空列表卡片")
 
     # 测试未知工具名
     tc_unknown = ToolCall.create(name="display_card", arguments={"source_tool": "unknown_tool"})

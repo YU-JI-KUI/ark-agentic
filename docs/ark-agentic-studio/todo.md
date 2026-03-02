@@ -88,10 +88,10 @@
 ## 📋 待办 (TODO)
 
 ### CLI 部署支持
-- [ ] `cli/templates.py` 增加 `STUDIO_INIT_TEMPLATE`
-- [ ] `cli/main.py` `_cmd_init` 生成 `studio/` 目录和 `__init__.py`
-- [ ] 将 `frontend/dist/` 预构建产物打包进 Python 包 (`package_data`)
-- [ ] `.env-sample` 模板增加 `ENABLE_STUDIO=true` 和 `AGENTS_ROOT` 配置项
+- [x] `cli/templates.py` 增加 `STUDIO_INIT_TEMPLATE` (`STUDIO_APP_TEMPLATE` + `AGENT_JSON_TEMPLATE`)
+- [x] `cli/main.py` `_cmd_init` 增加 `--studio` 标志生成 Studio-aware `app.py` 和 `agent.json`
+- [x] 将 `frontend/dist/` 预构建产物打包进 Python 包 (`pyproject.toml` 已排除 `node_modules` 和 `src`)
+- [x] `.env-sample` 模板增加 `ENABLE_STUDIO=true` 和 `AGENTS_ROOT` 配置项
 
 ---
 

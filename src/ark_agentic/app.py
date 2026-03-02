@@ -48,6 +48,16 @@ _registry = AgentRegistry()
 async def lifespan(app: FastAPI):
     _registry.register("insurance", create_insurance_agent_from_env())
     _registry.register("securities", create_securities_agent_from_env())
+
+    # 条件注册 MetaBuilder Agent（仅当 Studio 启用时）
+    if os.getenv("ENABLE_STUDIO", "").lower() == "true":
+        try:
+            from ark_agentic.agents.meta_builder import create_meta_builder_from_env
+            _registry.register("meta-builder", create_meta_builder_from_env())
+            logger.info("MetaBuilder Agent registered")
+        except Exception as e:
+            logger.warning("MetaBuilder Agent failed to initialize, skipping: %s", e)
+
     # 单一入口：注入共享 registry 到 api/deps.py
     api_deps.init_registry(_registry)
     logger.info("Unified API started with agents: %s", _registry.list_ids())

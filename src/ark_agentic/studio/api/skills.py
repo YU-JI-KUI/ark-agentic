@@ -11,7 +11,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .agents import _agents_root
+from ark_agentic.core.utils.env import get_agents_root, resolve_agent_dir
 from ..services import skill_service
 from ..services.skill_service import SkillMeta
 
@@ -43,10 +43,13 @@ class SkillListResponse(BaseModel):
 @router.get("/agents/{agent_id}/skills", response_model=SkillListResponse)
 async def list_skills(agent_id: str):
     """列出 Agent 的所有 Skills。"""
-    root = _agents_root()
+    root = get_agents_root(__file__)
+    agent_dir = resolve_agent_dir(root, agent_id)
+    if not agent_dir:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
     try:
         skills = skill_service.list_skills(root, agent_id)
-    except FileNotFoundError:
+    except FileNotFoundError: # This should ideally not happen if agent_dir is found, but keeping for robustness
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
     return SkillListResponse(skills=skills)
 
@@ -54,7 +57,7 @@ async def list_skills(agent_id: str):
 @router.post("/agents/{agent_id}/skills", response_model=SkillMeta)
 async def create_skill(agent_id: str, req: SkillCreateRequest):
     """创建新 Skill。"""
-    root = _agents_root()
+    root = get_agents_root(__file__)
     try:
         return skill_service.create_skill(
             root, agent_id, req.name, req.description, req.content,
@@ -70,7 +73,7 @@ async def create_skill(agent_id: str, req: SkillCreateRequest):
 @router.put("/agents/{agent_id}/skills/{skill_id}", response_model=SkillMeta)
 async def update_skill(agent_id: str, skill_id: str, req: SkillUpdateRequest):
     """更新 Skill 内容。"""
-    root = _agents_root()
+    root = get_agents_root(__file__)
     try:
         return skill_service.update_skill(
             root, agent_id, skill_id,
@@ -83,7 +86,7 @@ async def update_skill(agent_id: str, skill_id: str, req: SkillUpdateRequest):
 @router.delete("/agents/{agent_id}/skills/{skill_id}")
 async def delete_skill(agent_id: str, skill_id: str):
     """删除 Skill。"""
-    root = _agents_root()
+    root = get_agents_root(__file__)
     try:
         skill_service.delete_skill(root, agent_id, skill_id)
     except FileNotFoundError:

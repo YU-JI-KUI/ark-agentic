@@ -42,6 +42,16 @@ export default function Dashboard() {
                 <p>Manage your AI agents, skills, tools, and sessions</p>
             </div>
 
+            {/* MetaChat entry banner */}
+            <div className="metachat-banner" onClick={() => navigate('/agents/meta-builder/skills')}>
+                <div className="metachat-banner-icon">🤖</div>
+                <div className="metachat-banner-body">
+                    <h2>Meta-Agent — Chat to Create</h2>
+                    <p>用自然语言创建 Agent、Skill 和 Tool。说 "帮我建一个客服 Agent" 就能开始。</p>
+                </div>
+                <div className="metachat-banner-arrow">→</div>
+            </div>
+
             {agents.length === 0 ? (
                 <div className="empty-state">
                     <div className="empty-state-icon">🤖</div>

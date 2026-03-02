@@ -4,17 +4,14 @@ from ark_agentic.agents.securities.schemas import AccountOverviewSchema, ETFHold
 def test_string_coercion():
     # Test case 1: Standard float string
     data = {
-        "totalAssets": "10000.50",
-        "cashBalance": "5000.25",
-        "stockValue": "4000.00",
-        "todayProfit": "150.50",
-        "totalProfit": "2000.00",
-        "profitRate": "0.15",
-        "updateTime": "2024-01-01"
+        "total_assets": "10000.50",
+        "cash_balance": "5000.25",
+        "stock_market_value": "4000.00",
+        "today_profit": "150.50",
     }
     
     # Schema should preserve strings as strings
-    schema = AccountOverviewSchema.from_raw_data(data)
+    schema = AccountOverviewSchema.model_validate(data)
     assert schema.total_assets == "10000.50"
     assert isinstance(schema.total_assets, str)
     
@@ -22,14 +19,14 @@ def test_string_coercion():
 
 def test_precision_loss():
     # Test case 2: Precision check
-    # We want to ensure that if we pass a high-precision string, it is NOT converted to float and back
     val_str = "0.123456789123456789"
     data = {
-        "totalAssets": val_str,
-        "cashBalance": "0", "stockValue": "0", "todayProfit": "0", 
-        "totalProfit": "0", "profitRate": "0", "updateTime": "now"
+        "total_assets": val_str,
+        "cash_balance": "0",
+        "stock_market_value": "0",
+        "today_profit": "0",
     }
-    schema = AccountOverviewSchema.from_raw_data(data)
+    schema = AccountOverviewSchema.model_validate(data)
     
     # Should be exact match
     print(f"Original: {val_str}")
