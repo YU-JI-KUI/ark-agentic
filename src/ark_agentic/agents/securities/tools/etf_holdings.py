@@ -1,9 +1,21 @@
 """ETF 持仓工具
 
 从 context 获取参数（支持 user: 前缀和裸 key 兼容）：
-- validatedata: ETF API 认证数据（可选，真实 API 需要）
-- signature: ETF API 签名（可选，真实 API 需要）
-- account_type: 账户类型（可选，ETF 不区分账户类型）
+
+**validatedata 必需字段**（生产环境必需，Mock 模式可省略）：
+- channel: 渠道类型（如 REST），key: user:channel 或 channel
+- usercode: 用户代码，key: user:usercode 或 usercode
+- userid: 用户ID，key: user:userid 或 userid
+- account: 账户号，key: user:account 或 account
+- branchno: 分支机构号，key: user:branchno 或 branchno
+- loginflag: 登录标志，key: user:loginflag 或 loginflag
+- mobileNo: 手机号，key: user:mobileNo 或 mobileNo
+
+**signature 必需字段**：
+- signature: 签名字符串（生产环境必需），key: user:signature 或 signature
+
+**其他可选字段**：
+- account_type: 账户类型（可选，ETF 不区分账户类型，但参数保留以保持一致性）
 - user_id: 用户 ID（可选，key: user:id 或 user_id）
 """
 
