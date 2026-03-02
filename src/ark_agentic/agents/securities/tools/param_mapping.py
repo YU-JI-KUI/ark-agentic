@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Callable
 
 
@@ -172,6 +173,180 @@ def _set_by_path(data: dict[str, Any], path: str, value: Any) -> None:
     current[keys[-1]] = value
 
 
+# ============ validatedata 支持 ============
+
+# validatedata 必需字段列表
+VALIDATEDATA_REQUIRED_FIELDS = [
+    "channel",
+    "usercode",
+    "userid",
+    "account",
+    "branchno",
+    "loginflag",
+    "mobileNo",
+]
+
+
+def validate_validatedata_fields(
+    context: dict[str, Any] | None,
+    required_fields: list[str] | None = None,
+    skip_on_mock: bool = True,
+) -> list[str]:
+    """校验 validatedata 必需字段是否存在
+
+    Args:
+        context: 上下文字典
+        required_fields: 必需字段列表，默认使用 VALIDATEDATA_REQUIRED_FIELDS
+        skip_on_mock: Mock 模式下跳过校验，默认 True
+
+    Returns:
+        缺失的字段列表（空列表表示全部存在）
+
+    Example:
+        >>> missing = validate_validatedata_fields(context)
+        >>> if missing:
+        ...     raise ValueError(f"缺少字段: {', '.join(missing)}")
+    """
+    # Mock 模式下跳过校验
+    if skip_on_mock and os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1"):
+        return []
+
+    if required_fields is None:
+        required_fields = VALIDATEDATA_REQUIRED_FIELDS
+
+    if context is None:
+        return required_fields.copy()
+
+    missing = []
+    for field in required_fields:
+        value = _get_context_value(context, field)
+        if not value:
+            missing.append(field)
+
+    return missing
+
+
+def build_validatedata(
+    context: dict[str, Any] | None,
+    required_fields: list[str] | None = None,
+    skip_on_mock: bool = True,
+) -> str:
+    """从 context 构建 validatedata 字符串
+
+    Args:
+        context: 上下文字典（支持 user: 前缀和裸 key）
+        required_fields: 必需字段列表，默认使用 VALIDATEDATA_REQUIRED_FIELDS
+        skip_on_mock: Mock 模式下跳过校验并返回空字符串，默认 True
+
+    Returns:
+        validatedata 字符串，格式: key1=value1&key2=value2&...
+        Mock 模式下返回空字符串
+
+    Raises:
+        ValueError: 如果缺少必需字段或字段值为空（非 Mock 模式）
+
+    Example:
+        >>> context = {
+        ...     "user:channel": "REST",
+        ...     "user:usercode": "150573383",
+        ...     "user:userid": "12977997",
+        ...     "user:account": "3310123",
+        ...     "user:branchno": "3310",
+        ...     "user:loginflag": "3",
+        ...     "user:mobileNo": "137123123",
+        ... }
+        >>> build_validatedata(context)
+        'channel=REST&usercode=150573383&userid=12977997&account=3310123&branchno=3310&loginflag=3&mobileNo=137123123'
+    """
+    # Mock 模式下返回空字符串
+    if skip_on_mock and os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1"):
+        return ""
+
+    if required_fields is None:
+        required_fields = VALIDATEDATA_REQUIRED_FIELDS
+
+    if context is None:
+        raise ValueError(
+            f"validatedata 构建失败：context 为空，需要字段: {', '.join(required_fields)}"
+        )
+
+    # 收集字段值
+    parts = []
+    missing_fields = []
+
+    for field in required_fields:
+        value = _get_context_value(context, field)
+        if not value:
+            missing_fields.append(field)
+        else:
+            parts.append(f"{field}={value}")
+
+    if missing_fields:
+        raise ValueError(
+            f"validatedata 缺少必需字段或值为空: {', '.join(missing_fields)}"
+        )
+
+    return "&".join(parts)
+
+
+def build_api_headers_with_validatedata(
+    header_config: dict[str, tuple],
+    context: dict[str, Any] | None,
+) -> dict[str, str]:
+    """构建包含 validatedata 的 API Headers
+
+    与 build_api_headers 类似，但支持 validatedata 的自动构建。
+
+    Args:
+        header_config: Header 配置
+            格式: {"header_name": ("validatedata", "build") | ("context", key), ...}
+        context: 上下文字典（支持 user: 前缀和裸 key）
+
+    Returns:
+        Headers 字典，包含 validatedata 和 signature
+
+    Raises:
+        ValueError: 如果 validatedata 必需字段缺失（非 Mock 模式）
+
+    Example:
+        >>> header_config = {
+        ...     "validatedata": ("validatedata", "build"),
+        ...     "signature": ("context", "signature"),
+        ... }
+        >>> context = {
+        ...     "user:channel": "REST",
+        ...     "user:usercode": "150573383",
+        ...     "user:signature": "xxx",
+        ...     # ... 其他必需字段
+        ... }
+        >>> headers = build_api_headers_with_validatedata(header_config, context)
+        >>> "validatedata" in headers
+        True
+        >>> "signature" in headers
+        True
+    """
+    headers: dict[str, str] = {}
+
+    if context is None:
+        return headers
+
+    for header_name, source_def in header_config.items():
+        source_type = source_def[0]
+
+        if source_type == "context":
+            key = source_def[1]
+            value = _get_context_value(context, key)
+            if value:
+                headers[header_name] = str(value)
+        elif source_type == "validatedata":
+            # 构建 validatedata 字符串
+            validatedata_str = build_validatedata(context)
+            if validatedata_str:  # 非空时才添加（Mock 模式可能为空）
+                headers[header_name] = validatedata_str
+
+    return headers
+
+
 # ============ 服务参数配置 ============
 
 # 账户总览 API 参数配置
@@ -219,7 +394,7 @@ ETF_HOLDINGS_PARAM_CONFIG: dict[str, tuple] = {
 # ETF 持仓 Header 认证配置
 # ETF API 需要特殊的 header 认证
 ETF_HOLDINGS_HEADER_CONFIG: dict[str, tuple] = {
-    "validatedata": ("context", "validatedata"),  # 从 context 获取
+    "validatedata": ("validatedata", "build"),  # 自动构建 validatedata
     "signature": ("context", "signature"),  # 从 context 获取
 }
 
@@ -234,7 +409,14 @@ HKSC_HOLDINGS_PARAM_CONFIG: dict[str, tuple] = {
 
 # Header 参数配置（HKSC 专用，与 ETF 相同）
 HKSC_HOLDINGS_HEADER_CONFIG: dict[str, tuple] = {
-    "validatedata": ("context", "validatedata"),  # 从 context 获取
+    "validatedata": ("validatedata", "build"),  # 自动构建 validatedata
+    "signature": ("context", "signature"),  # 从 context 获取
+}
+
+# 统一的 Header 认证配置（所有服务共用）
+# 使用 validatedata + signature 认证方式
+UNIFIED_HEADER_CONFIG: dict[str, tuple] = {
+    "validatedata": ("validatedata", "build"),  # 自动构建 validatedata
     "signature": ("context", "signature"),  # 从 context 获取
 }
 
@@ -248,6 +430,10 @@ SERVICE_PARAM_CONFIGS: dict[str, dict[str, tuple]] = {
 
 # 服务 Header 配置注册表（用于需要特殊 header 的服务）
 SERVICE_HEADER_CONFIGS: dict[str, dict[str, tuple]] = {
-    "etf_holdings": ETF_HOLDINGS_HEADER_CONFIG,
-    "hksc_holdings": HKSC_HOLDINGS_HEADER_CONFIG,  # 新增
+    "account_overview": UNIFIED_HEADER_CONFIG,  # 账户总览使用 validatedata
+    "cash_assets": UNIFIED_HEADER_CONFIG,       # 现金资产使用 validatedata
+    "fund_holdings": UNIFIED_HEADER_CONFIG,     # 基金持仓使用 validatedata
+    "security_detail": UNIFIED_HEADER_CONFIG,   # 标的详情使用 validatedata
+    "etf_holdings": ETF_HOLDINGS_HEADER_CONFIG,  # ETF 使用 validatedata
+    "hksc_holdings": HKSC_HOLDINGS_HEADER_CONFIG,  # HKSC 使用 validatedata
 }

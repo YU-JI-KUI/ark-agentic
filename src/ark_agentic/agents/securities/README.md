@@ -67,7 +67,14 @@ SECURITIES_SERVICE_MOCK=true uv run python -m ark_agentic.app
   "user_id": "U001",
   "context": {
     "user_id": "U001",
-    "token_id": "N_4ABD52CE290DD385...",
+    "channel": "REST",
+    "usercode": "150573383",
+    "userid": "12977997",
+    "account": "3310123",
+    "branchno": "3310",
+    "loginflag": "3",
+    "mobileNo": "137123123",
+    "signature": "xxx",
     "account_type": "normal"
   }
 }
@@ -89,10 +96,22 @@ SECURITIES_SERVICE_MOCK=true uv run python -m ark_agentic.app
 | 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
 | `user_id` | string | 否 | 用户 ID |
-| `token_id` | string | 是* | 登录令牌（调用真实 API 必需） |
 | `account_type` | string | 否 | 账户类型：`"normal"` 或 `"margin"`，默认 `"normal"` |
 
-> *`token_id` 在 Mock 模式下可选，生产环境必需。
+**validatedata 认证字段**（生产环境必需，Mock 模式可省略）：
+
+| 字段 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| `channel` | string | 是* | 渠道类型（如 `REST`） |
+| `usercode` | string | 是* | 用户代码 |
+| `userid` | string | 是* | 用户 ID |
+| `account` | string | 是* | 账户号 |
+| `branchno` | string | 是* | 分支机构号 |
+| `loginflag` | string | 是* | 登录标志 |
+| `mobileNo` | string | 是* | 手机号 |
+| `signature` | string | 是* | 签名字符串 |
+
+> *所有 validatedata 和 signature 字段在生产环境必需，Mock 模式下可选。
 
 ### Chat 响应（非流式）
 
@@ -424,7 +443,14 @@ async function sendMessage(message, context) {
     user_id: context.user_id,
     context: {
       user_id: context.user_id,
-      token_id: context.token_id,
+      channel: context.channel,
+      usercode: context.usercode,
+      userid: context.userid,
+      account: context.account,
+      branchno: context.branchno,
+      loginflag: context.loginflag,
+      mobileNo: context.mobileNo,
+      signature: context.signature,
       account_type: context.account_type || "normal"
     }
   };
@@ -552,27 +578,33 @@ agents/securities/
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  1. 参数获取（扁平 context）                                          │
-│     context.token_id ────────┐                                       │
-│     context.account_type ────┼──► param_mapping.build_api_request    │
-│     static config ───────────┘       │                               │
-│                                      ▼                               │
-│  2. API 调用                     {channel, appName, tokenId, body}   │
+│     context.channel/usercode/... ───┐                                │
+│     context.account_type ───────────┼──► param_mapping.build_api_    │
+│     static config ──────────────────┘       request()               │
+│                                             │                        │
+│                                             ▼                        │
+│  2. 构建 Headers                       {validatedata, signature}    │
+│     build_api_headers_with_           param_mapping.build_api_      │
+│     validatedata() ────────────────────► headers_with_validatedata  │
+│                                    │                                 │
+│                                    ▼                                 │
+│  3. API 调用                     {channel, appName, tokenId, body}   │
 │     service_client.call() ───────► 真实 API / Mock 数据              │
 │                                    │                                 │
 │                                    ▼                                 │
-│  3. 原始响应                     {status, results: {rmb: {...}}}     │
+│  4. 原始响应                     {status, results: {rmb: {...}}}     │
 │     account_overview 返回 ───────► 原始 API 格式数据                  │
 │                                    │                                 │
 │                                    ▼                                 │
-│  4. 字段提取                     field_extraction.extract_xxx()      │
+│  5. 字段提取                     field_extraction.extract_xxx()      │
 │     display_card 调用 ──────────► 提取显示字段 {total_assets, ...}   │
 │                                    │                                 │
 │                                    ▼                                 │
-│  5. 模板渲染                     template_renderer.render_xxx_card() │
+│  6. 模板渲染                     template_renderer.render_xxx_card() │
 │     display_card 返回 ──────────► {template_type, data}             │
 │                                    │                                 │
 │                                    ▼                                 │
-│  6. SSE 推送                     response.ui.component 事件         │
+│  7. SSE 推送                     response.ui.component 事件         │
 │     app.py 直发 ────────────────► 前端渲染卡片                       │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -586,14 +618,20 @@ agents/securities/
 
 ```python
 # param_mapping.py
-# context 为扁平结构: {"token_id": "xxx", "account_type": "normal", "user_id": "U001"}
+# context 为扁平结构: {"channel": "REST", "usercode": "150573383", ...}
 ACCOUNT_OVERVIEW_PARAM_CONFIG = {
     # "API字段": ("来源类型", 来源值, [转换函数])
     "channel": ("static", "native"),
     "appName": ("static", "AYLCAPP"),
-    "tokenId": ("context", "token_id"),           # 从扁平 context 获取
+    "tokenId": ("context", "token_id"),           # 从扁平 context 获取（如有）
     "body.accountType": ("transform", "account_type",  # 从扁平 context 获取
                          lambda x: "2" if x == "margin" else "1"),
+}
+
+# Headers 认证配置
+UNIFIED_HEADER_CONFIG = {
+    "validatedata": ("validatedata", "build"),  # 自动从 context 构建
+    "signature": ("context", "signature"),       # 从 context 获取
 }
 ```
 
@@ -609,15 +647,37 @@ ACCOUNT_OVERVIEW_PARAM_CONFIG = {
 
 ```python
 from ark_agentic.agents.securities.tools.param_mapping import (
-    build_api_request, SERVICE_PARAM_CONFIGS
+    build_api_request,
+    build_api_headers_with_validatedata,
+    SERVICE_PARAM_CONFIGS,
+    SERVICE_HEADER_CONFIGS,
 )
 
-# 扁平 context 结构
-context = {"token_id": "xxx", "account_type": "margin", "user_id": "U001"}
+# 扁平 context 结构（包含 validatedata 所需字段）
+context = {
+    "channel": "REST",
+    "usercode": "150573383",
+    "userid": "12977997",
+    "account": "3310123",
+    "branchno": "3310",
+    "loginflag": "3",
+    "mobileNo": "137123123",
+    "signature": "xxx",
+    "account_type": "margin",
+    "user_id": "U001"
+}
+
+# 构建请求体
 config = SERVICE_PARAM_CONFIGS["account_overview"]
 request_body = build_api_request(config, context)
-# {"channel": "native", "appName": "AYLCAPP", "tokenId": "xxx",
+# {"channel": "native", "appName": "AYLCAPP",
 #  "body": {"accountType": "2"}}
+
+# 构建 Headers（含 validatedata）
+header_config = SERVICE_HEADER_CONFIGS["account_overview"]
+headers = build_api_headers_with_validatedata(header_config, context)
+# {"validatedata": "channel=REST&usercode=150573383&...",
+#  "signature": "xxx"}
 ```
 
 ## 字段提取设计

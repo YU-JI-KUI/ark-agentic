@@ -1077,6 +1077,14 @@
       const selectedAgent = 'securities';
       let selectedAccountType = sessionStorage.getItem('ark_account_type') || 'normal';
       let tokenId = sessionStorage.getItem('ark_token_id') || 'MOCK_TOKEN_' + Date.now();
+      let selectedChannel = 'REST';
+      let selectedUsercode = sessionStorage.getItem('ark_usercode') || '150573383';
+      let selectedUserid = sessionStorage.getItem('ark_userid') || '12977997';
+      let selectedAccount = sessionStorage.getItem('ark_account') || '3310123';
+      let selectedBranch = sessionStorage.getItem('ark_branchno') || '3310';
+      let selectedLoginflag = sessionStorage.getItem('ark_loginflag') || '3';
+      let selectedMobile = sessionStorage.getItem('ark_mobile') || '137123123';
+      let selectedSignature = sessionStorage.getItem('ark_signature') || '/bzp123=';
 
       // ---- DOM refs ----
       const $welcome = document.getElementById('welcomeSection');
@@ -1230,7 +1238,14 @@
           user_id: selectedUserId,
           context: {
             user_id: selectedUserId,
-            token_id: tokenId,
+            channel: selectedChannel,
+            usercode: selectedUsercode,
+            userid: selectedUserid,
+            account: selectedAccount,
+            branchno: selectedBranch,
+            loginflag: selectedLoginflag,
+            mobileNo: selectedMobile,
+            signature: selectedSignature,
             account_type: selectedAccountType,
           },
         };

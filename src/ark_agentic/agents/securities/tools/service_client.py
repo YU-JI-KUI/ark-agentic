@@ -117,8 +117,9 @@ class BaseServiceAdapter(ABC):
 class AccountOverviewAdapter(BaseServiceAdapter):
     """账户总资产服务适配器
 
-    使用真实 API 格式：
-    - 请求体: {"channel": "native", "appName": "AYLCAPP", "tokenId": "xxx", "body": {"accountType": "1"}}
+    使用 validatedata + signature 认证：
+    - Headers: {"validatedata": "...", "signature": "..."}
+    - 请求体: {"channel": "native", "appName": "AYLCAPP", "body": {"accountType": "1"}}
     - 响应体: {"status": 1, "results": {"rmb": {...}}}
     """
 
@@ -128,11 +129,16 @@ class AccountOverviewAdapter(BaseServiceAdapter):
         user_id: str,
         params: dict[str, Any],
     ) -> tuple[dict[str, str], dict[str, Any]]:
-        """构建请求（使用参数映射配置）
+        """构建请求（使用 validatedata + signature 认证）
 
-        context 为扁平结构: {"token_id": "xxx", "account_type": "normal", "user_id": "U001"}
+        context 为扁平结构: {"channel": "REST", "usercode": "...", "signature": "...", ...}
         """
-        from .param_mapping import build_api_request, SERVICE_PARAM_CONFIGS
+        from .param_mapping import (
+            build_api_request,
+            build_api_headers_with_validatedata,
+            SERVICE_PARAM_CONFIGS,
+            SERVICE_HEADER_CONFIGS,
+        )
 
         # 从 params 中获取 context（扁平结构）
         context = params.get("_context", {})
@@ -145,11 +151,17 @@ class AccountOverviewAdapter(BaseServiceAdapter):
         config = SERVICE_PARAM_CONFIGS.get("account_overview", {})
         body = build_api_request(config, context)
 
+        # 使用 build_api_headers_with_validatedata 构建认证 headers
+        # （包含 validatedata 和 signature）
         headers = {"Content-Type": "application/json"}
+        header_config = SERVICE_HEADER_CONFIGS.get("account_overview", {})
+        auth_headers = build_api_headers_with_validatedata(header_config, context)
+        headers.update(auth_headers)
 
-        # 添加认证（如果配置了）
+        # 添加配置的认证（如果有的话，作为 fallback）
         if self.config.auth_type == "header" and self.config.auth_value:
-            headers[self.config.auth_key] = self.config.auth_value
+            if self.config.auth_key not in headers:  # 不覆盖 validatedata/signature
+                headers[self.config.auth_key] = self.config.auth_value
 
         return headers, body
 
@@ -171,9 +183,9 @@ class AccountOverviewAdapter(BaseServiceAdapter):
 class ETFHoldingsAdapter(BaseServiceAdapter):
     """ETF 持仓服务适配器
 
-    使用真实 API 格式：
-    - 请求体: {"assetGrpType": 7, "appName": "AYLCAPP", "limit": 20}
+    使用 validatedata + signature 认证：
     - Headers: {"Content-Type": "application/json", "validatedata": "...", "signature": "..."}
+    - 请求体: {"assetGrpType": 7, "appName": "AYLCAPP", "limit": 20}
     - 响应体: {"status": 1, "results": {"stockList": [...]}}
     """
 
@@ -183,10 +195,10 @@ class ETFHoldingsAdapter(BaseServiceAdapter):
         user_id: str,
         params: dict[str, Any],
     ) -> tuple[dict[str, str], dict[str, Any]]:
-        """构建请求（使用参数映射配置）"""
+        """构建请求（使用 validatedata + signature 认证）"""
         from .param_mapping import (
             build_api_request,
-            build_api_headers,
+            build_api_headers_with_validatedata,
             SERVICE_PARAM_CONFIGS,
             SERVICE_HEADER_CONFIGS,
         )
@@ -199,15 +211,14 @@ class ETFHoldingsAdapter(BaseServiceAdapter):
 
         # 构建 headers（包含 validatedata 和 signature）
         headers = {"Content-Type": "application/json"}
-
-        # 使用 build_api_headers 构建 ETF 专用认证 headers
         header_config = SERVICE_HEADER_CONFIGS.get("etf_holdings", {})
-        auth_headers = build_api_headers(header_config, context)
+        auth_headers = build_api_headers_with_validatedata(header_config, context)
         headers.update(auth_headers)
 
-        # 添加配置的认证（如果有的话）
+        # 添加配置的认证（如果有的话，作为 fallback）
         if self.config.auth_type == "header" and self.config.auth_value:
-            headers[self.config.auth_key] = self.config.auth_value
+            if self.config.auth_key not in headers:  # 不覆盖 validatedata/signature
+                headers[self.config.auth_key] = self.config.auth_value
 
         return headers, body
 
@@ -229,9 +240,9 @@ class ETFHoldingsAdapter(BaseServiceAdapter):
 class HKSCHoldingsAdapter(BaseServiceAdapter):
     """港股通持仓服务适配器
 
-    使用真实 API 格式：
-    - 请求体: {"appName": "AYLCAPP", "model": 1, "limit": 20}
+    使用 validatedata + signature 认证：
     - Headers: {"Content-Type": "application/json", "validatedata": "...", "signature": "..."}
+    - 请求体: {"appName": "AYLCAPP", "model": 1, "limit": 20}
     - 响应体: {"status": 1, "results": {"stockList": [...], "holdMktVal": ...}}
     """
 
@@ -241,10 +252,10 @@ class HKSCHoldingsAdapter(BaseServiceAdapter):
         user_id: str,
         params: dict[str, Any],
     ) -> tuple[dict[str, str], dict[str, Any]]:
-        """构建请求（使用参数映射配置）"""
+        """构建请求（使用 validatedata + signature 认证）"""
         from .param_mapping import (
             build_api_request,
-            build_api_headers,
+            build_api_headers_with_validatedata,
             SERVICE_PARAM_CONFIGS,
             SERVICE_HEADER_CONFIGS,
         )
@@ -257,15 +268,14 @@ class HKSCHoldingsAdapter(BaseServiceAdapter):
 
         # 构建 headers（包含 validatedata 和 signature）
         headers = {"Content-Type": "application/json"}
-
-        # 使用 build_api_headers 构建 HKSC 专用认证 headers
         header_config = SERVICE_HEADER_CONFIGS.get("hksc_holdings", {})
-        auth_headers = build_api_headers(header_config, context)
+        auth_headers = build_api_headers_with_validatedata(header_config, context)
         headers.update(auth_headers)
 
-        # 添加配置的认证（如果有的话）
+        # 添加配置的认证（如果有的话，作为 fallback）
         if self.config.auth_type == "header" and self.config.auth_value:
-            headers[self.config.auth_key] = self.config.auth_value
+            if self.config.auth_key not in headers:  # 不覆盖 validatedata/signature
+                headers[self.config.auth_key] = self.config.auth_value
 
         return headers, body
 
@@ -287,7 +297,41 @@ class HKSCHoldingsAdapter(BaseServiceAdapter):
 
 
 class FundHoldingsAdapter(BaseServiceAdapter):
-    """基金理财持仓服务适配器"""
+    """基金理财持仓服务适配器
+
+    使用 validatedata + signature 认证：
+    - Headers: {"validatedata": "...", "signature": "..."}
+    """
+
+    def _build_request(
+        self,
+        account_type: str,
+        user_id: str,
+        params: dict[str, Any],
+    ) -> tuple[dict[str, str], dict[str, Any]]:
+        """构建请求（使用 validatedata + signature 认证）"""
+        from .param_mapping import (
+            build_api_headers_with_validatedata,
+            SERVICE_HEADER_CONFIGS,
+        )
+
+        context = params.get("_context", {})
+
+        # 构建请求体
+        body = {"user_id": user_id, "account_type": account_type}
+
+        # 构建 headers（包含 validatedata 和 signature）
+        headers = {"Content-Type": "application/json"}
+        header_config = SERVICE_HEADER_CONFIGS.get("fund_holdings", {})
+        auth_headers = build_api_headers_with_validatedata(header_config, context)
+        headers.update(auth_headers)
+
+        # 添加配置的认证（如果有的话，作为 fallback）
+        if self.config.auth_type == "header" and self.config.auth_value:
+            if self.config.auth_key not in headers:  # 不覆盖 validatedata/signature
+                headers[self.config.auth_key] = self.config.auth_value
+
+        return headers, body
 
     def _normalize_response(
         self,
@@ -311,8 +355,9 @@ class FundHoldingsAdapter(BaseServiceAdapter):
 class CashAssetsAdapter(BaseServiceAdapter):
     """现金资产服务适配器
 
-    使用真实 API 格式：
-    - 请求体: {"channel": "native", "appName": "AYLCAPP", "tokenId": "xxx", "body": {"accountType": "1"}}
+    使用 validatedata + signature 认证：
+    - Headers: {"validatedata": "...", "signature": "..."}
+    - 请求体: {"channel": "native", "appName": "AYLCAPP", "body": {"accountType": "1"}}
     - 响应体: {"status": 1, "results": {"rmb": {...}}}
     """
 
@@ -322,11 +367,16 @@ class CashAssetsAdapter(BaseServiceAdapter):
         user_id: str,
         params: dict[str, Any],
     ) -> tuple[dict[str, str], dict[str, Any]]:
-        """构建请求（使用参数映射配置）
+        """构建请求（使用 validatedata + signature 认证）
 
-        context 为扁平结构: {"token_id": "xxx", "account_type": "normal", "user_id": "U001"}
+        context 为扁平结构: {"channel": "REST", "usercode": "...", "signature": "...", ...}
         """
-        from .param_mapping import build_api_request, SERVICE_PARAM_CONFIGS
+        from .param_mapping import (
+            build_api_request,
+            build_api_headers_with_validatedata,
+            SERVICE_PARAM_CONFIGS,
+            SERVICE_HEADER_CONFIGS,
+        )
 
         # 从 params 中获取 context（扁平结构）
         context = params.get("_context", {})
@@ -339,11 +389,17 @@ class CashAssetsAdapter(BaseServiceAdapter):
         config = SERVICE_PARAM_CONFIGS.get("cash_assets", {})
         body = build_api_request(config, context)
 
+        # 使用 build_api_headers_with_validatedata 构建认证 headers
+        # （包含 validatedata 和 signature）
         headers = {"Content-Type": "application/json"}
+        header_config = SERVICE_HEADER_CONFIGS.get("cash_assets", {})
+        auth_headers = build_api_headers_with_validatedata(header_config, context)
+        headers.update(auth_headers)
 
-        # 添加认证（如果配置了）
+        # 添加配置的认证（如果有的话，作为 fallback）
         if self.config.auth_type == "header" and self.config.auth_value:
-            headers[self.config.auth_key] = self.config.auth_value
+            if self.config.auth_key not in headers:  # 不覆盖 validatedata/signature
+                headers[self.config.auth_key] = self.config.auth_value
 
         return headers, body
 
@@ -363,7 +419,41 @@ class CashAssetsAdapter(BaseServiceAdapter):
 
 
 class SecurityDetailAdapter(BaseServiceAdapter):
-    """具体标的详情服务适配器"""
+    """具体标的详情服务适配器
+
+    使用 validatedata + signature 认证：
+    - Headers: {"validatedata": "...", "signature": "..."}
+    """
+
+    def _build_request(
+        self,
+        account_type: str,
+        user_id: str,
+        params: dict[str, Any],
+    ) -> tuple[dict[str, str], dict[str, Any]]:
+        """构建请求（使用 validatedata + signature 认证）"""
+        from .param_mapping import (
+            build_api_headers_with_validatedata,
+            SERVICE_HEADER_CONFIGS,
+        )
+
+        context = params.get("_context", {})
+
+        # 构建请求体
+        body = {"user_id": user_id, "account_type": account_type}
+
+        # 构建 headers（包含 validatedata 和 signature）
+        headers = {"Content-Type": "application/json"}
+        header_config = SERVICE_HEADER_CONFIGS.get("security_detail", {})
+        auth_headers = build_api_headers_with_validatedata(header_config, context)
+        headers.update(auth_headers)
+
+        # 添加配置的认证（如果有的话，作为 fallback）
+        if self.config.auth_type == "header" and self.config.auth_value:
+            if self.config.auth_key not in headers:  # 不覆盖 validatedata/signature
+                headers[self.config.auth_key] = self.config.auth_value
+
+        return headers, body
 
     def _normalize_response(
         self,

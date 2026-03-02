@@ -1,7 +1,20 @@
 """基金理财持仓工具
 
 从 context 获取参数（支持 user: 前缀和裸 key 兼容）：
-- token_id: 用户令牌（可选）
+
+**validatedata 必需字段**（生产环境必需，Mock 模式可省略）：
+- channel: 渠道类型（如 REST），key: user:channel 或 channel
+- usercode: 用户代码，key: user:usercode 或 usercode
+- userid: 用户ID，key: user:userid 或 userid
+- account: 账户号，key: user:account 或 account
+- branchno: 分支机构号，key: user:branchno 或 branchno
+- loginflag: 登录标志，key: user:loginflag 或 loginflag
+- mobileNo: 手机号，key: user:mobileNo 或 mobileNo
+
+**signature 必需字段**：
+- signature: 签名字符串（生产环境必需），key: user:signature 或 signature
+
+**其他可选字段**：
 - account_type: 账户类型，normal 或 margin（可选，默认 normal，key: user:account_type 或 account_type）
 - user_id: 用户 ID（可选，key: user:id 或 user_id）
 """
