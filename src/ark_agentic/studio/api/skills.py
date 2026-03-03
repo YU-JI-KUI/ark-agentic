@@ -11,7 +11,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ark_agentic.core.utils.env import get_agents_root, resolve_agent_dir
+from ark_agentic.core.utils.env import get_agents_root
 from ..services import skill_service
 from ..services.skill_service import SkillMeta
 
@@ -44,12 +44,9 @@ class SkillListResponse(BaseModel):
 async def list_skills(agent_id: str):
     """列出 Agent 的所有 Skills。"""
     root = get_agents_root(__file__)
-    agent_dir = resolve_agent_dir(root, agent_id)
-    if not agent_dir:
-        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
     try:
         skills = skill_service.list_skills(root, agent_id)
-    except FileNotFoundError: # This should ideally not happen if agent_dir is found, but keeping for robustness
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
     return SkillListResponse(skills=skills)
 

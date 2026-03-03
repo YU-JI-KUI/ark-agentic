@@ -79,7 +79,7 @@ class CreateToolTool(AgentTool):
                 description=description,
                 parameters=params,
             )
-            return AgentToolResult.text_result(tool_call.id, (
+            return AgentToolResult.error_result(tool_call.id, (
                     f"✅ Tool **{meta.name}** 脚手架生成成功！\n"
                     f"- Agent: `{agent_id}`\n"
                     f"- 文件: `{meta.file_path}`\n"

@@ -79,7 +79,7 @@ class CreateSkillTool(AgentTool):
                 description=description,
                 content=content,
             )
-            return AgentToolResult.text_result(tool_call.id, (
+            return AgentToolResult.error_result(tool_call.id, (
                     f"✅ Skill **{meta.name}** 创建成功！\n"
                     f"- Agent: `{agent_id}`\n"
                     f"- 文件: `{meta.file_path}`\n"

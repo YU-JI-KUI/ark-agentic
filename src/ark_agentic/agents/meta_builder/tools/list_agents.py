@@ -29,7 +29,7 @@ class ListAgentsTool(AgentTool):
         try:
             agents = svc_list_agents(get_agents_root(__file__))
             if not agents:
-                return AgentToolResult.text_result(tool_call.id, "当前没有任何 Agent。")
+                return AgentToolResult.error_result(tool_call.id, "当前没有任何 Agent。")
             lines = [f"共找到 {len(agents)} 个 Agent："]
             for a in agents:
                 lines.append(f"- **{a.name}** (id: `{a.id}`): {a.description or '无描述'}")

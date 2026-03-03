@@ -56,17 +56,17 @@ export default function ChatPanel({ agentId }: Props) {
             })
 
             for await (const event of gen) {
-                if (event.type === 'response.created' && !sessionId) {
+                if (event.type === 'run_started' && !sessionId) {
                     setSessionId(event.session_id)
                 }
-                if (event.type === 'response.content.delta' && event.delta) {
+                if (event.type === 'text_message_content' && event.delta) {
                     setMessages(prev => prev.map(m =>
                         m.id === assistantMsgId
                             ? { ...m, content: m.content + event.delta }
                             : m
                     ))
                 }
-                if (event.type === 'response.tool_call.start' && event.tool_name) {
+                if (event.type === 'tool_call_args' && event.tool_name) {
                     const toolMsgId = nextId()
                     setMessages(prev => [...prev.slice(0, -1), {
                         id: toolMsgId,
@@ -76,19 +76,19 @@ export default function ChatPanel({ agentId }: Props) {
                         toolArgs: event.tool_args,
                     }, prev[prev.length - 1]])
                 }
-                if (event.type === 'response.tool_call.result') {
+                if (event.type === 'tool_call_result') {
                     setMessages(prev => prev.map(m =>
                         m.role === 'tool' && m.toolName === event.tool_name && m.toolResult === undefined
                             ? { ...m, toolResult: event.tool_result }
                             : m
                     ))
                 }
-                if (event.type === 'response.completed') {
+                if (event.type === 'run_finished') {
                     setMessages(prev => prev.map(m =>
                         m.id === assistantMsgId ? { ...m, isStreaming: false } : m
                     ))
                 }
-                if (event.type === 'response.failed') {
+                if (event.type === 'run_error') {
                     setMessages(prev => prev.map(m =>
                         m.id === assistantMsgId
                             ? { ...m, content: `❌ ${event.error_message}`, isStreaming: false, isError: true }

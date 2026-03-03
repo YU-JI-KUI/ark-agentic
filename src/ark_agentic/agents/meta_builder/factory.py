@@ -27,13 +27,6 @@ from .tools.create_agent import CreateAgentTool
 from .tools.create_skill import CreateSkillTool
 from .tools.update_skill import UpdateSkillTool
 from .tools.create_tool import CreateToolTool
-from .tools.list_skills import ListSkillsTool
-from .tools.read_skill import ReadSkillTool
-from .tools.delete_skill import DeleteSkillTool
-from .tools.list_tools import ListToolsTool
-from .tools.read_tool import ReadToolTool
-from .tools.update_tool import UpdateToolTool
-from .tools.delete_tool import DeleteToolTool
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +79,6 @@ def create_meta_builder_from_env(
     tool_registry.register(CreateSkillTool())
     tool_registry.register(UpdateSkillTool())
     tool_registry.register(CreateToolTool())
-    tool_registry.register(ListSkillsTool())
-    tool_registry.register(ReadSkillTool())
-    tool_registry.register(DeleteSkillTool())
-    tool_registry.register(ListToolsTool())
-    tool_registry.register(ReadToolTool())
-    tool_registry.register(UpdateToolTool())
-    tool_registry.register(DeleteToolTool())
 
     # Session 管理（轻量：无持久化压缩，对话上下文本身不长）
     if sessions_dir is None:

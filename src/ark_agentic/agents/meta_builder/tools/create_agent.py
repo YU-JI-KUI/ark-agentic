@@ -65,7 +65,7 @@ class CreateAgentTool(AgentTool):
 
         try:
             agent_dir = scaffold_agent(get_agents_root(__file__), spec)
-            return AgentToolResult.text_result(tool_call.id, (
+            return AgentToolResult.error_result(tool_call.id, (
                     f"✅ Agent **{name}** 创建成功！\n"
                     f"- 目录: `{agent_dir}`\n"
                     f"- 初始技能数: {len(spec.skills)}\n"

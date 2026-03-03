@@ -1,3 +1,4 @@
+from ark_agentic.core.utils.env import resolve_agent_dir
 """
 Tool Service — 纯业务逻辑
 
@@ -6,8 +7,6 @@ Tool Service — 纯业务逻辑
 """
 
 from __future__ import annotations
-
-from ark_agentic.core.utils.env import resolve_agent_dir
 
 import ast
 import logging
