@@ -37,18 +37,16 @@ async def test_account_overview_data_and_card():
     card_tool = DisplayCardTool()
     card_call = ToolCall(id="test_1_card", name="display_card", arguments={"source_tool": "account_overview"})
     
-    # 模拟 runner 注入的上下文
+    # 模拟 runner 注入的上下文（state_delta 会将工具结果合并到 state）
     card_context = {
-        "_tool_results_by_name": {
-            "account_overview": data_result.content
-        }
+        "account_overview": data_result.content
     }
     
     card_result = await card_tool.execute(card_call, context=card_context)
-    
-    # 卡片工具返回模板
-    assert card_result.result_type == ToolResultType.JSON
-    template = card_result.metadata["template"]
+
+    # 卡片工具返回 A2UI 模板
+    assert card_result.result_type == ToolResultType.A2UI
+    template = card_result.content
     assert template["template_type"] == "account_overview_card"
     assert "data" in template
 
@@ -67,16 +65,15 @@ async def test_etf_holdings_data_and_card():
     card_tool = DisplayCardTool()
     card_call = ToolCall(id="test_2_card", name="display_card", arguments={"source_tool": "etf_holdings"})
     
+    # 模拟 runner 注入的上下文（state_delta 会将工具结果合并到 state）
     card_context = {
-        "_tool_results_by_name": {
-            "etf_holdings": data_result.content
-        }
+        "etf_holdings": data_result.content
     }
     
     card_result = await card_tool.execute(card_call, context=card_context)
-    
-    assert card_result.result_type == ToolResultType.JSON
-    template = card_result.metadata["template"]
+
+    assert card_result.result_type == ToolResultType.A2UI
+    template = card_result.content
     assert template["template_type"] == "holdings_list_card"
     assert template["asset_class"] == "ETF"
 
@@ -95,16 +92,15 @@ async def test_hksc_holdings_data_and_card():
     card_tool = DisplayCardTool()
     card_call = ToolCall(id="test_3_card", name="display_card", arguments={"source_tool": "hksc_holdings"})
     
+    # 模拟 runner 注入的上下文（state_delta 会将工具结果合并到 state）
     card_context = {
-        "_tool_results_by_name": {
-            "hksc_holdings": data_result.content
-        }
+        "hksc_holdings": data_result.content
     }
     
     card_result = await card_tool.execute(card_call, context=card_context)
-    
-    assert card_result.result_type == ToolResultType.JSON
-    template = card_result.metadata["template"]
+
+    assert card_result.result_type == ToolResultType.A2UI
+    template = card_result.content
     assert template["template_type"] == "holdings_list_card"
     assert template["asset_class"] == "HKSC"
 
@@ -123,16 +119,15 @@ async def test_fund_holdings_data_and_card():
     card_tool = DisplayCardTool()
     card_call = ToolCall(id="test_4_card", name="display_card", arguments={"source_tool": "fund_holdings"})
     
+    # 模拟 runner 注入的上下文（state_delta 会将工具结果合并到 state）
     card_context = {
-        "_tool_results_by_name": {
-            "fund_holdings": data_result.content
-        }
+        "fund_holdings": data_result.content
     }
     
     card_result = await card_tool.execute(card_call, context=card_context)
-    
-    assert card_result.result_type == ToolResultType.JSON
-    template = card_result.metadata["template"]
+
+    assert card_result.result_type == ToolResultType.A2UI
+    template = card_result.content
     assert template["template_type"] == "holdings_list_card"
     assert template["asset_class"] == "Fund"
 
@@ -151,16 +146,15 @@ async def test_cash_assets_data_and_card():
     card_tool = DisplayCardTool()
     card_call = ToolCall(id="test_5_card", name="display_card", arguments={"source_tool": "cash_assets"})
     
+    # 模拟 runner 注入的上下文（state_delta 会将工具结果合并到 state）
     card_context = {
-        "_tool_results_by_name": {
-            "cash_assets": data_result.content
-        }
+        "cash_assets": data_result.content
     }
     
     card_result = await card_tool.execute(card_call, context=card_context)
-    
-    assert card_result.result_type == ToolResultType.JSON
-    template = card_result.metadata["template"]
+
+    assert card_result.result_type == ToolResultType.A2UI
+    template = card_result.content
     assert template["template_type"] == "cash_assets_card"
     assert "cash_balance" in template["data"]
 
@@ -179,15 +173,14 @@ async def test_security_detail_data_and_card():
     card_tool = DisplayCardTool()
     card_call = ToolCall(id="test_6_card", name="display_card", arguments={"source_tool": "security_detail"})
     
+    # 模拟 runner 注入的上下文（state_delta 会将工具结果合并到 state）
     card_context = {
-        "_tool_results_by_name": {
-            "security_detail": data_result.content
-        }
+        "security_detail": data_result.content
     }
     
     card_result = await card_tool.execute(card_call, context=card_context)
-    
-    assert card_result.result_type == ToolResultType.JSON
-    template = card_result.metadata["template"]
+
+    assert card_result.result_type == ToolResultType.A2UI
+    template = card_result.content
     assert template["template_type"] == "security_detail_card"
     assert template["data"]["security_code"] == "510300"

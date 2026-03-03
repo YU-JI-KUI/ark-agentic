@@ -21,6 +21,7 @@ from ark_agentic.core.prompt.builder import PromptConfig
 from langchain_core.language_models.chat_models import BaseChatModel
 from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.skills.base import SkillConfig
+from ark_agentic.core.types import SkillLoadMode
 
 from .tools import create_securities_tools
 
@@ -79,21 +80,27 @@ def create_securities_agent(
         summarizer=summarizer,
     )
     
-    # 创建 Runner 配置
-    runner_config = RunnerConfig(
-        prompt_config=prompt_config,
-    )
-    
     # 创建技能加载器
     skill_config = SkillConfig(
         skill_directories=[str(_SKILLS_DIR)],
+        agent_id="securities",
         enable_eligibility_check=True,
+        default_load_mode=SkillLoadMode.dynamic,
     )
     skill_loader = SkillLoader(skill_config)
     try:
         skill_loader.load_from_directories()
     except Exception:
         pass  # 忽略加载错误，确保 Agent 能启动
+
+    # 创建 Runner 配置
+    runner_config = RunnerConfig(
+        temperature=float(os.getenv("DEFAULT_TEMPERATURE", "0.7")),
+        max_tokens=4096,
+        max_turns=10,
+        prompt_config=prompt_config,
+        skill_config=skill_config,
+    )
 
     # 4. 可选：创建 MemoryManager
     memory_manager = None

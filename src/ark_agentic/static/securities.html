@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>万能服务</title>
+  <title>证券服务</title>
   <style>
     /* ============================================================
    Design tokens
@@ -461,7 +461,6 @@
 }
 .think-step.active .ts-icon { background: var(--orange); box-shadow: 0 0 0 3px rgba(240,118,43,0.15); }
 .think-step.done .ts-icon { background: #34a853; }
-/* Previous turn output moved into thinking panel when turn changes */
 .turn-output {
   font-size: 12px;
   color: var(--text-secondary);
@@ -518,7 +517,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 10px;   /* separation from answer-bubble above */
+  margin-top: 10px;
 }
 .a2ui-card {
   background: var(--white);
@@ -867,16 +866,15 @@
           <path d="M12.5 15L7.5 10L12.5 5" stroke="white" stroke-width="2" stroke-linecap="round"
             stroke-linejoin="round" />
         </svg>
-        <span>万能服务</span>
+        <span>证券服务</span>
       </div>
       <div class="header-right">
-        <!-- 🆕 Agent 选择器 -->
         <select class="user-select" id="agentSelect">
           <option value="insurance">保险</option>
-          <option value="securities">证券</option>
+          <option value="securities" selected>证券</option>
         </select>
-        <!-- 🆕 账户类型选择器（仅 securities 显示） -->
-        <select class="user-select hidden" id="accountTypeSelect">
+        <!-- 账户类型选择器（证券页常显） -->
+        <select class="user-select" id="accountTypeSelect">
           <option value="normal">普通户</option>
           <option value="margin">两融账户</option>
         </select>
@@ -913,81 +911,85 @@
         <div class="quick-card">
           <div class="quick-card-title">猜你想要</div>
           <div class="quick-grid">
-            <div class="quick-item" data-msg="我想查一下我的保单">
+            <div class="quick-item" data-msg="帮我查一下账户总览">
               <div class="quick-icon qi-green">
                 <svg viewBox="0 0 24 24" fill="none" stroke="#34b87a" stroke-width="1.8" stroke-linecap="round"
                   stroke-linejoin="round">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
                 </svg>
               </div>
-              <span class="quick-item-label">掌上保</span>
+              <span class="quick-item-label">账户总览</span>
             </div>
-            <div class="quick-item" data-msg="我想了解信息更新">
+            <div class="quick-item" data-msg="帮我查一下持仓情况">
               <div class="quick-icon qi-blue">
                 <svg viewBox="0 0 24 24" fill="none" stroke="#4a8af4" stroke-width="1.8" stroke-linecap="round"
                   stroke-linejoin="round">
-                  <path d="M17 1l4 4-4 4" />
-                  <path d="M3 11V9a4 4 0 014-4h14" />
-                  <path d="M7 23l-4-4 4-4" />
-                  <path d="M21 13v2a4 4 0 01-4 4H3" />
+                  <line x1="18" y1="20" x2="18" y2="10" />
+                  <line x1="12" y1="20" x2="12" y2="4" />
+                  <line x1="6" y1="20" x2="6" y2="14" />
                 </svg>
               </div>
-              <span class="quick-item-label">信息更新</span>
+              <span class="quick-item-label">持仓查询</span>
             </div>
-            <div class="quick-item" data-msg="我想查一下我的保单详情">
+            <div class="quick-item" data-msg="帮我查一下现金资产">
               <div class="quick-icon qi-orange">
                 <svg viewBox="0 0 24 24" fill="none" stroke="#e87a30" stroke-width="1.8" stroke-linecap="round"
                   stroke-linejoin="round">
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
               </div>
-              <span class="quick-item-label">保单查询</span>
+              <span class="quick-item-label">现金资产</span>
             </div>
-            <div class="quick-item" data-msg="我想在线问诊">
+            <div class="quick-item" data-msg="帮我查一下最近的交易记录">
               <div class="quick-icon qi-purple">
                 <svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.8" stroke-linecap="round"
                   stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="16" />
-                  <line x1="8" y1="12" x2="16" y2="12" />
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                 </svg>
               </div>
-              <span class="quick-item-label">在线问诊</span>
+              <span class="quick-item-label">交易记录</span>
             </div>
           </div>
         </div>
 
         <!-- Quick links -->
         <div class="quick-links">
-          <div class="quick-link" data-msg="帮我查一下红利领取记录">
+          <div class="quick-link" data-msg="帮我查一下ETF持仓情况">
             <div class="ql-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="#e87a30" stroke-width="1.8" stroke-linecap="round"
                 stroke-linejoin="round">
-                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+                <line x1="18" y1="20" x2="18" y2="10" />
+                <line x1="12" y1="20" x2="12" y2="4" />
+                <line x1="6" y1="20" x2="6" y2="14" />
               </svg>
             </div>
-            <span class="ql-text">红利领取记录查询</span>
+            <span class="ql-text">ETF持仓查询</span>
             <span class="ql-arrow">&#8250;</span>
           </div>
-          <div class="quick-link" data-msg="保全业务释义是什么">
+          <div class="quick-link" data-msg="帮我查一下港股通持仓">
             <div class="ql-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="#e87a30" stroke-width="1.8" stroke-linecap="round"
                 stroke-linejoin="round">
-                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
               </svg>
             </div>
-            <span class="ql-text">保全业务释义</span>
+            <span class="ql-text">港股通持仓查询</span>
             <span class="ql-arrow">&#8250;</span>
           </div>
-          <div class="quick-link" data-msg="帮我查询附近的寿险公司门店">
+          <div class="quick-link" data-msg="帮我查询一只股票的行情">
             <div class="ql-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="#e87a30" stroke-width="1.8" stroke-linecap="round"
                 stroke-linejoin="round">
-                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
               </svg>
             </div>
-            <span class="ql-text">寿险公司门店信息查询</span>
+            <span class="ql-text">个股行情查询</span>
             <span class="ql-arrow">&#8250;</span>
           </div>
         </div>
@@ -1002,37 +1004,37 @@
     <div class="bottom-bar">
       <!-- Quick pills -->
       <div class="quick-pills" id="quickPills">
-        <div class="pill" data-msg="我想申请理赔">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-            stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M16 8l-8 8M8 8l8 8" />
-          </svg>
-          理赔申请
-        </div>
-        <div class="pill" data-msg="帮我查一下红利">
+        <div class="pill" data-msg="帮我查一下账户总览">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
             stroke-linejoin="round">
             <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
             <line x1="8" y1="21" x2="16" y2="21" />
             <line x1="12" y1="17" x2="12" y2="21" />
           </svg>
-          红利查询
+          账户总览
         </div>
-        <div class="pill" data-msg="我想续期交费">
+        <div class="pill" data-msg="帮我查一下持仓情况">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
             stroke-linejoin="round">
-            <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-            <line x1="1" y1="10" x2="23" y2="10" />
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" />
           </svg>
-          续期交费
+          持仓查询
+        </div>
+        <div class="pill" data-msg="帮我查询一只股票的行情">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+            stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+          </svg>
+          个股行情
         </div>
       </div>
 
       <!-- Input bar -->
       <div class="input-bar">
         <div class="input-card">
-          <textarea id="msgInput" rows="1" placeholder="有问题就问万能服务" autocomplete="off"></textarea>
+          <textarea id="msgInput" rows="1" placeholder="有问题就问证券服务" autocomplete="off"></textarea>
           <div class="input-bottom">
             <div class="input-left-controls">
               <button class="mic-btn" type="button" title="语音输入">
@@ -1072,10 +1074,17 @@
       let isSending = false;
       let userScrolled = false;
       let selectedUserId = sessionStorage.getItem('ark_user_id') || 'U001';
-      let selectedAgent = sessionStorage.getItem('ark_agent') || 'insurance';  // 🆕
-      let selectedAccountType = sessionStorage.getItem('ark_account_type') || 'normal';  // 🆕
-      // 🆕 模拟登录后的 token（真实场景应从登录接口获取）
+      const selectedAgent = 'securities';
+      let selectedAccountType = sessionStorage.getItem('ark_account_type') || 'normal';
       let tokenId = sessionStorage.getItem('ark_token_id') || 'MOCK_TOKEN_' + Date.now();
+      let selectedChannel = 'REST';
+      let selectedUsercode = sessionStorage.getItem('ark_usercode') || '150573383';
+      let selectedUserid = sessionStorage.getItem('ark_userid') || '12977997';
+      let selectedAccount = sessionStorage.getItem('ark_account') || '3310123';
+      let selectedBranch = sessionStorage.getItem('ark_branchno') || '3310';
+      let selectedLoginflag = sessionStorage.getItem('ark_loginflag') || '3';
+      let selectedMobile = sessionStorage.getItem('ark_mobile') || '137123123';
+      let selectedSignature = sessionStorage.getItem('ark_signature') || '/bzp123=';
 
       // ---- DOM refs ----
       const $welcome = document.getElementById('welcomeSection');
@@ -1083,20 +1092,18 @@
       const $scroll = document.getElementById('scrollContent');
       const $input = document.getElementById('msgInput');
       const $sendBtn = document.getElementById('sendBtn');
-      // const $sessionLabel = document.getElementById('sessionLabel'); // Removed
       const $newSessionBtn = document.getElementById('newSessionBtn');
       const $toggleTrack = document.getElementById('toggleTrack');
       const $toggleLabel = document.getElementById('toggleLabel');
       const $streamToggle = document.getElementById('streamToggle');
       const $statusText = document.getElementById('statusText');
       const $userSelect = document.getElementById('userSelect');
-      const $agentSelect = document.getElementById('agentSelect');  // 🆕
-      const $accountTypeSelect = document.getElementById('accountTypeSelect');  // 🆕
+      const $agentSelect = document.getElementById('agentSelect');
+      const $accountTypeSelect = document.getElementById('accountTypeSelect');
       const $subHeader = document.getElementById('subHeader');
 
       // ---- Init user selector ----
       $userSelect.value = selectedUserId;
-      // If stored value isn't in the list, reset
       if ($userSelect.value !== selectedUserId) {
         $userSelect.value = 'U001';
         selectedUserId = 'U001';
@@ -1107,14 +1114,13 @@
           const custom = prompt('请输入自定义用户 ID:', '');
           if (custom && custom.trim()) {
             selectedUserId = custom.trim();
-            // Add a temp option
             const opt = document.createElement('option');
             opt.value = selectedUserId;
             opt.textContent = selectedUserId;
             $userSelect.insertBefore(opt, $userSelect.lastElementChild);
             $userSelect.value = selectedUserId;
           } else {
-            $userSelect.value = selectedUserId; // revert
+            $userSelect.value = selectedUserId;
             return;
           }
         } else {
@@ -1123,38 +1129,24 @@
         sessionStorage.setItem('ark_user_id', selectedUserId);
       });
 
-      // 🆕 ---- Init agent selector ----
-      $agentSelect.value = selectedAgent;
-      // Show/hide account type selector based on agent
-      if (selectedAgent === 'securities') {
-        $accountTypeSelect.classList.remove('hidden');
-      }
-
+      // ---- Agent selector → 整页跳转 ----
       $agentSelect.addEventListener('change', () => {
-        selectedAgent = $agentSelect.value;
-        sessionStorage.setItem('ark_agent', selectedAgent);
-        // Show/hide account type selector
-        if (selectedAgent === 'securities') {
-          $accountTypeSelect.classList.remove('hidden');
+        const target = $agentSelect.value;
+        sessionStorage.setItem('ark_agent', target);
+        if (target === 'insurance') {
+          window.location.href = '/insurance';
         } else {
-          $accountTypeSelect.classList.add('hidden');
+          window.location.href = '/securities';
         }
       });
 
-      // 🆕 ---- Init account type selector ----
+      // ---- Init account type selector ----
       $accountTypeSelect.value = selectedAccountType;
 
       $accountTypeSelect.addEventListener('change', () => {
         selectedAccountType = $accountTypeSelect.value;
         sessionStorage.setItem('ark_account_type', selectedAccountType);
       });
-
-      // ---- Session label ----
-      function updateSessionLabel() {
-        // Removed to save space
-        // if ($sessionLabel) $sessionLabel.textContent = sessionId ? sessionId.slice(0, 8) : '';
-      }
-      // updateSessionLabel();
 
       // ---- New session ----
       $newSessionBtn.addEventListener('click', () => {
@@ -1164,7 +1156,6 @@
         $chat.classList.add('hidden');
         $welcome.classList.remove('hidden');
         $subHeader.classList.remove('hidden');
-        // updateSessionLabel();
       });
 
       // ---- Stream toggle ----
@@ -1219,6 +1210,10 @@
           .replace(/\n/g, '<br>');
       }
 
+      function escHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+
       // ---- Send message ----
       async function sendMessage() {
         const text = $input.value.trim();
@@ -1230,7 +1225,6 @@
         $input.style.height = 'auto';
         $statusText.textContent = '';
 
-        // Switch to chat view
         $welcome.classList.add('hidden');
         $subHeader.classList.add('hidden');
         $chat.classList.remove('hidden');
@@ -1240,12 +1234,19 @@
         const payload = {
           message: text,
           stream: isStreaming,
-          agent_id: selectedAgent,  // 🆕 使用选择的 agent
+          agent_id: selectedAgent,
           user_id: selectedUserId,
           context: {
             user_id: selectedUserId,
-            token_id: tokenId,  // 🆕 传入 token_id
-            ...(selectedAgent === 'securities' ? { account_type: selectedAccountType } : {})  // 🆕
+            channel: selectedChannel,
+            usercode: selectedUsercode,
+            userid: selectedUserid,
+            account: selectedAccount,
+            branchno: selectedBranch,
+            loginflag: selectedLoginflag,
+            mobileNo: selectedMobile,
+            signature: selectedSignature,
+            account_type: selectedAccountType,
           },
         };
         if (sessionId) payload.session_id = sessionId;
@@ -1281,7 +1282,6 @@
         if (data.session_id) {
           sessionId = data.session_id;
           sessionStorage.setItem('ark_session_id', sessionId);
-          updateSessionLabel();
         }
         appendAssistantMessage(data.response, data.usage);
         $statusText.textContent = '';
@@ -1299,19 +1299,19 @@
           throw new Error('HTTP ' + resp.status + ': ' + detail);
         }
 
-    const msgEl = createAssistantContainer();
-    const thinkCard = msgEl.querySelector('.thinking-card');
-    const thinkContent = msgEl.querySelector('.thinking-content');
-    const thinkIcon = msgEl.querySelector('.th-icon');
-    const statusText = msgEl.querySelector('.status-text');
-    const answerBubble = msgEl.querySelector('.answer-bubble');
-    const a2uiContainer = msgEl.querySelector('.a2ui-container');
-    const metaEl = msgEl.querySelector('.msg-meta');
+        const msgEl = createAssistantContainer();
+        const thinkCard = msgEl.querySelector('.thinking-card');
+        const thinkContent = msgEl.querySelector('.thinking-content');
+        const thinkIcon = msgEl.querySelector('.th-icon');
+        const statusText = msgEl.querySelector('.status-text');
+        const answerBubble = msgEl.querySelector('.answer-bubble');
+        const a2uiContainer = msgEl.querySelector('.a2ui-container');
+        const metaEl = msgEl.querySelector('.msg-meta');
 
-    let hadThinkingContent = false;
-    let currentStepEl = null;
-    let finalText = '';
-    let currentTurn = 0;  // ReAct turn (1-based); 0 = no segment yet
+        let hadThinkingContent = false;
+        let currentStepEl = null;
+        let finalText = '';
+        let currentTurn = 0;
 
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
@@ -1328,7 +1328,6 @@
           let currentEventType = null;
           for (const line of lines) {
             const trimmed = line.trim();
-            // Capture SSE event: line
             if (trimmed.startsWith('event:')) {
               currentEventType = trimmed.slice(6).trim();
               continue;
@@ -1340,213 +1339,196 @@
             let event;
             try { event = JSON.parse(jsonStr); } catch { continue; }
 
-        // AG-UI → legacy alias map for unified switch handling
-        const EVENT_ALIASES = {
-          'run_started': 'response.created',
-          'step_started': 'response.step',
-          'step_finished': 'response.step.done',
-          'text_message_content': 'response.content.delta',
-          'text_message_start': '_skip',
-          'text_message_end': '_skip',
-          'tool_call_start': 'response.tool_call.start',
-          'tool_call_args': '_skip',
-          'tool_call_end': '_skip',
-          'tool_call_result': 'response.tool_call.result',
-          'custom': 'response.ui.component',
-          'run_finished': 'response.completed',
-          'run_error': 'response.failed',
-        };
+            const EVENT_ALIASES = {
+              'run_started': 'response.created',
+              'step_started': 'response.step',
+              'step_finished': 'response.step.done',
+              'text_message_content': 'response.content.delta',
+              'text_message_start': '_skip',
+              'text_message_end': '_skip',
+              'tool_call_start': 'response.tool_call.start',
+              'tool_call_args': '_skip',
+              'tool_call_end': '_skip',
+              'tool_call_result': 'response.tool_call.result',
+              'custom': 'response.ui.component',
+              'run_finished': 'response.completed',
+              'run_error': 'response.failed',
+            };
 
-        const rawType = event.type || currentEventType || '';
-        const eventType = EVENT_ALIASES[rawType] || rawType;
-        currentEventType = null;
+            const rawType = event.type || currentEventType || '';
+            const eventType = EVENT_ALIASES[rawType] || rawType;
+            currentEventType = null;
 
-        if (eventType === '_skip') continue;
+            if (eventType === '_skip') continue;
 
             if (event.session_id && !sessionId) {
               sessionId = event.session_id;
               sessionStorage.setItem('ark_session_id', sessionId);
-              updateSessionLabel();
             }
 
-        switch (eventType) {
-          // ---- response.created / run_started ----
-          case 'response.created': {
-            const text = event.content || event.run_content || '';
-            if (text) {
-              hadThinkingContent = true;
-              thinkCard.style.display = '';
-              const step = document.createElement('div');
-              step.className = 'think-step active';
-              step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(text) + '</span></div>';
-              thinkContent.appendChild(step);
-              currentStepEl = step;
-              thinkCard.dataset.latestStep = text;
-              statusText.textContent = thinkCard.classList.contains('collapsed') ? text : '正在思考中…';
-            }
-            scrollToBottom();
-            break;
-          }
+            switch (eventType) {
+              case 'response.created': {
+                const text = event.content || event.run_content || '';
+                if (text) {
+                  hadThinkingContent = true;
+                  thinkCard.style.display = '';
+                  const step = document.createElement('div');
+                  step.className = 'think-step active';
+                  step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(text) + '</span></div>';
+                  thinkContent.appendChild(step);
+                  currentStepEl = step;
+                  thinkCard.dataset.latestStep = text;
+                  statusText.textContent = thinkCard.classList.contains('collapsed') ? text : '正在思考中…';
+                }
+                scrollToBottom();
+                break;
+              }
 
-          // ---- response.step / step_started ----
-          case 'response.step': {
-            hadThinkingContent = true;
-            thinkCard.style.display = '';
-            if (currentStepEl) {
-              currentStepEl.classList.remove('active');
-              currentStepEl.classList.add('done');
-            }
-            const stepText = event.content || event.step_name || '';
-            const step = document.createElement('div');
-            step.className = 'think-step active';
-            step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(stepText) + '</span></div>';
-            thinkContent.appendChild(step);
-            currentStepEl = step;
-            thinkCard.dataset.latestStep = stepText || '思考中…';
-            statusText.textContent = thinkCard.classList.contains('collapsed') ? (stepText || '思考中…') : '正在思考中…';
-            scrollToBottom();
-            break;
-          }
-
-          // ---- step_finished (mark current step done) ----
-          case 'response.step.done': {
-            if (currentStepEl) {
-              currentStepEl.classList.remove('active');
-              currentStepEl.classList.add('done');
-            }
-            break;
-          }
-
-          // ---- response.content.delta / text_message_content ----
-          case 'response.content.delta': {
-            const turn = Number(event.turn) || 1;
-            if (turn !== currentTurn) {
-              if (currentTurn !== 0 && finalText.trim()) {
+              case 'response.step': {
                 hadThinkingContent = true;
                 thinkCard.style.display = '';
-                const prevBlock = document.createElement('div');
-                prevBlock.className = 'turn-output';
-                prevBlock.innerHTML = md(finalText);
-                thinkContent.appendChild(prevBlock);
+                if (currentStepEl) {
+                  currentStepEl.classList.remove('active');
+                  currentStepEl.classList.add('done');
+                }
+                const stepText = event.content || event.step_name || '';
+                const step = document.createElement('div');
+                step.className = 'think-step active';
+                step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(stepText) + '</span></div>';
+                thinkContent.appendChild(step);
+                currentStepEl = step;
+                thinkCard.dataset.latestStep = stepText || '思考中…';
+                statusText.textContent = thinkCard.classList.contains('collapsed') ? (stepText || '思考中…') : '正在思考中…';
+                scrollToBottom();
+                break;
               }
-              currentTurn = turn;
-              finalText = '';
-            }
-            answerBubble.classList.remove('hidden');
-            finalText += event.delta || '';
-            answerBubble.innerHTML = md(finalText);
-            scrollToBottom();
-            break;
-          }
 
-          // ---- response.ui.component / A2UI card ----
-          case 'response.ui.component': {
-            const comp = event.ui_component;
-            if (comp) {
-              // 检查是否包含 template_type 属性，如果是则调用 renderTemplateCard
-              if (comp.template_type !== undefined) {
-                renderTemplateCard(comp, msgEl);
-              } else if (a2uiContainer) {
-                // 否则使用原有的 A2UI 组件渲染逻辑
-                a2uiContainer.classList.remove('hidden');
-                a2uiContainer.appendChild(renderA2UIComponent(comp));
+              case 'response.step.done': {
+                if (currentStepEl) {
+                  currentStepEl.classList.remove('active');
+                  currentStepEl.classList.add('done');
+                }
+                break;
               }
-              scrollToBottom();
-            }
-            break;
-          }
 
-          // ---- response.completed / run_finished ----
-          case 'response.completed': {
-            if (currentStepEl) {
-              currentStepEl.classList.remove('active');
-              currentStepEl.classList.add('done');
-              currentStepEl = null;
-            }
-            if (hadThinkingContent) {
-              thinkCard.classList.add('collapsed');
-              thinkIcon.outerHTML = '<svg class="th-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
-              statusText.textContent = '思考完成';
-            } else {
-              thinkCard.style.display = 'none';
-            }
-            answerBubble.classList.remove('typing-cursor');
-            if (event.usage) {
-              const inp = event.usage.prompt_tokens || 0;
-              const out = event.usage.completion_tokens || 0;
-              metaEl.textContent = (event.turns || '-') + ' \u8F6E \u00B7 ' + (inp + out) + ' tokens';
-              metaEl.classList.remove('hidden');
-            }
-            if (event.session_id) {
-              sessionId = event.session_id;
-              sessionStorage.setItem('ark_session_id', sessionId);
-              updateSessionLabel();
-            }
-            $statusText.textContent = '';
-            scrollToBottom();
-            break;
-          }
+              case 'response.content.delta': {
+                const turn = Number(event.turn) || 1;
+                if (turn !== currentTurn) {
+                  if (currentTurn !== 0 && finalText.trim()) {
+                    hadThinkingContent = true;
+                    thinkCard.style.display = '';
+                    const prevBlock = document.createElement('div');
+                    prevBlock.className = 'turn-output';
+                    prevBlock.innerHTML = md(finalText);
+                    thinkContent.appendChild(prevBlock);
+                  }
+                  currentTurn = turn;
+                  finalText = '';
+                }
+                answerBubble.classList.remove('hidden');
+                finalText += event.delta || '';
+                answerBubble.innerHTML = md(finalText);
+                scrollToBottom();
+                break;
+              }
 
-          // ---- response.failed / run_error ----
-          case 'response.failed': {
-            thinkCard.style.display = 'none';
-            appendErrorMessage(event.error_message || '\u672A\u77E5\u9519\u8BEF');
-            $statusText.textContent = '';
-            break;
+              case 'response.ui.component': {
+                const comp = event.ui_component;
+                if (comp) {
+                  if (comp.template_type !== undefined) {
+                    renderTemplateCard(comp, msgEl);
+                  } else if (a2uiContainer) {
+                    a2uiContainer.classList.remove('hidden');
+                    a2uiContainer.appendChild(renderA2UIComponent(comp));
+                  }
+                  scrollToBottom();
+                }
+                break;
+              }
+
+              case 'response.completed': {
+                if (currentStepEl) {
+                  currentStepEl.classList.remove('active');
+                  currentStepEl.classList.add('done');
+                  currentStepEl = null;
+                }
+                if (hadThinkingContent) {
+                  thinkCard.classList.add('collapsed');
+                  thinkIcon.outerHTML = '<svg class="th-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
+                  statusText.textContent = '思考完成';
+                } else {
+                  thinkCard.style.display = 'none';
+                }
+                answerBubble.classList.remove('typing-cursor');
+                if (event.usage) {
+                  const inp = event.usage.prompt_tokens || 0;
+                  const out = event.usage.completion_tokens || 0;
+                  metaEl.textContent = (event.turns || '-') + ' 轮 · ' + (inp + out) + ' tokens';
+                  metaEl.classList.remove('hidden');
+                }
+                if (event.session_id) {
+                  sessionId = event.session_id;
+                  sessionStorage.setItem('ark_session_id', sessionId);
+                }
+                $statusText.textContent = '';
+                scrollToBottom();
+                break;
+              }
+
+              case 'response.failed': {
+                thinkCard.style.display = 'none';
+                appendErrorMessage(event.error_message || '未知错误');
+                $statusText.textContent = '';
+                break;
+              }
+            }
           }
         }
       }
-    }
-  }
 
-  function escHtml(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
+      // ---- A2UI renderer ----
+      function renderA2UIComponent(component) {
+        const container = document.createElement('div');
+        container.className = 'a2ui-card';
 
-  // ---- A2UI renderer ----
-  function renderA2UIComponent(component) {
-    const container = document.createElement('div');
-    container.className = 'a2ui-card';
+        try {
+          const answerList = component.answerDict.result.answerList;
+          answerList.forEach(function(answer) {
+            const dataList = answer.dataList || [];
+            const textItems = dataList.filter(function(d) { return d.component === 'text'; });
+            const btnItems  = dataList.filter(function(d) { return d.component === 'button'; });
 
-    try {
-      const answerList = component.answerDict.result.answerList;
-      answerList.forEach(function(answer) {
-        const dataList = answer.dataList || [];
-        const textItems = dataList.filter(function(d) { return d.component === 'text'; });
-        const btnItems  = dataList.filter(function(d) { return d.component === 'button'; });
-
-        textItems.forEach(function(item) {
-          const p = document.createElement('div');
-          p.className = 'a2ui-card-text';
-          p.textContent = item.text || '';
-          container.appendChild(p);
-        });
-
-        if (btnItems.length) {
-          const actions = document.createElement('div');
-          actions.className = 'a2ui-card-actions';
-          btnItems.forEach(function(item) {
-            const btn = document.createElement('button');
-            btn.className = 'a2ui-btn';
-            btn.textContent = item.text || '';
-            btn.addEventListener('click', function() {
-              console.log('[A2UI] button action:', item.action);
+            textItems.forEach(function(item) {
+              const p = document.createElement('div');
+              p.className = 'a2ui-card-text';
+              p.textContent = item.text || '';
+              container.appendChild(p);
             });
-            actions.appendChild(btn);
-          });
-          container.appendChild(actions);
-        }
-      });
-    } catch (_) {
-      // fallback: dump raw JSON
-      const pre = document.createElement('pre');
-      pre.className = 'a2ui-fallback';
-      pre.textContent = JSON.stringify(component, null, 2);
-      container.appendChild(pre);
-    }
 
-    return container;
-  }
+            if (btnItems.length) {
+              const actions = document.createElement('div');
+              actions.className = 'a2ui-card-actions';
+              btnItems.forEach(function(item) {
+                const btn = document.createElement('button');
+                btn.className = 'a2ui-btn';
+                btn.textContent = item.text || '';
+                btn.addEventListener('click', function() {
+                  console.log('[A2UI] button action:', item.action);
+                });
+                actions.appendChild(btn);
+              });
+              container.appendChild(actions);
+            }
+          });
+        } catch (_) {
+          const pre = document.createElement('pre');
+          pre.className = 'a2ui-fallback';
+          pre.textContent = JSON.stringify(component, null, 2);
+          container.appendChild(pre);
+        }
+
+        return container;
+      }
 
       // ---- DOM helpers ----
       function appendUserMessage(text) {
@@ -1565,31 +1547,29 @@
           '<div class="thinking-header">' +
           '<div class="th-left">' +
           '<svg class="th-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' +
-          '<span class="status-text">思考中\u2026</span>' +
+          '<span class="status-text">思考中…</span>' +
           '</div>' +
           '<span class="th-chevron">&#9660;</span>' +
-        '</div>' +
-        '<div class="thinking-content"></div>' +
-      '</div>' +
-      '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>' +
-      '<div class="a2ui-container hidden"></div>' +
-      '<div class="msg-meta hidden"></div>';
-    // Wire up collapse toggle
-    const header = div.querySelector('.thinking-header');
-    const card = div.querySelector('.thinking-card');
-    header.addEventListener('click', () => {
-      card.classList.toggle('collapsed');
-      // Dynamic title: collapsed shows latest step, expanded shows generic label
-      const st = card.querySelector('.status-text');
-      if (st && !card.querySelector('.th-icon.done')) {
-        const latest = card.dataset.latestStep || '思考中…';
-        st.textContent = card.classList.contains('collapsed') ? latest : '正在思考中…';
+          '</div>' +
+          '<div class="thinking-content"></div>' +
+          '</div>' +
+          '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>' +
+          '<div class="a2ui-container hidden"></div>' +
+          '<div class="msg-meta hidden"></div>';
+        const header = div.querySelector('.thinking-header');
+        const card = div.querySelector('.thinking-card');
+        header.addEventListener('click', () => {
+          card.classList.toggle('collapsed');
+          const st = card.querySelector('.status-text');
+          if (st && !card.querySelector('.th-icon.done')) {
+            const latest = card.dataset.latestStep || '思考中…';
+            st.textContent = card.classList.contains('collapsed') ? latest : '正在思考中…';
+          }
+        });
+        $chat.appendChild(div);
+        scrollToBottom();
+        return div;
       }
-    });
-    $chat.appendChild(div);
-    scrollToBottom();
-    return div;
-  }
 
       function appendAssistantMessage(text, usage) {
         const div = document.createElement('div');
@@ -1604,6 +1584,15 @@
         scrollToBottom();
       }
 
+      function appendErrorMessage(text) {
+        const div = document.createElement('div');
+        div.className = 'msg msg-assistant msg-error';
+        div.innerHTML = '<div class="msg-bubble">' + md(text) + '</div>';
+        $chat.appendChild(div);
+        scrollToBottom();
+      }
+
+      // ---- Number utilities ----
       function formatNumber(num) {
         if (num == null) return '0.00';
         const n = typeof num === 'string' ? parseFloat(num) : num;
@@ -1615,6 +1604,32 @@
         if (v == null) return 0;
         const n = typeof v === 'string' ? parseFloat(v) : v;
         return isNaN(n) ? 0 : n;
+      }
+
+      // ---- Template card rendering ----
+      function renderTemplateCard(template, containerEl) {
+        const cardDiv = document.createElement('div');
+        cardDiv.className = 'template-card';
+
+        switch (template.template_type) {
+          case 'account_overview_card':
+            cardDiv.innerHTML = renderAccountOverviewCard(template.data);
+            break;
+          case 'holdings_list_card':
+            cardDiv.innerHTML = renderHoldingsListCard(template);
+            break;
+          case 'cash_assets_card':
+            cardDiv.innerHTML = renderCashAssetsCard(template.data);
+            break;
+          case 'security_detail_card':
+            cardDiv.innerHTML = renderSecurityDetailCard(template.data);
+            break;
+          default:
+            cardDiv.innerHTML = renderGenericCard(template);
+        }
+
+        const answerBubble = containerEl.querySelector('.answer-bubble');
+        containerEl.insertBefore(cardDiv, answerBubble);
       }
 
       function renderAccountOverviewCard(data) {
@@ -1682,19 +1697,17 @@
 
         const holdings = (template.data && template.data.holdings) || [];
         const summary = (template.data && template.data.summary) || {};
-        
-        // ETF卡片：上半部分显示市值和收益汇总，下半部分显示列表
+
         const isETF = ac === 'ETF';
         let summaryHtml = '';
-        
-        // 检查是否有 summary 数据（字段存在即可，包括 0 值）
+
         const hasSummary = summary && (summary.total_market_value !== undefined || summary.total_profit !== undefined);
         if (isETF && hasSummary) {
           const totalProfit = toNum(summary.total_profit);
           const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
           const profitSign = totalProfit >= 0 ? '+' : '';
           const profitRate = toNum(summary.total_profit_rate);
-          
+
           summaryHtml = `
             <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
               <div style="text-align:center;flex:1;">
@@ -1713,17 +1726,16 @@
         }
 
         const holdingsHtml = holdings.map(h => {
-          // Real API format fields only
           const code = h.security_code || h.code || '';
           const name = h.security_name || h.name || '';
           const holdCnt = h.hold_cnt || '-';
           const marketValue = h.market_value;
           const dayProfit = toNum(h.day_profit);
           const dayProfitRate = toNum(h.day_profit_rate);
-          
+
           const profitClass = dayProfit >= 0 ? 'profit' : 'loss';
           const profitSign = dayProfit >= 0 ? '+' : '';
-          
+
           return `
             <div class="tc-list-item">
               <div>
@@ -1852,40 +1864,6 @@
             <pre style="font-size:12px;overflow-x:auto;">${escHtml(JSON.stringify(template.data, null, 2))}</pre>
           </div>
         `;
-      }
-      // 🆕 ---- Template card rendering ----
-      function renderTemplateCard(template, containerEl) {
-        const cardDiv = document.createElement('div');
-        cardDiv.className = 'template-card';
-
-        switch (template.template_type) {
-          case 'account_overview_card':
-            cardDiv.innerHTML = renderAccountOverviewCard(template.data);
-            break;
-          case 'holdings_list_card':
-            cardDiv.innerHTML = renderHoldingsListCard(template);
-            break;
-          case 'cash_assets_card':
-            cardDiv.innerHTML = renderCashAssetsCard(template.data);
-            break;
-          case 'security_detail_card':
-            cardDiv.innerHTML = renderSecurityDetailCard(template.data);
-            break;
-          default:
-            cardDiv.innerHTML = renderGenericCard(template);
-        }
-
-        // 插入到 thinking-card 之后、answer-bubble 之前
-        const answerBubble = containerEl.querySelector('.answer-bubble');
-        containerEl.insertBefore(cardDiv, answerBubble);
-      }
-
-      function appendErrorMessage(text) {
-        const div = document.createElement('div');
-        div.className = 'msg msg-assistant msg-error';
-        div.innerHTML = '<div class="msg-bubble">' + md(text) + '</div>';
-        $chat.appendChild(div);
-        scrollToBottom();
       }
 
     })();

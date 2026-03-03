@@ -1,13 +1,17 @@
 ---
 name: asset_overview
-description: 查询用户账户的总体资产情况
+description: |
+  查询用户账户的总体资产情况，包括总资产、现金、持仓市值、收益等。
+  When to use: 用户想要查看账户总览、资产概况或询问"我有多少钱"、"资产情况"时使用。
 version: "1.0"
 invocation_policy: auto
 group: securities
-priority: high
 tags:
   - asset_overview
   - account
+required_tools:
+  - account_overview
+  - display_card
 ---
 
 # 资产总览技能

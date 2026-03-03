@@ -95,11 +95,24 @@ if _STATIC_DIR.is_dir():
 
 @app.get("/", include_in_schema=False)
 async def root():
-    """测试 UI 入口"""
-    index = _STATIC_DIR / "index.html"
-    if index.is_file():
-        return FileResponse(str(index), media_type="text/html")
-    return {"message": "Ark-Agentic API", "docs": "/docs"}
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/insurance")
+
+
+@app.get("/insurance", include_in_schema=False)
+async def insurance_page():
+    page = _STATIC_DIR / "insurance.html"
+    if page.is_file():
+        return FileResponse(str(page), media_type="text/html")
+    return {"message": "insurance page not found"}
+
+
+@app.get("/securities", include_in_schema=False)
+async def securities_page():
+    page = _STATIC_DIR / "securities.html"
+    if page.is_file():
+        return FileResponse(str(page), media_type="text/html")
+    return {"message": "securities page not found"}
 
 
 @app.get("/health")

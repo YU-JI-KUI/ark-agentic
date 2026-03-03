@@ -1,13 +1,19 @@
 ---
 name: profit_inquiry
-description: 查询和分析用户的投资收益情况
+description: |
+  查询和分析用户的投资收益情况，包括今日收益、累计收益、收益率等。
+  When to use: 用户想要查询收益情况、询问"赚了多少钱"、"今天盈亏"或"收益率如何"时使用。
 version: "1.0"
 invocation_policy: auto
 group: securities
-priority: high
 tags:
   - profit_inquiry
   - profit
+required_tools:
+  - account_overview
+  - etf_holdings
+  - hksc_holdings
+  - display_card
 ---
 
 # 收益查询技能

@@ -11,6 +11,7 @@ wheels/
 data/*
 .cursor/*
 .pytest_cache/*
+.env.local
 
 # Worktrees
 .worktrees/
@@ -25,6 +26,10 @@ data/ark_sessions
 
 # Claude
 CLAUDE.md
+.agent/
+.claude/
+.continue/
+.tasks/
 
 # Sessions
 data/ark_securities
