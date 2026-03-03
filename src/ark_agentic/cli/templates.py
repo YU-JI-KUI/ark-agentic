@@ -155,6 +155,10 @@ ENV_SAMPLE_TEMPLATE = """\
 
 # Common options
 # DEFAULT_TEMPERATURE=0.7
+
+# Studio configuration (optional)
+# ENABLE_STUDIO=true
+# AGENTS_ROOT=./src/{package_name}/agents
 """
 
 API_APP_TEMPLATE = '''\
@@ -269,26 +273,6 @@ class SSEEvent(BaseModel):
     tool_calls: list[dict[str, Any]] | None = None
     error_message: str | None = None
 
-
-class SessionCreateRequest(BaseModel):
-    state: dict[str, Any] | None = Field(None)
-
-
-class SessionResponse(BaseModel):
-    session_id: str
-    message_count: int
-    state: dict[str, Any] = Field(default_factory=dict)
-
-
-class MessageItem(BaseModel):
-    role: str
-    content: str | None
-    tool_calls: list[dict[str, Any]] | None = None
-
-
-class SessionHistoryResponse(BaseModel):
-    session_id: str
-    messages: list[MessageItem]
 
 
 @app.get("/", include_in_schema=False)
@@ -419,60 +403,6 @@ async def chat(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@app.post("/sessions", response_model=SessionResponse)
-async def create_session(request: SessionCreateRequest | None = None):
-    assert _runner is not None
-    session = _runner.session_manager.create_session_sync(
-        state=request.state if request else None
-    )
-    return SessionResponse(
-        session_id=session.session_id,
-        message_count=len(session.messages),
-        state=session.state,
-    )
-
-
-@app.get("/sessions/{{session_id}}", response_model=SessionHistoryResponse)
-async def get_session(session_id: str):
-    assert _runner is not None
-    session = _runner.session_manager.get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail=f"Session not found: {{session_id}}")
-    messages = [
-        MessageItem(
-            role=msg.role.value if hasattr(msg.role, "value") else str(msg.role),
-            content=msg.content,
-            tool_calls=[{{"name": tc.name, "arguments": tc.arguments}} for tc in msg.tool_calls] if msg.tool_calls else None,
-        )
-        for msg in session.messages
-    ]
-    return SessionHistoryResponse(session_id=session_id, messages=messages)
-
-
-@app.delete("/sessions/{{session_id}}")
-async def delete_session(session_id: str):
-    assert _runner is not None
-    success = _runner.session_manager.delete_session_sync(session_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Session not found: {{session_id}}")
-    return {{"status": "deleted", "session_id": session_id}}
-
-
-@app.get("/sessions")
-async def list_sessions():
-    assert _runner is not None
-    sessions = _runner.session_manager.list_sessions()
-    return {{
-        "sessions": [
-            {{
-                "session_id": s.session_id,
-                "message_count": len(s.messages),
-                "state": s.state,
-            }}
-            for s in sessions
-        ]
-    }}
-
 
 def main() -> None:
     import uvicorn
@@ -497,4 +427,111 @@ PIP_CONF_TEMPLATE = """\
 [global]
 index-url = http://maven.abc.com.cn/repository/pypi/simple/
 trusted-host = maven.abc.com.cn
+"""
+
+# ── Studio templates ──────────────────────────────────────────────────
+
+STUDIO_APP_TEMPLATE = '''\
+"""
+{project_name} API Server (with Ark-Agentic Studio)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv()
+
+_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+logging.basicConfig(
+    level=_log_level,
+    format="%(asctime)s %(levelname)-5s %(name)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
+)
+for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
+    logging.getLogger(_lib).setLevel(logging.WARNING)
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from ark_agentic.core.registry import AgentRegistry
+from ark_agentic.api import chat as chat_api
+from ark_agentic.api import deps as api_deps
+
+logger = logging.getLogger(__name__)
+
+_registry = AgentRegistry()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
+    runner = create_{agent_name_snake}_agent()
+    _registry.register("{agent_name_snake}", runner)
+    api_deps.init_registry(_registry)
+
+    if os.getenv("ENABLE_STUDIO", "false").lower() == "true":
+        from ark_agentic.studio import setup_studio
+        setup_studio(app)
+        logger.info("Ark-Agentic Studio enabled at /studio")
+
+    logger.info("{project_name} API started")
+    yield
+    logger.info("{project_name} API shutting down")
+
+
+app = FastAPI(
+    title="{project_name}",
+    description="{project_name} Agent API",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(chat_api.router)
+
+
+@app.get("/health")
+async def health_check():
+    return {{"status": "ok"}}
+
+
+def main() -> None:
+    import uvicorn
+    host = os.getenv("API_HOST", "0.0.0.0")
+    port = int(os.getenv("API_PORT", "8080"))
+    logger.info(f"Starting {project_name} on {{host}}:{{port}}")
+    uvicorn.run(
+        "{package_name}.app:app",
+        host=host,
+        port=port,
+        reload=False,
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
+    )
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+AGENT_JSON_TEMPLATE = """\
+{{
+  "id": "{agent_name_snake}",
+  "name": "{agent_display_name}",
+  "description": "TODO: 描述你的智能体功能",
+  "status": "active"
+}}
 """

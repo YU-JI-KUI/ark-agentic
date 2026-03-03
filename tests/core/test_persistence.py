@@ -1,4 +1,4 @@
-﻿"""Tests for session persistence."""
+"""Tests for session persistence."""
 
 import json
 import pytest
@@ -8,6 +8,7 @@ from pathlib import Path
 from ark_agentic.core.persistence import (
     FileLock,
     MessageEntry,
+    RawJsonlValidationError,
     SessionHeader,
     SessionStore,
     SessionStoreEntry,
@@ -301,6 +302,34 @@ class TestTranscriptManager:
 
             (Path(tmpdir) / "session-123.jsonl").touch()
             assert manager.session_exists("session-123")
+
+    def test_read_raw(self) -> None:
+        """Test read_raw returns file content or None."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = TranscriptManager(tmpdir)
+            assert manager.read_raw("s1") is None
+            (Path(tmpdir) / "s1.jsonl").write_text('{"type":"session","id":"s1"}\n', encoding="utf-8")
+            assert manager.read_raw("s1") == '{"type":"session","id":"s1"}\n'
+
+    @pytest.mark.asyncio
+    async def test_write_raw_valid(self) -> None:
+        """Test write_raw with valid JSONL."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = TranscriptManager(tmpdir)
+            content = '{"type":"session","id":"s1","timestamp":"","cwd":""}\n'
+            await manager.write_raw("s1", content)
+            assert (Path(tmpdir) / "s1.jsonl").read_text(encoding="utf-8") == content
+
+    @pytest.mark.asyncio
+    async def test_write_raw_validation_error(self) -> None:
+        """Test write_raw raises RawJsonlValidationError for invalid content."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = TranscriptManager(tmpdir)
+            with pytest.raises(RawJsonlValidationError) as exc_info:
+                await manager.write_raw("s1", '{"type":"message"}\n')
+            assert exc_info.value.line_number == 1
+            with pytest.raises(RawJsonlValidationError):
+                await manager.write_raw("s1", '{"type":"session","id":"other"}\n')
 
 
 class TestSessionStore:

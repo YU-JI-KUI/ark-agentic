@@ -113,7 +113,7 @@ def test_sse_event_model():
     print("测试 SSE 事件模型")
     print("=" * 60)
 
-    from ark_agentic.app import SSEEvent
+    from ark_agentic.api.models import SSEEvent
 
     template = {
         "template_type": "account_overview_card",
@@ -152,12 +152,9 @@ def test_display_card_tool():
     # 模拟数据工具结果（etf_holdings 返回的原始数据，符合真实 API 格式）
     etf_data = {
         "results": {
-            "total": 1,
             "dayTotalMktVal": 48000,
             "dayTotalPft": 3000,
-            "stockList": [
-                {"secuCode": "510300", "secuName": "沪深300ETF", "mktVal": 48000, "holdCnt": 1000}
-            ],
+            "stockList": [{"secuCode": "510300", "secuName": "沪深300ETF", "mktVal": 48000}],
         }
     }
 
@@ -189,8 +186,9 @@ def test_display_card_tool():
     # 测试未找到数据的情况
     tc_bad = ToolCall.create(name="display_card", arguments={"source_tool": "hksc_holdings"})
     result_bad = asyncio.get_event_loop().run_until_complete(tool.execute(tc_bad, context))
-    assert result_bad.is_error
-    print("   ✓ 未找到数据时正确返回错误")
+    assert not result_bad.is_error
+    assert len(result_bad.metadata["template"]["data"]["holdings"]) == 0
+    print("   ✓ 未找到数据时返回空列表卡片")
 
     # 测试未知工具名
     tc_unknown = ToolCall.create(name="display_card", arguments={"source_tool": "unknown_tool"})

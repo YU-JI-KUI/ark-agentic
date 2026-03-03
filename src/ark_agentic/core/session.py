@@ -129,8 +129,52 @@ class SessionManager:
         return False
 
     def list_sessions(self) -> list[SessionEntry]:
-        """列出所有会话"""
+        """列出所有会话（仅内存）。"""
         return list(self._sessions.values())
+
+    async def list_sessions_from_disk(self) -> list[SessionEntry]:
+        """以磁盘为准列出所有会话；按需 load_session 后返回，供 Studio 列表使用。"""
+        if not self._enable_persistence or not self._transcript_manager:
+            return self.list_sessions()
+        ids = self._transcript_manager.list_sessions()
+        result: list[SessionEntry] = []
+        for sid in ids:
+            entry = await self.load_session(sid)
+            if entry is not None:
+                result.append(entry)
+        return result
+
+    async def reload_session_from_disk(self, session_id: str) -> SessionEntry | None:
+        """写回 JSONL 后从磁盘重新加载该会话到内存，保证 GET detail 返回最新。不在内存则返回 None。"""
+        if session_id not in self._sessions:
+            return None
+        if not self._enable_persistence or not self._transcript_manager:
+            return self._sessions.get(session_id)
+        if not self._transcript_manager.session_exists(session_id):
+            return None
+        messages = self._transcript_manager.load_messages(session_id)
+        header = self._transcript_manager.load_header(session_id)
+        store_entry = self._session_store.get(session_id) if self._session_store else None
+        session = SessionEntry(
+            session_id=session_id,
+            created_at=(
+                datetime.fromisoformat(header.timestamp)
+                if header and header.timestamp
+                else datetime.now()
+            ),
+            updated_at=datetime.now(),
+            model=store_entry.model if store_entry else "Qwen3-80B-Instruct",
+            provider=store_entry.provider if store_entry else "ark",
+            messages=messages,
+            active_skills=store_entry.active_skills if store_entry else [],
+            state=store_entry.state if store_entry else {},
+        )
+        if store_entry:
+            session.token_usage.prompt_tokens = store_entry.prompt_tokens
+            session.token_usage.completion_tokens = store_entry.completion_tokens
+        self._sessions[session_id] = session
+        logger.debug(f"Reloaded session from disk: {session_id}")
+        return session
 
     async def load_session(self, session_id: str) -> SessionEntry | None:
         """从持久化存储加载会话"""

@@ -19,12 +19,14 @@ from ark_agentic import __version__
 
 from .templates import (
     AGENT_INIT_TEMPLATE,
+    AGENT_JSON_TEMPLATE,
     AGENT_MODULE_TEMPLATE,
     API_APP_TEMPLATE,
     ENV_SAMPLE_TEMPLATE,
     MAIN_MODULE_TEMPLATE,
     PIP_CONF_TEMPLATE,
     PYPROJECT_TEMPLATE,
+    STUDIO_APP_TEMPLATE,
     TOOL_TEMPLATE,
 )
 
@@ -43,7 +45,7 @@ def _touch(path: Path) -> None:
     path.touch()
 
 
-def _render_env_sample(llm_provider: str) -> str:
+def _render_env_sample(llm_provider: str, package_name: str = "") -> str:
     """根据选择的 LLM 提供商生成 .env-sample 内容。"""
     if llm_provider == "pa-sx":
         provider_block = "\n".join(
@@ -78,7 +80,7 @@ def _render_env_sample(llm_provider: str) -> str:
             ]
         )
 
-    return ENV_SAMPLE_TEMPLATE.format(provider_block=provider_block)
+    return ENV_SAMPLE_TEMPLATE.format(provider_block=provider_block, package_name=package_name or "<package>")
 
 
 # ── init ─────────────────────────────────────────────────────────────
@@ -86,7 +88,8 @@ def _render_env_sample(llm_provider: str) -> str:
 def _cmd_init(args: argparse.Namespace) -> None:
     project_name: str = args.project_name
     package_name = _to_package_name(project_name)
-    include_api: bool = args.api
+    include_api: bool = args.api or args.studio  # --studio implies --api
+    include_studio: bool = args.studio
     include_memory: bool = args.memory
     llm_provider: str = args.llm_provider
 
@@ -123,7 +126,7 @@ def _cmd_init(args: argparse.Namespace) -> None:
     _write(root / "pip.conf", PIP_CONF_TEMPLATE)
 
     # .env-sample
-    _write(root / ".env-sample", _render_env_sample(llm_provider))
+    _write(root / ".env-sample", _render_env_sample(llm_provider, package_name))
 
     # src/<pkg>/__init__.py
     _write(src / "__init__.py", f'"""{project_name}"""\n')
@@ -140,9 +143,13 @@ def _cmd_init(args: argparse.Namespace) -> None:
     _write(default_agent / "tools" / "__init__.py", TOOL_TEMPLATE.format(**fmt))
     _touch(default_agent / "skills" / ".gitkeep")
 
-    # optional: API server + static UI
+    # optional: API server
     if include_api:
-        _write(src / "api.py", API_APP_TEMPLATE.format(**fmt))
+        if include_studio:
+            # Studio-aware app: uses ark-agentic registry pattern from app.py
+            _write(src / "app.py", STUDIO_APP_TEMPLATE.format(**fmt))
+        else:
+            _write(src / "api.py", API_APP_TEMPLATE.format(**fmt))
         static_dest = src / "static"
         static_dest.mkdir(parents=True, exist_ok=True)
         try:
@@ -153,15 +160,30 @@ def _cmd_init(args: argparse.Namespace) -> None:
         except Exception:
             pass
 
+    # agent.json for Studio discovery
+    if include_studio:
+        _write(default_agent / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
+
     # tests
     _write(tests_dir / "__init__.py", "")
 
     print(f"✅ 项目 '{project_name}' 已创建")
+    if include_studio:
+        print()
+        print("📦 Studio 模式已启用:")
+        print(f"   app.py 生成: src/{package_name}/app.py")
+        print(f"   agent.json 生成: src/{package_name}/agents/default/agent.json")
+        print()
     print()
     print("后续步骤:")
     print(f"  cd {project_name}")
-    print("  uv pip install -e .")
-    print(f"  python -m {package_name}.main")
+    print("  uv pip install -e '.[server]'")
+    if include_studio:
+        print(f"  设置环境变量: ENABLE_STUDIO=true 和 AGENTS_ROOT=./src/{package_name}/agents")
+        print(f"  uv run python -m {package_name}.app")
+        print("  访问 http://localhost:8080/studio 查看控制台")
+    else:
+        print(f"  python -m {package_name}.main")
 
 
 # ── add-agent ────────────────────────────────────────────────────────
@@ -230,6 +252,7 @@ def main() -> None:
     p_init = sub.add_parser("init", help="初始化新的智能体项目")
     p_init.add_argument("project_name", help="项目名称")
     p_init.add_argument("--api", action="store_true", help="包含 FastAPI 服务模板")
+    p_init.add_argument("--studio", action="store_true", help="包含 Ark-Agentic Studio 管控台（自动启用 --api）")
     p_init.add_argument("--memory", action="store_true", help="包含记忆系统配置")
     p_init.add_argument(
         "--llm-provider",

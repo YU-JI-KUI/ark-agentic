@@ -40,6 +40,7 @@ from .persistence import (
     SessionStore,
     SessionStoreEntry,
     FileLock,
+    RawJsonlValidationError,
 )
 from .llm import (
     PAModel,
@@ -81,6 +82,7 @@ __all__ = [
     "SessionStore",
     "SessionStoreEntry",
     "FileLock",
+    "RawJsonlValidationError",
     # LLM
     "PAModel",
     "PAModelConfig",

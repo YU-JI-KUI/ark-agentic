@@ -48,6 +48,8 @@ exclude = [
     "src/ark_agentic/agents",
     "src/ark_agentic/app.py",
     "src/ark_agentic/static",
+    "src/ark_agentic/studio/frontend/node_modules",
+    "src/ark_agentic/studio/frontend/src",
 ]
 
 [tool.pytest.ini_options]

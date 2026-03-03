@@ -27,6 +27,15 @@ from .types import AgentMessage, AgentToolResult, MessageRole, ToolCall
 
 logger = logging.getLogger(__name__)
 
+
+class RawJsonlValidationError(Exception):
+    """JSONL 校验失败，用于 PUT .../raw 写回。"""
+
+    def __init__(self, message: str, line_number: int | None = None):
+        self.line_number = line_number
+        super().__init__(message)
+
+
 # ============ 常量 ============
 
 SESSION_VERSION = 1
@@ -548,8 +557,52 @@ class TranscriptManager:
         """检查会话是否存在"""
         return self._get_session_file(session_id).exists()
 
+    def read_raw(self, session_id: str) -> str | None:
+        """读取会话原始 JSONL 全文（仅读磁盘，不持锁）。文件不存在返回 None。"""
+        session_file = self._get_session_file(session_id)
+        if not session_file.exists():
+            return None
+        return session_file.read_text(encoding="utf-8")
 
-# ============ 会话元数据存储 ============
+    async def write_raw(self, session_id: str, content: str) -> None:
+        """校验并全量写入会话 JSONL 文件。持 FileLock。校验失败抛出 RawJsonlValidationError。"""
+        lines = [line for line in content.splitlines() if line.strip()]
+        if not lines:
+            raise RawJsonlValidationError("至少需要一行（session header）", line_number=1)
+        # 首行：session header
+        try:
+            first = json.loads(lines[0])
+        except json.JSONDecodeError as e:
+            raise RawJsonlValidationError(f"首行非法 JSON: {e}", line_number=1) from e
+        if first.get("type") != "session":
+            raise RawJsonlValidationError("首行 type 必须为 session", line_number=1)
+        header_id = (first.get("id") or "").strip()
+        if header_id != session_id.strip():
+            raise RawJsonlValidationError(
+                f"首行 id 与 URL session_id 不一致: {header_id!r} vs {session_id!r}",
+                line_number=1,
+            )
+        # 其余行：message（允许 0 条）
+        for i, line in enumerate(lines[1:], start=2):
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise RawJsonlValidationError(f"第 {i} 行非法 JSON: {e}", line_number=i) from e
+            if data.get("type") != "message":
+                raise RawJsonlValidationError(
+                    f"第 {i} 行 type 必须为 message",
+                    line_number=i,
+                )
+            if "message" not in data or not isinstance(data["message"], dict):
+                raise RawJsonlValidationError(
+                    f"第 {i} 行必须含 message 对象",
+                    line_number=i,
+                )
+        session_file = self._get_session_file(session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        payload = content if content.endswith("\n") else content + "\n"
+        async with FileLock(self._get_lock_path(session_id)):
+            session_file.write_text(payload, encoding="utf-8")
 
 
 @dataclass
