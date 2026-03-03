@@ -111,6 +111,8 @@ if os.getenv("ENABLE_STUDIO", "").lower() == "true":
         logger.info("Studio mounted at /studio")
     except ImportError:
         logger.warning("ENABLE_STUDIO=true but studio module not found, skipping")
+    except Exception as e:
+        logger.exception("ENABLE_STUDIO=true but studio failed to load: %s", e)
 
 
 def main() -> None:

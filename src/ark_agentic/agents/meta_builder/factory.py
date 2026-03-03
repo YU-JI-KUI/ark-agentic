@@ -22,11 +22,9 @@ from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
 
-from .tools.list_agents import ListAgentsTool
-from .tools.create_agent import CreateAgentTool
-from .tools.create_skill import CreateSkillTool
-from .tools.update_skill import UpdateSkillTool
-from .tools.create_tool import CreateToolTool
+from .tools.manage_agents import ManageAgentsTool
+from .tools.manage_skills import ManageSkillsTool
+from .tools.manage_tools import ManageToolsTool
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +70,11 @@ def create_meta_builder_from_env(
             )
             logger.info("MetaBuilder using %s LLM", provider)
 
-    # 工具注册
+    # 工具注册（方案 A：3 个复合工具，覆盖 Agent/Skill/Tool 全部能力）
     tool_registry = ToolRegistry()
-    tool_registry.register(ListAgentsTool())
-    tool_registry.register(CreateAgentTool())
-    tool_registry.register(CreateSkillTool())
-    tool_registry.register(UpdateSkillTool())
-    tool_registry.register(CreateToolTool())
+    tool_registry.register(ManageAgentsTool())
+    tool_registry.register(ManageSkillsTool())
+    tool_registry.register(ManageToolsTool())
 
     # Session 管理（轻量：无持久化压缩，对话上下文本身不长）
     if sessions_dir is None:

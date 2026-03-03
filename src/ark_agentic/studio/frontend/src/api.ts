@@ -10,6 +10,7 @@ export interface ChatRequest {
     message: string
     session_id?: string
     stream?: boolean
+    protocol?: string
     context?: Record<string, string>
 }
 
@@ -41,7 +42,7 @@ export interface AgentStreamEvent {
  * Returns an async generator of parsed AgentStreamEvent objects.
  */
 export async function* streamChat(req: ChatRequest): AsyncGenerator<AgentStreamEvent> {
-    const body: ChatRequest = { ...req, stream: true }
+    const body: ChatRequest = { ...req, stream: true, protocol: 'agui' }
     const response = await fetch(CHAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

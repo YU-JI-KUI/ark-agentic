@@ -291,15 +291,49 @@ a:hover {
   display: flex;
   flex: 1;
   min-height: 0;
-  /* Important for scrollable children */
   background: var(--color-bg);
 }
 
-/* ── Left Dynamic GUI Panel ── */
-.panel-gui {
-  flex: 0 0 65%;
+/* ── Left Agent List (three-pane layout) ── */
+.panel-agents {
+  flex: 0 0 260px;
+  width: 260px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  border-right: 1px solid var(--color-border);
+  background: #FCFDFE;
+}
+
+.panel-agents .list-header {
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+
+/* 左侧列表与面板边距，避免贴边 */
+.panel-agents .list-scroll {
+  padding-left: var(--space-md);
+  padding-right: var(--space-sm);
+}
+
+/* 左侧列表项：块级单行，固定高度与包含块，避免选中条/高亮错行、高度错位 */
+.panel-agents .list-item {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  contain: layout paint;
+  text-align: left;
+}
+
+/* ── Middle: Dynamic GUI Panel (Outlet) ── */
+.panel-gui {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
 }
@@ -342,8 +376,9 @@ a:hover {
 
 /* ── Right LUI Pane (Meta-Agent Chat) ── */
 .panel-lui {
-  flex: 1;
-  /* roughly 35% */
+  flex: 0 0 420px;
+  width: 420px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: #FAFBFC;
@@ -356,8 +391,7 @@ a:hover {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  height: 54px;
-  /* Matches tabs height roughly */
+  min-height: 54px;
 }
 
 .lui-status-dot {
@@ -370,12 +404,12 @@ a:hover {
 
 .lui-chat-history {
   flex: 1;
-  padding: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
   overflow-y: auto;
 }
 
 .lui-input-area {
-  padding: var(--space-md);
+  padding: var(--space-lg) var(--space-xl);
   border-top: 1px solid var(--color-border);
   background: var(--color-surface);
 }
@@ -600,11 +634,13 @@ a:hover {
 }
 
 .list-item {
+  position: relative;
   padding: 12px var(--space-lg);
   cursor: pointer;
   border-bottom: 1px solid var(--color-border-light);
   transition: all 0.2s;
   background: transparent;
+  overflow: hidden;
 }
 
 .list-item:hover {
@@ -613,7 +649,20 @@ a:hover {
 
 .list-item.active {
   background: var(--color-primary-light);
-  border-right: 3px solid var(--color-primary);
+}
+
+/* 选中条严格限制在当前项内，避免与上下项视觉重叠 */
+/* 选中条：仅在本行内绘制，不超出 item 边界 */
+.list-item.active::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  height: 100%;
+  max-height: 100%;
+  background: var(--color-primary);
+  border-radius: 0 2px 2px 0;
+  pointer-events: none;
 }
 
 .list-item-title {
@@ -911,6 +960,14 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.panel-lui .chat-history {
+  padding: var(--space-lg) var(--space-xl);
+}
+
+.panel-lui .chat-input-area {
+  padding: var(--space-lg) var(--space-xl);
 }
 
 .chat-message {

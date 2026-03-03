@@ -56,7 +56,7 @@ export default function ChatPanel({ agentId }: Props) {
             })
 
             for await (const event of gen) {
-                if (event.type === 'run_started' && !sessionId) {
+                if (event.type === 'run_started' && event.session_id && !sessionId) {
                     setSessionId(event.session_id)
                 }
                 if (event.type === 'text_message_content' && event.delta) {
@@ -66,7 +66,7 @@ export default function ChatPanel({ agentId }: Props) {
                             : m
                     ))
                 }
-                if (event.type === 'tool_call_args' && event.tool_name) {
+                if ((event.type === 'tool_call_start' || event.type === 'tool_call_args') && event.tool_name) {
                     const toolMsgId = nextId()
                     setMessages(prev => [...prev.slice(0, -1), {
                         id: toolMsgId,
@@ -91,7 +91,7 @@ export default function ChatPanel({ agentId }: Props) {
                 if (event.type === 'run_error') {
                     setMessages(prev => prev.map(m =>
                         m.id === assistantMsgId
-                            ? { ...m, content: `❌ ${event.error_message}`, isStreaming: false, isError: true }
+                            ? { ...m, content: `❌ ${event.error_message ?? ''}`, isStreaming: false, isError: true }
                             : m
                     ))
                 }

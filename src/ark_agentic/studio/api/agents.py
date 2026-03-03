@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ark_agentic.core.utils.env import get_agents_root
+from ark_agentic.core.utils.env import get_agents_root, resolve_agent_dir
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +94,8 @@ async def list_agents():
 async def get_agent(agent_id: str):
     """获取单个 Agent 的元数据。"""
     agents_root = get_agents_root(__file__)
-    agent_dir = agents_root / agent_id
-    if not agent_dir.is_dir():
+    agent_dir = resolve_agent_dir(agents_root, agent_id)
+    if not agent_dir:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
     meta = _read_agent_meta(agent_dir)
     if not meta:

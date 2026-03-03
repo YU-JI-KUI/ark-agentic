@@ -1,4 +1,5 @@
-from ark_agentic.core.utils.env import resolve_agent_dir
+from __future__ import annotations
+
 """
 Skill Service — 纯业务逻辑
 
@@ -6,13 +7,13 @@ Skill Service — 纯业务逻辑
 不依赖 FastAPI，可被 HTTP 端点和 Meta-Agent 工具共同调用。
 """
 
-from __future__ import annotations
-
 import logging
 import re
 import shutil
+import yaml
 from pathlib import Path
 
+from ark_agentic.core.utils.env import resolve_agent_dir
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -20,8 +21,6 @@ logger = logging.getLogger(__name__)
 
 # ── Models ──────────────────────────────────────────────────────────
 
-import yaml
-from pydantic import BaseModel, Field
 
 class SkillMeta(BaseModel):
     id: str
