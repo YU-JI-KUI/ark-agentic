@@ -46,14 +46,18 @@ _registry = AgentRegistry()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _registry.register("insurance", create_insurance_agent_from_env())
-    _registry.register("securities", create_securities_agent_from_env())
+    # Session 按 agent_id 子目录隔离（不迁移旧数据，新会话写入 {base}/{agent_id}/）
+    sessions_base = Path(os.getenv("SESSIONS_DIR") or "data/ark_sessions")
+    sessions_base.mkdir(parents=True, exist_ok=True)
+
+    _registry.register("insurance", create_insurance_agent_from_env(sessions_dir=sessions_base / "insurance"))
+    _registry.register("securities", create_securities_agent_from_env(sessions_dir=sessions_base / "securities"))
 
     # 条件注册 MetaBuilder Agent（仅当 Studio 启用时）
     if os.getenv("ENABLE_STUDIO", "").lower() == "true":
         try:
             from ark_agentic.agents.meta_builder import create_meta_builder_from_env
-            _registry.register("meta-builder", create_meta_builder_from_env())
+            _registry.register("meta_builder", create_meta_builder_from_env(sessions_dir=sessions_base / "meta_builder"))
             logger.info("MetaBuilder Agent registered")
         except Exception as e:
             logger.warning("MetaBuilder Agent failed to initialize, skipping: %s", e)

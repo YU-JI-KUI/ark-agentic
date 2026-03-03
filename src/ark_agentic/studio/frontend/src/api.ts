@@ -114,6 +114,22 @@ export interface SessionItem {
     state: Record<string, unknown>
 }
 
+export interface MessageItem {
+    role: string
+    content: string | null
+    tool_calls?: Array<{ name: string; arguments: Record<string, unknown> }> | null
+    tool_results?: Array<{ tool_call_id: string; content: unknown; is_error?: boolean }> | null
+    thinking?: string | null
+    metadata?: Record<string, unknown> | null
+}
+
+export interface SessionDetail {
+    session_id: string
+    message_count: number
+    state: Record<string, unknown>
+    messages: MessageItem[]
+}
+
 // ── Mutation Input Types ───────────────────────────────────────────
 
 export interface SkillCreateInput {
@@ -183,8 +199,33 @@ export const api = {
             method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data),
         }),
 
-    // Sessions
+    // Sessions (view + edit only; no create/delete)
     listSessions: (agentId: string) =>
         fetchJSON<{ sessions: SessionItem[] }>(`${API_BASE}/agents/${agentId}/sessions`).then(r => r.sessions),
+
+    getSessionDetail: (agentId: string, sessionId: string) =>
+        fetchJSON<SessionDetail>(`${API_BASE}/agents/${agentId}/sessions/${sessionId}`),
+
+    getSessionRaw: async (agentId: string, sessionId: string): Promise<string> => {
+        const res = await fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw`)
+        if (!res.ok) {
+            const t = await res.text()
+            throw new Error(`API Error ${res.status}: ${t}`)
+        }
+        return res.text()
+    },
+
+    putSessionRaw: (agentId: string, sessionId: string, body: string) =>
+        fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'text/plain' },
+            body,
+        }).then(async res => {
+            if (!res.ok) {
+                const t = await res.text()
+                throw new Error(`API Error ${res.status}: ${t}`)
+            }
+            return res.json() as Promise<{ status: string; session_id: string }>
+        }),
 }
 

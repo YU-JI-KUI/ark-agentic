@@ -1,5 +1,5 @@
 {
-    "id": "meta-builder",
+    "id": "meta_builder",
     "name": "Meta-Agent (Builder)",
     "description": "内置对话式 Agent 构建助手。通过自然语言帮助您创建 Agent、Skill 和 Tool。",
     "status": "active",

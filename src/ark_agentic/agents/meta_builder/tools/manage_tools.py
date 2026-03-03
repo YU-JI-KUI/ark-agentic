@@ -1,8 +1,7 @@
 """
 manage_tools — 复合工具：Tool 的 list / create / update / delete / read
 
-必填约定：list 仅需 agent_id；create 必填 name；update 必填 tool_name、content；delete/read 必填 tool_name。
-tool_name 在 update/delete/read 时必须为合法 Python 标识符（isidentifier）。
+create/update/delete 必须先让用户回复「我确认变更」后，再次调用并传入 confirmation='我确认变更'。
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ from ark_agentic.studio.services.tool_service import (
 
 logger = logging.getLogger(__name__)
 
+CONFIRMATION_PHRASE = "我确认变更"
 _ACTIONS = ["list", "create", "update", "delete", "read"]
 
 
@@ -32,6 +32,17 @@ def _err(tool_call_id: str, msg: str) -> AgentToolResult:
 
 def _ok(tool_call_id: str, msg: str) -> AgentToolResult:
     return AgentToolResult.text_result(tool_call_id, msg)
+
+
+def _require_confirmation(
+    confirmation: str | None, tool_call_id: str, action_desc: str
+) -> AgentToolResult | None:
+    if (confirmation or "").strip() != CONFIRMATION_PHRASE:
+        return _err(
+            tool_call_id,
+            f"增删改操作必须先让用户回复「{CONFIRMATION_PHRASE}」后，再次调用本工具并传入 confirmation='{CONFIRMATION_PHRASE}' 以执行。本次拟执行：{action_desc}",
+        )
+    return None
 
 
 def _resolve_agent_id(args: dict, context: dict[str, Any] | None) -> str | None:
@@ -172,16 +183,14 @@ async def _do_read_tool(
 
 
 class ManageToolsTool(AgentTool):
-    """管理 Tool：列出、创建脚手架、更新/删除/读取源文件。一次调用仅执行一个 action。"""
+    """管理 Tool。create/update/delete 必须用户确认后传入 confirmation='我确认变更'。"""
 
     name = "manage_tools"
     description = (
         "[Tool 域] 管理原生工具。"
-        " list: 必填 agent_id（可来自上下文）。"
-        " create: 必填 name，选填 description、parameters。"
-        " update: 必填 tool_name、content（完整 Python 源码）。"
-        " delete: 必填 tool_name。"
-        " read: 必填 tool_name。"
+        " list/read: 无需确认。"
+        " create/update/delete: 必须先让用户回复「我确认变更」并传入 confirmation='我确认变更'。"
+        " list: 必填 agent_id。create: 必填 name。update: 必填 tool_name、content。delete/read: 必填 tool_name。"
     )
     parameters = [
         ToolParameter(
@@ -227,6 +236,12 @@ class ManageToolsTool(AgentTool):
             description="update 时必填，完整的 Python 源码内容",
             required=False,
         ),
+        ToolParameter(
+            name="confirmation",
+            type="string",
+            description="用户确认后必须传入「我确认变更」才会执行 create/update/delete",
+            required=False,
+        ),
     ]
 
     async def execute(self, tool_call: ToolCall, context: dict[str, Any] | None = None) -> AgentToolResult:
@@ -251,6 +266,11 @@ class ManageToolsTool(AgentTool):
             name = (read_string_param(args, "name", "") or "").strip()
             if not name:
                 return _err(tool_call.id, "当 action=create 时，必须提供 name。")
+            confirmation = read_string_param(args, "confirmation", None)
+            if err := _require_confirmation(
+                confirmation, tool_call.id, f"创建 Tool：{name}（Agent {agent_id}）"
+            ):
+                return err
             description = read_string_param(args, "description", "") or ""
             params_raw = read_list_param(args, "parameters", []) or []
             return await _do_create_tool(
@@ -270,11 +290,21 @@ class ManageToolsTool(AgentTool):
             content = read_string_param(args, "content", "") or ""
             if not content:
                 return _err(tool_call.id, "当 action=update 时，必须提供 content。")
+            confirmation = read_string_param(args, "confirmation", None)
+            if err := _require_confirmation(
+                confirmation, tool_call.id, f"更新 Tool：{tool_name}（Agent {agent_id}）"
+            ):
+                return err
             return await _do_update_tool(
                 agents_root, tool_call.id, agent_id, tool_name, content
             )
 
         if action == "delete":
+            confirmation = read_string_param(args, "confirmation", None)
+            if err := _require_confirmation(
+                confirmation, tool_call.id, f"删除 Tool：{tool_name}（Agent {agent_id}）"
+            ):
+                return err
             return await _do_delete_tool(agents_root, tool_call.id, agent_id, tool_name)
 
         if action == "read":

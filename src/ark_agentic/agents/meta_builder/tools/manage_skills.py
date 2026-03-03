@@ -1,8 +1,7 @@
 """
 manage_skills — 复合工具：Skill 的 list / create / update / delete / read
 
-必填约定：list 仅需 agent_id（可来自 context）；create 必填 name；update/delete/read 必填 skill_id。
-所有 action 均需 agent_id，未传则从 context.user:target_agent 获取。
+create/update/delete 必须先让用户回复「我确认变更」后，再次调用并传入 confirmation='我确认变更'。
 """
 
 from __future__ import annotations
@@ -25,6 +24,7 @@ from ark_agentic.core.utils.env import resolve_agent_dir
 
 logger = logging.getLogger(__name__)
 
+CONFIRMATION_PHRASE = "我确认变更"
 _ACTIONS = ["list", "create", "update", "delete", "read"]
 
 
@@ -34,6 +34,17 @@ def _err(tool_call_id: str, msg: str) -> AgentToolResult:
 
 def _ok(tool_call_id: str, msg: str) -> AgentToolResult:
     return AgentToolResult.text_result(tool_call_id, msg)
+
+
+def _require_confirmation(
+    confirmation: str | None, tool_call_id: str, action_desc: str
+) -> AgentToolResult | None:
+    if (confirmation or "").strip() != CONFIRMATION_PHRASE:
+        return _err(
+            tool_call_id,
+            f"增删改操作必须先让用户回复「{CONFIRMATION_PHRASE}」后，再次调用本工具并传入 confirmation='{CONFIRMATION_PHRASE}' 以执行。本次拟执行：{action_desc}",
+        )
+    return None
 
 
 def _resolve_agent_id(args: dict, context: dict[str, Any] | None) -> str | None:
@@ -159,16 +170,14 @@ async def _do_read_skill(
 
 
 class ManageSkillsTool(AgentTool):
-    """管理 Skill：列出、创建、更新、删除或读取。一次调用仅执行一个 action。"""
+    """管理 Skill。create/update/delete 必须用户确认后传入 confirmation='我确认变更'。"""
 
     name = "manage_skills"
     description = (
         "[Skill 域] 管理技能。"
-        " list: 必填 agent_id（可来自上下文）。"
-        " create: 必填 name，选填 description、content。"
-        " update: 必填 skill_id，选填 name、description、content（至少一个）。"
-        " delete: 必填 skill_id。"
-        " read: 必填 skill_id。"
+        " list/read: 无需确认。"
+        " create/update/delete: 必须先让用户回复「我确认变更」并传入 confirmation='我确认变更'。"
+        " list: 必填 agent_id（可来自上下文）。create: 必填 name。update/delete/read: 必填 skill_id。"
     )
     parameters = [
         ToolParameter(
@@ -187,7 +196,7 @@ class ManageSkillsTool(AgentTool):
         ToolParameter(
             name="skill_id",
             type="string",
-            description="技能 ID（目录名，如 claim-rejection）。update/delete/read 时必填",
+            description="技能 ID（目录名）。update/delete/read 时必填",
             required=False,
         ),
         ToolParameter(
@@ -206,6 +215,12 @@ class ManageSkillsTool(AgentTool):
             name="content",
             type="string",
             description="SKILL.md 正文（create/update 选填，Markdown）",
+            required=False,
+        ),
+        ToolParameter(
+            name="confirmation",
+            type="string",
+            description="用户确认后必须传入「我确认变更」才会执行 create/update/delete",
             required=False,
         ),
     ]
@@ -232,6 +247,11 @@ class ManageSkillsTool(AgentTool):
             name = (read_string_param(args, "name", "") or "").strip()
             if not name:
                 return _err(tool_call.id, "当 action=create 时，必须提供 name。")
+            confirmation = read_string_param(args, "confirmation", None)
+            if err := _require_confirmation(
+                confirmation, tool_call.id, f"创建 Skill：{name}（Agent {agent_id}）"
+            ):
+                return err
             description = read_string_param(args, "description", "") or ""
             content = read_string_param(args, "content", "") or ""
             return await _do_create_skill(
@@ -243,6 +263,11 @@ class ManageSkillsTool(AgentTool):
             return _err(tool_call.id, f"当 action={action} 时，必须提供 skill_id。")
 
         if action == "update":
+            confirmation = read_string_param(args, "confirmation", None)
+            if err := _require_confirmation(
+                confirmation, tool_call.id, f"更新 Skill：{skill_id}（Agent {agent_id}）"
+            ):
+                return err
             name = read_string_param(args, "name", None)
             description = read_string_param(args, "description", None)
             content = read_string_param(args, "content", None)
@@ -251,6 +276,11 @@ class ManageSkillsTool(AgentTool):
             )
 
         if action == "delete":
+            confirmation = read_string_param(args, "confirmation", None)
+            if err := _require_confirmation(
+                confirmation, tool_call.id, f"删除 Skill：{skill_id}（Agent {agent_id}）"
+            ):
+                return err
             return await _do_delete_skill(agents_root, tool_call.id, agent_id, skill_id)
 
         if action == "read":

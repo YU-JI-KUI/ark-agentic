@@ -38,8 +38,8 @@ def get_agents_root(current_file: str | Path) -> Path:
 def resolve_agent_dir(agents_root: Path, agent_id: str) -> Path | None:
     """在 agents 根目录下解析 agent 子目录；不存在或非目录或路径穿越时返回 None。
 
-    agent_id 可能与目录名不一致（如 id 为 meta-builder，目录为 meta_builder），
-    会先尝试 agent_id 再尝试 agent_id.replace("-", "_") 作为目录名。
+    agent_id 须为 snake_case（如 meta_builder），与目录名一致；
+    会先尝试 agent_id 再尝试 agent_id.replace("-", "_") 作为目录名以兼容旧 id。
     """
     root = Path(agents_root).resolve()
     if not agent_id or "/" in agent_id or "\\" in agent_id or agent_id in (".", ".."):

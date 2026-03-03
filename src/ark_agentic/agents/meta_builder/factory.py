@@ -40,10 +40,10 @@ def create_meta_builder_from_env(
 
     Args:
         llm: LLM 实例；若为 None，从环境变量按与其他 Agent 相同的方式初始化。
-        sessions_dir: 会话持久化目录，默认 data/meta_builder_sessions。
+        sessions_dir: 会话持久化目录；未传时用 SESSIONS_DIR 或 data/ark_sessions/meta_builder。
 
     Returns:
-        配置好的 AgentRunner，agent_id 应注册为 "meta-builder"。
+        配置好的 AgentRunner，agent_id 应注册为 "meta_builder"。
     """
     if llm is None:
         from ark_agentic.core.llm import create_chat_model, PAModel
@@ -76,11 +76,10 @@ def create_meta_builder_from_env(
     tool_registry.register(ManageSkillsTool())
     tool_registry.register(ManageToolsTool())
 
-    # Session 管理（轻量：无持久化压缩，对话上下文本身不长）
+    # Session 管理：优先使用调用方传入的 sessions_dir（app 按 agent_id 隔离）
     if sessions_dir is None:
-        sessions_dir = os.getenv("SESSIONS_DIR")
-    if sessions_dir is None:
-        sessions_dir = Path("data") / "meta_builder_sessions"
+        base = Path(os.getenv("SESSIONS_DIR") or "data/ark_sessions")
+        sessions_dir = base / "meta_builder"
     sessions_dir = Path(sessions_dir)
     sessions_dir.mkdir(parents=True, exist_ok=True)
 
@@ -93,7 +92,7 @@ def create_meta_builder_from_env(
     # Skill 加载（加载内置 MetaBuilder Guide）
     skill_config = SkillConfig(
         skill_directories=[str(_SKILLS_DIR)],
-        agent_id="meta-builder",
+        agent_id="meta_builder",
         enable_eligibility_check=False,
         default_load_mode=SkillLoadMode.full,
     )

@@ -77,7 +77,8 @@ export default function StudioLayout() {
                             </span>
                         )}
                     </div>
-                    <ChatPanel agentId={selectedAgentId ?? 'meta-builder'} />
+                    {/* 固定 key 保证切换左侧 agent/中间 tab 时聊天会话保留，不新建 */}
+                    <ChatPanel key="meta-agent-chat" agentId={selectedAgentId ?? 'meta_builder'} />
                 </div>
             </div>
         </div>

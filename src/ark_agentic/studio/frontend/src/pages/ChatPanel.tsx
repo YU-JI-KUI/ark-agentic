@@ -13,18 +13,20 @@ interface ChatMessage {
 }
 
 interface Props {
-    agentId: string   // target_agent context injected into meta-builder
+    agentId: string   // target_agent context injected into meta_builder
 }
 
 let _msgCounter = 0
 const nextId = () => `msg-${++_msgCounter}`
 
+const WELCOME_CONTENT = `你好！我是 Ark-Agentic Meta-Agent。\n\n你可以用自然语言让我帮你：\n- 创建新的 Skill（例如：**"帮我给当前 Agent 加上退保拦截的技能"**）\n- 生成 Tool 脚手架（例如：**"生成一个查询保单状态的工具"**）\n- 创建全新的 Agent（例如：**"帮我建一个客服场景的 Agent"**）`
+
+function createWelcomeMessage(): ChatMessage {
+    return { id: nextId(), role: 'assistant', content: WELCOME_CONTENT }
+}
+
 export default function ChatPanel({ agentId }: Props) {
-    const [messages, setMessages] = useState<ChatMessage[]>([{
-        id: nextId(),
-        role: 'assistant',
-        content: `你好！我是 Ark-Agentic Meta-Agent。\n\n你可以用自然语言让我帮你：\n- 创建新的 Skill（例如：**"帮我给当前 Agent 加上退保拦截的技能"**）\n- 生成 Tool 脚手架（例如：**"生成一个查询保单状态的工具"**）\n- 创建全新的 Agent（例如：**"帮我建一个客服场景的 Agent"**）`,
-    }])
+    const [messages, setMessages] = useState<ChatMessage[]>(() => [createWelcomeMessage()])
     const [input, setInput] = useState('')
     const [isStreaming, setIsStreaming] = useState(false)
     const [sessionId, setSessionId] = useState<string | undefined>()
@@ -49,7 +51,7 @@ export default function ChatPanel({ agentId }: Props) {
 
         try {
             const gen = streamChat({
-                agent_id: 'meta-builder',
+                agent_id: 'meta_builder',
                 message: text,
                 session_id: sessionId,
                 context: { 'target_agent': agentId },
@@ -115,8 +117,24 @@ export default function ChatPanel({ agentId }: Props) {
         }
     }
 
+    function startNewSession() {
+        if (isStreaming) return
+        setSessionId(undefined)
+        setMessages([createWelcomeMessage()])
+    }
+
     return (
         <div className="chat-panel">
+            <div className="chat-toolbar">
+                <button
+                    type="button"
+                    className="btn btn-ghost chat-new-session-btn"
+                    onClick={startNewSession}
+                    disabled={isStreaming}
+                >
+                    新建会话
+                </button>
+            </div>
             <div className="chat-history">
                 {messages.map(msg => (
                     <div key={msg.id} className={`chat-message chat-message-${msg.role}`}>

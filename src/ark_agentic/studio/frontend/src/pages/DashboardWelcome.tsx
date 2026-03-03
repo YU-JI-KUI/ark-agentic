@@ -14,10 +14,10 @@ export default function DashboardWelcome() {
 
             <div
                 className="metachat-banner"
-                onClick={() => navigate('/agents/meta-builder/skills')}
+                onClick={() => navigate('/agents/meta_builder/skills')}
                 role="button"
                 tabIndex={0}
-                onKeyDown={e => e.key === 'Enter' && navigate('/agents/meta-builder/skills')}
+                onKeyDown={e => e.key === 'Enter' && navigate('/agents/meta_builder/skills')}
             >
                 <div className="metachat-banner-icon">🤖</div>
                 <div className="metachat-banner-body">

@@ -28,12 +28,12 @@ def test_factory_registers_three_composite_tools(tmp_path):
 
 
 def test_manage_agents_schema_has_action_enum():
-    """manage_agents 的 action 参数为 enum list/create。"""
+    """manage_agents 的 action 参数为 enum list/create/delete。"""
     t = ManageAgentsTool()
     schema = t.get_json_schema()
     params = schema["function"]["parameters"]["properties"]
     assert "action" in params
-    assert params["action"].get("enum") == ["list", "create"]
+    assert params["action"].get("enum") == ["list", "create", "delete"]
     assert "action" in schema["function"]["parameters"]["required"]
 
 
@@ -109,7 +109,7 @@ async def test_manage_tools_tool_name_not_identifier_returns_error():
             name="manage_tools",
             arguments={
                 "action": "read",
-                "agent_id": "meta-builder",
+                "agent_id": "meta_builder",
                 "tool_name": "bad-name-with-dash",
             },
         ),
@@ -118,3 +118,43 @@ async def test_manage_tools_tool_name_not_identifier_returns_error():
     assert result.is_error
     text = _text(result)
     assert "标识符" in text or "identifier" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_manage_agents_create_without_confirmation_returns_error(monkeypatch, tmp_path):
+    """manage_agents action=create 未传 confirmation 时要求用户确认。"""
+    monkeypatch.setenv("AGENTS_ROOT", str(tmp_path))
+    tool = ManageAgentsTool()
+    result = await tool.execute(
+        ToolCall(
+            id="tc1",
+            name="manage_agents",
+            arguments={"action": "create", "name": "TestAgent"},
+        ),
+        context=None,
+    )
+    assert result.is_error
+    text = _text(result)
+    assert "我确认变更" in text
+
+
+@pytest.mark.asyncio
+async def test_manage_agents_delete_meta_builder_forbidden(monkeypatch, tmp_path):
+    """禁止删除 meta_builder 自身。"""
+    monkeypatch.setenv("AGENTS_ROOT", str(tmp_path))
+    tool = ManageAgentsTool()
+    result = await tool.execute(
+        ToolCall(
+            id="tc1",
+            name="manage_agents",
+            arguments={
+                "action": "delete",
+                "agent_id": "meta_builder",
+                "confirmation": "我确认变更",
+            },
+        ),
+        context=None,
+    )
+    assert result.is_error
+    text = _text(result)
+    assert "不能删除" in text or "Meta-Agent" in text

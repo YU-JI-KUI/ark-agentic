@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+from ark_agentic.core.utils.env import resolve_agent_dir
 
 from .skill_service import create_skill, slugify
 from .tool_service import scaffold_tool, ToolParameterSpec
@@ -152,6 +155,30 @@ def list_agents(agents_root: Path) -> list[AgentMeta]:
         else:
             agents.append(AgentMeta(id=child.name, name=child.name))
     return agents
+
+
+def delete_agent(agents_root: Path, agent_id: str) -> None:
+    """删除指定 Agent 的完整目录（含 skills、tools 等）。
+
+    Raises:
+        ValueError: agent_id 为 meta_builder（禁止删除 Meta-Agent 自身）
+        FileNotFoundError: Agent 不存在
+    """
+    if agent_id == "meta_builder":
+        raise ValueError("不能删除 Meta-Agent 自身。")
+
+    agent_dir = resolve_agent_dir(agents_root, agent_id)
+    if not agent_dir:
+        raise FileNotFoundError(f"Agent not found: {agent_id}")
+
+    root = agents_root.resolve()
+    try:
+        agent_dir.resolve().relative_to(root)
+    except ValueError:
+        raise ValueError(f"Path safety check failed: {agent_id}")
+
+    shutil.rmtree(agent_dir)
+    logger.info("Deleted agent: %s at %s", agent_id, agent_dir)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
