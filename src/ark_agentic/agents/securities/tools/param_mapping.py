@@ -436,4 +436,5 @@ SERVICE_HEADER_CONFIGS: dict[str, dict[str, tuple]] = {
     "security_detail": UNIFIED_HEADER_CONFIG,   # 标的详情使用 validatedata
     "etf_holdings": ETF_HOLDINGS_HEADER_CONFIG,  # ETF 使用 validatedata
     "hksc_holdings": HKSC_HOLDINGS_HEADER_CONFIG,  # HKSC 使用 validatedata
+    "branch_info": UNIFIED_HEADER_CONFIG,       # 开户营业部查询使用 validatedata
 }
