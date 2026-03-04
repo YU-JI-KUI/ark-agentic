@@ -59,10 +59,16 @@ class HKSCHoldingsTool(AgentTool):
     ]
 
     def __init__(self):
-        self._adapter = create_service_adapter(
-            "hksc_holdings",
-            mock=os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1"),
-        )
+        self._adapter = None
+
+    @property
+    def adapter(self):
+        if self._adapter is None:
+            self._adapter = create_service_adapter(
+                "hksc_holdings",
+                mock=os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1"),
+            )
+        return self._adapter
 
     async def execute(
         self,
@@ -71,7 +77,6 @@ class HKSCHoldingsTool(AgentTool):
     ) -> AgentToolResult:
         args = tool_call.arguments or {}
         context = context or {}
-
 
         # HKSC 不区分账户类型，但仍保留参数兼容
         # 上下文参数来自客户端传入，优先级高于模型工具调用参数：user:* context > 裸 key context > tool args
@@ -84,7 +89,7 @@ class HKSCHoldingsTool(AgentTool):
 
         try:
             # 传递完整 context 给 adapter（用于参数映射和 header 认证）
-            data = await self._adapter.call(
+            data = await self.adapter.call(
                 account_type=account_type,
                 user_id=user_id,
                 _context=context,  # 传递完整上下文

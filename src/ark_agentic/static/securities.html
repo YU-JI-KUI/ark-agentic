@@ -848,6 +848,89 @@
     }
 
     /* ============================================================
+   Branch info card
+   ============================================================ */
+    .bi-table {
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+
+    .bi-row {
+      display: grid;
+      grid-template-columns: 76px 1fr;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .bi-row:last-child {
+      border-bottom: none;
+    }
+
+    .bi-label {
+      background: var(--orange-pale);
+      padding: 12px 10px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      display: flex;
+      align-items: center;
+    }
+
+    .bi-value {
+      padding: 12px 12px;
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.55;
+      word-break: break-all;
+    }
+
+    .bi-phone-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .bi-call-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 14px;
+      background: var(--orange-pale);
+      color: var(--orange);
+      border: 1.5px solid var(--orange-light);
+      border-radius: 16px;
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background .15s;
+    }
+
+    .bi-call-btn:hover {
+      background: var(--orange);
+      color: var(--white);
+    }
+
+    .bi-footer {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.65;
+    }
+
+    .bi-footer-link {
+      color: var(--orange);
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .bi-footer-link:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================================================
    Utilities
    ============================================================ */
     .hidden {
@@ -1624,6 +1707,9 @@
           case 'security_detail_card':
             cardDiv.innerHTML = renderSecurityDetailCard(template.data);
             break;
+          case 'branch_info_card':
+            cardDiv.innerHTML = renderBranchInfoCard(template.data);
+            break;
           default:
             cardDiv.innerHTML = renderGenericCard(template);
         }
@@ -1851,6 +1937,48 @@
                 </span>
               </div>
             ` : '<div style="text-align:center;color:var(--text-muted);padding:12px;">当前未持仓</div>'}
+          </div>
+        `;
+      }
+
+      function renderBranchInfoCard(data) {
+        const account = data.account ? escHtml(data.account) : '';
+        const title = account
+          ? `资金账号：${account} 的开户营业部信息`
+          : '开户营业部信息';
+        const branchName = escHtml(data.branch_name || '—');
+        const address = escHtml(data.address || '—');
+        const phone = escHtml(data.service_phone || '—');
+        const phoneRaw = (data.service_phone || '').replace(/[^0-9\-]/g, '');
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${title}</div>
+          </div>
+          <div class="template-card-body">
+            <div class="bi-table">
+              <div class="bi-row">
+                <div class="bi-label">营业部<br>名称</div>
+                <div class="bi-value">${branchName}</div>
+              </div>
+              <div class="bi-row">
+                <div class="bi-label">营业部<br>地址</div>
+                <div class="bi-value">${address}</div>
+              </div>
+              <div class="bi-row">
+                <div class="bi-label">营业部<br>电话</div>
+                <div class="bi-value">
+                  <div class="bi-phone-row">
+                    <span>${phone}</span>
+                    <a class="bi-call-btn" href="tel:${phoneRaw}">拨打</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bi-footer">
+              您可以前往任意平安证券营业部办理业务，
+              <span class="bi-footer-link">点击查询所有营业部 &rsaquo;</span>
+            </div>
           </div>
         `;
       }

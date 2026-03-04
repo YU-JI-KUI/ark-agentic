@@ -263,6 +263,34 @@ def extract_hksc_holdings(data: dict[str, Any]) -> dict[str, Any]:
     return extracted
 
 
+# ============ 开户营业部字段映射 ============
+
+BRANCH_INFO_FIELD_MAPPING: dict[str, str] = {
+    "branch_name": "results.branchName",
+    "address": "results.address",
+    "service_phone": "results.servicePhone",
+}
+
+
+def extract_branch_info(data: dict[str, Any]) -> dict[str, Any]:
+    """提取开户营业部字段
+
+    Args:
+        data: API 响应数据
+
+    Returns:
+        提取后的字段字典，其中 service_phone 去除"营业部联系电话: "前缀
+    """
+    extracted = extract_fields(data, BRANCH_INFO_FIELD_MAPPING)
+
+    # servicePhone 格式："营业部联系电话: 95511-8-9-2"，提取纯电话号码
+    phone = extracted.get("service_phone", "")
+    if isinstance(phone, str) and ": " in phone:
+        extracted["service_phone"] = phone.split(": ", 1)[1]
+
+    return extracted
+
+
 # ============ 服务字段配置注册表 ============
 
 SERVICE_FIELD_MAPPINGS: dict[str, dict[str, str]] = {
