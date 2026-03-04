@@ -59,10 +59,16 @@ class FundHoldingsTool(AgentTool):
     ]
 
     def __init__(self):
-        self._adapter = create_service_adapter(
-            "fund_holdings",
-            mock=os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1"),
-        )
+        self._adapter = None
+
+    @property
+    def adapter(self):
+        if self._adapter is None:
+            self._adapter = create_service_adapter(
+                "fund_holdings",
+                mock=os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1"),
+            )
+        return self._adapter
 
     async def execute(
         self,
@@ -81,7 +87,7 @@ class FundHoldingsTool(AgentTool):
         )
 
         try:
-            data = await self._adapter.call(
+            data = await self.adapter.call(
                 account_type=account_type,
                 user_id=user_id,
                 _context=context,  # 传递完整上下文
