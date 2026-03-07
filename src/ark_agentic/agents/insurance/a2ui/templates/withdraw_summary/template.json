@@ -14,7 +14,7 @@
           "width": 100,
           "backgroundColor": "#F5F5F5",
           "padding": 2,
-          "gap": 0,
+          "gap": 16,
           "children": {
             "explicitList": [
               "header-card",
@@ -31,7 +31,7 @@
       "id": "header-card",
       "component": {
         "Card": {
-          "width": 96,
+          "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 20,
@@ -115,7 +115,7 @@
       "id": "card-zero-cost",
       "component": {
         "Card": {
-          "width": 96,
+          "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
@@ -302,7 +302,7 @@
       "id": "card-loan",
       "component": {
         "Card": {
-          "width": 96,
+          "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
@@ -489,7 +489,7 @@
       "id": "card-advice",
       "component": {
         "Card": {
-          "width": 96,
+          "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
@@ -584,7 +584,7 @@
       "component": {
         "Button": {
           "type": "primary",
-          "width": 96,
+          "width": 100,
           "text": {
             "path": "plan_button_text"
           },
