@@ -39,6 +39,8 @@ class ServiceConfig:
 class BaseServiceAdapter(ABC):
     """服务适配器基类"""
 
+    http_method: str = "POST"  # 子类可覆盖为 "GET"
+
     def __init__(self, config: ServiceConfig):
         self.config = config
         self._http: httpx.AsyncClient | None = None
@@ -61,14 +63,21 @@ class BaseServiceAdapter(ABC):
         client = await self._get_http()
 
         # 构建请求
-        headers, body = self._build_request(account_type, user_id, params)
+        headers, payload = self._build_request(account_type, user_id, params)
 
         try:
-            resp = await client.post(
-                self.config.url,
-                json=body,
-                headers=headers,
-            )
+            if self.http_method == "GET":
+                resp = await client.get(
+                    self.config.url,
+                    params=payload,
+                    headers=headers,
+                )
+            else:
+                resp = await client.post(
+                    self.config.url,
+                    json=payload,
+                    headers=headers,
+                )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ServiceError(
@@ -87,17 +96,17 @@ class BaseServiceAdapter(ABC):
         user_id: str,
         params: dict[str, Any],
     ) -> tuple[dict[str, str], dict[str, Any]]:
-        """构建请求 headers 和 body"""
+        """构建请求 headers 和 payload（POST 时为 JSON body，GET 时为 query params）"""
         headers = {"Content-Type": "application/json"}
-        body = {"user_id": user_id, "account_type": account_type, **params}
+        payload = {"user_id": user_id, "account_type": account_type, **params}
 
         # 添加认证
         if self.config.auth_type == "header":
             headers[self.config.auth_key] = self.config.auth_value or ""
         else:
-            body[self.config.auth_key] = self.config.auth_value or ""
+            payload[self.config.auth_key] = self.config.auth_value or ""
 
-        return headers, body
+        return headers, payload
 
     @abstractmethod
     def _normalize_response(
@@ -299,9 +308,12 @@ class HKSCHoldingsAdapter(BaseServiceAdapter):
 class FundHoldingsAdapter(BaseServiceAdapter):
     """基金理财持仓服务适配器
 
-    使用 validatedata + signature 认证：
+    HTTP GET，query params 传递 usercode 和 channel：
+    - GET /api?usercode=xxx&channel=xxx
     - Headers: {"validatedata": "...", "signature": "..."}
     """
+
+    http_method = "GET"
 
     def _build_request(
         self,
@@ -309,29 +321,31 @@ class FundHoldingsAdapter(BaseServiceAdapter):
         user_id: str,
         params: dict[str, Any],
     ) -> tuple[dict[str, str], dict[str, Any]]:
-        """构建请求（使用 validatedata + signature 认证）"""
+        """构建 GET 请求（query params: usercode + channel）"""
         from .param_mapping import (
+            build_api_request,
             build_api_headers_with_validatedata,
+            SERVICE_PARAM_CONFIGS,
             SERVICE_HEADER_CONFIGS,
         )
 
         context = params.get("_context", {})
 
-        # 构建请求体
-        body = {"user_id": user_id, "account_type": account_type}
+        # query params: usercode + channel
+        param_config = SERVICE_PARAM_CONFIGS.get("fund_holdings", {})
+        query = build_api_request(param_config, context)
 
-        # 构建 headers（包含 validatedata 和 signature）
+        # headers: validatedata + signature
         headers = {"Content-Type": "application/json"}
         header_config = SERVICE_HEADER_CONFIGS.get("fund_holdings", {})
         auth_headers = build_api_headers_with_validatedata(header_config, context)
         headers.update(auth_headers)
 
-        # 添加配置的认证（如果有的话，作为 fallback）
         if self.config.auth_type == "header" and self.config.auth_value:
-            if self.config.auth_key not in headers:  # 不覆盖 validatedata/signature
+            if self.config.auth_key not in headers:
                 headers[self.config.auth_key] = self.config.auth_value
 
-        return headers, body
+        return headers, query
 
     def _normalize_response(
         self,
