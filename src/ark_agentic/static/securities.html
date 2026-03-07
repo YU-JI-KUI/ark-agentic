@@ -1768,19 +1768,21 @@
         const summary = (template.data && template.data.summary) || {};
 
         const isETF = ac === 'ETF';
+        const isFund = ac === 'Fund';
         let summaryHtml = '';
 
         const hasSummary = summary && (summary.total_market_value !== undefined || summary.total_profit !== undefined);
-        if (isETF && hasSummary) {
+        if ((isETF || isFund) && hasSummary) {
           const totalProfit = toNum(summary.total_profit);
           const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
           const profitSign = totalProfit >= 0 ? '+' : '';
           const profitRate = toNum(summary.total_profit_rate);
+          const mktValLabel = isETF ? 'ETF市值' : '基金市值';
 
           summaryHtml = `
             <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
               <div style="text-align:center;flex:1;">
-                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">ETF市值</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">${mktValLabel}</div>
                 <div class="tc-value">￥${formatNumber(summary.total_market_value)}</div>
               </div>
               <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
@@ -1800,10 +1802,20 @@
           const holdCnt = h.hold_cnt || '-';
           const marketValue = h.market_value;
           const dayProfit = toNum(h.day_profit);
+          const hasDayProfitRate = h.day_profit_rate != null;
           const dayProfitRate = toNum(h.day_profit_rate);
 
           const profitClass = dayProfit >= 0 ? 'profit' : 'loss';
           const profitSign = dayProfit >= 0 ? '+' : '';
+
+          // 基金卡片额外展示累计盈亏
+          const holdPosPft = h.hold_position_profit != null ? toNum(h.hold_position_profit) : null;
+          const holdPosPftRate = h.hold_position_profit_rate != null ? toNum(h.hold_position_profit_rate) : null;
+          const holdPosPftHtml = holdPosPft != null ? `
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+              累计: ${holdPosPft >= 0 ? '+' : ''}￥${formatNumber(Math.abs(holdPosPft))}
+              ${holdPosPftRate != null ? ` (${holdPosPft >= 0 ? '+' : ''}${(holdPosPftRate * 100).toFixed(2)}%)` : ''}
+            </div>` : '';
 
           return `
             <div class="tc-list-item">
@@ -1816,11 +1828,12 @@
               <div style="text-align:right;">
                 <div class="tc-item-value ${profitClass}">
                   ${profitSign}￥${formatNumber(Math.abs(dayProfit))}
-                  (${profitSign}${(dayProfitRate * 100).toFixed(2)}%)
+                  ${hasDayProfitRate ? ` (${profitSign}${(dayProfitRate * 100).toFixed(2)}%)` : ''}
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
                   市值: ￥${formatNumber(marketValue)}
                 </div>
+                ${holdPosPftHtml}
               </div>
             </div>
           `;

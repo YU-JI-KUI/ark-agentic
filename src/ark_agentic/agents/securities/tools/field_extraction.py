@@ -263,6 +263,52 @@ def extract_hksc_holdings(data: dict[str, Any]) -> dict[str, Any]:
     return extracted
 
 
+# ============ 基金持仓字段映射 ============
+# 输入为 FundHoldingsSchema.model_dump() 已标准化的 snake_case 数据
+
+
+def extract_fund_holdings(data: dict[str, Any]) -> dict[str, Any]:
+    """提取基金持仓字段
+
+    输入为 FundHoldingsSchema.model_dump() 已标准化的数据，字段为 snake_case。
+    输出统一为 stock_list 格式，与 ETF/HKSC 渲染路径兼容。
+
+    Args:
+        data: FundHoldingsSchema.model_dump() 返回的标准化数据
+
+    Returns:
+        提取后的字段字典，包含 stock_list 列表和汇总字段
+    """
+    holdings: list[dict[str, Any]] = data.get("holdings", [])
+    summary: dict[str, Any] = data.get("summary", {})
+
+    stock_list = [
+        {
+            "code": item.get("product_code"),
+            "name": item.get("product_name"),
+            "hold_cnt": item.get("quantity"),
+            "market_value": item.get("market_value"),
+            "day_profit": item.get("today_profit"),
+            "cost_price": item.get("cost_price"),
+            "current_value": item.get("current_value"),
+            "hold_position_profit": item.get("profit"),
+            "hold_position_profit_rate": item.get("profit_rate"),
+        }
+        for item in holdings
+    ]
+
+    return {
+        "stock_list": stock_list,
+        # total_market_value 供汇总栏"基金市值"使用
+        "total_market_value": summary.get("total_market_value"),
+        # day_total_profit → render_holdings_list_card 中作为 total_profit 的 fallback
+        "day_total_profit": summary.get("today_profit"),
+        # 累计盈亏，供前端扩展展示
+        "hold_position_profit": summary.get("total_profit"),
+        "hold_position_profit_rate": summary.get("total_profit_rate"),
+    }
+
+
 # ============ 开户营业部字段映射 ============
 
 BRANCH_INFO_FIELD_MAPPING: dict[str, str] = {

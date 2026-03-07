@@ -20,6 +20,7 @@ from .field_extraction import (
     extract_branch_info,
     extract_cash_assets,
     extract_etf_holdings,
+    extract_fund_holdings,
     extract_hksc_holdings,
 )
 
@@ -139,8 +140,10 @@ class DisplayCardTool(AgentTool):
             elif source_tool == "hksc_holdings":
                 extracted_data = extract_hksc_holdings(data)
                 template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
+            elif source_tool == "fund_holdings":
+                extracted_data = extract_fund_holdings(data)
+                template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
             else:
-                # Fund 暂时使用旧格式
                 template = TemplateRenderer.render_holdings_list_card(asset_class, data)
         elif render_type == "account_overview":
             # 使用字段提取工具从 API 响应中提取显示字段
