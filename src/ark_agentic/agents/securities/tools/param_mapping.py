@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-import os
+from .service_client import get_mock_mode_for_context
 from typing import Any, Callable
 
 
@@ -208,7 +208,7 @@ def validate_validatedata_fields(
         ...     raise ValueError(f"缺少字段: {', '.join(missing)}")
     """
     # Mock 模式下跳过校验
-    if skip_on_mock and os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1"):
+    if skip_on_mock and get_mock_mode_for_context(context):
         return []
 
     if required_fields is None:
@@ -259,7 +259,7 @@ def build_validatedata(
         'channel=REST&usercode=150573383&userid=12977997&account=3310123&branchno=3310&loginflag=3&mobileNo=137123123'
     """
     # Mock 模式下返回空字符串
-    if skip_on_mock and os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1"):
+    if skip_on_mock and get_mock_mode_for_context(context):
         return ""
 
     if required_fields is None:

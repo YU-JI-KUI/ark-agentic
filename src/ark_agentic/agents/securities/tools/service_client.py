@@ -601,20 +601,50 @@ class ServiceError(Exception):
     pass
 
 
+# ============ Mock 模式解析 ============
+
+def get_mock_mode() -> bool:
+    """服务级默认 mock 状态（来自 SECURITIES_SERVICE_MOCK 环境变量）"""
+    return os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1")
+
+
+def get_mock_mode_for_context(context: dict | None = None) -> bool:
+    """per-request mock 模式解析
+
+    优先级：
+    1. context 中的 user:mock_mode（per-session 覆盖，由前端随请求携带）
+    2. SECURITIES_SERVICE_MOCK 环境变量（服务级默认）
+    """
+    if context:
+        val = context.get("user:mock_mode") or context.get("mock_mode")
+        if val is not None:
+            return str(val).lower() in ("true", "1")
+    return get_mock_mode()
+
+
 def create_service_adapter(
     service_name: str,
-    mock: bool = False,
+    context: dict | None = None,
 ) -> BaseServiceAdapter:
     """创建服务适配器
 
     Args:
         service_name: 服务名称（account_overview, etf_holdings等）
-        mock: 是否使用 Mock 模式
+        context: 请求上下文，用于解析 per-session mock 设置
 
     Returns:
-        服务适配器实例
+        服务适配器实例，mock 状态由 get_mock_mode_for_context(context) 决定
     """
-    if mock:
+    # 判断 mock 来源，用于日志标注
+    session_override = context and context.get("user:mock_mode") or (
+        context and context.get("mock_mode")
+    )
+    is_mock = get_mock_mode_for_context(context)
+    source = "session" if session_override is not None else "env_default"
+    mode_label = "[MOCK]" if is_mock else "[API] "
+    logger.info("%s tool=%-20s source=%s", mode_label, service_name, source)
+
+    if is_mock:
         # 返回文件驱动的 Mock 适配器
         return MockServiceAdapter(service_name)
 
