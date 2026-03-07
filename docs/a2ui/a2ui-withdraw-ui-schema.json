@@ -1,0 +1,140 @@
+{
+    "title": "HowMuchDataSchema",
+    "description": "howmuch.json 中 data 节点的结构定义。该对象仅承载页面展示文案、金额展示文本、建议说明以及按钮点击所需的动作参数, components 仅负责布局与引用。",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "header_title",
+      "header_value",
+      "header_sub",
+      "section_marker",
+      "zero_cost_title",
+      "zero_cost_tag",
+      "zero_cost_total",
+      "zero_cost_item_1_label",
+      "zero_cost_item_1_value",
+      "zero_cost_item_2_label",
+      "zero_cost_item_2_value",
+      "loan_title",
+      "loan_tag",
+      "loan_total",
+      "loan_item_1_label",
+      "loan_item_1_value",
+      "loan_item_2_label",
+      "loan_item_2_value",
+      "advice_icon",
+      "advice_title",
+      "advice_text_1",
+      "advice_text_2",
+      "plan_button_text",
+      "plan_action_args"
+    ],
+    "properties": {
+      "header_title": {
+        "type": "string",
+        "description": "页面顶部汇总卡片的标题文案，例如：目前可领取的总金额(含贷款)。"
+      },
+      "header_value": {
+        "type": "string",
+        "description": "页面顶部汇总卡片展示的总金额文本，通常包含货币符号，例如：¥ 6,957.76。"
+      },
+      "header_sub": {
+        "type": "string",
+        "description": "顶部汇总卡片的补充说明文案，例如：不含贷款可领金额：¥ 4,029.63。"
+      },
+      "section_marker": {
+        "type": "string",
+        "description": "区块标题前的强调标记字符，例如：|。"
+      },
+      "zero_cost_title": {
+        "type": "string",
+        "description": "零成本领取区块的标题文案，例如：零成本领取。"
+      },
+      "zero_cost_tag": {
+        "type": "string",
+        "description": "零成本领取区块标题旁的补充标签文案，例如：(不影响保障)。"
+      },
+      "zero_cost_total": {
+        "type": "string",
+        "description": "零成本领取区块的合计金额文案，例如：合计：¥ 4,029.63。"
+      },
+      "zero_cost_item_1_label": {
+        "type": "string",
+        "description": "零成本领取区块中第1条明细的左侧名称文案，例如：生存金(鸿利04保单)。"
+      },
+      "zero_cost_item_1_value": {
+        "type": "string",
+        "description": "零成本领取区块中第1条明细的右侧金额文本，例如：¥ 4,000.00。"
+      },
+      "zero_cost_item_2_label": {
+        "type": "string",
+        "description": "零成本领取区块中第2条明细的左侧名称文案，例如：生存金(鑫利保单)。"
+      },
+      "zero_cost_item_2_value": {
+        "type": "string",
+        "description": "零成本领取区块中第2条明细的右侧金额文本，例如：¥ 29.63。"
+      },
+      "loan_title": {
+        "type": "string",
+        "description": "保单贷款区块的标题文案，例如：保单贷款。"
+      },
+      "loan_tag": {
+        "type": "string",
+        "description": "保单贷款区块标题旁的补充标签文案，例如：(需支付利息)。"
+      },
+      "loan_total": {
+        "type": "string",
+        "description": "保单贷款区块的合计金额文案，例如：合计可贷：¥ 2,928.13。"
+      },
+      "loan_item_1_label": {
+        "type": "string",
+        "description": "保单贷款区块中第1条明细的左侧名称文案，例如：鸿利04可贷(年利率5%)。"
+      },
+      "loan_item_1_value": {
+        "type": "string",
+        "description": "保单贷款区块中第1条明细的右侧金额文本，例如：¥ 1,493.63。"
+      },
+      "loan_item_2_label": {
+        "type": "string",
+        "description": "保单贷款区块中第2条明细的左侧名称文案，例如：鑫利可贷(年利率5%)。"
+      },
+      "loan_item_2_value": {
+        "type": "string",
+        "description": "保单贷款区块中第2条明细的右侧金额文本，例如：¥ 1,434.50。"
+      },
+      "advice_icon": {
+        "type": "string",
+        "description": "建议方案区块前的提示图标或符号，例如：💡。"
+      },
+      "advice_title": {
+        "type": "string",
+        "description": "建议方案区块的标题文案，例如：建议方案。"
+      },
+      "advice_text_1": {
+        "type": "string",
+        "description": "建议方案中的第1条建议文案。"
+      },
+      "advice_text_2": {
+        "type": "string",
+        "description": "建议方案中的第2条建议文案。"
+      },
+      "plan_button_text": {
+        "type": "string",
+        "description": "底部主按钮的展示文案，例如：获取最优方案。"
+      },
+      "plan_action_args": {
+        "type": "object",
+        "description": "点击底部主按钮后触发 query 动作所需的参数对象。",
+        "additionalProperties": false,
+        "required": [
+          "queryMsg"
+        ],
+        "properties": {
+          "queryMsg": {
+            "type": "string",
+            "description": "用户点击按钮后自动发起的问句，例如：获取最优方案。"
+          }
+        }
+      }
+    }
+  }
