@@ -81,10 +81,17 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
                 out[f"{prefix}_item_{i}_value"] = ""
         return out
 
+    requested_raw = rule_data.get("requested_amount")
+    if requested_raw is not None and isinstance(requested_raw, (int, float)):
+        requested_amount_display = f"本次取款目标：{_fmt(float(requested_raw))}"
+    else:
+        requested_amount_display = "—"
+
     flat: dict[str, Any] = {
         "header_title": "目前可领取的总金额(含贷款)",
         "header_value": _fmt(total_incl_loan),
         "header_sub": f"不含贷款可领金额：{_fmt(total_excl_loan)}",
+        "requested_amount_display": requested_amount_display,
         "section_marker": "|",
         "zero_cost_title": "零成本领取",
         "zero_cost_tag": "(不影响保障)",

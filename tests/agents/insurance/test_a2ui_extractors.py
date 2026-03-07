@@ -10,6 +10,7 @@ from ark_agentic.agents.insurance.a2ui.extractors import withdraw_summary_extrac
 def test_withdraw_summary_extractor_returns_flat_data_from_rule_engine_result() -> None:
     context = {
         "_rule_engine_result": {
+            "requested_amount": 10000,
             "total_available_excl_loan": 4029.63,
             "total_available_incl_loan": 6957.76,
             "options": [
@@ -25,6 +26,7 @@ def test_withdraw_summary_extractor_returns_flat_data_from_rule_engine_result() 
 
     assert flat["header_value"] == "¥ 6,957.76"
     assert flat["header_sub"] == "不含贷款可领金额：¥ 4,029.63"
+    assert flat["requested_amount_display"] == "本次取款目标：¥ 10,000.00"
     assert "零成本" in flat["zero_cost_title"]
     assert flat["zero_cost_item_1_label"] != ""
     assert flat["zero_cost_item_1_value"] == "¥ 4,000.00"

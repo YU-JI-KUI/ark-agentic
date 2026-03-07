@@ -25,6 +25,7 @@ def _mock_extractor(context: dict, card_args: dict | None) -> dict:
         "header_title": "标题",
         "header_value": "¥ 0",
         "header_sub": "",
+        "requested_amount_display": "—",
         "section_marker": "|",
         "zero_cost_title": "",
         "zero_cost_tag": "",

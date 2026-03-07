@@ -17,6 +17,7 @@ os.environ["SECURITIES_SERVICE_MOCK"] = "true"
 @pytest.mark.asyncio
 async def test_account_overview_context_injection():
     """测试扁平 context 参数注入和字段提取"""
+    os.environ["SECURITIES_SERVICE_MOCK"] = "true"
     tool = AccountOverviewTool()
     
     # 1. Test Normal Account (扁平 context)
@@ -73,6 +74,7 @@ async def test_account_overview_context_injection():
 @pytest.mark.asyncio
 async def test_account_overview_prefixed_context_injection():
     """测试 user: 前缀 context 参数注入（user:id / user:account_type / user:token_id）。"""
+    os.environ["SECURITIES_SERVICE_MOCK"] = "true"
     tool = AccountOverviewTool()
 
     tool_call = ToolCall(id="test_prefixed_margin", name="account_overview", arguments={})

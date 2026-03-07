@@ -26,6 +26,7 @@ def test_render_from_template_returns_begin_rendering_and_merged_data() -> None:
         "header_title": "标题",
         "header_value": "¥ 1,234.56",
         "header_sub": "副标题",
+        "requested_amount_display": "本次取款目标：¥ 5,000.00",
         "section_marker": "|",
         "zero_cost_title": "零成本",
         "zero_cost_tag": "",
@@ -64,7 +65,7 @@ def test_render_from_template_returns_begin_rendering_and_merged_data() -> None:
 
 def test_render_from_template_injects_surface_id_with_session_prefix() -> None:
     root = _template_root()
-    out = render_from_template(root, "withdraw_summary", {"header_title": "x", "header_value": "¥ 0", "header_sub": "", "section_marker": "|", "zero_cost_title": "", "zero_cost_tag": "", "zero_cost_total": "", "zero_cost_item_1_label": "", "zero_cost_item_1_value": "", "zero_cost_item_2_label": "", "zero_cost_item_2_value": "", "loan_title": "", "loan_tag": "", "loan_total": "", "loan_item_1_label": "", "loan_item_1_value": "", "loan_item_2_label": "", "loan_item_2_value": "", "advice_icon": "", "advice_title": "", "advice_text_1": "", "advice_text_2": "", "plan_button_text": "", "plan_action_args": {}}, "sid123")
+    out = render_from_template(root, "withdraw_summary", {"header_title": "x", "header_value": "¥ 0", "header_sub": "", "requested_amount_display": "", "section_marker": "|", "zero_cost_title": "", "zero_cost_tag": "", "zero_cost_total": "", "zero_cost_item_1_label": "", "zero_cost_item_1_value": "", "zero_cost_item_2_label": "", "zero_cost_item_2_value": "", "loan_title": "", "loan_tag": "", "loan_total": "", "loan_item_1_label": "", "loan_item_1_value": "", "loan_item_2_label": "", "loan_item_2_value": "", "advice_icon": "", "advice_title": "", "advice_text_1": "", "advice_text_2": "", "plan_button_text": "", "plan_action_args": {}}, "sid123")
     assert out["surfaceId"].startswith("withdraw_summary-sid123")
 
 
@@ -82,6 +83,7 @@ def test_render_from_template_overwrites_template_data_with_input_data() -> None
         "header_title": "覆盖标题",
         "header_value": "¥ 0",
         "header_sub": "",
+        "requested_amount_display": "",
         "section_marker": "|",
         "zero_cost_title": "",
         "zero_cost_tag": "",

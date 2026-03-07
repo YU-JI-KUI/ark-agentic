@@ -183,12 +183,12 @@ def test_display_card_tool():
     print("   ✓ 成功从 context 读取 etf_holdings 结果")
     print(f"   ✓ template_type={template['template_type']}, asset_class={template['asset_class']}")
 
-    # 测试未找到数据的情况
+    # 测试未找到数据的情况：display_card 返回错误，要求先调用数据工具
     tc_bad = ToolCall.create(name="display_card", arguments={"source_tool": "hksc_holdings"})
     result_bad = asyncio.get_event_loop().run_until_complete(tool.execute(tc_bad, context))
-    assert not result_bad.is_error
-    assert len(result_bad.metadata["template"]["data"]["holdings"]) == 0
-    print("   ✓ 未找到数据时返回空列表卡片")
+    assert result_bad.is_error
+    assert "hksc_holdings" in result_bad.content and ("未找到" in result_bad.content or "请先调用" in result_bad.content)
+    print("   ✓ 未找到数据时正确返回错误提示")
 
     # 测试未知工具名
     tc_unknown = ToolCall.create(name="display_card", arguments={"source_tool": "unknown_tool"})
