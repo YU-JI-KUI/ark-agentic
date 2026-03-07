@@ -420,12 +420,19 @@ UNIFIED_HEADER_CONFIG: dict[str, tuple] = {
     "signature": ("context", "signature"),  # 从 context 获取
 }
 
+# 基金理财持仓 API 参数配置（HTTP GET query params）
+FUND_HOLDINGS_PARAM_CONFIG: dict[str, tuple] = {
+    "usercode": ("context", "usercode"),  # 来自 user:usercode 或 usercode
+    "channel":  ("context", "channel"),   # 来自 user:channel 或 channel
+}
+
 # 服务参数配置注册表
 SERVICE_PARAM_CONFIGS: dict[str, dict[str, tuple]] = {
     "account_overview": ACCOUNT_OVERVIEW_PARAM_CONFIG,
     "cash_assets": CASH_ASSETS_PARAM_CONFIG,
     "etf_holdings": ETF_HOLDINGS_PARAM_CONFIG,
-    "hksc_holdings": HKSC_HOLDINGS_PARAM_CONFIG,  # 新增
+    "hksc_holdings": HKSC_HOLDINGS_PARAM_CONFIG,
+    "fund_holdings": FUND_HOLDINGS_PARAM_CONFIG,
 }
 
 # 服务 Header 配置注册表（用于需要特殊 header 的服务）
