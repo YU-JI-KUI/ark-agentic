@@ -87,9 +87,22 @@
               "explicitList": [
                 "header-title",
                 "header-value",
-                "header-sub"
+                "header-sub",
+                "header-requested"
               ]
             }
+          }
+        }
+      },
+      {
+        "id": "header-requested",
+        "component": {
+          "Text": {
+            "text": {
+              "path": "requested_amount_display"
+            },
+            "color": "#666666",
+            "fontSize": "12px"
           }
         }
       },
