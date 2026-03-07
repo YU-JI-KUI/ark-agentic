@@ -187,7 +187,12 @@ class RuleEngineTool(AgentTool):
                 tool_call.id, f"不支持的操作: {action}"
             )
 
-        return AgentToolResult.json_result(tool_call.id, result)
+        # list_options 结果存入 session state，供 render_card(card_type=withdraw_summary) 跨轮次读取
+        metadata = {}
+        if action == "list_options":
+            metadata["state_delta"] = {"_rule_engine_result": result}
+
+        return AgentToolResult.json_result(tool_call.id, result, metadata=metadata or None)
 
     # ------------------------------------------------------------------
     # list_options: 自动获取保单数据 → 标准化为每张保单一条记录

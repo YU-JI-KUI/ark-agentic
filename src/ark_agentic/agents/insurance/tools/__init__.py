@@ -7,12 +7,30 @@
 - PolicyQueryTool: 保单查询（列表、详情、现金价值、可取款额度）
 - RuleEngineTool: 规则引擎（计算取款方案、比较方案）
 - CustomerInfoTool: 客户信息（身份、联系方式、受益人、交易历史）
+- RenderCardTool: 通用 A2UI 渲染卡片（card_type=withdraw_summary 等）
 """
 
+from pathlib import Path
+
+from ark_agentic.core.tools import RenderCardTool
+
+from ..a2ui.extractors import withdraw_summary_extractor
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
 from .customer_info import CustomerInfoTool
+
+_A2UI_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "a2ui" / "templates"
+_CARD_EXTRACTORS = {"withdraw_summary": withdraw_summary_extractor}
+
+
+def _create_render_card_tool() -> RenderCardTool:
+    return RenderCardTool(
+        template_root=_A2UI_TEMPLATE_ROOT,
+        extractors=_CARD_EXTRACTORS,
+        group="insurance",
+    )
+
 
 __all__ = [
     "DataServiceClient",
@@ -21,6 +39,9 @@ __all__ = [
     "PolicyQueryTool",
     "RuleEngineTool",
     "CustomerInfoTool",
+    "RenderCardTool",
+    "create_insurance_tools",
+    "create_insurance_tools_minimal",
 ]
 
 
@@ -38,6 +59,7 @@ def create_insurance_tools(
         PolicyQueryTool(client=client),
         RuleEngineTool(client=client),
         CustomerInfoTool(client=client),
+        _create_render_card_tool(),
     ]
 
 
@@ -49,4 +71,5 @@ def create_insurance_tools_minimal(
     return [
         PolicyQueryTool(client=client),
         RuleEngineTool(client=client),
+        _create_render_card_tool(),
     ]

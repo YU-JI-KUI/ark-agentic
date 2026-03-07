@@ -257,7 +257,8 @@ class SmarterMockLLM:
 async def test_agent_margin_context_e2e():
     import logging
     logging.basicConfig(level=logging.DEBUG)
-    
+    os.environ["SECURITIES_SERVICE_MOCK"] = "true"
+
     from ark_agentic.agents.securities.agent import create_securities_agent
     
     mock_llm = SmarterMockLLM()
