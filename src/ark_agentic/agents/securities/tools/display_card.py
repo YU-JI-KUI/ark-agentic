@@ -15,7 +15,35 @@ from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall, ToolResultType
 
 from ..template_renderer import TemplateRenderer
-from .field_extraction import extract_account_overview, extract_cash_assets, extract_etf_holdings, extract_hksc_holdings
+from .field_extraction import (
+    extract_account_overview,
+    extract_branch_info,
+    extract_cash_assets,
+    extract_etf_holdings,
+    extract_fund_holdings,
+    extract_hksc_holdings,
+)
+
+
+def _get_context_value(context: dict[str, Any] | None, key: str, default: Any = None) -> Any:
+    """从 context 获取值，优先 user: 前缀，兼容裸 key"""
+    if context is None:
+        return default
+    prefixed = f"user:{key}"
+    if prefixed in context:
+        return context[prefixed]
+    if key in context:
+        return context[key]
+    return default
+
+
+def _mask_account(account: str | None) -> str:
+    """脱敏账号：保留前3位和后4位，中间替换为 ****"""
+    if not account:
+        return "****"
+    if len(account) <= 7:
+        return account[:3] + "****"
+    return account[:3] + "****" + account[-4:]
 
 
 # 数据工具名 → TemplateRenderer 调用方式
@@ -26,6 +54,7 @@ _RENDER_MAP: dict[str, str] = {
     "account_overview": "account_overview",
     "cash_assets": "cash_assets",
     "security_detail": "security_detail",
+    "branch_info": "branch_info",
 }
 
 _ASSET_CLASS_MAP: dict[str, str] = {
@@ -55,7 +84,7 @@ class DisplayCardTool(AgentTool):
             description=(
                 "数据来源工具名，即之前调用的数据工具名称。"
                 "可选值：etf_holdings, hksc_holdings, fund_holdings, "
-                "account_overview, cash_assets, security_detail"
+                "account_overview, cash_assets, security_detail, branch_info"
             ),
             required=True,
         ),
@@ -111,8 +140,10 @@ class DisplayCardTool(AgentTool):
             elif source_tool == "hksc_holdings":
                 extracted_data = extract_hksc_holdings(data)
                 template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
+            elif source_tool == "fund_holdings":
+                extracted_data = extract_fund_holdings(data)
+                template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
             else:
-                # Fund 暂时使用旧格式
                 template = TemplateRenderer.render_holdings_list_card(asset_class, data)
         elif render_type == "account_overview":
             # 使用字段提取工具从 API 响应中提取显示字段
@@ -124,6 +155,12 @@ class DisplayCardTool(AgentTool):
             template = TemplateRenderer.render_cash_assets_card(extracted_data)
         elif render_type == "security_detail":
             template = TemplateRenderer.render_security_detail_card(data)
+        elif render_type == "branch_info":
+            extracted_data = extract_branch_info(data)
+            # 从 context 取账号并脱敏后注入模板
+            account = _get_context_value(context, "account")
+            extracted_data["account"] = _mask_account(account)
+            template = TemplateRenderer.render_branch_info_card(extracted_data)
         else:
             return AgentToolResult.error_result(
                 tool_call_id=tool_call.id,

@@ -64,6 +64,7 @@ SECURITIES_SERVICE_MOCK=true uv run python -m ark_agentic.app
   "message": "查询我的账户总资产",
   "session_id": null,
   "stream": true,
+  "protocol": "enterprise",
   "user_id": "U001",
   "context": {
     "user_id": "U001",
@@ -133,106 +134,137 @@ SECURITIES_SERVICE_MOCK=true uv run python -m ark_agentic.app
 
 ### SSE 流式事件（流式模式）
 
-当 `stream: true` 时，响应为 `text/event-stream` 格式。
+当 `stream: true` 时，响应为 `text/event-stream` 格式，使用 **enterprise 协议（AGUIEnvelope）**。
 
-**事件类型:**
+每条 SSE 消息格式：
 
-| 事件类型 | 描述 |
-|----------|------|
-| `response.created` | Run 初始化 |
-| `response.step` | Agent 执行步骤（工具调用等） |
-| `response.content.delta` | 最终回答文本片段（打字机效果） |
-| `response.ui.component` | JSON 模板卡片数据（A2UI 组件） |
-| `response.completed` | Run 完成 |
-| `response.failed` | 错误 |
+```
+event: <ag-ui-event-type>
+data: <AGUIEnvelope JSON>
+```
 
-#### response.created
+**AGUIEnvelope 顶层结构:**
 
 ```json
 {
-  "type": "response.created",
-  "seq": 1,
-  "run_id": "run_abc123",
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "content": "收到您的消息，正在处理中…"
+  "protocol": "AGUI",
+  "id": 5,
+  "event": "<ag-ui-event-type>",
+  "source_bu_type": "",
+  "app_type": "",
+  "data": {
+    "code": "success",
+    "message_id": "msg_abc",
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "timestamp": "2026-03-04 10:00:00.000000",
+    "ui_protocol": "text | json | A2UI",
+    "ui_data": "<内容，类型由 ui_protocol 决定>",
+    "turn": 1
+  }
 }
 ```
 
-#### response.step
+**事件类型与 data 字段对应:**
+
+| 事件类型 (`event`) | `ui_protocol` | `ui_data` 内容 | 描述 |
+|---|---|---|---|
+| `run_started` | `text` | 描述字符串 | Run 初始化 |
+| `step_started` | `json` | `{"think": "步骤名", "think_status": 1}` | Agent 步骤开始 |
+| `step_finished` | `json` | `{"think": "步骤名", "think_status": 0}` | Agent 步骤结束 |
+| `tool_call_start` | `json` | `{"think": "正在调用 xxx", "think_status": 1}` | 工具调用开始 |
+| `tool_call_result` | `json` | `{"think": "xxx 调用完成", "think_status": 0}` | 工具调用完成 |
+| `text_message_content` | `text` | delta 字符串（打字机效果） | 文本片段，`data.turn` 标识 ReAct 轮次 |
+| `text_message_content` | `A2UI` | 模板卡片对象（含 `template_type`） | JSON 卡片组件 |
+| `run_finished` | `text` | 完整回答字符串 | Run 完成 |
+| `run_error` | `text` | 错误信息字符串 | 运行失败 |
+
+#### run_started
 
 ```json
 {
-  "type": "response.step",
-  "seq": 2,
-  "run_id": "run_abc123",
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "content": "调用工具 account_overview 查询账户总资产"
+  "protocol": "AGUI", "id": 1, "event": "run_started",
+  "data": {
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "ui_protocol": "text",
+    "ui_data": "收到您的消息，正在处理中…"
+  }
 }
 ```
 
-#### response.content.delta
+#### step_started
 
 ```json
 {
-  "type": "response.content.delta",
-  "seq": 5,
-  "run_id": "run_abc123",
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "delta": "您的账户总资产为",
-  "output_index": 0
+  "protocol": "AGUI", "id": 2, "event": "step_started",
+  "data": {
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "ui_protocol": "json",
+    "ui_data": {"think": "调用工具 account_overview 查询账户总资产", "think_status": 1}
+  }
 }
 ```
 
-#### response.ui.component
-
-前端收到此事件后，根据 `ui_component.template_type` 渲染对应的卡片组件。
+#### text_message_content（文本 delta）
 
 ```json
 {
-  "type": "response.ui.component",
-  "seq": 4,
-  "run_id": "run_abc123",
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "ui_component": {
-    "template_type": "account_overview_card",
-    "data": {
-      "total_assets": "1000000.00",
-      "cash_balance": "500000.00",
-      "stock_market_value": "500000.00",
-      "today_profit": "5000.00",
-      "account_type": "normal"
+  "protocol": "AGUI", "id": 5, "event": "text_message_content",
+  "data": {
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "ui_protocol": "text",
+    "ui_data": "您的账户总资产为",
+    "turn": 1
+  }
+}
+```
+
+#### text_message_content（A2UI 卡片）
+
+前端收到 `ui_protocol == "A2UI"` 时，根据 `ui_data.template_type` 渲染对应的卡片组件。
+
+```json
+{
+  "protocol": "AGUI", "id": 4, "event": "text_message_content",
+  "data": {
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "ui_protocol": "A2UI",
+    "ui_data": {
+      "template_type": "account_overview_card",
+      "data": {
+        "total_assets": "1000000.00",
+        "cash_balance": "500000.00",
+        "stock_market_value": "500000.00",
+        "today_profit": "5000.00",
+        "account_type": "normal"
+      }
     }
   }
 }
 ```
 
-#### response.completed
+#### run_finished
 
 ```json
 {
-  "type": "response.completed",
-  "seq": 6,
-  "run_id": "run_abc123",
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "message": "您的账户总资产为 1,000,000.00 元...",
-  "tool_calls": [...],
-  "turns": 1,
-  "usage": {
-    "prompt_tokens": 150,
-    "completion_tokens": 80
+  "protocol": "AGUI", "id": 6, "event": "run_finished",
+  "data": {
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "ui_protocol": "text",
+    "ui_data": "您的账户总资产为 1,000,000.00 元..."
   }
 }
 ```
 
-#### response.failed
+#### run_error
 
 ```json
 {
-  "type": "response.failed",
-  "seq": 3,
-  "run_id": "run_abc123",
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "error_message": "API returned error: Invalid token"
+  "protocol": "AGUI", "id": 3, "event": "run_error",
+  "data": {
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "ui_protocol": "text",
+    "ui_data": "API returned error: Invalid token"
+  }
 }
 ```
 
@@ -434,12 +466,13 @@ SECURITIES_SERVICE_MOCK=true uv run python -m ark_agentic.app
 ### JavaScript (Fetch API)
 
 ```javascript
-// 发送消息（流式）
+// 发送消息（流式，enterprise 协议）
 async function sendMessage(message, context) {
   const payload = {
     message: message,
     agent_id: "securities",
     stream: true,
+    protocol: "enterprise",
     user_id: context.user_id,
     context: {
       user_id: context.user_id,
@@ -464,6 +497,7 @@ async function sendMessage(message, context) {
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let currentEventType = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -474,33 +508,49 @@ async function sendMessage(message, context) {
     buffer = lines.pop();
 
     for (const line of lines) {
-      if (line.startsWith('data:')) {
-        const event = JSON.parse(line.slice(5).trim());
-        handleSSEEvent(event);
+      const trimmed = line.trim();
+      if (trimmed.startsWith('event:')) {
+        currentEventType = trimmed.slice(6).trim();
+        continue;
       }
+      if (!trimmed.startsWith('data:')) continue;
+      const jsonStr = trimmed.slice(5).trim();
+      if (!jsonStr) continue;
+
+      // enterprise 协议：解析 AGUIEnvelope
+      // { protocol, id, event, data: { ui_protocol, ui_data, conversation_id, turn } }
+      let envelope;
+      try { envelope = JSON.parse(jsonStr); } catch { continue; }
+
+      const eventType = envelope.event || currentEventType || '';
+      const d = envelope.data || {};
+      currentEventType = null;
+
+      handleSSEEvent(eventType, d);
     }
   }
 }
 
-// 处理 SSE 事件
-function handleSSEEvent(event) {
-  switch (event.type) {
-    case 'response.ui.component':
-      renderTemplateCard(event.ui_component);
+// 处理 SSE 事件（enterprise 协议）
+function handleSSEEvent(eventType, d) {
+  switch (eventType) {
+    case 'text_message_content':
+      if (d.ui_protocol === 'A2UI') {
+        renderTemplateCard(d.ui_data);
+      } else {
+        appendText(d.ui_data || '', d.turn || 1);
+      }
       break;
-    case 'response.content.delta':
-      appendText(event.delta);
+    case 'run_finished':
+      finalizeResponse(d);
       break;
-    case 'response.completed':
-      finalizeResponse(event);
-      break;
-    case 'response.failed':
-      showError(event.error_message);
+    case 'run_error':
+      showError(d.ui_data || '未知错误');
       break;
   }
 }
 
-// 渲染模板卡片
+// 渲染模板卡片（ui_data 即卡片对象）
 function renderTemplateCard(template) {
   switch (template.template_type) {
     case 'account_overview_card':
@@ -526,17 +576,19 @@ function renderTemplateCard(template) {
 ```
 agents/securities/
 ├── agent.py              # Agent 创建 & Prompt 定义
+├── agent.json            # Agent 元数据配置
 ├── api.py                # 环境变量加载 & 工厂函数
 ├── schemas.py            # Pydantic 数据模型（str 精度）
 ├── template_renderer.py  # JSON 卡片渲染器
 ├── tools/
 │   ├── __init__.py       # 工具注册
-│   ├── service_client.py # 服务适配器层（6 个 Adapter + Mock + 工厂）
+│   ├── service_client.py # 服务适配器层（Adapter + Mock + 工厂）
 │   ├── mock_loader.py    # 文件驱动 Mock 数据加载
 │   ├── param_mapping.py  # API 参数映射工具
 │   ├── field_extraction.py # API 响应字段提取工具
 │   ├── display_card.py   # 卡片渲染工具（字段提取 + 模板渲染）
 │   ├── account_overview.py
+│   ├── branch_info.py    # 开户营业部查询
 │   ├── cash_assets.py
 │   ├── etf_holdings.py
 │   ├── hksc_holdings.py
@@ -544,16 +596,16 @@ agents/securities/
 │   └── security_detail.py
 ├── mock_data/            # Mock 数据文件（JSON，真实 API 格式）
 │   ├── account_overview/
+│   ├── branch_info/
 │   ├── cash_assets/
 │   ├── etf_holdings/
 │   ├── fund_holdings/
 │   ├── hksc_holdings/
 │   └── security_detail/
-├── skills/               # 技能定义
-│   ├── asset_overview/SKILL.md
-│   ├── holdings_analysis/SKILL.md
-│   └── profit_inquiry/SKILL.md
-└── templates/            # 预留模板目录
+└── skills/               # 技能定义
+    ├── asset_overview/SKILL.md
+    ├── holdings_analysis/SKILL.md
+    └── profit_inquiry/SKILL.md
 ```
 
 ## 工具清单
@@ -566,6 +618,7 @@ agents/securities/
 | `hksc_holdings` | 查询港股通持仓 | `account_type?` |
 | `fund_holdings` | 查询基金理财持仓 | `account_type?` |
 | `security_detail` | 查询具体标的详情 | `security_code`, `account_type?` |
+| `branch_info` | 查询开户营业部信息 | 无（从 context 自动获取） |
 | `display_card` | 渲染数据卡片 | `source_tool` |
 
 > **注意：** `account_type` 由系统自动从 Session Context 注入，LLM 无需显式传递。
@@ -604,7 +657,7 @@ agents/securities/
 │     display_card 返回 ──────────► {template_type, data}             │
 │                                    │                                 │
 │                                    ▼                                 │
-│  7. SSE 推送                     response.ui.component 事件         │
+│  7. SSE 推送                     text_message_content (A2UI) 事件   │
 │     app.py 直发 ────────────────► 前端渲染卡片                       │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘

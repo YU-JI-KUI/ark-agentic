@@ -38,6 +38,7 @@ from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
 from ark_agentic.agents.insurance.api import create_insurance_agent_from_env
 from ark_agentic.agents.securities.api import create_securities_agent_from_env
+from ark_agentic.agents.securities.tools.service_client import get_mock_mode
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,12 @@ async def securities_page():
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/api/admin/securities-mock", include_in_schema=False)
+async def get_securities_mock_mode():
+    """返回服务级默认 mock 状态（来自 SECURITIES_SERVICE_MOCK 环境变量，只读）"""
+    return {"mock": get_mock_mode()}
 
 
 # ---- 条件挂载 Studio ----

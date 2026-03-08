@@ -73,11 +73,18 @@
     .header {
       flex-shrink: 0;
       background: linear-gradient(135deg, #ee7b3a 0%, #f6a36a 60%, #f8bb8a 100%);
-      padding: 14px 16px 10px;
+      padding: 10px 16px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      color: var(--white);
+    }
+
+    /* 第一行：标题 + 右侧控件 */
+    .header-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      color: var(--white);
     }
 
     .header-left {
@@ -86,6 +93,8 @@
       gap: 4px;
       font-size: 17px;
       font-weight: 600;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
 
     .header-left svg {
@@ -95,7 +104,15 @@
     .header-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 5px;
+      flex-shrink: 0;
+      flex-wrap: nowrap;
+    }
+
+    /* 第二行：状态胶囊栏 */
+    .header-status {
+      display: flex;
+      align-items: center;
     }
 
     .header-btn {
@@ -338,7 +355,7 @@
     .msg {
       display: flex;
       flex-direction: column;
-      max-width: 85%;
+      width: 100%;
       animation: fadeIn .2s ease;
     }
 
@@ -848,10 +865,509 @@
     }
 
     /* ============================================================
+   Branch info card
+   ============================================================ */
+    .bi-table {
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+
+    .bi-row {
+      display: grid;
+      grid-template-columns: 76px 1fr;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .bi-row:last-child {
+      border-bottom: none;
+    }
+
+    .bi-label {
+      background: var(--orange-pale);
+      padding: 12px 10px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      display: flex;
+      align-items: center;
+    }
+
+    .bi-value {
+      padding: 12px 12px;
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.55;
+      word-break: break-all;
+    }
+
+    .bi-phone-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .bi-call-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 14px;
+      background: var(--orange-pale);
+      color: var(--orange);
+      border: 1.5px solid var(--orange-light);
+      border-radius: 16px;
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background .15s;
+    }
+
+    .bi-call-btn:hover {
+      background: var(--orange);
+      color: var(--white);
+    }
+
+    .bi-footer {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.65;
+    }
+
+    .bi-footer-link {
+      color: var(--orange);
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .bi-footer-link:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================================================
    Utilities
    ============================================================ */
     .hidden {
       display: none !important;
+    }
+
+    /* ============================================================
+   Dev Settings — Gear button
+   ============================================================ */
+    .dev-gear-btn {
+      position: relative;
+      background: rgba(255, 255, 255, 0.22);
+      border: none;
+      color: var(--white);
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background .15s;
+      padding: 0;
+    }
+
+    .dev-gear-btn:hover {
+      background: rgba(255, 255, 255, 0.38);
+    }
+
+    /* ============================================================
+   Status Indicator（状态呼吸灯胶囊）
+   ============================================================ */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px 2px 6px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .02em;
+      white-space: nowrap;
+      margin-left: 0;
+      transition: background .3s, color .3s;
+      cursor: default;
+      user-select: none;
+    }
+
+    /* Mock 模式：灰色胶囊 + 橙点 */
+    .status-pill.pill-mock {
+      background: rgba(255, 255, 255, 0.18);
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    /* API 模式：深色胶囊 + 翠绿点 */
+    .status-pill.pill-api {
+      background: rgba(0, 0, 0, 0.32);
+      color: rgba(255, 255, 255, 0.95);
+    }
+
+    .status-pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .pill-mock .status-pill-dot {
+      background: #ffaa55;
+      box-shadow: 0 0 0 0 rgba(255, 170, 85, 0.5);
+      animation: pulse-mock 2.4s ease-in-out infinite;
+    }
+
+    .pill-api .status-pill-dot {
+      background: #4ade80;
+      box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
+      animation: pulse-api 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse-mock {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255, 170, 85, 0.5); }
+      50%       { box-shadow: 0 0 0 4px rgba(255, 170, 85, 0); }
+    }
+
+    @keyframes pulse-api {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6); }
+      50%       { box-shadow: 0 0 0 4px rgba(74, 222, 128, 0); }
+    }
+
+    /* 自定义字段指示点 */
+    .gear-badge {
+      display: none;
+      position: absolute;
+      top: 0px;
+      right: 0px;
+      width: 8px;
+      height: 8px;
+      background: #ffcc00;
+      border-radius: 50%;
+      border: 1.5px solid rgba(220, 100, 30, 0.8);
+    }
+
+    .gear-badge.visible {
+      display: block;
+    }
+
+    /* ============================================================
+   Dev Settings — Overlay
+   ============================================================ */
+    .ctx-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity .25s;
+    }
+
+    .ctx-overlay.open {
+      opacity: 1;
+    }
+
+    /* ============================================================
+   Dev Settings — Bottom Sheet
+   ============================================================ */
+    .ctx-sheet {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%) translateY(100%);
+      width: 100%;
+      max-width: 420px;
+      max-height: 80dvh;
+      background: #fff;
+      border-radius: 20px 20px 0 0;
+      box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.18);
+      z-index: 1001;
+      display: flex;
+      flex-direction: column;
+      transition: transform .28s cubic-bezier(.32,.72,0,1);
+      overflow: hidden;
+    }
+
+    .ctx-sheet.open {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .ctx-sheet-handle {
+      flex-shrink: 0;
+      display: flex;
+      justify-content: center;
+      padding: 10px 0 4px;
+    }
+
+    .ctx-sheet-handle::before {
+      content: '';
+      width: 36px;
+      height: 4px;
+      background: #e0dbd5;
+      border-radius: 2px;
+    }
+
+    .ctx-sheet-header {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px 12px;
+    }
+
+    .ctx-sheet-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .ctx-close-btn {
+      background: #f0ece8;
+      border: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      font-size: 14px;
+      transition: background .15s;
+    }
+
+    .ctx-close-btn:hover {
+      background: #e8e0d8;
+    }
+
+    .ctx-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 16px 8px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .ctx-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin: 10px 0 8px;
+    }
+
+    .ctx-mock-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1.5px solid var(--border);
+      margin-bottom: 12px;
+      transition: background .25s, border-color .25s;
+      background: #faf8f6;
+    }
+
+    .ctx-mock-row.mock-active {
+      background: #fff8f2;
+      border-color: rgba(238, 123, 58, 0.35);
+    }
+
+    .ctx-mock-row.mock-inactive {
+      background: #f3faf4;
+      border-color: rgba(56, 142, 60, 0.28);
+    }
+
+    .ctx-mock-info {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .ctx-mock-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ctx-mock-label-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background .2s;
+    }
+
+    .mock-active .ctx-mock-label-dot {
+      background: var(--orange);
+    }
+
+    .mock-inactive .ctx-mock-label-dot {
+      background: #43a047;
+    }
+
+    .ctx-mock-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .ctx-mock-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    .ctx-mock-status {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 9px;
+      border-radius: 20px;
+      letter-spacing: .02em;
+      transition: background .2s, color .2s;
+    }
+
+    .ctx-mock-status.mock-on {
+      background: rgba(238, 123, 58, 0.15);
+      color: var(--orange);
+    }
+
+    .ctx-mock-status.mock-off {
+      background: rgba(56, 142, 60, 0.12);
+      color: #388e3c;
+    }
+
+    .ctx-mock-track {
+      width: 44px;
+      height: 26px;
+      border-radius: 13px;
+      background: #d0ccc8;
+      position: relative;
+      cursor: pointer;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+
+    .ctx-mock-track.on {
+      background: var(--orange);
+    }
+
+    .mock-inactive .ctx-mock-track.off-green {
+      background: #43a047;
+    }
+
+    .ctx-mock-track::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,.25);
+      transition: transform .2s;
+    }
+
+    .ctx-mock-track.on::after {
+      transform: translateX(18px);
+    }
+
+    .ctx-field {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .ctx-field:last-child {
+      border-bottom: none;
+    }
+
+    .ctx-field-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      width: 68px;
+      flex-shrink: 0;
+    }
+
+    .ctx-field input,
+    .ctx-field select {
+      flex: 1;
+      font-size: 13px;
+      color: var(--text);
+      border: 1px solid #e8e2db;
+      border-radius: 8px;
+      padding: 6px 10px;
+      background: #faf8f6;
+      outline: none;
+      transition: border-color .15s;
+      min-width: 0;
+      font-family: inherit;
+    }
+
+    .ctx-field input:focus,
+    .ctx-field select:focus {
+      border-color: var(--orange);
+      background: #fff;
+    }
+
+    .ctx-field input.ctx-modified {
+      color: var(--orange);
+    }
+
+    /* ============================================================
+   Dev Settings — Actions
+   ============================================================ */
+    .ctx-actions {
+      flex-shrink: 0;
+      display: flex;
+      gap: 10px;
+      padding: 12px 16px 20px;
+      border-top: 1px solid var(--border);
+    }
+
+    .ctx-btn-reset {
+      flex: 1;
+      padding: 11px 0;
+      border: 1px solid #e8e2db;
+      border-radius: 12px;
+      background: #fff;
+      color: var(--text-secondary);
+      font-size: 14px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+
+    .ctx-btn-reset:hover {
+      background: #f5f0eb;
+    }
+
+    .ctx-btn-apply {
+      flex: 2;
+      padding: 11px 0;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #ee7b3a 0%, #f6a36a 100%);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+
+    .ctx-btn-apply:hover {
+      opacity: .88;
     }
   </style>
 </head>
@@ -861,20 +1377,22 @@
 
     <!-- ======== Header ======== -->
     <div class="header">
-      <div class="header-left">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path d="M12.5 15L7.5 10L12.5 5" stroke="white" stroke-width="2" stroke-linecap="round"
-            stroke-linejoin="round" />
-        </svg>
-        <span>证券服务</span>
-      </div>
-      <div class="header-right">
+      <!-- 第一行：标题 + 控件 -->
+      <div class="header-top">
+        <div class="header-left">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M12.5 15L7.5 10L12.5 5" stroke="white" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" />
+          </svg>
+          <span>证券服务</span>
+        </div>
+        <div class="header-right">
         <select class="user-select" id="agentSelect">
           <option value="insurance">保险</option>
           <option value="securities" selected>证券</option>
         </select>
         <!-- 账户类型选择器（证券页常显） -->
-        <select class="user-select" id="accountTypeSelect">
+        <select class="user-select" id="accountTypeSelect" style="max-width:72px;overflow:hidden;text-overflow:ellipsis;">
           <option value="normal">普通户</option>
           <option value="margin">两融账户</option>
         </select>
@@ -891,6 +1409,22 @@
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
         </button>
+        <button class="dev-gear-btn" id="devSettingsBtn" title="联调设置">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+          </svg>
+          <span class="gear-badge" id="gearBadge"></span>
+        </button>
+        </div><!-- /header-right -->
+      </div><!-- /header-top -->
+      <!-- 第二行：状态指示胶囊 -->
+      <div class="header-status">
+        <span id="statusPill" class="status-pill pill-mock">
+          <span class="status-pill-dot"></span>
+          <span id="statusPillText">Mock 数据</span>
+        </span>
       </div>
     </div>
 
@@ -1064,9 +1598,91 @@
 
   </div><!-- /app -->
 
+  <!-- ======== Dev Settings Overlay ======== -->
+  <div class="ctx-overlay hidden" id="ctxOverlay"></div>
+
+  <!-- ======== Dev Settings Bottom Sheet ======== -->
+  <div class="ctx-sheet" id="ctxSheet">
+    <div class="ctx-sheet-handle"></div>
+    <div class="ctx-sheet-header">
+      <span class="ctx-sheet-title">联调上下文设置</span>
+      <button class="ctx-close-btn" id="ctxCloseBtn" title="关闭">✕</button>
+    </div>
+    <div class="ctx-body">
+      <!-- Mock 模式开关 -->
+      <div class="ctx-mock-row mock-active" id="ctxMockRow">
+        <div class="ctx-mock-info">
+          <span class="ctx-mock-label">
+            <span class="ctx-mock-label-dot"></span>
+            数据来源
+          </span>
+          <span class="ctx-mock-desc" id="ctxMockDesc">当前使用本地 Mock 数据</span>
+        </div>
+        <div class="ctx-mock-right">
+          <span class="ctx-mock-status mock-on" id="ctxMockStatus">Mock</span>
+          <div class="ctx-mock-track on" id="ctxMockTrack"></div>
+        </div>
+      </div>
+
+      <div class="ctx-section-title">认证字段</div>
+
+      <div class="ctx-field">
+        <span class="ctx-field-label">渠道</span>
+        <select id="ctxChannel">
+          <option value="REST">REST</option>
+          <option value="NATIVE">NATIVE</option>
+        </select>
+      </div>
+      <div class="ctx-field">
+        <span class="ctx-field-label">用户代码</span>
+        <input type="text" id="ctxUsercode" placeholder="usercode" autocomplete="off" />
+      </div>
+      <div class="ctx-field">
+        <span class="ctx-field-label">用户 ID</span>
+        <input type="text" id="ctxUserid" placeholder="userid" autocomplete="off" />
+      </div>
+      <div class="ctx-field">
+        <span class="ctx-field-label">账户号</span>
+        <input type="text" id="ctxAccount" placeholder="account" autocomplete="off" />
+      </div>
+      <div class="ctx-field">
+        <span class="ctx-field-label">机构号</span>
+        <input type="text" id="ctxBranch" placeholder="branchno" autocomplete="off" />
+      </div>
+      <div class="ctx-field">
+        <span class="ctx-field-label">登录标志</span>
+        <input type="text" id="ctxLoginflag" placeholder="loginflag" autocomplete="off" />
+      </div>
+      <div class="ctx-field">
+        <span class="ctx-field-label">手机号</span>
+        <input type="text" id="ctxMobile" placeholder="mobileNo" autocomplete="off" />
+      </div>
+      <div class="ctx-field">
+        <span class="ctx-field-label">签名</span>
+        <input type="text" id="ctxSignature" placeholder="signature" autocomplete="off" />
+      </div>
+    </div>
+    <div class="ctx-actions">
+      <button class="ctx-btn-reset" id="ctxResetBtn">重置默认值</button>
+      <button class="ctx-btn-apply" id="ctxApplyBtn">应用</button>
+    </div>
+  </div>
+
   <script>
     (function () {
       'use strict';
+
+      // ---- Dev Settings defaults ----
+      const DEFAULTS = {
+        channel: 'REST',
+        usercode: '150573383',
+        userid: '12977997',
+        account: '3310123',
+        branchno: '3310',
+        loginflag: '3',
+        mobile: '137123123',
+        signature: '/bzp123=',
+      };
 
       // ---- State ----
       let sessionId = sessionStorage.getItem('ark_session_id') || null;
@@ -1077,14 +1693,14 @@
       const selectedAgent = 'securities';
       let selectedAccountType = sessionStorage.getItem('ark_account_type') || 'normal';
       let tokenId = sessionStorage.getItem('ark_token_id') || 'MOCK_TOKEN_' + Date.now();
-      let selectedChannel = 'REST';
-      let selectedUsercode = sessionStorage.getItem('ark_usercode') || '150573383';
-      let selectedUserid = sessionStorage.getItem('ark_userid') || '12977997';
-      let selectedAccount = sessionStorage.getItem('ark_account') || '3310123';
-      let selectedBranch = sessionStorage.getItem('ark_branchno') || '3310';
-      let selectedLoginflag = sessionStorage.getItem('ark_loginflag') || '3';
-      let selectedMobile = sessionStorage.getItem('ark_mobile') || '137123123';
-      let selectedSignature = sessionStorage.getItem('ark_signature') || '/bzp123=';
+      let selectedChannel = sessionStorage.getItem('ark_channel') || DEFAULTS.channel;
+      let selectedUsercode = sessionStorage.getItem('ark_usercode') || DEFAULTS.usercode;
+      let selectedUserid = sessionStorage.getItem('ark_userid') || DEFAULTS.userid;
+      let selectedAccount = sessionStorage.getItem('ark_account') || DEFAULTS.account;
+      let selectedBranch = sessionStorage.getItem('ark_branchno') || DEFAULTS.branchno;
+      let selectedLoginflag = sessionStorage.getItem('ark_loginflag') || DEFAULTS.loginflag;
+      let selectedMobile = sessionStorage.getItem('ark_mobile') || DEFAULTS.mobile;
+      let selectedSignature = sessionStorage.getItem('ark_signature') || DEFAULTS.signature;
 
       // ---- DOM refs ----
       const $welcome = document.getElementById('welcomeSection');
@@ -1101,6 +1717,28 @@
       const $agentSelect = document.getElementById('agentSelect');
       const $accountTypeSelect = document.getElementById('accountTypeSelect');
       const $subHeader = document.getElementById('subHeader');
+      const $devSettingsBtn = document.getElementById('devSettingsBtn');
+      const $gearBadge = document.getElementById('gearBadge');
+      const $statusPill = document.getElementById('statusPill');
+      const $statusPillText = document.getElementById('statusPillText');
+      const $ctxOverlay = document.getElementById('ctxOverlay');
+      const $ctxSheet = document.getElementById('ctxSheet');
+      const $ctxCloseBtn = document.getElementById('ctxCloseBtn');
+      const $ctxResetBtn = document.getElementById('ctxResetBtn');
+      const $ctxApplyBtn = document.getElementById('ctxApplyBtn');
+      const $ctxChannel = document.getElementById('ctxChannel');
+      const $ctxUsercode = document.getElementById('ctxUsercode');
+      const $ctxUserid = document.getElementById('ctxUserid');
+      const $ctxAccount = document.getElementById('ctxAccount');
+      const $ctxBranch = document.getElementById('ctxBranch');
+      const $ctxLoginflag = document.getElementById('ctxLoginflag');
+      const $ctxMobile = document.getElementById('ctxMobile');
+      const $ctxSignature = document.getElementById('ctxSignature');
+      const $ctxMockTrack = document.getElementById('ctxMockTrack');
+      const $ctxMockStatus = document.getElementById('ctxMockStatus');
+      const $ctxMockRow = document.getElementById('ctxMockRow');
+      const $ctxMockDesc = document.getElementById('ctxMockDesc');
+      let ctxMockEnabled = true; // 本地暂存，Apply 时提交
 
       // ---- Init user selector ----
       $userSelect.value = selectedUserId;
@@ -1147,6 +1785,153 @@
         selectedAccountType = $accountTypeSelect.value;
         sessionStorage.setItem('ark_account_type', selectedAccountType);
       });
+
+      // ---- Dev Settings ----
+      function updateGearBadge() {
+        const isModified = (
+          selectedChannel !== DEFAULTS.channel ||
+          selectedUsercode !== DEFAULTS.usercode ||
+          selectedUserid !== DEFAULTS.userid ||
+          selectedAccount !== DEFAULTS.account ||
+          selectedBranch !== DEFAULTS.branchno ||
+          selectedLoginflag !== DEFAULTS.loginflag ||
+          selectedMobile !== DEFAULTS.mobile ||
+          selectedSignature !== DEFAULTS.signature
+        );
+        $gearBadge.classList.toggle('visible', isModified);
+      }
+
+      // ---- Mock toggle UI helpers ----
+      function updateGearMode() {
+        const isApi = !ctxMockEnabled;
+        $devSettingsBtn.title = isApi ? '联调设置（业务 API 模式）' : '联调设置（Mock 模式）';
+        // 状态胶囊
+        $statusPill.classList.toggle('pill-mock', !isApi);
+        $statusPill.classList.toggle('pill-api', isApi);
+        $statusPillText.textContent = isApi ? '实时接入' : 'Mock 数据';
+      }
+
+      function setMockUI(enabled) {
+        ctxMockEnabled = enabled;
+        // toggle track
+        $ctxMockTrack.classList.toggle('on', enabled);
+        // status badge
+        $ctxMockStatus.textContent = enabled ? 'Mock' : '业务 API';
+        $ctxMockStatus.className = 'ctx-mock-status ' + (enabled ? 'mock-on' : 'mock-off');
+        // description
+        $ctxMockDesc.textContent = enabled ? '当前使用本地 Mock 数据' : '当前调用业务 API';
+        // row card style
+        $ctxMockRow.classList.toggle('mock-active', enabled);
+        $ctxMockRow.classList.toggle('mock-inactive', !enabled);
+        // gear button color
+        updateGearMode();
+      }
+
+      async function fetchMockMode() {
+        try {
+          const res = await fetch('/api/admin/securities-mock');
+          const json = await res.json();
+          setMockUI(json.mock);
+        } catch (_) { /* 忽略网络错误，保持本地状态 */ }
+      }
+
+      $ctxMockTrack.addEventListener('click', () => setMockUI(!ctxMockEnabled));
+
+      function openDevSettings() {
+        // 面板打开时展示当前已应用的 mock 状态（不重新拉取，避免覆盖用户选择）
+        setMockUI(ctxMockEnabled);
+        // 将当前变量值写入表单
+        $ctxChannel.value = selectedChannel;
+        $ctxUsercode.value = selectedUsercode;
+        $ctxUserid.value = selectedUserid;
+        $ctxAccount.value = selectedAccount;
+        $ctxBranch.value = selectedBranch;
+        $ctxLoginflag.value = selectedLoginflag;
+        $ctxMobile.value = selectedMobile;
+        $ctxSignature.value = selectedSignature;
+        // 标记非默认字段
+        refreshFieldHighlights();
+        $ctxOverlay.classList.remove('hidden');
+        requestAnimationFrame(() => {
+          $ctxOverlay.classList.add('open');
+          $ctxSheet.classList.add('open');
+        });
+      }
+
+      function closeDevSettings() {
+        $ctxOverlay.classList.remove('open');
+        $ctxSheet.classList.remove('open');
+        setTimeout(() => $ctxOverlay.classList.add('hidden'), 280);
+      }
+
+      function refreshFieldHighlights() {
+        const pairs = [
+          [$ctxUsercode, DEFAULTS.usercode],
+          [$ctxUserid, DEFAULTS.userid],
+          [$ctxAccount, DEFAULTS.account],
+          [$ctxBranch, DEFAULTS.branchno],
+          [$ctxLoginflag, DEFAULTS.loginflag],
+          [$ctxMobile, DEFAULTS.mobile],
+          [$ctxSignature, DEFAULTS.signature],
+        ];
+        pairs.forEach(([el, def]) => {
+          el.classList.toggle('ctx-modified', el.value !== def);
+        });
+      }
+
+      async function applyDevSettings() {
+        selectedChannel = $ctxChannel.value;
+        selectedUsercode = $ctxUsercode.value.trim();
+        selectedUserid = $ctxUserid.value.trim();
+        selectedAccount = $ctxAccount.value.trim();
+        selectedBranch = $ctxBranch.value.trim();
+        selectedLoginflag = $ctxLoginflag.value.trim();
+        selectedMobile = $ctxMobile.value.trim();
+        selectedSignature = $ctxSignature.value.trim();
+
+        sessionStorage.setItem('ark_channel', selectedChannel);
+        sessionStorage.setItem('ark_usercode', selectedUsercode);
+        sessionStorage.setItem('ark_userid', selectedUserid);
+        sessionStorage.setItem('ark_account', selectedAccount);
+        sessionStorage.setItem('ark_branchno', selectedBranch);
+        sessionStorage.setItem('ark_loginflag', selectedLoginflag);
+        sessionStorage.setItem('ark_mobile', selectedMobile);
+        sessionStorage.setItem('ark_signature', selectedSignature);
+
+        // mock 状态通过每次请求的 context.mock_mode 携带，无需提交后端全局状态
+        updateGearBadge();
+        closeDevSettings();
+      }
+
+      function resetDevSettings() {
+        $ctxChannel.value = DEFAULTS.channel;
+        $ctxUsercode.value = DEFAULTS.usercode;
+        $ctxUserid.value = DEFAULTS.userid;
+        $ctxAccount.value = DEFAULTS.account;
+        $ctxBranch.value = DEFAULTS.branchno;
+        $ctxLoginflag.value = DEFAULTS.loginflag;
+        $ctxMobile.value = DEFAULTS.mobile;
+        $ctxSignature.value = DEFAULTS.signature;
+        setMockUI(true); // 重置到默认 mock 开启状态
+        refreshFieldHighlights();
+      }
+
+      // 监听表单输入，实时高亮非默认值
+      [$ctxUsercode, $ctxUserid, $ctxAccount, $ctxBranch,
+        $ctxLoginflag, $ctxMobile, $ctxSignature].forEach(el => {
+        el.addEventListener('input', refreshFieldHighlights);
+      });
+
+      $devSettingsBtn.addEventListener('click', openDevSettings);
+      $ctxCloseBtn.addEventListener('click', closeDevSettings);
+      $ctxOverlay.addEventListener('click', closeDevSettings);
+      $ctxResetBtn.addEventListener('click', resetDevSettings);
+      $ctxApplyBtn.addEventListener('click', applyDevSettings);
+
+      // 初始化时反映 sessionStorage 中已保存的非默认状态
+      updateGearBadge();
+      // 初始化 mock 开关 UI（从后端异步同步），同步后会调用 setMockUI → updateGearMode
+      fetchMockMode();
 
       // ---- New session ----
       $newSessionBtn.addEventListener('click', () => {
@@ -1234,6 +2019,7 @@
         const payload = {
           message: text,
           stream: isStreaming,
+          protocol: 'enterprise',
           agent_id: selectedAgent,
           user_id: selectedUserId,
           context: {
@@ -1247,6 +2033,7 @@
             mobileNo: selectedMobile,
             signature: selectedSignature,
             account_type: selectedAccountType,
+            mock_mode: ctxMockEnabled ? 'true' : 'false',
           },
         };
         if (sessionId) payload.session_id = sessionId;
@@ -1336,39 +2123,23 @@
             const jsonStr = trimmed.slice(5).trim();
             if (!jsonStr) continue;
 
-            let event;
-            try { event = JSON.parse(jsonStr); } catch { continue; }
+            // enterprise 协议: AGUIEnvelope 结构
+            // { protocol:"AGUI", id, event, data:{ ui_protocol, ui_data, conversation_id, turn, ... } }
+            let envelope;
+            try { envelope = JSON.parse(jsonStr); } catch { continue; }
 
-            const EVENT_ALIASES = {
-              'run_started': 'response.created',
-              'step_started': 'response.step',
-              'step_finished': 'response.step.done',
-              'text_message_content': 'response.content.delta',
-              'text_message_start': '_skip',
-              'text_message_end': '_skip',
-              'tool_call_start': 'response.tool_call.start',
-              'tool_call_args': '_skip',
-              'tool_call_end': '_skip',
-              'tool_call_result': 'response.tool_call.result',
-              'custom': 'response.ui.component',
-              'run_finished': 'response.completed',
-              'run_error': 'response.failed',
-            };
-
-            const rawType = event.type || currentEventType || '';
-            const eventType = EVENT_ALIASES[rawType] || rawType;
+            const eventType = envelope.event || currentEventType || '';
+            const d = envelope.data || {};
             currentEventType = null;
 
-            if (eventType === '_skip') continue;
-
-            if (event.session_id && !sessionId) {
-              sessionId = event.session_id;
+            if (d.conversation_id && !sessionId) {
+              sessionId = d.conversation_id;
               sessionStorage.setItem('ark_session_id', sessionId);
             }
 
             switch (eventType) {
-              case 'response.created': {
-                const text = event.content || event.run_content || '';
+              case 'run_started': {
+                const text = typeof d.ui_data === 'string' ? d.ui_data : '';
                 if (text) {
                   hadThinkingContent = true;
                   thinkCard.style.display = '';
@@ -1384,14 +2155,14 @@
                 break;
               }
 
-              case 'response.step': {
+              case 'step_started': {
                 hadThinkingContent = true;
                 thinkCard.style.display = '';
                 if (currentStepEl) {
                   currentStepEl.classList.remove('active');
                   currentStepEl.classList.add('done');
                 }
-                const stepText = event.content || event.step_name || '';
+                const stepText = (d.ui_data && d.ui_data.think) || '';
                 const step = document.createElement('div');
                 step.className = 'think-step active';
                 step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(stepText) + '</span></div>';
@@ -1403,7 +2174,7 @@
                 break;
               }
 
-              case 'response.step.done': {
+              case 'step_finished': {
                 if (currentStepEl) {
                   currentStepEl.classList.remove('active');
                   currentStepEl.classList.add('done');
@@ -1411,42 +2182,50 @@
                 break;
               }
 
-              case 'response.content.delta': {
-                const turn = Number(event.turn) || 1;
-                if (turn !== currentTurn) {
-                  if (currentTurn !== 0 && finalText.trim()) {
-                    hadThinkingContent = true;
-                    thinkCard.style.display = '';
-                    const prevBlock = document.createElement('div');
-                    prevBlock.className = 'turn-output';
-                    prevBlock.innerHTML = md(finalText);
-                    thinkContent.appendChild(prevBlock);
-                  }
-                  currentTurn = turn;
-                  finalText = '';
-                }
-                answerBubble.classList.remove('hidden');
-                finalText += event.delta || '';
-                answerBubble.innerHTML = md(finalText);
-                scrollToBottom();
+              case 'text_message_start':
+              case 'text_message_end':
+              case 'tool_call_start':
+              case 'tool_call_args':
+              case 'tool_call_end':
+              case 'tool_call_result': {
                 break;
               }
 
-              case 'response.ui.component': {
-                const comp = event.ui_component;
-                if (comp) {
-                  if (comp.template_type !== undefined) {
-                    renderTemplateCard(comp, msgEl);
-                  } else if (a2uiContainer) {
-                    a2uiContainer.classList.remove('hidden');
-                    a2uiContainer.appendChild(renderA2UIComponent(comp));
+              case 'text_message_content': {
+                if (d.ui_protocol === 'A2UI') {
+                  const comp = d.ui_data;
+                  if (comp) {
+                    if (comp.template_type !== undefined) {
+                      renderTemplateCard(comp, msgEl);
+                    } else if (a2uiContainer) {
+                      a2uiContainer.classList.remove('hidden');
+                      a2uiContainer.appendChild(renderA2UIComponent(comp));
+                    }
+                    scrollToBottom();
                   }
+                } else {
+                  const turn = Number(d.turn) || 1;
+                  if (turn !== currentTurn) {
+                    if (currentTurn !== 0 && finalText.trim()) {
+                      hadThinkingContent = true;
+                      thinkCard.style.display = '';
+                      const prevBlock = document.createElement('div');
+                      prevBlock.className = 'turn-output';
+                      prevBlock.innerHTML = md(finalText);
+                      thinkContent.appendChild(prevBlock);
+                    }
+                    currentTurn = turn;
+                    finalText = '';
+                  }
+                  answerBubble.classList.remove('hidden');
+                  finalText += (typeof d.ui_data === 'string' ? d.ui_data : '') ;
+                  answerBubble.innerHTML = md(finalText);
                   scrollToBottom();
                 }
                 break;
               }
 
-              case 'response.completed': {
+              case 'run_finished': {
                 if (currentStepEl) {
                   currentStepEl.classList.remove('active');
                   currentStepEl.classList.add('done');
@@ -1460,24 +2239,14 @@
                   thinkCard.style.display = 'none';
                 }
                 answerBubble.classList.remove('typing-cursor');
-                if (event.usage) {
-                  const inp = event.usage.prompt_tokens || 0;
-                  const out = event.usage.completion_tokens || 0;
-                  metaEl.textContent = (event.turns || '-') + ' 轮 · ' + (inp + out) + ' tokens';
-                  metaEl.classList.remove('hidden');
-                }
-                if (event.session_id) {
-                  sessionId = event.session_id;
-                  sessionStorage.setItem('ark_session_id', sessionId);
-                }
                 $statusText.textContent = '';
                 scrollToBottom();
                 break;
               }
 
-              case 'response.failed': {
+              case 'run_error': {
                 thinkCard.style.display = 'none';
-                appendErrorMessage(event.error_message || '未知错误');
+                appendErrorMessage((typeof d.ui_data === 'string' ? d.ui_data : '') || '未知错误');
                 $statusText.textContent = '';
                 break;
               }
@@ -1624,6 +2393,9 @@
           case 'security_detail_card':
             cardDiv.innerHTML = renderSecurityDetailCard(template.data);
             break;
+          case 'branch_info_card':
+            cardDiv.innerHTML = renderBranchInfoCard(template.data);
+            break;
           default:
             cardDiv.innerHTML = renderGenericCard(template);
         }
@@ -1699,19 +2471,21 @@
         const summary = (template.data && template.data.summary) || {};
 
         const isETF = ac === 'ETF';
+        const isFund = ac === 'Fund';
         let summaryHtml = '';
 
         const hasSummary = summary && (summary.total_market_value !== undefined || summary.total_profit !== undefined);
-        if (isETF && hasSummary) {
+        if ((isETF || isFund) && hasSummary) {
           const totalProfit = toNum(summary.total_profit);
           const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
           const profitSign = totalProfit >= 0 ? '+' : '';
           const profitRate = toNum(summary.total_profit_rate);
+          const mktValLabel = isETF ? 'ETF市值' : '基金市值';
 
           summaryHtml = `
             <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
               <div style="text-align:center;flex:1;">
-                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">ETF市值</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">${mktValLabel}</div>
                 <div class="tc-value">￥${formatNumber(summary.total_market_value)}</div>
               </div>
               <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
@@ -1731,10 +2505,20 @@
           const holdCnt = h.hold_cnt || '-';
           const marketValue = h.market_value;
           const dayProfit = toNum(h.day_profit);
+          const hasDayProfitRate = h.day_profit_rate != null;
           const dayProfitRate = toNum(h.day_profit_rate);
 
           const profitClass = dayProfit >= 0 ? 'profit' : 'loss';
           const profitSign = dayProfit >= 0 ? '+' : '';
+
+          // 基金卡片额外展示累计盈亏
+          const holdPosPft = h.hold_position_profit != null ? toNum(h.hold_position_profit) : null;
+          const holdPosPftRate = h.hold_position_profit_rate != null ? toNum(h.hold_position_profit_rate) : null;
+          const holdPosPftHtml = holdPosPft != null ? `
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+              累计: ${holdPosPft >= 0 ? '+' : ''}￥${formatNumber(Math.abs(holdPosPft))}
+              ${holdPosPftRate != null ? ` (${holdPosPft >= 0 ? '+' : ''}${(holdPosPftRate * 100).toFixed(2)}%)` : ''}
+            </div>` : '';
 
           return `
             <div class="tc-list-item">
@@ -1747,11 +2531,12 @@
               <div style="text-align:right;">
                 <div class="tc-item-value ${profitClass}">
                   ${profitSign}￥${formatNumber(Math.abs(dayProfit))}
-                  (${profitSign}${(dayProfitRate * 100).toFixed(2)}%)
+                  ${hasDayProfitRate ? ` (${profitSign}${(dayProfitRate * 100).toFixed(2)}%)` : ''}
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
                   市值: ￥${formatNumber(marketValue)}
                 </div>
+                ${holdPosPftHtml}
               </div>
             </div>
           `;
@@ -1851,6 +2636,48 @@
                 </span>
               </div>
             ` : '<div style="text-align:center;color:var(--text-muted);padding:12px;">当前未持仓</div>'}
+          </div>
+        `;
+      }
+
+      function renderBranchInfoCard(data) {
+        const account = data.account ? escHtml(data.account) : '';
+        const title = account
+          ? `资金账号：${account} 的开户营业部信息`
+          : '开户营业部信息';
+        const branchName = escHtml(data.branch_name || '—');
+        const address = escHtml(data.address || '—');
+        const phone = escHtml(data.service_phone || '—');
+        const phoneRaw = (data.service_phone || '').replace(/[^0-9\-]/g, '');
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${title}</div>
+          </div>
+          <div class="template-card-body">
+            <div class="bi-table">
+              <div class="bi-row">
+                <div class="bi-label">营业部<br>名称</div>
+                <div class="bi-value">${branchName}</div>
+              </div>
+              <div class="bi-row">
+                <div class="bi-label">营业部<br>地址</div>
+                <div class="bi-value">${address}</div>
+              </div>
+              <div class="bi-row">
+                <div class="bi-label">营业部<br>电话</div>
+                <div class="bi-value">
+                  <div class="bi-phone-row">
+                    <span>${phone}</span>
+                    <a class="bi-call-btn" href="tel:${phoneRaw}">拨打</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bi-footer">
+              您可以前往任意平安证券营业部办理业务，
+              <span class="bi-footer-link">点击查询所有营业部 &rsaquo;</span>
+            </div>
           </div>
         `;
       }
