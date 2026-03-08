@@ -1,0 +1,160 @@
+{
+    "title": "Draw100DataSchema",
+    "description": "draw100.json 中 data 节点的结构定义。该对象仅承载页面展示文案、展示值以及按钮点击所需的动作参数，components 仅负责布局与引用。",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "page_title",
+      "section_marker",
+      "label_policy",
+      "label_time",
+      "label_cost",
+      "label_impact",
+      "label_reason",
+      "amount_unit",
+      "rec_title",
+      "rec_amount",
+      "rec_policy",
+      "rec_time",
+      "rec_cost",
+      "rec_impact",
+      "rec_reason",
+      "rec_button_text",
+      "rec_action_args",
+      "alt_title",
+      "alt_amount",
+      "alt_policy",
+      "alt_time",
+      "alt_cost",
+      "alt_impact",
+      "alt_button_text",
+      "alt_action_args",
+      "prompt_text"
+    ],
+    "properties": {
+      "page_title": {
+        "type": "string",
+        "description": "页面主标题文案，例如：为您推荐的取款方案。"
+      },
+      "section_marker": {
+        "type": "string",
+        "description": "区块标题前的标记字符，通常用于强调，如：| 。"
+      },
+      "label_policy": {
+        "type": "string",
+        "description": "保单字段标签文案，例如：关联保单："
+      },
+      "label_time": {
+        "type": "string",
+        "description": "到账时间字段标签文案，例如：到账时间："
+      },
+      "label_cost": {
+        "type": "string",
+        "description": "费用字段标签文案，例如：提取费用："
+      },
+      "label_impact": {
+        "type": "string",
+        "description": "保障影响字段标签文案，例如：保障影响："
+      },
+      "label_reason": {
+        "type": "string",
+        "description": "推荐理由字段标签文案，例如：推荐理由："
+      },
+      "amount_unit": {
+        "type": "string",
+        "description": "金额单位文案，通常为：元。该字段与金额数值分开展示。"
+      },
+      "rec_title": {
+        "type": "string",
+        "description": "推荐方案标题文案，例如：★ 推荐：生存金领取。"
+      },
+      "rec_amount": {
+        "type": "string",
+        "description": "推荐方案金额文本，仅放数值部分，不带单位，例如：1,000。"
+      },
+      "rec_policy": {
+        "type": "string",
+        "description": "推荐方案对应的关联保单信息。"
+      },
+      "rec_time": {
+        "type": "string",
+        "description": "推荐方案的到账时间说明，例如：3个工作日。"
+      },
+      "rec_cost": {
+        "type": "string",
+        "description": "推荐方案的费用说明，例如：无。"
+      },
+      "rec_impact": {
+        "type": "string",
+        "description": "推荐方案对保障的影响说明。"
+      },
+      "rec_reason": {
+        "type": "string",
+        "description": "推荐方案的推荐理由说明。"
+      },
+      "rec_button_text": {
+        "type": "string",
+        "description": "推荐方案按钮展示文案，例如：办理生存金领取。"
+      },
+      "rec_action_args": {
+        "type": "object",
+        "description": "点击推荐方案按钮后触发 query 动作所需的参数对象。",
+        "additionalProperties": false,
+        "required": [
+          "queryMsg"
+        ],
+        "properties": {
+          "queryMsg": {
+            "type": "string",
+            "description": "用户点击推荐方案按钮后自动发起的问句，例如：我想办理生存金领取。"
+          }
+        }
+      },
+      "alt_title": {
+        "type": "string",
+        "description": "备选方案标题文案，例如：备选一：保单贷款。"
+      },
+      "alt_amount": {
+        "type": "string",
+        "description": "备选方案金额文本，仅放数值部分，不带单位，例如：1,000。"
+      },
+      "alt_policy": {
+        "type": "string",
+        "description": "备选方案对应的关联保单信息。"
+      },
+      "alt_time": {
+        "type": "string",
+        "description": "备选方案的到账时间说明，例如：1-3个工作日。"
+      },
+      "alt_cost": {
+        "type": "string",
+        "description": "备选方案的费用说明，例如：年利率5%，按日计息。"
+      },
+      "alt_impact": {
+        "type": "string",
+        "description": "备选方案对保障的影响说明。"
+      },
+      "alt_button_text": {
+        "type": "string",
+        "description": "备选方案按钮展示文案，例如：办理保单贷款。"
+      },
+      "alt_action_args": {
+        "type": "object",
+        "description": "点击备选方案按钮后触发 query 动作所需的参数对象。",
+        "additionalProperties": false,
+        "required": [
+          "queryMsg"
+        ],
+        "properties": {
+          "queryMsg": {
+            "type": "string",
+            "description": "用户点击备选方案按钮后自动发起的问句，例如：我想办理保单贷款。"
+          }
+        }
+      },
+      "prompt_text": {
+        "type": "string",
+        "description": "页面底部的引导提示语，用于提示用户做选择或继续交互。"
+      }
+    }
+  }

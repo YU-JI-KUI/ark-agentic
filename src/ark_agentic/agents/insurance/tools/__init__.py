@@ -14,14 +14,18 @@ from pathlib import Path
 
 from ark_agentic.core.tools import RenderCardTool
 
-from ..a2ui.extractors import withdraw_summary_extractor
+from ..a2ui.extractors import withdraw_summary_extractor, withdraw_plan_extractor, policy_detail_extractor
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
 from .customer_info import CustomerInfoTool
 
 _A2UI_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "a2ui" / "templates"
-_CARD_EXTRACTORS = {"withdraw_summary": withdraw_summary_extractor}
+_CARD_EXTRACTORS = {
+    "withdraw_summary": withdraw_summary_extractor,
+    "withdraw_plan": withdraw_plan_extractor,
+    "policy_detail": policy_detail_extractor,
+}
 
 
 def _create_render_card_tool() -> RenderCardTool:
