@@ -39,6 +39,8 @@ class ServiceConfig:
 class BaseServiceAdapter(ABC):
     """服务适配器基类"""
 
+    http_method: str = "POST"  # 子类可覆盖为 "GET"
+
     def __init__(self, config: ServiceConfig):
         self.config = config
         self._http: httpx.AsyncClient | None = None
@@ -61,14 +63,21 @@ class BaseServiceAdapter(ABC):
         client = await self._get_http()
 
         # 构建请求
-        headers, body = self._build_request(account_type, user_id, params)
+        headers, payload = self._build_request(account_type, user_id, params)
 
         try:
-            resp = await client.post(
-                self.config.url,
-                json=body,
-                headers=headers,
-            )
+            if self.http_method == "GET":
+                resp = await client.get(
+                    self.config.url,
+                    params=payload,
+                    headers=headers,
+                )
+            else:
+                resp = await client.post(
+                    self.config.url,
+                    json=payload,
+                    headers=headers,
+                )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ServiceError(
@@ -87,17 +96,17 @@ class BaseServiceAdapter(ABC):
         user_id: str,
         params: dict[str, Any],
     ) -> tuple[dict[str, str], dict[str, Any]]:
-        """构建请求 headers 和 body"""
+        """构建请求 headers 和 payload（POST 时为 JSON body，GET 时为 query params）"""
         headers = {"Content-Type": "application/json"}
-        body = {"user_id": user_id, "account_type": account_type, **params}
+        payload = {"user_id": user_id, "account_type": account_type, **params}
 
         # 添加认证
         if self.config.auth_type == "header":
             headers[self.config.auth_key] = self.config.auth_value or ""
         else:
-            body[self.config.auth_key] = self.config.auth_value or ""
+            payload[self.config.auth_key] = self.config.auth_value or ""
 
-        return headers, body
+        return headers, payload
 
     @abstractmethod
     def _normalize_response(
@@ -299,9 +308,12 @@ class HKSCHoldingsAdapter(BaseServiceAdapter):
 class FundHoldingsAdapter(BaseServiceAdapter):
     """基金理财持仓服务适配器
 
-    使用 validatedata + signature 认证：
+    HTTP GET，query params 传递 usercode 和 channel：
+    - GET /api?usercode=xxx&channel=xxx
     - Headers: {"validatedata": "...", "signature": "..."}
     """
+
+    http_method = "GET"
 
     def _build_request(
         self,
@@ -309,29 +321,31 @@ class FundHoldingsAdapter(BaseServiceAdapter):
         user_id: str,
         params: dict[str, Any],
     ) -> tuple[dict[str, str], dict[str, Any]]:
-        """构建请求（使用 validatedata + signature 认证）"""
+        """构建 GET 请求（query params: usercode + channel）"""
         from .param_mapping import (
+            build_api_request,
             build_api_headers_with_validatedata,
+            SERVICE_PARAM_CONFIGS,
             SERVICE_HEADER_CONFIGS,
         )
 
         context = params.get("_context", {})
 
-        # 构建请求体
-        body = {"user_id": user_id, "account_type": account_type}
+        # query params: usercode + channel
+        param_config = SERVICE_PARAM_CONFIGS.get("fund_holdings", {})
+        query = build_api_request(param_config, context)
 
-        # 构建 headers（包含 validatedata 和 signature）
+        # headers: validatedata + signature
         headers = {"Content-Type": "application/json"}
         header_config = SERVICE_HEADER_CONFIGS.get("fund_holdings", {})
         auth_headers = build_api_headers_with_validatedata(header_config, context)
         headers.update(auth_headers)
 
-        # 添加配置的认证（如果有的话，作为 fallback）
         if self.config.auth_type == "header" and self.config.auth_value:
-            if self.config.auth_key not in headers:  # 不覆盖 validatedata/signature
+            if self.config.auth_key not in headers:
                 headers[self.config.auth_key] = self.config.auth_value
 
-        return headers, body
+        return headers, query
 
     def _normalize_response(
         self,
@@ -474,6 +488,53 @@ class SecurityDetailAdapter(BaseServiceAdapter):
             raise ServiceError(f"Invalid security data: {e}")
 
 
+class BranchInfoAdapter(BaseServiceAdapter):
+    """开户营业部查询服务适配器
+
+    使用 validatedata + signature 认证：
+    - Headers: {"Content-Type": "application/json", "validatedata": "...", "signature": "..."}
+    - 请求体: 空 body（{}）
+    - 响应体: {"status": 1, "errMsg": "成功", "results": {"address": ..., "servicePhone": ..., "branchName": ..., "seatNo": {...}}}
+    """
+
+    def _build_request(
+        self,
+        account_type: str,
+        user_id: str,
+        params: dict[str, Any],
+    ) -> tuple[dict[str, str], dict[str, Any]]:
+        """构建请求（使用 validatedata + signature 认证，body 为空）"""
+        from .param_mapping import (
+            build_api_headers_with_validatedata,
+            SERVICE_HEADER_CONFIGS,
+        )
+
+        context = params.get("_context", {})
+
+        headers = {"Content-Type": "application/json"}
+        header_config = SERVICE_HEADER_CONFIGS.get("branch_info", {})
+        auth_headers = build_api_headers_with_validatedata(header_config, context)
+        headers.update(auth_headers)
+
+        if self.config.auth_type == "header" and self.config.auth_value:
+            if self.config.auth_key not in headers:
+                headers[self.config.auth_key] = self.config.auth_value
+
+        return headers, {}
+
+    def _normalize_response(
+        self,
+        raw_data: dict[str, Any],
+        account_type: str,
+    ) -> dict[str, Any]:
+        """返回原始数据"""
+        if raw_data.get("status") != 1:
+            error_msg = raw_data.get("errMsg") or "Unknown API error"
+            raise ServiceError(f"API returned error: {error_msg}")
+
+        return raw_data
+
+
 class MockServiceAdapter(BaseServiceAdapter):
     """Mock 服务适配器（从文件加载）"""
 
@@ -522,6 +583,7 @@ class MockServiceAdapter(BaseServiceAdapter):
             "fund_holdings": FundHoldingsAdapter,
             "cash_assets": CashAssetsAdapter,
             "security_detail": SecurityDetailAdapter,
+            "branch_info": BranchInfoAdapter,
         }
 
         adapter_class = adapter_map.get(self.service_name)
@@ -539,20 +601,50 @@ class ServiceError(Exception):
     pass
 
 
+# ============ Mock 模式解析 ============
+
+def get_mock_mode() -> bool:
+    """服务级默认 mock 状态（来自 SECURITIES_SERVICE_MOCK 环境变量）"""
+    return os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1")
+
+
+def get_mock_mode_for_context(context: dict | None = None) -> bool:
+    """per-request mock 模式解析
+
+    优先级：
+    1. context 中的 user:mock_mode（per-session 覆盖，由前端随请求携带）
+    2. SECURITIES_SERVICE_MOCK 环境变量（服务级默认）
+    """
+    if context:
+        val = context.get("user:mock_mode") or context.get("mock_mode")
+        if val is not None:
+            return str(val).lower() in ("true", "1")
+    return get_mock_mode()
+
+
 def create_service_adapter(
     service_name: str,
-    mock: bool = False,
+    context: dict | None = None,
 ) -> BaseServiceAdapter:
     """创建服务适配器
 
     Args:
         service_name: 服务名称（account_overview, etf_holdings等）
-        mock: 是否使用 Mock 模式
+        context: 请求上下文，用于解析 per-session mock 设置
 
     Returns:
-        服务适配器实例
+        服务适配器实例，mock 状态由 get_mock_mode_for_context(context) 决定
     """
-    if mock:
+    # 判断 mock 来源，用于日志标注
+    session_override = context and context.get("user:mock_mode") or (
+        context and context.get("mock_mode")
+    )
+    is_mock = get_mock_mode_for_context(context)
+    source = "session" if session_override is not None else "env_default"
+    mode_label = "[MOCK]" if is_mock else "[API] "
+    logger.info("%s tool=%-20s source=%s", mode_label, service_name, source)
+
+    if is_mock:
         # 返回文件驱动的 Mock 适配器
         return MockServiceAdapter(service_name)
 
@@ -582,6 +674,7 @@ def create_service_adapter(
         "fund_holdings": FundHoldingsAdapter,
         "cash_assets": CashAssetsAdapter,
         "security_detail": SecurityDetailAdapter,
+        "branch_info": BranchInfoAdapter,
     }
 
     adapter_class = adapter_map.get(service_name)

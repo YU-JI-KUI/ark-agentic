@@ -64,7 +64,15 @@ async def chat(
         if not session:
             session = await agent.session_manager.load_session(session_id)
         if not session:
-            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+            # session 不属于当前 agent（如证券/保险切换场景），为当前 agent 新建 session
+            logger.warning(
+                f"Session {session_id} not found in agent {request.agent_id}, "
+                "creating new session (possible agent switch)"
+            )
+            session_state = {"user:id": user_id} if user_id else {}
+            session = await agent.session_manager.create_session(state=session_state)
+            session_id = session.session_id
+            logger.info(f"Created new session after agent switch: {session_id}")
 
     run_options = request.run_options
     run_id = str(uuid.uuid4())
