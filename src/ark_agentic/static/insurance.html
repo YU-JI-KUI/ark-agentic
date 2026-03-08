@@ -936,6 +936,7 @@
 
   </div><!-- /app -->
 
+  <script src="/static/a2ui-renderer.js"></script>
   <script>
     (function () {
       'use strict';
@@ -1282,7 +1283,27 @@
                 const comp = event.ui_component;
                 if (comp && a2uiContainer) {
                   a2uiContainer.classList.remove('hidden');
-                  a2uiContainer.appendChild(renderA2UIComponent(comp));
+                  try {
+                    A2UIRenderer.render(a2uiContainer, comp, {
+                      onAction: function(name, args) {
+                        if (name === 'query') {
+                          var query = typeof args === 'object' ? (args.queryMsg || '') : String(args);
+                          if (query) { $input.value = query; sendMessage(); }
+                        } else if (name === 'openLink') {
+                          var url = typeof args === 'object' ? (args.url || '') : String(args);
+                          if (url) window.open(url, '_blank', 'noopener');
+                        } else {
+                          console.log('[A2UI action]', name, args);
+                        }
+                      }
+                    });
+                  } catch (err) {
+                    console.error('[A2UI] render error:', err);
+                    var pre = document.createElement('pre');
+                    pre.className = 'a2ui-fallback';
+                    pre.textContent = JSON.stringify(comp, null, 2);
+                    a2uiContainer.appendChild(pre);
+                  }
                   scrollToBottom();
                 }
                 break;
@@ -1325,228 +1346,6 @@
               }
             }
           }
-        }
-      }
-
-      // ---- A2UI standard renderer (protocol v1.0) ----
-      // Handles event === 'beginRendering' payloads from the backend.
-      // No legacy fallback — old answerDict format is not supported.
-
-      function renderA2UIComponent(component) {
-        if (!component || component.event !== 'beginRendering') {
-          const pre = document.createElement('pre');
-          pre.className = 'a2ui-fallback';
-          pre.textContent = JSON.stringify(component, null, 2);
-          return pre;
-        }
-        try {
-          return renderA2UIStandard(component);
-        } catch (err) {
-          console.error('[A2UI] render error:', err);
-          const pre = document.createElement('pre');
-          pre.className = 'a2ui-fallback';
-          pre.textContent = JSON.stringify(component, null, 2);
-          return pre;
-        }
-      }
-
-      function renderA2UIStandard(payload) {
-        const compMap = new Map();
-        (payload.components || []).forEach(function(c) {
-          compMap.set(c.id, c.component);
-        });
-        const data = payload.data || {};
-
-        function resolveValue(binding) {
-          if (!binding) return '';
-          if (binding.path !== undefined) {
-            const v = data[binding.path];
-            return v !== undefined ? String(v) : '';
-          }
-          if (binding.literalString !== undefined) {
-            return typeof binding.literalString === 'string'
-              ? binding.literalString
-              : JSON.stringify(binding.literalString);
-          }
-          return '';
-        }
-
-        function applyBoxProps(el, props) {
-          if (props.width !== undefined)
-            el.style.width = typeof props.width === 'number' ? props.width + '%' : props.width;
-          if (props.padding !== undefined)
-            el.style.padding = typeof props.padding === 'number' ? props.padding + 'px' : props.padding;
-          if (props.backgroundColor) el.style.backgroundColor = props.backgroundColor;
-          if (props.borderRadius) {
-            const rMap = { small: '4px', middle: '8px', large: '12px' };
-            el.style.borderRadius = rMap[props.borderRadius] || props.borderRadius;
-          }
-        }
-
-        function renderChildren(props) {
-          const frag = document.createDocumentFragment();
-          ((props.children && props.children.explicitList) || []).forEach(function(childId) {
-            const childEl = renderNode(childId);
-            if (childEl) frag.appendChild(childEl);
-          });
-          return frag;
-        }
-
-        function renderNode(compId) {
-          const compDef = compMap.get(compId);
-          if (!compDef) return null;
-
-          const type = Object.keys(compDef)[0];
-          const props = compDef[type] || {};
-
-          switch (type) {
-            case 'Column': {
-              const el = document.createElement('div');
-              el.style.display = 'flex';
-              el.style.flexDirection = 'column';
-              if (props.gap) el.style.gap = typeof props.gap === 'number' ? props.gap + 'px' : props.gap;
-              if (props.alignment) {
-                const aMap = { start: 'flex-start', center: 'center', end: 'flex-end' };
-                el.style.alignItems = aMap[props.alignment] || props.alignment;
-              }
-              applyBoxProps(el, props);
-              el.appendChild(renderChildren(props));
-              return el;
-            }
-
-            case 'Row': {
-              const el = document.createElement('div');
-              el.style.display = 'flex';
-              el.style.flexDirection = 'row';
-              el.style.alignItems = 'center';
-              if (props.gap) el.style.gap = typeof props.gap === 'number' ? props.gap + 'px' : props.gap;
-              if (props.distribution) {
-                const dMap = { spaceBetween: 'space-between', center: 'center', start: 'flex-start', end: 'flex-end' };
-                el.style.justifyContent = dMap[props.distribution] || props.distribution;
-              }
-              if (props.alignment) {
-                const aMap = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
-                el.style.alignItems = aMap[props.alignment] || props.alignment;
-              }
-              applyBoxProps(el, props);
-              el.appendChild(renderChildren(props));
-              return el;
-            }
-
-            case 'Card': {
-              const el = document.createElement('div');
-              el.style.display = 'flex';
-              el.style.flexDirection = 'column';
-              el.style.boxShadow = '0 1px 6px rgba(0,0,0,.08)';
-              if (!props.backgroundColor) el.style.backgroundColor = '#FFFFFF';
-              if (!props.borderRadius) el.style.borderRadius = '8px';
-              if (props.gap) el.style.gap = typeof props.gap === 'number' ? props.gap + 'px' : props.gap;
-              applyBoxProps(el, props);
-              el.appendChild(renderChildren(props));
-              return el;
-            }
-
-            case 'Text': {
-              const el = document.createElement('div');
-              el.textContent = resolveValue(props.text);
-              if (props.color) el.style.color = props.color;
-              if (props.fontSize) el.style.fontSize = props.fontSize;
-              if (props.bold) el.style.fontWeight = 'bold';
-              if (props.italic) el.style.fontStyle = 'italic';
-              if (props.underline) el.style.textDecoration = 'underline';
-              el.style.lineHeight = '1.6';
-              return el;
-            }
-
-            case 'Button': {
-              const el = document.createElement('button');
-              el.className = 'a2ui-btn';
-              if (props.type === 'primary') {
-                el.style.background = 'var(--orange)';
-                el.style.color = '#fff';
-                el.style.border = 'none';
-              }
-              if (props.width) el.style.width = typeof props.width === 'number' ? props.width + '%' : props.width;
-              el.textContent = resolveValue(props.text);
-              if (props.action) {
-                el.addEventListener('click', function() { handleA2UIAction(props.action, data); });
-              }
-              return el;
-            }
-
-            case 'Divider': {
-              const el = document.createElement('hr');
-              el.style.border = 'none';
-              el.style.borderTop = '1px solid ' + (props.borderColor || '#E5E5E5');
-              el.style.margin = '4px 0';
-              return el;
-            }
-
-            case 'Tag': {
-              const el = document.createElement('span');
-              el.textContent = resolveValue(props.text);
-              el.style.display = 'inline-block';
-              el.style.padding = '2px 8px';
-              el.style.borderRadius = '10px';
-              el.style.fontSize = '12px';
-              if (props.color) el.style.color = props.color;
-              if (props.backgroundColor) {
-                el.style.backgroundColor = props.backgroundColor;
-              } else {
-                el.style.backgroundColor = '#FFF3E0';
-                el.style.color = '#FF6600';
-              }
-              return el;
-            }
-
-            case 'RichText': {
-              const el = document.createElement('div');
-              el.innerHTML = md(resolveValue(props.text));
-              if (props.fontSize) el.style.fontSize = props.fontSize;
-              if (props.color) el.style.color = props.color;
-              return el;
-            }
-
-            default: {
-              const el = document.createElement('div');
-              el.style.cssText = 'font-size:11px;color:#999;padding:2px 0';
-              el.textContent = '[unknown component: ' + type + ']';
-              return el;
-            }
-          }
-        }
-
-        const wrapper = document.createElement('div');
-        wrapper.style.width = '100%';
-        const root = renderNode(payload.rootComponentId);
-        if (root) wrapper.appendChild(root);
-        return wrapper;
-      }
-
-      function handleA2UIAction(action, data) {
-        if (!action) return;
-        const name = action.name;
-        const argsBinding = action.args;
-        let args = {};
-        if (argsBinding && argsBinding.literalString !== undefined) {
-          args = argsBinding.literalString;
-        } else if (argsBinding && argsBinding.path !== undefined) {
-          args = data[argsBinding.path] || {};
-        }
-
-        if (name === 'query') {
-          const query = typeof args === 'object' ? (args.queryMsg || '') : String(args);
-          if (query) {
-            const inputEl = document.querySelector('#input-field');
-            const sendBtn = document.querySelector('#send-btn');
-            if (inputEl && sendBtn) {
-              inputEl.value = query;
-              sendBtn.click();
-            }
-          }
-        } else if (name === 'openLink') {
-          const url = typeof args === 'object' ? (args.url || '') : String(args);
-          if (url) window.open(url, '_blank', 'noopener');
         }
       }
 

@@ -33,7 +33,10 @@ async def chat(
     x_ark_user_id: str | None = Header(None, alias="x-ark-user-id"),
     x_ark_trace_id: str | None = Header(None, alias="x-ark-trace-id"),
 ):
-    """Chat 端点，支持流式和非流式响应"""
+    """Chat 端点，支持流式和非流式响应。
+
+    A2UI 渲染模式由 RunnerConfig.a2ui_mode 控制（环境变量 A2UI_MODE，默认 dynamic）。
+    """
     agent = get_agent(request.agent_id)
 
     # 构建 input_context：合并 body 和 headers，使用 ADK 风格前缀
@@ -63,6 +66,7 @@ async def chat(
         if not session:
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
+    run_options = request.run_options
     run_id = str(uuid.uuid4())
     if not request.stream:
         # 非流式响应
@@ -70,7 +74,7 @@ async def chat(
             session_id=session_id,
             user_input=request.message,
             input_context=input_context,
-            run_options=request.run_options,
+            run_options=run_options,
         )
         tool_calls = []
         if result.tool_calls:
@@ -105,7 +109,7 @@ async def chat(
                 user_input=request.message,
                 input_context=input_context,
                 stream_override=True,
-                run_options=request.run_options,
+                run_options=run_options,
                 handler=bus,
             )
             tool_calls = []
