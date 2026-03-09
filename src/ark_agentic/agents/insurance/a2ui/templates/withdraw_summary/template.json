@@ -10,10 +10,10 @@
     {
       "id": "root-001",
       "component": {
-          "Column": {
+        "Column": {
           "width": 100,
           "backgroundColor": "#F5F5F5",
-          "padding": [16, 16, 32, 16],
+          "padding": [16, 32, 16, 16],
           "gap": 16,
           "children": {
             "explicitList": [
@@ -36,9 +36,7 @@
           "borderRadius": "middle",
           "padding": 20,
           "children": {
-            "explicitList": [
-              "header-col"
-            ]
+            "explicitList": ["header-col"]
           }
         }
       }
@@ -48,7 +46,6 @@
       "component": {
         "Column": {
           "alignment": "center",
-          "distribution": "center",
           "gap": 8,
           "children": {
             "explicitList": [
@@ -62,24 +59,10 @@
       }
     },
     {
-      "id": "header-requested",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "requested_amount_display"
-          },
-          "color": "#666666",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
       "id": "header-title",
       "component": {
         "Text": {
-          "text": {
-            "path": "header_title"
-          },
+          "text": { "path": "header_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -90,9 +73,7 @@
       "id": "header-value",
       "component": {
         "Text": {
-          "text": {
-            "path": "header_value"
-          },
+          "text": { "path": "header_value" },
           "color": "#FF6600",
           "fontSize": "24px",
           "bold": true
@@ -103,10 +84,18 @@
       "id": "header-sub",
       "component": {
         "Text": {
-          "text": {
-            "path": "header_sub"
-          },
+          "text": { "path": "header_sub" },
           "color": "#999999",
+          "fontSize": "12px"
+        }
+      }
+    },
+    {
+      "id": "header-requested",
+      "component": {
+        "Text": {
+          "text": { "path": "requested_amount_display" },
+          "color": "#666666",
           "fontSize": "12px"
         }
       }
@@ -120,9 +109,7 @@
           "borderRadius": "middle",
           "padding": 16,
           "children": {
-            "explicitList": [
-              "cz-col"
-            ]
+            "explicitList": ["cz-col"]
           }
         }
       }
@@ -137,8 +124,7 @@
               "cz-title-row",
               "cz-total",
               "cz-divider",
-              "cz-item-1",
-              "cz-item-2"
+              "cz-items-list"
             ]
           }
         }
@@ -151,11 +137,7 @@
           "alignment": "middle",
           "gap": 8,
           "children": {
-            "explicitList": [
-              "cz-line",
-              "cz-title",
-              "cz-tag"
-            ]
+            "explicitList": ["cz-line", "cz-title", "cz-tag"]
           }
         }
       }
@@ -164,9 +146,7 @@
       "id": "cz-line",
       "component": {
         "Text": {
-          "text": {
-            "path": "section_marker"
-          },
+          "text": { "path": "section_marker" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -177,9 +157,7 @@
       "id": "cz-title",
       "component": {
         "Text": {
-          "text": {
-            "path": "zero_cost_title"
-          },
+          "text": { "path": "zero_cost_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -190,9 +168,7 @@
       "id": "cz-tag",
       "component": {
         "Text": {
-          "text": {
-            "path": "zero_cost_tag"
-          },
+          "text": { "path": "zero_cost_tag" },
           "color": "#999999",
           "fontSize": "12px"
         }
@@ -202,9 +178,7 @@
       "id": "cz-total",
       "component": {
         "Text": {
-          "text": {
-            "path": "zero_cost_total"
-          },
+          "text": { "path": "zero_cost_total" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -214,85 +188,47 @@
     {
       "id": "cz-divider",
       "component": {
-        "Divider": {
-          "borderColor": "#F5F5F5",
-          "hairline": true
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "cz-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "cz-item-tpl",
+          "dataSource": { "path": "zero_cost_items" }
         }
       }
     },
     {
-      "id": "cz-item-1",
+      "id": "cz-item-tpl",
       "component": {
         "Row": {
-          "width": 98,
+          "width": 100,
           "distribution": "spaceBetween",
           "children": {
-            "explicitList": [
-              "cz-i1-l",
-              "cz-i1-r"
-            ]
+            "explicitList": ["cz-item-label", "cz-item-value"]
           }
         }
       }
     },
     {
-      "id": "cz-i1-l",
+      "id": "cz-item-label",
       "component": {
         "Text": {
-          "text": {
-            "path": "zero_cost_item_1_label"
-          },
+          "text": { "path": "label" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "cz-i1-r",
+      "id": "cz-item-value",
       "component": {
         "Text": {
-          "text": {
-            "path": "zero_cost_item_1_value"
-          },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "cz-item-2",
-      "component": {
-        "Row": {
-          "width": 98,
-          "distribution": "spaceBetween",
-          "children": {
-            "explicitList": [
-              "cz-i2-l",
-              "cz-i2-r"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": "cz-i2-l",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "zero_cost_item_2_label"
-          },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "cz-i2-r",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "zero_cost_item_2_value"
-          },
+          "text": { "path": "value" },
           "color": "#333333",
           "fontSize": "14px"
         }
@@ -307,9 +243,7 @@
           "borderRadius": "middle",
           "padding": 16,
           "children": {
-            "explicitList": [
-              "cl-col"
-            ]
+            "explicitList": ["cl-col"]
           }
         }
       }
@@ -324,8 +258,7 @@
               "cl-title-row",
               "cl-total",
               "cl-divider",
-              "cl-item-1",
-              "cl-item-2"
+              "cl-items-list"
             ]
           }
         }
@@ -338,11 +271,7 @@
           "alignment": "middle",
           "gap": 8,
           "children": {
-            "explicitList": [
-              "cl-line",
-              "cl-title",
-              "cl-tag"
-            ]
+            "explicitList": ["cl-line", "cl-title", "cl-tag"]
           }
         }
       }
@@ -351,9 +280,7 @@
       "id": "cl-line",
       "component": {
         "Text": {
-          "text": {
-            "path": "section_marker"
-          },
+          "text": { "path": "section_marker" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -364,9 +291,7 @@
       "id": "cl-title",
       "component": {
         "Text": {
-          "text": {
-            "path": "loan_title"
-          },
+          "text": { "path": "loan_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -377,9 +302,7 @@
       "id": "cl-tag",
       "component": {
         "Text": {
-          "text": {
-            "path": "loan_tag"
-          },
+          "text": { "path": "loan_tag" },
           "color": "#999999",
           "fontSize": "12px"
         }
@@ -389,9 +312,7 @@
       "id": "cl-total",
       "component": {
         "Text": {
-          "text": {
-            "path": "loan_total"
-          },
+          "text": { "path": "loan_total" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -401,85 +322,47 @@
     {
       "id": "cl-divider",
       "component": {
-        "Divider": {
-          "borderColor": "#F5F5F5",
-          "hairline": true
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "cl-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "cl-item-tpl",
+          "dataSource": { "path": "loan_items" }
         }
       }
     },
     {
-      "id": "cl-item-1",
+      "id": "cl-item-tpl",
       "component": {
         "Row": {
-          "width": 98,
+          "width": 100,
           "distribution": "spaceBetween",
           "children": {
-            "explicitList": [
-              "cl-i1-l",
-              "cl-i1-r"
-            ]
+            "explicitList": ["cl-item-label", "cl-item-value"]
           }
         }
       }
     },
     {
-      "id": "cl-i1-l",
+      "id": "cl-item-label",
       "component": {
         "Text": {
-          "text": {
-            "path": "loan_item_1_label"
-          },
+          "text": { "path": "label" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "cl-i1-r",
+      "id": "cl-item-value",
       "component": {
         "Text": {
-          "text": {
-            "path": "loan_item_1_value"
-          },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "cl-item-2",
-      "component": {
-        "Row": {
-          "width": 98,
-          "distribution": "spaceBetween",
-          "children": {
-            "explicitList": [
-              "cl-i2-l",
-              "cl-i2-r"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": "cl-i2-l",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "loan_item_2_label"
-          },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "cl-i2-r",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "loan_item_2_value"
-          },
+          "text": { "path": "value" },
           "color": "#333333",
           "fontSize": "14px"
         }
@@ -494,9 +377,7 @@
           "borderRadius": "middle",
           "padding": 16,
           "children": {
-            "explicitList": [
-              "ca-col"
-            ]
+            "explicitList": ["ca-col"]
           }
         }
       }
@@ -507,11 +388,7 @@
         "Column": {
           "gap": 8,
           "children": {
-            "explicitList": [
-              "ca-title-row",
-              "ca-t1",
-              "ca-t2"
-            ]
+            "explicitList": ["ca-title-row", "ca-t1", "ca-t2"]
           }
         }
       }
@@ -523,10 +400,7 @@
           "alignment": "middle",
           "gap": 8,
           "children": {
-            "explicitList": [
-              "ca-icon",
-              "ca-title"
-            ]
+            "explicitList": ["ca-icon", "ca-title"]
           }
         }
       }
@@ -535,9 +409,7 @@
       "id": "ca-icon",
       "component": {
         "Text": {
-          "text": {
-            "path": "advice_icon"
-          },
+          "text": { "path": "advice_icon" },
           "fontSize": "16px"
         }
       }
@@ -546,9 +418,7 @@
       "id": "ca-title",
       "component": {
         "Text": {
-          "text": {
-            "path": "advice_title"
-          },
+          "text": { "path": "advice_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -559,9 +429,7 @@
       "id": "ca-t1",
       "component": {
         "Text": {
-          "text": {
-            "path": "advice_text_1"
-          },
+          "text": { "path": "advice_text_1" },
           "color": "#999999",
           "fontSize": "14px"
         }
@@ -571,9 +439,7 @@
       "id": "ca-t2",
       "component": {
         "Text": {
-          "text": {
-            "path": "advice_text_2"
-          },
+          "text": { "path": "advice_text_2" },
           "color": "#999999",
           "fontSize": "14px"
         }
@@ -585,14 +451,10 @@
         "Button": {
           "type": "primary",
           "width": 100,
-          "text": {
-            "path": "plan_button_text"
-          },
+          "text": { "path": "plan_button_text" },
           "action": {
             "name": "query",
-            "args": {
-              "path": "plan_action_args"
-            }
+            "args": { "path": "plan_action_args" }
           }
         }
       }

@@ -13,14 +13,12 @@
         "Column": {
           "width": 100,
           "backgroundColor": "#F5F5F5",
-          "padding": [16, 16, 32, 16],
+          "padding": [16, 32, 16, 16],
           "gap": 16,
           "children": {
             "explicitList": [
               "card-title",
-              "card-p1",
-              "card-p2",
-              "card-p3",
+              "policy-list",
               "card-prompt"
             ]
           }
@@ -51,51 +49,62 @@
       }
     },
     {
-      "id": "card-p1",
+      "id": "policy-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 16,
+          "child": "policy-card-tpl",
+          "dataSource": { "path": "policies" }
+        }
+      }
+    },
+    {
+      "id": "policy-card-tpl",
       "component": {
         "Card": {
           "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
-          "children": { "explicitList": ["col-p1"] }
+          "children": { "explicitList": ["policy-col"] }
         }
       }
     },
     {
-      "id": "col-p1",
+      "id": "policy-col",
       "component": {
         "Column": {
           "gap": 12,
           "children": {
             "explicitList": [
-              "row-p1-title",
-              "text-p1-subtitle",
-              "text-p1-year",
-              "divider-p1",
-              "row-p1-survival",
-              "row-p1-bonus",
-              "row-p1-loan",
-              "row-p1-refund",
-              "divider-p1-total",
-              "row-p1-total"
+              "row-title",
+              "text-subtitle",
+              "text-year",
+              "divider-top",
+              "row-survival",
+              "row-bonus",
+              "row-loan",
+              "row-refund",
+              "divider-total",
+              "row-total"
             ]
           }
         }
       }
     },
     {
-      "id": "row-p1-title",
+      "id": "row-title",
       "component": {
         "Row": {
           "alignment": "middle",
           "gap": 8,
-          "children": { "explicitList": ["line-p1", "title-p1"] }
+          "children": { "explicitList": ["line-marker", "title-text"] }
         }
       }
     },
     {
-      "id": "line-p1",
+      "id": "line-marker",
       "component": {
         "Text": {
           "text": { "path": "section_marker" },
@@ -106,10 +115,10 @@
       }
     },
     {
-      "id": "title-p1",
+      "id": "title-text",
       "component": {
         "Text": {
-          "text": { "path": "p1_title" },
+          "text": { "path": "title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -117,172 +126,172 @@
       }
     },
     {
-      "id": "text-p1-subtitle",
+      "id": "text-subtitle",
       "component": {
         "Text": {
-          "text": { "path": "p1_subtitle" },
+          "text": { "path": "subtitle" },
           "color": "#999999",
           "fontSize": "12px"
         }
       }
     },
     {
-      "id": "text-p1-year",
+      "id": "text-year",
       "component": {
         "Text": {
-          "text": { "path": "p1_year" },
+          "text": { "path": "year" },
           "color": "#999999",
           "fontSize": "12px"
         }
       }
     },
     {
-      "id": "divider-p1",
+      "id": "divider-top",
       "component": {
         "Divider": { "borderColor": "#F5F5F5", "hairline": true }
       }
     },
     {
-      "id": "row-p1-survival",
+      "id": "row-survival",
       "component": {
         "Row": {
           "width": 100,
           "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p1-survival", "val-p1-survival"] }
+          "children": { "explicitList": ["lbl-survival", "val-survival"] }
         }
       }
     },
     {
-      "id": "lbl-p1-survival",
+      "id": "lbl-survival",
       "component": {
         "Text": {
-          "text": { "path": "p1_survival_label" },
+          "text": { "path": "survival_label" },
           "color": "#666666",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "val-p1-survival",
+      "id": "val-survival",
       "component": {
         "Text": {
-          "text": { "path": "p1_survival_value" },
+          "text": { "path": "survival_value" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "row-p1-bonus",
+      "id": "row-bonus",
       "component": {
         "Row": {
           "width": 100,
           "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p1-bonus", "val-p1-bonus"] }
+          "children": { "explicitList": ["lbl-bonus", "val-bonus"] }
         }
       }
     },
     {
-      "id": "lbl-p1-bonus",
+      "id": "lbl-bonus",
       "component": {
         "Text": {
-          "text": { "path": "p1_bonus_label" },
+          "text": { "path": "bonus_label" },
           "color": "#666666",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "val-p1-bonus",
+      "id": "val-bonus",
       "component": {
         "Text": {
-          "text": { "path": "p1_bonus_value" },
+          "text": { "path": "bonus_value" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "row-p1-loan",
+      "id": "row-loan",
       "component": {
         "Row": {
           "width": 100,
           "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p1-loan", "val-p1-loan"] }
+          "children": { "explicitList": ["lbl-loan", "val-loan"] }
         }
       }
     },
     {
-      "id": "lbl-p1-loan",
+      "id": "lbl-loan",
       "component": {
         "Text": {
-          "text": { "path": "p1_loan_label" },
+          "text": { "path": "loan_label" },
           "color": "#666666",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "val-p1-loan",
+      "id": "val-loan",
       "component": {
         "Text": {
-          "text": { "path": "p1_loan_value" },
+          "text": { "path": "loan_value" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "row-p1-refund",
+      "id": "row-refund",
       "component": {
         "Row": {
           "width": 100,
           "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p1-refund", "val-p1-refund"] }
+          "children": { "explicitList": ["lbl-refund", "val-refund"] }
         }
       }
     },
     {
-      "id": "lbl-p1-refund",
+      "id": "lbl-refund",
       "component": {
         "Text": {
-          "text": { "path": "p1_refund_label" },
+          "text": { "path": "refund_label" },
           "color": "#666666",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "val-p1-refund",
+      "id": "val-refund",
       "component": {
         "Text": {
-          "text": { "path": "p1_refund_value" },
+          "text": { "path": "refund_value" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "divider-p1-total",
+      "id": "divider-total",
       "component": {
         "Divider": { "borderColor": "#F5F5F5", "hairline": true }
       }
     },
     {
-      "id": "row-p1-total",
+      "id": "row-total",
       "component": {
         "Row": {
           "width": 100,
           "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p1-total", "val-p1-total"] }
+          "children": { "explicitList": ["lbl-total", "val-total"] }
         }
       }
     },
     {
-      "id": "lbl-p1-total",
+      "id": "lbl-total",
       "component": {
         "Text": {
-          "text": { "path": "p1_total_label" },
+          "text": { "path": "total_label" },
           "color": "#333333",
           "fontSize": "14px",
           "bold": true
@@ -290,512 +299,10 @@
       }
     },
     {
-      "id": "val-p1-total",
+      "id": "val-total",
       "component": {
         "Text": {
-          "text": { "path": "p1_total_value" },
-          "color": "#FF6600",
-          "fontSize": "14px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "card-p2",
-      "component": {
-        "Card": {
-          "hide": { "path": "p2_hidden" },
-          "width": 100,
-          "backgroundColor": "#FFFFFF",
-          "borderRadius": "middle",
-          "padding": 16,
-          "children": { "explicitList": ["col-p2"] }
-        }
-      }
-    },
-    {
-      "id": "col-p2",
-      "component": {
-        "Column": {
-          "gap": 12,
-          "children": {
-            "explicitList": [
-              "row-p2-title",
-              "text-p2-subtitle",
-              "text-p2-year",
-              "divider-p2",
-              "row-p2-survival",
-              "row-p2-bonus",
-              "row-p2-loan",
-              "row-p2-refund",
-              "divider-p2-total",
-              "row-p2-total"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": "row-p2-title",
-      "component": {
-        "Row": {
-          "alignment": "middle",
-          "gap": 8,
-          "children": { "explicitList": ["line-p2", "title-p2"] }
-        }
-      }
-    },
-    {
-      "id": "line-p2",
-      "component": {
-        "Text": {
-          "text": { "path": "section_marker" },
-          "color": "#FF6600",
-          "fontSize": "16px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "title-p2",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_title" },
-          "color": "#333333",
-          "fontSize": "16px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "text-p2-subtitle",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_subtitle" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "text-p2-year",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_year" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "divider-p2",
-      "component": {
-        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
-      }
-    },
-    {
-      "id": "row-p2-survival",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p2-survival", "val-p2-survival"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p2-survival",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_survival_label" },
-          "color": "#666666",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "val-p2-survival",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_survival_value" },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "row-p2-bonus",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p2-bonus", "val-p2-bonus"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p2-bonus",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_bonus_label" },
-          "color": "#666666",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "val-p2-bonus",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_bonus_value" },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "row-p2-loan",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p2-loan", "val-p2-loan"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p2-loan",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_loan_label" },
-          "color": "#666666",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "val-p2-loan",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_loan_value" },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "row-p2-refund",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p2-refund", "val-p2-refund"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p2-refund",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_refund_label" },
-          "color": "#666666",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "val-p2-refund",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_refund_value" },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "divider-p2-total",
-      "component": {
-        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
-      }
-    },
-    {
-      "id": "row-p2-total",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p2-total", "val-p2-total"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p2-total",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_total_label" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "val-p2-total",
-      "component": {
-        "Text": {
-          "text": { "path": "p2_total_value" },
-          "color": "#FF6600",
-          "fontSize": "14px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "card-p3",
-      "component": {
-        "Card": {
-          "hide": { "path": "p3_hidden" },
-          "width": 100,
-          "backgroundColor": "#FFFFFF",
-          "borderRadius": "middle",
-          "padding": 16,
-          "children": { "explicitList": ["col-p3"] }
-        }
-      }
-    },
-    {
-      "id": "col-p3",
-      "component": {
-        "Column": {
-          "gap": 12,
-          "children": {
-            "explicitList": [
-              "row-p3-title",
-              "text-p3-subtitle",
-              "text-p3-year",
-              "divider-p3",
-              "row-p3-survival",
-              "row-p3-bonus",
-              "row-p3-loan",
-              "row-p3-refund",
-              "divider-p3-total",
-              "row-p3-total"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": "row-p3-title",
-      "component": {
-        "Row": {
-          "alignment": "middle",
-          "gap": 8,
-          "children": { "explicitList": ["line-p3", "title-p3"] }
-        }
-      }
-    },
-    {
-      "id": "line-p3",
-      "component": {
-        "Text": {
-          "text": { "path": "section_marker" },
-          "color": "#FF6600",
-          "fontSize": "16px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "title-p3",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_title" },
-          "color": "#333333",
-          "fontSize": "16px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "text-p3-subtitle",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_subtitle" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "text-p3-year",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_year" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "divider-p3",
-      "component": {
-        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
-      }
-    },
-    {
-      "id": "row-p3-survival",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p3-survival", "val-p3-survival"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p3-survival",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_survival_label" },
-          "color": "#666666",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "val-p3-survival",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_survival_value" },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "row-p3-bonus",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p3-bonus", "val-p3-bonus"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p3-bonus",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_bonus_label" },
-          "color": "#666666",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "val-p3-bonus",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_bonus_value" },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "row-p3-loan",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p3-loan", "val-p3-loan"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p3-loan",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_loan_label" },
-          "color": "#666666",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "val-p3-loan",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_loan_value" },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "row-p3-refund",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p3-refund", "val-p3-refund"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p3-refund",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_refund_label" },
-          "color": "#666666",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "val-p3-refund",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_refund_value" },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "divider-p3-total",
-      "component": {
-        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
-      }
-    },
-    {
-      "id": "row-p3-total",
-      "component": {
-        "Row": {
-          "width": 100,
-          "distribution": "spaceBetween",
-          "children": { "explicitList": ["lbl-p3-total", "val-p3-total"] }
-        }
-      }
-    },
-    {
-      "id": "lbl-p3-total",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_total_label" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "val-p3-total",
-      "component": {
-        "Text": {
-          "text": { "path": "p3_total_value" },
+          "text": { "path": "total_value" },
           "color": "#FF6600",
           "fontSize": "14px",
           "bold": true

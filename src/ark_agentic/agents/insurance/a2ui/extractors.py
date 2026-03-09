@@ -15,8 +15,6 @@ from ark_agentic.agents.insurance.tools.rule_engine import (
     PROCESSING_TIME as _PROCESSING_TIME,
 )
 
-_MAX_ITEMS = 2  # 与 template 固定 2 条明细一致
-
 # option_type → (费用文案, 保障影响文案)
 _OPTION_META: dict[str, tuple[str, str]] = {
     "survival_fund": ("无", "不影响保障"),
@@ -93,25 +91,16 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
             loan_items.append({"label": f"{name}可贷(年利率{rate_pct}%)", "value": _fmt(loan)})
             loan_sum += loan
 
-    # 展平为 item_1 / item_2（不足补空串）
-    def fill_items(items: list[dict[str, str]], prefix: str) -> dict[str, str]:
-        out: dict[str, str] = {}
-        for i in range(1, _MAX_ITEMS + 1):
-            if i <= len(items):
-                out[f"{prefix}_item_{i}_label"] = items[i - 1]["label"]
-                out[f"{prefix}_item_{i}_value"] = items[i - 1]["value"]
-            else:
-                out[f"{prefix}_item_{i}_label"] = ""
-                out[f"{prefix}_item_{i}_value"] = ""
-        return out
-
     requested_raw = rule_data.get("requested_amount")
     if requested_raw is not None and isinstance(requested_raw, (int, float)):
         requested_amount_display = f"本次取款目标：{_fmt(float(requested_raw))}"
     else:
         requested_amount_display = "—"
 
-    flat: dict[str, Any] = {
+    plan_button_text = _str_from_args(card_args, "plan_button_text", "获取最优方案")
+    action_query = _str_from_args(card_args, "plan_action_query", plan_button_text)
+
+    return {
         "header_title": "目前可领取的总金额(含贷款)",
         "header_value": _fmt(total_incl_loan),
         "header_sub": f"不含贷款可领金额：{_fmt(total_excl_loan)}",
@@ -120,11 +109,11 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
         "zero_cost_title": "零成本领取",
         "zero_cost_tag": " (不影响保障) ",
         "zero_cost_total": f"合计：{_fmt(zero_cost_sum)}",
-        **fill_items(zero_cost_items, "zero_cost"),
+        "zero_cost_items": zero_cost_items,
         "loan_title": "保单贷款",
         "loan_tag": " (需支付利息) ",
         "loan_total": f"合计可贷：{_fmt(loan_sum)}",
-        **fill_items(loan_items, "loan"),
+        "loan_items": loan_items,
         "advice_icon": "💡",
         "advice_title": "建议方案",
         "advice_text_1": _str_from_args(
@@ -133,11 +122,9 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
         "advice_text_2": _str_from_args(
             card_args, "advice_text_2", "• 如需更多资金，可搭配保单贷款，年利率5%，保障不受影响。"
         ),
-        "plan_button_text": _str_from_args(card_args, "plan_button_text", "获取最优方案"),
+        "plan_button_text": plan_button_text,
+        "plan_action_args": {"queryMsg": action_query},
     }
-    action_query = _str_from_args(card_args, "plan_action_query", flat["plan_button_text"])
-    flat["plan_action_args"] = {"queryMsg": action_query}
-    return flat
 
 
 def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]:
@@ -261,32 +248,38 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
         "label_impact": "保障影响: ",
         "label_reason": "推荐理由: ",
         "amount_unit": "元",
-        # 推荐方案
+        # 推荐方案（per-plan flat fields）
         "rec_title": _str_from_args(args, "rec_title", f"★ 推荐: {rec_op_name}"),
         "rec_amount": _fmt_amount(rec["amount"]),
-        "rec_policy": _str_from_args(args, "rec_policy", _policy_display(rec_opt)),
-        "rec_time": _str_from_args(args, "rec_time", _PROCESSING_TIME),
-        "rec_cost": _str_from_args(args, "rec_cost", _cost(rec_type)),
-        "rec_impact": _str_from_args(args, "rec_impact", _impact(rec_type)),
         "rec_reason": _str_from_args(args, "rec_reason", "零成本、无风险, 且不影响您的保障"),
         "rec_button_text": _str_from_args(args, "rec_button_text", f"办理{rec_op_name}"),
         "rec_action_args": {"queryMsg": _str_from_args(args, "rec_query_msg", f"我想办理{rec_op_name}")},
-        # 备选方案
+        # 推荐方案关联保单（dynamic list）
+        "rec_policies": [{
+            "policy_name": _str_from_args(args, "rec_policy", _policy_display(rec_opt)),
+            "time": _str_from_args(args, "rec_time", _PROCESSING_TIME),
+            "cost": _str_from_args(args, "rec_cost", _cost(rec_type)),
+            "impact": _str_from_args(args, "rec_impact", _impact(rec_type)),
+        }],
+        # 备选方案（per-plan flat fields）
         "alt_title": _str_from_args(args, "alt_title", f"备选一: {alt_op_name}"),
         "alt_amount": _fmt_amount(alt["amount"]),
-        "alt_policy": _str_from_args(args, "alt_policy", _policy_display(alt_opt)),
-        "alt_time": _str_from_args(args, "alt_time", _PROCESSING_TIME),
-        "alt_cost": _str_from_args(args, "alt_cost", _cost(alt_type)),
-        "alt_impact": _str_from_args(args, "alt_impact", _impact(alt_type)),
         "alt_button_text": _str_from_args(args, "alt_button_text", f"办理{alt_op_name}"),
         "alt_action_args": {"queryMsg": _str_from_args(args, "alt_query_msg", f"我想办理{alt_op_name}")},
+        # 备选方案关联保单（dynamic list）
+        "alt_policies": [{
+            "policy_name": _str_from_args(args, "alt_policy", _policy_display(alt_opt)),
+            "time": _str_from_args(args, "alt_time", _PROCESSING_TIME),
+            "cost": _str_from_args(args, "alt_cost", _cost(alt_type)),
+            "impact": _str_from_args(args, "alt_impact", _impact(alt_type)),
+        }],
         "prompt_text": _str_from_args(args, "prompt_text", "请问您倾向于哪个方案？确认我可以为您办理。"),
     }
 
 
 def policy_detail_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]:
     """
-    保单详情列表卡片：展示最多 3 张保单的四项金额明细。
+    保单详情列表卡片：动态展示所有保单的四项金额明细，通过 List 组件渲染。
     数据源优先读 _rule_engine_result，其次 _tool_results_by_name["policy_query"]。
     """
     rule_data: Any = context.get("_rule_engine_result")
@@ -301,61 +294,38 @@ def policy_detail_extractor(context: dict[str, Any], card_args: dict[str, Any] |
         raise ValueError("保单数据格式不符合预期。")
 
     options: list[dict[str, Any]] = rule_data.get("options", [])
-    # 按 available_amount 降序（rule_engine 已排序，此处保持健壮）
     options = sorted(options, key=lambda o: -float(o.get("available_amount") or 0))
 
-    _MAX_POLICIES = 3
     args = card_args or {}
 
-    flat: dict[str, Any] = {
+    def _build_policy_item(opt: dict[str, Any]) -> dict[str, Any]:
+        name = opt.get("product_name") or opt.get("policy_id", "保单")
+        pid = opt.get("policy_id", "")
+        year = opt.get("policy_year", "—")
+        survival = float(opt.get("survival_fund_amt") or 0)
+        bonus = float(opt.get("bonus_amt") or 0)
+        loan = float(opt.get("loan_amt") or 0)
+        refund = float(opt.get("refund_amt") or 0)
+        total = float(opt.get("available_amount") or (survival + bonus + loan + refund))
+        return {
+            "title": name,
+            "subtitle": f"保单号: {pid}",
+            "year": f"保单年度: 第{year}年",
+            "survival_label": "生存金",
+            "survival_value": _fmt(survival),
+            "bonus_label": "红利",
+            "bonus_value": _fmt(bonus),
+            "loan_label": "可贷额度",
+            "loan_value": _fmt(loan),
+            "refund_label": "退保金",
+            "refund_value": _fmt(refund),
+            "total_label": "合计可用",
+            "total_value": _fmt(total),
+        }
+
+    return {
         "page_title": _str_from_args(args, "page_title", "您的保单详情"),
         "section_marker": "|",
+        "policies": [_build_policy_item(opt) for opt in options],
+        "prompt_text": _str_from_args(args, "prompt_text", "如需了解某张保单详情，请告诉我保单名称。"),
     }
-
-    for i in range(1, _MAX_POLICIES + 1):
-        prefix = f"p{i}"
-        has_data = i <= len(options)
-        # hide flag: True = 隐藏（无数据），False = 显示；p1 不控制 hide（始终显示）
-        if i > 1:
-            flat[f"{prefix}_hidden"] = not has_data
-        if has_data:
-            opt = options[i - 1]
-            name = opt.get("product_name") or opt.get("policy_id", f"保单{i}")
-            pid = opt.get("policy_id", "")
-            year = opt.get("policy_year", "—")
-            survival = float(opt.get("survival_fund_amt") or 0)
-            bonus = float(opt.get("bonus_amt") or 0)
-            loan = float(opt.get("loan_amt") or 0)
-            refund = float(opt.get("refund_amt") or 0)
-            total = float(opt.get("available_amount") or (survival + bonus + loan + refund))
-            flat.update({
-                f"{prefix}_title": name,
-                f"{prefix}_subtitle": f"保单号: {pid}",
-                f"{prefix}_year": f"保单年度: 第{year}年",
-                f"{prefix}_survival_label": "生存金",
-                f"{prefix}_survival_value": _fmt(survival),
-                f"{prefix}_bonus_label": "红利",
-                f"{prefix}_bonus_value": _fmt(bonus),
-                f"{prefix}_loan_label": "可贷额度",
-                f"{prefix}_loan_value": _fmt(loan),
-                f"{prefix}_refund_label": "退保金",
-                f"{prefix}_refund_value": _fmt(refund),
-                f"{prefix}_total_label": "合计可用",
-                f"{prefix}_total_value": _fmt(total),
-            })
-        else:
-            # 空串保底，防止模板 path 解析报错
-            for field in (
-                "title", "subtitle", "year",
-                "survival_label", "survival_value",
-                "bonus_label", "bonus_value",
-                "loan_label", "loan_value",
-                "refund_label", "refund_value",
-                "total_label", "total_value",
-            ):
-                flat[f"{prefix}_{field}"] = ""
-
-    flat["prompt_text"] = _str_from_args(
-        args, "prompt_text", "如需了解某张保单详情，请告诉我保单名称。"
-    )
-    return flat

@@ -13,7 +13,7 @@
         "Column": {
           "width": 100,
           "backgroundColor": "#F5F5F5",
-          "padding": [16, 16, 32, 16],
+          "padding": [16, 32, 16, 16],
           "gap": 16,
           "children": {
             "explicitList": [
@@ -45,7 +45,6 @@
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
-          "margin": 0,
           "children": {
             "explicitList": ["col-rec"]
           }
@@ -62,7 +61,8 @@
             "explicitList": [
               "row-rec-title",
               "row-rec-amount",
-              "col-rec-details",
+              "rec-policies-list",
+              "row-rec-rsn",
               "btn-rec"
             ]
           }
@@ -142,160 +142,13 @@
       }
     },
     {
-      "id": "col-rec-details",
+      "id": "rec-policies-list",
       "component": {
-        "Column": {
-          "width": 100,
+        "List": {
+          "direction": "vertical",
           "gap": 8,
-          "children": {
-            "explicitList": [
-              "row-rec-pol",
-              "row-rec-time",
-              "row-rec-cost",
-              "row-rec-imp",
-              "row-rec-rsn"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": "row-rec-pol",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["lbl-rec-pol", "val-rec-pol"]
-          }
-        }
-      }
-    },
-    {
-      "id": "lbl-rec-pol",
-      "component": {
-        "Text": {
-          "text": { "path": "label_policy" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "val-rec-pol",
-      "component": {
-        "Text": {
-          "text": { "path": "rec_policy" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
-        }
-      }
-    },
-    {
-      "id": "row-rec-time",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["lbl-rec-time", "val-rec-time"]
-          }
-        }
-      }
-    },
-    {
-      "id": "lbl-rec-time",
-      "component": {
-        "Text": {
-          "text": { "path": "label_time" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "val-rec-time",
-      "component": {
-        "Text": {
-          "text": { "path": "rec_time" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
-        }
-      }
-    },
-    {
-      "id": "row-rec-cost",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["lbl-rec-cost", "val-rec-cost"]
-          }
-        }
-      }
-    },
-    {
-      "id": "lbl-rec-cost",
-      "component": {
-        "Text": {
-          "text": { "path": "label_cost" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "val-rec-cost",
-      "component": {
-        "Text": {
-          "text": { "path": "rec_cost" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
-        }
-      }
-    },
-    {
-      "id": "row-rec-imp",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["lbl-rec-imp", "val-rec-imp"]
-          }
-        }
-      }
-    },
-    {
-      "id": "lbl-rec-imp",
-      "component": {
-        "Text": {
-          "text": { "path": "label_impact" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "val-rec-imp",
-      "component": {
-        "Text": {
-          "text": { "path": "rec_impact" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
+          "child": "plan-policy-tpl",
+          "dataSource": { "path": "rec_policies" }
         }
       }
     },
@@ -356,7 +209,6 @@
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
-          "margin": 0,
           "children": {
             "explicitList": ["col-alt"]
           }
@@ -373,7 +225,7 @@
             "explicitList": [
               "row-alt-title",
               "row-alt-amount",
-              "col-alt-details",
+              "alt-policies-list",
               "btn-alt"
             ]
           }
@@ -453,159 +305,13 @@
       }
     },
     {
-      "id": "col-alt-details",
+      "id": "alt-policies-list",
       "component": {
-        "Column": {
-          "width": 100,
+        "List": {
+          "direction": "vertical",
           "gap": 8,
-          "children": {
-            "explicitList": [
-              "row-alt-pol",
-              "row-alt-time",
-              "row-alt-cost",
-              "row-alt-imp"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": "row-alt-pol",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["lbl-alt-pol", "val-alt-pol"]
-          }
-        }
-      }
-    },
-    {
-      "id": "lbl-alt-pol",
-      "component": {
-        "Text": {
-          "text": { "path": "label_policy" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "val-alt-pol",
-      "component": {
-        "Text": {
-          "text": { "path": "alt_policy" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
-        }
-      }
-    },
-    {
-      "id": "row-alt-time",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["lbl-alt-time", "val-alt-time"]
-          }
-        }
-      }
-    },
-    {
-      "id": "lbl-alt-time",
-      "component": {
-        "Text": {
-          "text": { "path": "label_time" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "val-alt-time",
-      "component": {
-        "Text": {
-          "text": { "path": "alt_time" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
-        }
-      }
-    },
-    {
-      "id": "row-alt-cost",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["lbl-alt-cost", "val-alt-cost"]
-          }
-        }
-      }
-    },
-    {
-      "id": "lbl-alt-cost",
-      "component": {
-        "Text": {
-          "text": { "path": "label_cost" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "val-alt-cost",
-      "component": {
-        "Text": {
-          "text": { "path": "alt_cost" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
-        }
-      }
-    },
-    {
-      "id": "row-alt-imp",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["lbl-alt-imp", "val-alt-imp"]
-          }
-        }
-      }
-    },
-    {
-      "id": "lbl-alt-imp",
-      "component": {
-        "Text": {
-          "text": { "path": "label_impact" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "val-alt-imp",
-      "component": {
-        "Text": {
-          "text": { "path": "alt_impact" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
+          "child": "plan-policy-tpl",
+          "dataSource": { "path": "alt_policies" }
         }
       }
     },
@@ -620,6 +326,163 @@
             "name": "query",
             "args": { "path": "alt_action_args" }
           }
+        }
+      }
+    },
+    {
+      "id": "plan-policy-tpl",
+      "component": {
+        "Column": {
+          "width": 100,
+          "gap": 4,
+          "children": {
+            "explicitList": [
+              "pp-row-pol",
+              "pp-row-time",
+              "pp-row-cost",
+              "pp-row-imp"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "pp-row-pol",
+      "component": {
+        "Row": {
+          "width": 100,
+          "alignment": "top",
+          "distribution": "start",
+          "gap": 4,
+          "children": {
+            "explicitList": ["pp-lbl-pol", "pp-val-pol"]
+          }
+        }
+      }
+    },
+    {
+      "id": "pp-lbl-pol",
+      "component": {
+        "Text": {
+          "text": { "path": "label_policy" },
+          "color": "#999999",
+          "fontSize": "12px"
+        }
+      }
+    },
+    {
+      "id": "pp-val-pol",
+      "component": {
+        "Text": {
+          "text": { "path": "policy_name" },
+          "color": "#333333",
+          "fontSize": "14px",
+          "flex": 1
+        }
+      }
+    },
+    {
+      "id": "pp-row-time",
+      "component": {
+        "Row": {
+          "width": 100,
+          "alignment": "top",
+          "distribution": "start",
+          "gap": 4,
+          "children": {
+            "explicitList": ["pp-lbl-time", "pp-val-time"]
+          }
+        }
+      }
+    },
+    {
+      "id": "pp-lbl-time",
+      "component": {
+        "Text": {
+          "text": { "path": "label_time" },
+          "color": "#999999",
+          "fontSize": "12px"
+        }
+      }
+    },
+    {
+      "id": "pp-val-time",
+      "component": {
+        "Text": {
+          "text": { "path": "time" },
+          "color": "#333333",
+          "fontSize": "14px",
+          "flex": 1
+        }
+      }
+    },
+    {
+      "id": "pp-row-cost",
+      "component": {
+        "Row": {
+          "width": 100,
+          "alignment": "top",
+          "distribution": "start",
+          "gap": 4,
+          "children": {
+            "explicitList": ["pp-lbl-cost", "pp-val-cost"]
+          }
+        }
+      }
+    },
+    {
+      "id": "pp-lbl-cost",
+      "component": {
+        "Text": {
+          "text": { "path": "label_cost" },
+          "color": "#999999",
+          "fontSize": "12px"
+        }
+      }
+    },
+    {
+      "id": "pp-val-cost",
+      "component": {
+        "Text": {
+          "text": { "path": "cost" },
+          "color": "#333333",
+          "fontSize": "14px",
+          "flex": 1
+        }
+      }
+    },
+    {
+      "id": "pp-row-imp",
+      "component": {
+        "Row": {
+          "width": 100,
+          "alignment": "top",
+          "distribution": "start",
+          "gap": 4,
+          "children": {
+            "explicitList": ["pp-lbl-imp", "pp-val-imp"]
+          }
+        }
+      }
+    },
+    {
+      "id": "pp-lbl-imp",
+      "component": {
+        "Text": {
+          "text": { "path": "label_impact" },
+          "color": "#999999",
+          "fontSize": "12px"
+        }
+      }
+    },
+    {
+      "id": "pp-val-imp",
+      "component": {
+        "Text": {
+          "text": { "path": "impact" },
+          "color": "#333333",
+          "fontSize": "14px",
+          "flex": 1
         }
       }
     },

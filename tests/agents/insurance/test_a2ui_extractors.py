@@ -11,7 +11,7 @@ from ark_agentic.agents.insurance.a2ui.extractors import (
 )
 
 
-def test_withdraw_summary_extractor_returns_flat_data_from_rule_engine_result() -> None:
+def test_withdraw_summary_extractor_returns_data_from_rule_engine_result() -> None:
     context = {
         "_rule_engine_result": {
             "requested_amount": 10000,
@@ -32,19 +32,23 @@ def test_withdraw_summary_extractor_returns_flat_data_from_rule_engine_result() 
     assert flat["header_sub"] == "不含贷款可领金额：¥ 4,029.63"
     assert flat["requested_amount_display"] == "本次取款目标：¥ 10,000.00"
     assert "零成本" in flat["zero_cost_title"]
-    assert flat["zero_cost_item_1_label"] != ""
-    assert flat["zero_cost_item_1_value"] == "¥ 4,000.00"
-    assert flat["zero_cost_item_2_value"] == "¥ 29.63"
-    assert flat["loan_item_1_value"] == "¥ 1,493.63"
-    assert flat["loan_item_2_value"] == "¥ 1,434.50"
+    # Dynamic arrays instead of flat item_1/item_2
+    zc = flat["zero_cost_items"]
+    assert isinstance(zc, list) and len(zc) == 2
+    assert zc[0]["label"] != ""
+    assert zc[0]["value"] == "¥ 4,000.00"
+    assert zc[1]["value"] == "¥ 29.63"
+    li = flat["loan_items"]
+    assert isinstance(li, list) and len(li) == 2
+    assert li[0]["value"] == "¥ 1,493.63"
+    assert li[1]["value"] == "¥ 1,434.50"
     assert flat["advice_text_1"] == "建议一"
     assert flat["advice_text_2"] == "建议二"
     assert flat["plan_button_text"] == "获取方案"
     assert flat["plan_action_args"] == {"queryMsg": "获取方案"}
-    # Sample-compliant tag/label format (spaces around tag text; no space before 可贷)
     assert flat["zero_cost_tag"] == " (不影响保障) "
     assert flat["loan_tag"] == " (需支付利息) "
-    assert flat["loan_item_1_label"].endswith("可贷(年利率5%)") and " 可贷" not in flat["loan_item_1_label"]
+    assert li[0]["label"].endswith("可贷(年利率5%)") and " 可贷" not in li[0]["label"]
 
 
 def test_withdraw_summary_extractor_uses_fallback_when_card_args_empty() -> None:
@@ -57,6 +61,8 @@ def test_withdraw_summary_extractor_uses_fallback_when_card_args_empty() -> None
     assert "零成本" in flat["advice_text_1"] or "保障" in flat["advice_text_1"]
     assert flat["plan_button_text"] == "获取最优方案"
     assert flat["plan_action_args"]["queryMsg"] == "获取最优方案"
+    assert flat["zero_cost_items"] == []
+    assert flat["loan_items"] == []
 
 
 def test_withdraw_summary_extractor_raises_when_no_rule_engine_result() -> None:
@@ -66,7 +72,6 @@ def test_withdraw_summary_extractor_raises_when_no_rule_engine_result() -> None:
 
 
 def test_withdraw_summary_extractor_raises_when_rule_engine_result_invalid() -> None:
-    # Pass a string that is not valid JSON -> JSONDecodeError; pass non-dict after parse -> ValueError
     with pytest.raises((ValueError, json.JSONDecodeError)):
         withdraw_summary_extractor({"_rule_engine_result": "not valid json"}, None)
 
@@ -85,7 +90,7 @@ def test_withdraw_summary_extractor_accepts_rule_engine_from_tool_results_by_nam
     }
     flat = withdraw_summary_extractor(context, None)
     assert flat["header_value"] == "¥ 200.00"
-    assert flat["zero_cost_item_1_value"] == "¥ 100.00"
+    assert flat["zero_cost_items"][0]["value"] == "¥ 100.00"
 
 
 def test_withdraw_summary_extractor_accepts_json_string_rule_engine_result() -> None:
@@ -103,7 +108,7 @@ def test_withdraw_summary_extractor_accepts_json_string_rule_engine_result() -> 
 # ----- withdraw_plan_extractor -----
 
 
-def test_withdraw_plan_extractor_returns_flat_data_with_defaults() -> None:
+def test_withdraw_plan_extractor_returns_data_with_defaults() -> None:
     context = {
         "_rule_engine_result": {
             "options": [
@@ -120,6 +125,10 @@ def test_withdraw_plan_extractor_returns_flat_data_with_defaults() -> None:
     assert "queryMsg" in flat["rec_action_args"]
     assert "queryMsg" in flat["alt_action_args"]
     assert flat["prompt_text"] != ""
+    # Policy details in arrays
+    assert isinstance(flat["rec_policies"], list) and len(flat["rec_policies"]) >= 1
+    assert isinstance(flat["alt_policies"], list) and len(flat["alt_policies"]) >= 1
+    assert "policy_name" in flat["rec_policies"][0]
 
 
 def test_withdraw_plan_extractor_uses_card_args_for_rec_alt() -> None:
@@ -143,9 +152,11 @@ def test_withdraw_plan_extractor_uses_card_args_for_rec_alt() -> None:
 
     assert flat["rec_amount"] == "1,000.00"
     assert flat["alt_amount"] == "500.00"
-    assert "产品A" in flat["rec_policy"] or "P-A" in flat["rec_policy"]
-    assert flat["rec_cost"] == "无"
-    assert "年利率" in flat["alt_cost"]
+    rec_pol = flat["rec_policies"][0]
+    assert "产品A" in rec_pol["policy_name"] or "P-A" in rec_pol["policy_name"]
+    assert rec_pol["cost"] == "无"
+    alt_pol = flat["alt_policies"][0]
+    assert "年利率" in alt_pol["cost"]
 
 
 def test_withdraw_plan_extractor_raises_when_no_rule_engine_data() -> None:
@@ -157,7 +168,7 @@ def test_withdraw_plan_extractor_raises_when_no_rule_engine_data() -> None:
 # ----- policy_detail_extractor -----
 
 
-def test_policy_detail_extractor_one_policy_sets_p2_p3_hidden() -> None:
+def test_policy_detail_extractor_one_policy() -> None:
     context = {
         "_rule_engine_result": {
             "options": [
@@ -177,15 +188,13 @@ def test_policy_detail_extractor_one_policy_sets_p2_p3_hidden() -> None:
     flat = policy_detail_extractor(context, None)
 
     assert flat["page_title"] == "您的保单详情"
-    assert flat["p1_title"] == "鸿利04"
-    assert flat["p1_total_value"] == "¥ 5,493.63"
-    assert flat["p2_hidden"] is True
-    assert flat["p3_hidden"] is True
-    assert flat["p2_title"] == ""
-    assert flat["p3_title"] == ""
+    policies = flat["policies"]
+    assert isinstance(policies, list) and len(policies) == 1
+    assert policies[0]["title"] == "鸿利04"
+    assert policies[0]["total_value"] == "¥ 5,493.63"
 
 
-def test_policy_detail_extractor_three_policies_shows_all_cards() -> None:
+def test_policy_detail_extractor_three_policies_sorted_by_amount() -> None:
     context = {
         "_rule_engine_result": {
             "options": [
@@ -197,23 +206,21 @@ def test_policy_detail_extractor_three_policies_shows_all_cards() -> None:
     }
     flat = policy_detail_extractor(context, None)
 
-    assert flat["p1_title"] == "C"
-    assert flat["p2_title"] == "B"
-    assert flat["p3_title"] == "A"
-    assert flat["p2_hidden"] is False
-    assert flat["p3_hidden"] is False
-    assert flat["p1_total_value"] == "¥ 300.00"
-    assert flat["p2_total_value"] == "¥ 200.00"
-    assert flat["p3_total_value"] == "¥ 100.00"
+    policies = flat["policies"]
+    assert len(policies) == 3
+    assert policies[0]["title"] == "C"
+    assert policies[1]["title"] == "B"
+    assert policies[2]["title"] == "A"
+    assert policies[0]["total_value"] == "¥ 300.00"
+    assert policies[1]["total_value"] == "¥ 200.00"
+    assert policies[2]["total_value"] == "¥ 100.00"
 
 
-def test_policy_detail_extractor_empty_options_fills_placeholders() -> None:
+def test_policy_detail_extractor_empty_options() -> None:
     context = {"_rule_engine_result": {"options": []}}
     flat = policy_detail_extractor(context, None)
 
-    assert flat["p1_title"] == ""
-    assert flat["p2_hidden"] is True
-    assert flat["p3_hidden"] is True
+    assert flat["policies"] == []
     assert flat["prompt_text"] != ""
 
 
