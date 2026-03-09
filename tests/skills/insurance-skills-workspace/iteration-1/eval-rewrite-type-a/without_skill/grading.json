@@ -1,0 +1,48 @@
+{
+  "expectations": [
+    {
+      "text": "正确判断为类型 A（调整总金额）",
+      "passed": true,
+      "evidence": "通用助手正确识别用户需要 8 万，并重新组合了方案，逻辑方向正确"
+    },
+    {
+      "text": "输出中提到 render_card 或汇总卡片的调用",
+      "passed": false,
+      "evidence": "output.txt 无任何卡片渲染，直接展示详细 Markdown 表格"
+    },
+    {
+      "text": "展示给用户的最终文字不超过 30 字",
+      "passed": false,
+      "evidence": "output.txt 共 35 行，包含两个方案的完整表格和注释"
+    },
+    {
+      "text": "最终文字中没有 Markdown 列表",
+      "passed": false,
+      "evidence": "output.txt 包含 '|' 表格和 '**方案一/二:**' 段落"
+    },
+    {
+      "text": "最终文字中不重复方案详情（无金额罗列、无渠道枚举）",
+      "passed": false,
+      "evidence": "output.txt 详细列出每个渠道金额（12,000、5,200、62,800 等）和手续费计算"
+    },
+    {
+      "text": "新方案目标金额为 80,000 元而非原来的 50,000 元",
+      "passed": true,
+      "evidence": "output.txt 方案以 8 万为目标，提到 '80,000 元'"
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 4,
+    "total": 6,
+    "pass_rate": 0.33
+  },
+  "execution_metrics": {
+    "tool_calls": { "Write": 2 },
+    "total_tool_calls": 2,
+    "total_steps": 2,
+    "errors_encountered": 0,
+    "output_chars": 1020,
+    "transcript_chars": 1400
+  }
+}

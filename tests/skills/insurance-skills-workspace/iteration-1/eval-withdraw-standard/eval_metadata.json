@@ -1,0 +1,12 @@
+{
+  "eval_id": 1,
+  "eval_name": "withdraw-standard",
+  "prompt": "用户 U001 说：「我想取 5 万」，工具数据已提供，请按 withdraw_money 技能给出完整回复。",
+  "assertions": [
+    "输出文字中明确提到 render_card 或 withdraw_plan 卡片的调用",
+    "展示给用户的最终文字不超过 30 字（不含 card_args JSON）",
+    "最终文字中没有 Markdown 列表（无以 '- ' 或 '* ' 开头的行）",
+    "最终文字中没有重复卡片内容（不包含金额数字、保单名称、费用信息）",
+    "推荐方案优先选用生存金或红利等零成本渠道"
+  ]
+}

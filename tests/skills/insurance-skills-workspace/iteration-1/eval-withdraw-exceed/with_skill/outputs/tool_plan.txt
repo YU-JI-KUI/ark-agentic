@@ -1,0 +1,19 @@
+Tool Call Sequence — "我想取 30 万"
+
+Step 1: customer_info
+  customer_info(info_type="identity", user_id=<user_id>)
+  目的: 获取用户年龄、性别、子女、资金用途，用于话术微调
+
+Step 2: rule_engine
+  rule_engine(action="list_options", user_id=<user_id>, amount=300000)
+  目的: 获取各保单可用金额及组合提示
+
+--- 决策分支 ---
+rule_engine 返回:
+  total_available_incl_loan = 252,800 < requested_amount = 300,000
+  combination_hint = "insufficient"
+  → 触发"总额不足"分支
+
+Step 3: [NO render_card]
+  总额不足时，技能规定输出格式为"1 句说明"，不调用 render_card。
+  直接输出文字告知用户最大可取额度，并询问是否调整目标。

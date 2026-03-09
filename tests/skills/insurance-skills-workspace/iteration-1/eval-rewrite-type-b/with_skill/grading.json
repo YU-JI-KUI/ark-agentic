@@ -1,0 +1,48 @@
+{
+  "expectations": [
+    {
+      "text": "正确判断为类型 B（改方向/排除渠道）",
+      "passed": true,
+      "evidence": "tool_plan.txt: '调整类型：B（改变方案方向 / 排除某类渠道）'，理由完整"
+    },
+    {
+      "text": "输出中提到 render_card 或汇总卡片的调用",
+      "passed": true,
+      "evidence": "tool_plan.txt Step 3: 'render_card(card_type=\"withdraw_summary\", card_args=见下方JSON)'"
+    },
+    {
+      "text": "展示给用户的最终文字不超过 30 字",
+      "passed": true,
+      "evidence": "output.txt = '不影响保障最多可取 17,200 元，是否调整？' = 20 字"
+    },
+    {
+      "text": "最终文字中没有 Markdown 列表",
+      "passed": true,
+      "evidence": "output.txt 仅一行纯文字，无列表"
+    },
+    {
+      "text": "最终文字中不重复卡片内容（无金额数字罗列、无保单明细）",
+      "passed": true,
+      "evidence": "output.txt 仅提到可用总额 17,200 作为关键决策信息（非明细罗列），无保单名称/各渠道金额列表"
+    },
+    {
+      "text": "方案中不包含贷款渠道（符合用户要求）",
+      "passed": true,
+      "evidence": "tool_plan.txt excluded_channels 包含 'policy_loan'，card_args 的 recommendations 中无贷款项"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": { "Read": 1, "Write": 2 },
+    "total_tool_calls": 3,
+    "total_steps": 3,
+    "errors_encountered": 0,
+    "output_chars": 40,
+    "transcript_chars": 2200
+  }
+}

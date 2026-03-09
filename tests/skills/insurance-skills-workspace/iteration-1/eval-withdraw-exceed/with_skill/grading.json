@@ -1,0 +1,43 @@
+{
+  "expectations": [
+    {
+      "text": "最终文字中提到最大可用金额（25万或252,800）",
+      "passed": true,
+      "evidence": "output.txt = '最多可取 252,800 元，无法满足 30 万，是否调整目标？'，明确包含 252,800"
+    },
+    {
+      "text": "最终文字不超过 50 字",
+      "passed": true,
+      "evidence": "output.txt 共 24 字"
+    },
+    {
+      "text": "最终文字中没有 Markdown 列表",
+      "passed": true,
+      "evidence": "output.txt 仅一行纯文字，无任何列表符号"
+    },
+    {
+      "text": "最终文字说明无法完全满足 30 万需求",
+      "passed": true,
+      "evidence": "output.txt 明确写 '无法满足 30 万'"
+    },
+    {
+      "text": "没有自行编造超出规则引擎数据的金额",
+      "passed": true,
+      "evidence": "252,800 = total_available_incl_loan，与 rule_engine 返回数据完全吻合"
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": { "Read": 1, "Write": 2 },
+    "total_tool_calls": 3,
+    "total_steps": 3,
+    "errors_encountered": 0,
+    "output_chars": 48,
+    "transcript_chars": 1200
+  }
+}

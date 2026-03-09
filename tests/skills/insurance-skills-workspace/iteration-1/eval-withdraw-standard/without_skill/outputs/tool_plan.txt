@@ -1,0 +1,13 @@
+工具调用序列（无专属技能指导下的通用处理流程）
+
+Step 1: get_customer_info(user_id)
+  - 目的：获取用户基本信息（年龄、性别、是否有子女、资金用途等）
+  - 返回：{ age, gender, children, purpose }
+
+Step 2: rule_engine.list_options(user_id, requested_amount=50000)
+  - 目的：查询用户名下所有保单的可取金额和取款方式组合
+  - 返回：各保单的可用额度、生存金、红利、保单贷款额度、退保金额等
+
+Step 3: [根据返回结果直接展示选项给用户]
+  - 无专属技能指导下，不会进行深度个性化分析或智能推荐排序
+  - 直接将 options 列表呈现给用户，由用户自行选择

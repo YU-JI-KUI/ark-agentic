@@ -1,0 +1,231 @@
+{
+  "metadata": {
+    "skill_name": "insurance-skills",
+    "skill_path": "src/ark_agentic/agents/insurance/skills/",
+    "timestamp": "2026-03-09T00:00:00Z",
+    "evals_run": ["withdraw-standard", "withdraw-exceed", "rewrite-type-b", "rewrite-type-a"],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "eval_name": "withdraw-standard",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 0,
+        "tokens": 2800,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "输出文字中明确提到 render_card 或 withdraw_plan 卡片的调用", "passed": true, "evidence": "tool_plan.txt Step 4: render_card(card_type='withdraw_plan')"},
+        {"text": "展示给用户的最终文字不超过 30 字", "passed": true, "evidence": "output.txt = 26 字"},
+        {"text": "最终文字中没有 Markdown 列表", "passed": true, "evidence": "仅一行纯文字"},
+        {"text": "最终文字中没有重复卡片内容", "passed": true, "evidence": "无金额/保单名称"},
+        {"text": "推荐方案优先选用生存金或红利等零成本渠道", "passed": true, "evidence": "零成本渠道优先使用"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "withdraw-standard",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.0,
+        "passed": 0,
+        "failed": 5,
+        "total": 5,
+        "time_seconds": 0,
+        "tokens": 900,
+        "tool_calls": 2,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "输出文字中明确提到 render_card 或 withdraw_plan 卡片的调用", "passed": false, "evidence": "无任何卡片调用"},
+        {"text": "展示给用户的最终文字不超过 30 字", "passed": false, "evidence": "20 行 Markdown 输出"},
+        {"text": "最终文字中没有 Markdown 列表", "passed": false, "evidence": "多个 '- ' 列表项"},
+        {"text": "最终文字中没有重复卡片内容", "passed": false, "evidence": "详细列出保单名称和金额"},
+        {"text": "推荐方案优先选用生存金或红利等零成本渠道", "passed": false, "evidence": "平铺所有渠道，无优先逻辑"}
+      ],
+      "notes": ["通用助手将所有渠道平铺展示，缺乏推荐逻辑和卡片约束"]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "withdraw-exceed",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 0,
+        "tokens": 1200,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "最终文字中提到最大可用金额（25万或252,800）", "passed": true, "evidence": "明确包含 252,800"},
+        {"text": "最终文字不超过 50 字", "passed": true, "evidence": "共 24 字"},
+        {"text": "最终文字中没有 Markdown 列表", "passed": true, "evidence": "仅一行纯文字"},
+        {"text": "最终文字说明无法完全满足 30 万需求", "passed": true, "evidence": "'无法满足 30 万'"},
+        {"text": "没有自行编造超出规则引擎数据的金额", "passed": true, "evidence": "252,800 与 rule_engine 数据吻合"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "withdraw-exceed",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.6,
+        "passed": 3,
+        "failed": 2,
+        "total": 5,
+        "time_seconds": 0,
+        "tokens": 1100,
+        "tool_calls": 2,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "最终文字中提到最大可用金额（25万或252,800）", "passed": true, "evidence": "提到 25.28 万"},
+        {"text": "最终文字不超过 50 字", "passed": false, "evidence": "30+ 行输出"},
+        {"text": "最终文字中没有 Markdown 列表", "passed": false, "evidence": "含 '- ' 列表和编号列表"},
+        {"text": "最终文字说明无法完全满足 30 万需求", "passed": true, "evidence": "'仍有约 4.72 万元缺口'"},
+        {"text": "没有自行编造超出规则引擎数据的金额", "passed": true, "evidence": "金额来自 rule_engine 数据"}
+      ],
+      "notes": ["通用助手在金额不足场景下同样输出了大量 Markdown 明细"]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "rewrite-type-b",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 0,
+        "tokens": 2200,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "正确判断为类型 B（改方向/排除渠道）", "passed": true, "evidence": "tool_plan: '调整类型：B'"},
+        {"text": "输出中提到 render_card 或汇总卡片的调用", "passed": true, "evidence": "render_card(withdraw_summary)"},
+        {"text": "展示给用户的最终文字不超过 30 字", "passed": true, "evidence": "20 字"},
+        {"text": "最终文字中没有 Markdown 列表", "passed": true, "evidence": "仅一行"},
+        {"text": "最终文字中不重复卡片内容", "passed": true, "evidence": "仅关键决策结果，无明细"},
+        {"text": "方案中不包含贷款渠道", "passed": true, "evidence": "excluded_channels 含 policy_loan"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "rewrite-type-b",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.33,
+        "passed": 2,
+        "failed": 4,
+        "total": 6,
+        "time_seconds": 0,
+        "tokens": 1300,
+        "tool_calls": 2,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "正确判断为类型 B（改方向/排除渠道）", "passed": true, "evidence": "逻辑方向正确"},
+        {"text": "输出中提到 render_card 或汇总卡片的调用", "passed": false, "evidence": "无卡片渲染"},
+        {"text": "展示给用户的最终文字不超过 30 字", "passed": false, "evidence": "33 行输出"},
+        {"text": "最终文字中没有 Markdown 列表", "passed": false, "evidence": "含表格和段落"},
+        {"text": "最终文字中不重复卡片内容", "passed": false, "evidence": "详细列出各渠道金额"},
+        {"text": "方案中不包含贷款渠道", "passed": true, "evidence": "未推荐贷款"}
+      ],
+      "notes": ["逻辑正确但格式完全不符合卡片优先的设计原则"]
+    },
+    {
+      "eval_id": 4,
+      "eval_name": "rewrite-type-a",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 0,
+        "tokens": 2600,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "正确判断为类型 A（调整总金额）", "passed": true, "evidence": "tool_plan: '类型：A'"},
+        {"text": "输出中提到 render_card 或汇总卡片的调用", "passed": true, "evidence": "render_card(withdraw_summary)"},
+        {"text": "展示给用户的最终文字不超过 30 字", "passed": true, "evidence": "22 字"},
+        {"text": "最终文字中没有 Markdown 列表", "passed": true, "evidence": "仅一行"},
+        {"text": "最终文字中不重复方案详情", "passed": true, "evidence": "仅差值和手续费两个对比数据"},
+        {"text": "新方案目标金额为 80,000 元而非原来的 50,000 元", "passed": true, "evidence": "card_args target_amount: 80000"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "eval_name": "rewrite-type-a",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.33,
+        "passed": 2,
+        "failed": 4,
+        "total": 6,
+        "time_seconds": 0,
+        "tokens": 1400,
+        "tool_calls": 2,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "正确判断为类型 A（调整总金额）", "passed": true, "evidence": "正确识别 8 万需求"},
+        {"text": "输出中提到 render_card 或汇总卡片的调用", "passed": false, "evidence": "无卡片渲染"},
+        {"text": "展示给用户的最终文字不超过 30 字", "passed": false, "evidence": "35 行输出"},
+        {"text": "最终文字中没有 Markdown 列表", "passed": false, "evidence": "含表格"},
+        {"text": "最终文字中不重复方案详情", "passed": false, "evidence": "详细列出各渠道金额"},
+        {"text": "新方案目标金额为 80,000 元而非原来的 50,000 元", "passed": true, "evidence": "以 8 万为目标"}
+      ],
+      "notes": ["与 type-b 类似，逻辑正确但格式不符合卡片约束"]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 0, "stddev": 0, "min": 0, "max": 0},
+      "tokens": {"mean": 2200, "stddev": 600, "min": 1200, "max": 2800}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 0.32, "stddev": 0.23, "min": 0.0, "max": 0.6},
+      "time_seconds": {"mean": 0, "stddev": 0, "min": 0, "max": 0},
+      "tokens": {"mean": 1175, "stddev": 200, "min": 900, "max": 1400}
+    },
+    "delta": {
+      "pass_rate": "+0.68",
+      "time_seconds": "0",
+      "tokens": "+1025"
+    }
+  },
+  "notes": [
+    "with_skill 在全部 4 个 eval 上达到 100% 通过率，卡片优先约束完全生效",
+    "without_skill 在纯格式约束断言（无列表/简洁文字）上全部失败，说明这些约束是 Skill 的核心增量价值",
+    "without_skill 在逻辑判断断言（类型A/B识别、金额正确）上通过率较高，说明模型本身有基础能力",
+    "eval-withdraw-standard without_skill pass_rate=0.0，是最鲜明的对比：有无 Skill 差异最大",
+    "rewrite-type-b/type-a 中 without_skill 各 pass 2/6（33%），主要靠逻辑判断过关，格式全失"
+  ]
+}

@@ -1,0 +1,89 @@
+## ① 判断调整类型及理由
+
+调整类型：B（改变方案方向 / 排除某类渠道）
+
+理由：
+- 用户明确说"不要贷款" → 排除所有保单的 loan_amt
+- 用户说"不影响保障" → 仅使用 survival_fund_amt 和 bonus_amt，排除 refund_amt 和 loan_amt
+- 目标金额未变，仍为 50,000 元
+- 用户要求的是渠道约束，不是金额调整，故为 B 类型
+
+## ② 工具调用序列
+
+Step 1: rule_engine(action="list_options", user_id="U001", amount=50000)
+  → 已调用，结果已提供（见题目输入）
+
+Step 2: [过滤逻辑，无需额外工具调用]
+  约束："不影响保障" = 仅保留 survival_fund_amt 和 bonus_amt
+  过滤结果：
+    - POL002 金瑞人生年金险：survival_fund_amt 12,000 + bonus_amt 5,200 = 17,200 元
+    - POL001 安心守护终身寿险：survival_fund_amt 0 + bonus_amt 0 = 0 元
+  可用合计：17,200 元 < 目标 50,000 元 → 金额不足
+
+Step 3: render_card(card_type="withdraw_summary", card_args=见下方JSON)
+  → 展示不影响保障的最大可取方案（17,200 元），同时在卡片中标注金额不足
+
+## ③ render_card 完整 card_args JSON
+
+```json
+{
+  "user_id": "U001",
+  "target_amount": 50000,
+  "achieved_amount": 17200,
+  "shortfall": 32800,
+  "amount_status": "insufficient",
+  "constraint_label": "不影响保障（无贷款、无部分领取/退保）",
+  "recommendations": [
+    {
+      "rank": 1,
+      "is_recommended": true,
+      "policy_id": "POL002",
+      "product_name": "金瑞人生年金险",
+      "product_type": "annuity",
+      "policy_year": 5,
+      "items": [
+        {
+          "type": "survival_fund",
+          "label": "生存金",
+          "amount": 12000,
+          "fee": 0,
+          "net_amount": 12000,
+          "affects_coverage": false
+        },
+        {
+          "type": "bonus",
+          "label": "红利",
+          "amount": 5200,
+          "fee": 0,
+          "net_amount": 5200,
+          "affects_coverage": false
+        }
+      ],
+      "subtotal": 17200,
+      "processing_time": "1-3个工作日",
+      "note": "零成本，完全不影响保障"
+    }
+  ],
+  "excluded_channels": [
+    {
+      "reason": "用户排除：贷款",
+      "policy_id": "POL001",
+      "channel": "policy_loan",
+      "excluded_amount": 42000
+    },
+    {
+      "reason": "用户排除：影响保障（退保）",
+      "policy_id": "POL001",
+      "channel": "surrender",
+      "excluded_amount": 33600
+    },
+    {
+      "reason": "用户排除：影响保障（部分领取）",
+      "policy_id": "POL002",
+      "channel": "partial_withdrawal",
+      "excluded_amount": 160000
+    }
+  ],
+  "alert": "不影响保障的渠道合计最多可取 17,200 元，距目标 50,000 元尚差 32,800 元"
+}
+```

@@ -1,0 +1,16 @@
+工具调用序列（通用保险助手 - 无专属技能）
+
+Step 1: get_customer_info
+  - 目的：获取客户基本信息（年龄、性别、是否有子女、取款目的等）
+  - 输入：customer_id
+  - 输出：{ age, gender, children, purpose }
+
+Step 2: rule_engine.list_options
+  - 目的：查询客户所有保单的可取金额选项
+  - 输入：customer_id, requested_amount=300000
+  - 输出：各保单的可用金额、退保费率、借款利率、combination_hint 等
+
+Step 3: （无后续工具调用）
+  - combination_hint 为 "insufficient"，总可用金额（含借款 252,800）仍低于申请额（300,000）
+  - 直接向用户说明情况，呈现现有选项，等待用户决策
+  - 若用户确认选择某方案，则进入 execute_withdrawal / execute_loan 流程
