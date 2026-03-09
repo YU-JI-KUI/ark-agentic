@@ -10,10 +10,10 @@
     {
       "id": "root-001",
       "component": {
-        "Column": {
+          "Column": {
           "width": 100,
           "backgroundColor": "#F5F5F5",
-          "padding": 2,
+          "padding": [16, 16, 32, 16],
           "gap": 16,
           "children": {
             "explicitList": [

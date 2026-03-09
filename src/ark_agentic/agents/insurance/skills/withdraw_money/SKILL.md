@@ -30,9 +30,10 @@ required_tools:
 
 ## 回复结构
 
-- **推荐结构**：`[可选 1 句引导语] + A2UI 取款汇总卡片 + [可选 1～2 句（备选/确认）]`
-- **原则**：答案以 A2UI 卡片为核心，保持简洁；卡片前可 1 句铺垫，卡片后可 1～2 句补充或引导确认；不要用大段 Markdown 重复卡片中已有的汇总与建议。若用户明确了请求金额，卡片会展示「本次取款目标」，回复中须体现按该金额推荐。
-- 本技能已包含「取款汇总卡片」的展示，无需再触发单独的取款汇总技能。
+- **卡片优先**：核心内容必须通过 A2UI 卡片呈现，文字仅用于引导或补充。
+- **禁止重复**：卡片已完整展示方案详情，**严禁**在文字中再重复卡片内的金额、保单、费用、时间等信息。
+- **结构**：`[可选 1 句引导语] + A2UI 卡片 + [可选 1 句确认引导]`
+- 本技能已包含「取款方案卡片」的展示，无需再触发单独的取款汇总技能。
 
 ## 执行流程
 
@@ -118,10 +119,53 @@ rule_engine(
 
 **核心原则：永远只有一个 ⭐ 推荐，加上 1-2 个备选。**
 
-1. **优先 A2UI**：在已有 rule_engine 结果的前提下，**必须先**调用  
-   `render_card(card_type="withdraw_summary", card_args=JSON)`  
-   生成取款汇总卡片（总金额、零成本/贷款分块、建议文案、按钮）。card_args 由你填写 advice_text_1、advice_text_2、plan_button_text、plan_action_query；金额由工具从 rule_engine 自动计算。
-2. **再补文字**：卡片发出后，可用 1～2 句话或简短 Markdown 补充「备选一/备选二」或引导确认，**不要**用大段 Markdown 再重复卡片里已有的汇总与建议。
+#### 卡片选择规则
+
+- **用户已明确金额** → 必须调用 `render_card(card_type="withdraw_plan", card_args=...)` 展示具体方案卡
+- **用户仅查询可领总额（无金额）** → 调用 `render_card(card_type="withdraw_summary", card_args=...)` 展示汇总卡
+
+本技能触发时用户已有明确金额，**应始终渲染 `withdraw_plan` 卡**。
+
+#### withdraw_plan card_args 完整示例
+
+你必须严格填写以下所有字段并传入 card_args，不得留空：
+
+```json
+{
+  "page_title": "为您推荐的取款方案",
+  "rec_policy_id": "POL002",
+  "rec_option_type": "survival_fund",
+  "rec_amount": 50000,
+  "rec_title": "★ 推荐: 生存金领取",
+  "rec_policy": "金瑞人生年金险|POL002",
+  "rec_time": "1-3个工作日",
+  "rec_cost": "0元",
+  "rec_impact": "不影响保障",
+  "rec_reason": "零成本、无风险，不影响您的任何保障",
+  "rec_button_text": "办理生存金领取",
+  "rec_query_msg": "我想办理生存金领取",
+  "alt_policy_id": "POL002",
+  "alt_option_type": "loan",
+  "alt_amount": 50000,
+  "alt_title": "备选一: 保单贷款",
+  "alt_policy": "金瑞人生年金险|POL002",
+  "alt_time": "1-3个工作日",
+  "alt_cost": "年利率5%",
+  "alt_impact": "不影响保障，逾期可致保单中止",
+  "alt_reason": "保障不受影响，适合短期周转",
+  "alt_button_text": "办理保单贷款",
+  "alt_query_msg": "我想办理保单贷款"
+}
+```
+
+**字段说明**：
+- `rec_option_type` / `alt_option_type` 取值：`survival_fund`（生存金）、`bonus`（红利）、`partial_refund`（部分领取）、`loan`（保单贷款）、`surrender`（退保）
+- `rec_amount` / `alt_amount`：本次实际取款金额（数值，不含单位）
+- `rec_policy_id` / `alt_policy_id`：从 rule_engine 返回的 `options[].policy_id`
+
+#### 卡片发出后的文字
+
+卡片已完整展示所有方案信息。**禁止**在文字中重复金额、保单、费用、时效等任何卡片内容。仅允许 1 句确认引导，如："请问您想选择哪个方案来办理？"
 
 ### 第六步：操作确认
 
@@ -150,11 +194,15 @@ rule_engine(
 
 ## 输出格式
 
-**主呈现 = A2UI 取款汇总卡片**；以下 Markdown 仅用于卡片后的备选列表或总额不足/异常说明，不替代卡片。
+**主呈现 = A2UI 取款方案卡片（`withdraw_plan`）**；Markdown 文字仅用于 1 句确认引导或总额不足/异常说明，**不得**重复卡片内容。
 
-### 推荐单渠道/组合方案（卡片后备选）
+### 正常方案（有金额）
 
-可用简短列表补充备选（关联保单、金额、费用、保障影响），或 1～2 句引导确认。不要用大段 Markdown 重复卡片中的汇总与建议。
+调用 `render_card(card_type="withdraw_plan", card_args=...)` → 仅补充 1 句确认引导。
+
+### 仅查询总额（无金额）
+
+调用 `render_card(card_type="withdraw_summary", card_args=...)` → 仅补充 1 句说明可进一步告知具体金额。
 
 ### 总额不足时
 
