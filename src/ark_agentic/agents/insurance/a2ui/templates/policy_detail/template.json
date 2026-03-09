@@ -86,12 +86,11 @@
       "id": "policy-col",
       "component": {
         "Column": {
-          "gap": 12,
+          "gap": 8,
           "children": {
             "explicitList": [
               "row-title",
-              "text-subtitle",
-              "text-year",
+              "meta-info-col",
               "divider-top",
               "row-survival",
               "row-bonus",
@@ -133,6 +132,17 @@
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
+        }
+      }
+    },
+    {
+      "id": "meta-info-col",
+      "component": {
+        "Column": {
+          "gap": 4,
+          "children": {
+            "explicitList": ["text-subtitle", "text-year"]
+          }
         }
       }
     },

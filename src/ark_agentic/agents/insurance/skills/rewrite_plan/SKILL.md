@@ -97,19 +97,19 @@ rule_engine(action="list_options", user_id=用户ID, amount=新总金额)
 - "有没有不收手续费的方案"
 - "我不想动那个终身寿险"
 
-**处理方式**：重新调用 `list_options` 获取完整保单数据，然后根据用户约束条件**过滤渠道**。
+**处理方式**：重新调用 `list_options` 获取完整保单数据，在 `plans` 规格中通过 `exclude_channels` 声明排除约束，extractor 自动补足至目标金额（排除指定渠道后的最大可取）。
 
 ```
 rule_engine(action="list_options", user_id=用户ID, amount=原金额)
 ```
 
-拿到结果后，根据用户约束在组装方案时排除特定渠道：
-- "不要贷款" → 组装方案时不使用任何保单的 `loan_amt`
-- "不要退保" → 不使用 `product_type=whole_life` 的保单的 `refund_amt`
-- "不影响保障" → 只使用 `survival_fund_amt` 和 `bonus_amt`
-- "不想动某保单" → 从候选列表中排除该保单
+拿到结果后，根据用户约束设置 `exclude_channels`（extractor auto-fill 也会跳过这些渠道）：
+- "不要贷款" → `exclude_channels: ["policy_loan"]`
+- "不要退保" → `exclude_channels: ["surrender"]`
+- "不影响保障" / "只用零成本" → `exclude_channels: ["partial_withdrawal", "policy_loan", "surrender"]`
+- "不想动某保单" → 用 `exclude_policies: ["POL00X"]`（与 exclude_channels 独立）
 
-如果过滤后剩余渠道的总额无法满足金额，明确告知并给出替代建议。
+如果排除后剩余渠道总额无法满足金额，extractor 会如实展示最大可取；明确告知用户并给出替代建议。
 
 ### 类型 C：调整某张保单 / 某个渠道的具体金额
 
@@ -144,15 +144,57 @@ rule_engine(
 
 ## 第二步：生成调整方案
 
-**类型 A / B**：重新调用 `list_options` 后，context 中有最新 rule_engine 结果。呈现调整后的主推荐时，**必须**先调用 `render_card(card_type="withdraw_summary", card_args=JSON)`；卡片渲染成功后，**仅输出 1 句**（≤25字）对比差异或引导确认，无其他文字。
+所有类型改写后，均调用 `render_card(card_type="withdraw_plan", card_args=JSON)`，**你自行决策方案结构**（channels、title、reason），extractor 负责分配金额和生成按钮。
 
-**类型 C**：仅调用 `calculate_detail` 时，context 中的 list_options 结果仍是**旧**的，与本次调整不一致。
-- **若需展示 A2UI 卡片**：须在调用 render_card 前**再次**执行 `rule_engine(action="list_options", user_id=..., amount=...)`（原目标金额或用户调整后金额），以保证汇总数据与当前方案一致，再 render_card。
-- **若仅调了 calculate_detail、未刷新 list_options**：则**仅用文字**说明调整结果，要求**极简一句**（金额/费用/保障影响）+ 一句确认，不展开成多段 Markdown；不渲染取款汇总卡片，避免卡片数据与用户看到的调整不一致。
+**核心原则：改写后同样只有一个 ★ 推荐。** 只有排名第一的方案标 ★ 推荐，其余为备选。
 
-**禁止**：在未先调用 render_card(withdraw_summary) 的情况下用任何文字描述方案详情；有 list_options 结果时必须先出卡片。卡片已完整承载所有方案信息（保单、调整内容、金额、对比、风险），文字不得重复。
+### 类型 A / B 的渲染流程
 
-**核心原则：改写后同样只有一个 ⭐ 推荐。** 只有排名第一的方案标 ⭐ 推荐，其余为备选。
+```
+rule_engine(list_options, amount=...) → render_card(withdraw_plan, card_args={plans: [...]})
+```
+
+**类型 A**（调总额）：`list_options(new_amount)` → 按新金额组装 plans → `render_card(withdraw_plan)`。
+
+**类型 B**（改方向/渠道排除）：`list_options(original_amount)` → 根据用户约束决定每个 plan 的 channels：
+- "不要贷款" → plans 的 channels 不含 `policy_loan`
+- "不要退保" → plans 的 channels 不含 `surrender`
+- "只用不影响保障的" → channels 只有 `["survival_fund", "bonus"]`
+- "不想动某保单" → 对应 plan spec 加 `"exclude_policies": ["POL00X"]`
+
+→ `render_card(withdraw_plan, card_args={plans: [...]})`
+
+**类型 C**（调单项）的工具调用链：
+1. `rule_engine(calculate_detail, ...)` — 获取单项精确计算结果
+2. `rule_engine(list_options, amount=目标金额)` — 刷新 context（必须，否则卡片数据与调整不一致）
+3. `render_card(withdraw_plan, card_args={plans: [...]})` — LLM 在 plans 中体现 `calculate_detail` 结果
+
+**混合 A+B**：先用新金额 `list_options`，再在 plans spec 中过滤渠道。
+
+**禁止**：有 `list_options` 结果时必须先出卡片，不得用文字描述方案详情。卡片已完整承载所有方案信息，文字不得重复。
+
+#### card_args 示例（类型 B："不要贷款"）
+
+```json
+{
+  "plans": [
+    {
+      "title": "★ 推荐: 零成本优先（不含贷款）",
+      "tag": "(不含贷款)",
+      "reason": "优先使用零成本渠道，不足时搭配部分领取补足，不使用贷款。",
+      "channels": ["survival_fund", "bonus"],
+      "exclude_channels": ["policy_loan"]
+    },
+    {
+      "title": "全零成本（可能不足）",
+      "tag": "(不影响保障)",
+      "reason": "仅使用生存金和红利，不影响保障，金额可能不足目标。",
+      "channels": ["survival_fund", "bonus"],
+      "exclude_channels": ["partial_withdrawal", "policy_loan", "surrender"]
+    }
+  ]
+}
+```
 
 ## 第三步：操作确认
 
@@ -175,30 +217,26 @@ rule_engine(
 
 ## 常见改写场景速查
 
-| 用户说 | 调整类型 | 用哪个 action |
-|-------|---------|--------------|
-| "多取一点" / "总共要X万" | A 调总额 | `list_options`（新amount） |
-| "不要贷款" | B 改方向 | `list_options` + 组装时不使用 loan_amt |
-| "不退保" | B 改方向 | `list_options` + 组装时不使用 whole_life 的 refund_amt |
-| "只用不影响保障的" | B 改方向 | `list_options` + 只用 survival_fund_amt 和 bonus_amt |
-| "不想动某保单" | B 改方向 | `list_options` + 排除该保单 |
-| "POL002 少取点" | C 调单项 | `calculate_detail` |
-| "贷款只贷2万" | C 调单项 | `calculate_detail`（option_type=policy_loan） |
-| "多取一点但不要贷款" | A+B 混合 | `list_options`（新amount）+ 组装时排除贷款 |
-| "换个方案" | B 改方向 | `list_options` |
-| "利息太高了" | B 改方向 | `list_options` + 排除贷款渠道 |
+| 用户说 | 调整类型 | 工具调用链 | plans 约束处理 |
+|-------|---------|-----------|--------------|
+| "多取一点" / "总共要X万" | A 调总额 | `list_options(新amount)` → `render_card(withdraw_plan)` | 按新金额正常组装，无 exclude |
+| "不要贷款" | B 改方向 | `list_options(原amount)` → `render_card(withdraw_plan)` | `exclude_channels: ["policy_loan"]` |
+| "不退保" | B 改方向 | `list_options(原amount)` → `render_card(withdraw_plan)` | `exclude_channels: ["surrender"]` |
+| "只用不影响保障的" | B 改方向 | `list_options(原amount)` → `render_card(withdraw_plan)` | `exclude_channels: ["partial_withdrawal","policy_loan","surrender"]` |
+| "不想动某保单" | B 改方向 | `list_options(原amount)` → `render_card(withdraw_plan)` | `exclude_policies: ["POL00X"]` |
+| "POL002 少取点" | C 调单项 | `calculate_detail` → `list_options(amount)` → `render_card(withdraw_plan)` | 在 plan reason 中体现调整结果 |
+| "贷款只贷2万" | C 调单项 | `calculate_detail(policy_loan)` → `list_options` → `render_card(withdraw_plan)` | `exclude_channels: ["policy_loan"]`，loan plan target=20000 |
+| "多取一点但不要贷款" | A+B 混合 | `list_options(新amount)` → `render_card(withdraw_plan)` | `exclude_channels: ["policy_loan"]` |
+| "换个方案" | B 改方向 | `list_options(原amount)` → `render_card(withdraw_plan)` | 调整 channels 偏好顺序 |
+| "利息太高了" | B 改方向 | `list_options(原amount)` → `render_card(withdraw_plan)` | `exclude_channels: ["policy_loan"]` |
 
 ## 输出格式
 
-**主方案汇总 = A2UI 取款汇总卡片**。卡片渲染成功后，文字部分**严格限制**在 1 句以内（≤25字）。禁止在未先出卡片时用任何文字描述方案详情。
+**主方案 = A2UI 取款方案卡片（`withdraw_plan`）**。卡片渲染成功后，文字部分**严格限制**在 1 句以内（≤25字）。禁止在未先出卡片时用任何文字描述方案详情。
 
-### 类型 A / B
+### 类型 A / B / C
 
-`render_card(withdraw_summary)` → 之后仅 1 句对比或确认（如"比原方案少手续费 X 元，是否确认？"），无其他文字。
-
-### 类型 C
-
-若已刷新 list_options：先出卡片，之后仅 1 句。若仅 calculate_detail 未刷新：仅 1 句说明结果（金额/费用/影响）+ 1 句确认，共 2 句上限，不展开段落。
+`render_card(withdraw_plan, card_args={plans: [...]})` → 之后仅 1 句对比或确认（如"比原方案少手续费 X 元，是否确认？"），无其他文字。
 
 ### 金额不足时
 

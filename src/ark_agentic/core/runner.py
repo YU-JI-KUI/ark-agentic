@@ -538,13 +538,14 @@ class AgentRunner:
                 if msg.tool_results:
                     for tr in msg.tool_results:
                         if tr.result_type == ToolResultType.A2UI:
-                            # A2UI payload 是纯视图层数据（布局、样式、文案），
-                            # 已通过 SSE on_ui_component 推送给前端。
-                            # 回传给 LLM 会暴露大量结构化数字/文案，
-                            # 导致 LLM 复述卡片内容。
-                            # 业务数据由上游 rule_engine 等工具已在 history 中保留。
-                            content = (
-                                "[系统: A2UI 卡片已成功渲染并展示给用户，包含了完整方案信息，请勿在文字中重复组件内已展示的任何数据。]"
+                            # A2UI payload 通过 on_ui_component 走独立 UI 通道推送给前端。
+                            # 写回 LLM history 仅保留极简哑标记：无展示语义、无卡片内容，
+                            # 避免 LLM 将"已渲染"解读为"业务已完成，无需再次生成"。
+                            raw = tr.content
+                            component_count = len(raw) if isinstance(raw, list) else 1
+                            content = json.dumps(
+                                {"kind": "ui_event", "event": "a2ui_emitted", "component_count": component_count},
+                                ensure_ascii=False,
                             )
                         else:
                             content = tr.content

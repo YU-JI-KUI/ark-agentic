@@ -59,8 +59,8 @@
           "gap": 12,
           "children": {
             "explicitList": [
-              "p1-title-row", "p1-total", "p1-reason", "p1-divider",
-              "p1-items-list", "p1-btn-row-1", "p1-btn-row-2"
+              "p1-title-row", "p1-tag", "p1-total", "p1-reason", "p1-divider",
+              "p1-items-list", "p1-btn-col"
             ]
           }
         }
@@ -72,7 +72,7 @@
         "Row": {
           "alignment": "middle",
           "gap": 8,
-          "children": { "explicitList": ["p1-marker", "p1-title", "p1-tag"] }
+          "children": { "explicitList": ["p1-marker", "p1-title"] }
         }
       }
     },
@@ -102,6 +102,7 @@
       "id": "p1-tag",
       "component": {
         "Text": {
+          "hide": { "path": "plan_1_tag_hide" },
           "text": { "path": "plan_1_tag" },
           "color": "#52C41A",
           "fontSize": "12px"
@@ -147,12 +148,11 @@
       }
     },
     {
-      "id": "p1-btn-row-1",
+      "id": "p1-btn-col",
       "component": {
-        "Row": {
-          "width": 100,
+        "Column": {
           "gap": 8,
-          "children": { "explicitList": ["p1-btn-1", "p1-btn-2"] }
+          "children": { "explicitList": ["p1-btn-1", "p1-btn-2", "p1-btn-3", "p1-btn-4"] }
         }
       }
     },
@@ -161,7 +161,7 @@
       "component": {
         "Button": {
           "hide": { "path": "plan_1_btn_1_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "primary",
           "size": "small",
           "text": { "path": "plan_1_btn_1_text" },
@@ -177,7 +177,7 @@
       "component": {
         "Button": {
           "hide": { "path": "plan_1_btn_2_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "primary",
           "size": "small",
           "text": { "path": "plan_1_btn_2_text" },
@@ -189,22 +189,11 @@
       }
     },
     {
-      "id": "p1-btn-row-2",
-      "component": {
-        "Row": {
-          "hide": { "path": "plan_1_btn_row_2_hide" },
-          "width": 100,
-          "gap": 8,
-          "children": { "explicitList": ["p1-btn-3", "p1-btn-4"] }
-        }
-      }
-    },
-    {
       "id": "p1-btn-3",
       "component": {
         "Button": {
           "hide": { "path": "plan_1_btn_3_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "primary",
           "size": "small",
           "text": { "path": "plan_1_btn_3_text" },
@@ -220,7 +209,7 @@
       "component": {
         "Button": {
           "hide": { "path": "plan_1_btn_4_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "primary",
           "size": "small",
           "text": { "path": "plan_1_btn_4_text" },
@@ -252,8 +241,8 @@
           "gap": 12,
           "children": {
             "explicitList": [
-              "p2-title-row", "p2-total", "p2-reason", "p2-divider",
-              "p2-items-list", "p2-btn-row-1", "p2-btn-row-2"
+              "p2-title-row", "p2-tag", "p2-total", "p2-reason", "p2-divider",
+              "p2-items-list", "p2-btn-col"
             ]
           }
         }
@@ -265,7 +254,7 @@
         "Row": {
           "alignment": "middle",
           "gap": 8,
-          "children": { "explicitList": ["p2-marker", "p2-title", "p2-tag"] }
+          "children": { "explicitList": ["p2-marker", "p2-title"] }
         }
       }
     },
@@ -295,6 +284,7 @@
       "id": "p2-tag",
       "component": {
         "Text": {
+          "hide": { "path": "plan_2_tag_hide" },
           "text": { "path": "plan_2_tag" },
           "color": "#FA8C16",
           "fontSize": "12px"
@@ -340,12 +330,11 @@
       }
     },
     {
-      "id": "p2-btn-row-1",
+      "id": "p2-btn-col",
       "component": {
-        "Row": {
-          "width": 100,
+        "Column": {
           "gap": 8,
-          "children": { "explicitList": ["p2-btn-1", "p2-btn-2"] }
+          "children": { "explicitList": ["p2-btn-1", "p2-btn-2", "p2-btn-3", "p2-btn-4"] }
         }
       }
     },
@@ -354,7 +343,7 @@
       "component": {
         "Button": {
           "hide": { "path": "plan_2_btn_1_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "secondary",
           "size": "small",
           "text": { "path": "plan_2_btn_1_text" },
@@ -370,7 +359,7 @@
       "component": {
         "Button": {
           "hide": { "path": "plan_2_btn_2_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "secondary",
           "size": "small",
           "text": { "path": "plan_2_btn_2_text" },
@@ -382,22 +371,11 @@
       }
     },
     {
-      "id": "p2-btn-row-2",
-      "component": {
-        "Row": {
-          "hide": { "path": "plan_2_btn_row_2_hide" },
-          "width": 100,
-          "gap": 8,
-          "children": { "explicitList": ["p2-btn-3", "p2-btn-4"] }
-        }
-      }
-    },
-    {
       "id": "p2-btn-3",
       "component": {
         "Button": {
           "hide": { "path": "plan_2_btn_3_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "secondary",
           "size": "small",
           "text": { "path": "plan_2_btn_3_text" },
@@ -413,7 +391,7 @@
       "component": {
         "Button": {
           "hide": { "path": "plan_2_btn_4_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "secondary",
           "size": "small",
           "text": { "path": "plan_2_btn_4_text" },
@@ -445,8 +423,8 @@
           "gap": 12,
           "children": {
             "explicitList": [
-              "p3-title-row", "p3-total", "p3-reason", "p3-divider",
-              "p3-items-list", "p3-btn-row-1", "p3-btn-row-2"
+              "p3-title-row", "p3-tag", "p3-total", "p3-reason", "p3-divider",
+              "p3-items-list", "p3-btn-col"
             ]
           }
         }
@@ -458,7 +436,7 @@
         "Row": {
           "alignment": "middle",
           "gap": 8,
-          "children": { "explicitList": ["p3-marker", "p3-title", "p3-tag"] }
+          "children": { "explicitList": ["p3-marker", "p3-title"] }
         }
       }
     },
@@ -488,6 +466,7 @@
       "id": "p3-tag",
       "component": {
         "Text": {
+          "hide": { "path": "plan_3_tag_hide" },
           "text": { "path": "plan_3_tag" },
           "color": "#FA8C16",
           "fontSize": "12px"
@@ -533,12 +512,11 @@
       }
     },
     {
-      "id": "p3-btn-row-1",
+      "id": "p3-btn-col",
       "component": {
-        "Row": {
-          "width": 100,
+        "Column": {
           "gap": 8,
-          "children": { "explicitList": ["p3-btn-1", "p3-btn-2"] }
+          "children": { "explicitList": ["p3-btn-1", "p3-btn-2", "p3-btn-3", "p3-btn-4"] }
         }
       }
     },
@@ -547,7 +525,7 @@
       "component": {
         "Button": {
           "hide": { "path": "plan_3_btn_1_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "secondary",
           "size": "small",
           "text": { "path": "plan_3_btn_1_text" },
@@ -563,7 +541,7 @@
       "component": {
         "Button": {
           "hide": { "path": "plan_3_btn_2_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "secondary",
           "size": "small",
           "text": { "path": "plan_3_btn_2_text" },
@@ -575,22 +553,11 @@
       }
     },
     {
-      "id": "p3-btn-row-2",
-      "component": {
-        "Row": {
-          "hide": { "path": "plan_3_btn_row_2_hide" },
-          "width": 100,
-          "gap": 8,
-          "children": { "explicitList": ["p3-btn-3", "p3-btn-4"] }
-        }
-      }
-    },
-    {
       "id": "p3-btn-3",
       "component": {
         "Button": {
           "hide": { "path": "plan_3_btn_3_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "secondary",
           "size": "small",
           "text": { "path": "plan_3_btn_3_text" },
@@ -606,7 +573,7 @@
       "component": {
         "Button": {
           "hide": { "path": "plan_3_btn_4_hide" },
-          "flex": 1,
+          "width": 100,
           "type": "secondary",
           "size": "small",
           "text": { "path": "plan_3_btn_4_text" },

@@ -123,55 +123,96 @@ rule_engine(
 
 ### 第四步：组装推荐方案
 
-根据用户金额需求，从保单数据中选择渠道和金额，组装出 **2-3 个方案**，推荐其中一个（标 ⭐）。**推荐方案的总取款金额应以用户请求金额为目标；在总额充足时，推荐金额应等于用户请求金额，不主动推荐更大金额除非用户明确要求。**
+根据用户金额需求，**你需要自行决策**方案结构，并通过 `card_args.plans` 传入。extractor 只负责按你指定的渠道分配具体金额、生成保单列表和按钮。
 
 #### 渠道优先级（从高到低）
 
-1. **生存金 + 红利** → 零成本，不影响保障，优先选用
-2. **部分领取**（非 whole_life 的 refund_amt）→ 低成本，手续费率 `refund_fee_rate`
-3. **保单贷款** → 适合紧急周转，年利率 5%，不影响保障
-4. **退保**（whole_life 的 refund_amt）→ 保障完全终止，最后手段
+渠道 ID 如下，按此顺序优先使用：
 
-#### 组装逻辑
+| 渠道 ID | 含义 | 成本 | 保障影响 |
+|--------|------|------|---------|
+| `survival_fund` | 生存金 | 零 | 不影响 |
+| `bonus` | 红利 | 零 | 不影响 |
+| `partial_withdrawal` | 部分领取（非 whole_life） | 手续费率 `refund_fee_rate` | 保额同步下降 |
+| `policy_loan` | 保单贷款 | 年利率5% | 不影响（逾期可致中止） |
+| `surrender` | 退保（whole_life） | 零 | 保障完全终止 |
 
-- `combination_hint` 为 null → 有单张保单能满足金额
-- `combination_hint` 不为 null → 需要跨保单组合，或总额不足
+#### 方案组装规则
 
-**总额不足时**：`total_available_incl_loan` < 用户期望金额，给出最大可取方案并告知用户。
+**推荐方案的总取款金额等于用户请求金额（总额不足时取最大可取）。**
+
+- **总额充足**：构建 2-3 个方案
+  - Plan 1（推荐 ★）：按渠道优先级从高到低选渠道，凑满目标金额
+  - Plan 2/3（备选）：当 Plan 1 仅用单类渠道时，提供其他可独立满足目标的单类方案
+- **总额不足**（`total_available_incl_loan` < 目标金额）：仅给一个"最大可取"方案，使用所有渠道
+
+#### plans 规格格式
+
+```json
+[
+  {
+    "title": "★ 推荐: 零成本优先",
+    "tag": "(不影响保障)",
+    "reason": "优先使用零成本渠道，不足时自动搭配其他方式补足。",
+    "channels": ["survival_fund", "bonus"]
+  },
+  {
+    "title": "保单贷款",
+    "tag": "(需支付利息)",
+    "reason": "保障不受影响，适合短期周转",
+    "channels": ["policy_loan"]
+  }
+]
+```
+
+**字段说明**：
+
+- `channels`：**偏好渠道，按此顺序优先分配**。不足目标金额时，extractor 自动按 `_ALL_CHANNELS` 优先级追加剩余渠道补足——无需你手动计算是否够用。
+- `exclude_channels`：**永久排除的渠道**（auto-fill 也跳过它们）。用于表达用户的排除约束：
+  - "不要贷款" → `"exclude_channels": ["policy_loan"]`
+  - "不要退保" → `"exclude_channels": ["surrender"]`
+  - "只用不影响保障的" → `"exclude_channels": ["partial_withdrawal", "policy_loan", "surrender"]`
+- `exclude_policies`：可选，排除特定保单 ID（如 `["POL002"]`）
+- `target`：可选，不填时使用 `requested_amount`
+- `title`：**应反映主要策略**（"零成本优先"），而非断言结果（"零成本领取"）——因为 extractor 可能会自动追加其他渠道
+
+**关键规则**：无特殊约束时，Plan 1 只需写 `channels: ["survival_fund", "bonus"]`，extractor 会自动补足至目标金额。用户说"不要某渠道"时，用 `exclude_channels` 而非从 channels 中删除。
 
 ### 第五步：方案呈现
 
-**核心原则：永远只有一个 ⭐ 推荐，加上 1-2 个备选。**
+**核心原则：永远只有一个 ★ 推荐，加上 1-2 个备选。**
 
 #### 卡片选择规则
 
 - **情形 A（有金额）** → 调用 `render_card(card_type="withdraw_plan", card_args=...)` 展示具体方案卡
 - **情形 B（容量查询）** → 调用 `render_card(card_type="withdraw_summary", card_args=...)` 展示汇总卡
 
-#### withdraw_plan card_args 说明
-
-卡片所有金额、保单、方案和按钮均由提取器从 `rule_engine` 结果**确定性自动生成**，无需 LLM 手动填写。
-
-**方案生成逻辑**（最多 3 个方案，以目标金额为中心）：
-
-1. **有 `requested_amount`，单类渠道可满足**：显示满足目标的单类方案（如"零成本领取"），每个方案只分配恰好目标金额
-2. **有 `requested_amount`，单类不够**：显示组合方案（如"零成本领取 + 保单贷款"），按优先级分配到目标金额
-3. **所有渠道总额仍不足**：显示"最大可取"方案，合并所有渠道
-4. **无 `requested_amount`**（容量查询后）：显示全部可用渠道汇总
-
-每个方案卡片包含：标题（★ 推荐标记）、标签、合计金额、推荐理由、保单列表、2×2 按钮网格（按涉及的渠道类型生成）。
-
-`card_args` **仅用于覆盖页面文案**，所有字段可选：
+#### 情形 A — withdraw_plan card_args 完整示例
 
 ```json
 {
   "page_title": "为您推荐的取款方案",
-  "prompt_text": "请问您想选择哪个方案？确认后我可以为您办理。"
+  "prompt_text": "请问您想选择哪个方案？确认后我可以为您办理。",
+  "plans": [
+    {
+      "title": "★ 推荐: 零成本优先",
+      "tag": "(不影响保障优先)",
+      "reason": "优先使用零成本渠道（生存金、红利），不足时自动补充其他方式。",
+      "channels": ["survival_fund", "bonus"]
+    },
+    {
+      "title": "保单贷款",
+      "tag": "(需支付利息)",
+      "reason": "保障不受影响，适合短期周转。",
+      "channels": ["policy_loan"]
+    }
+  ]
 }
 ```
 
-- 不传 `card_args` 时，卡片仍可正常渲染
-- 按钮 queryMsg 完全由提取器从分配结果生成（格式：`办理生存金领取，POL001，10000.00`），无需 LLM 覆盖
+- extractor 会自动补足 Plan 1 至目标金额（按 `partial_withdrawal → policy_loan → surrender` 顺序追加）
+- 按钮 `queryMsg` 由 extractor 从分配结果自动生成（格式：`办理生存金领取，POL001，10000.00`），无需覆盖
+- 不传 `plans` 时，extractor 会用内置规则自动生成（兼容旧行为）
 
 #### withdraw_summary card_args 完整示例（情形 B）
 

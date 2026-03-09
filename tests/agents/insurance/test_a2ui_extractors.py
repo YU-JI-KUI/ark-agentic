@@ -140,8 +140,8 @@ def test_withdraw_summary_extractor_partial_surrender_fee_rate_in_label() -> Non
 # Expected top-level keys for 3-plan template (plan_N_*)
 def _plan_keys(n: int) -> list[str]:
     return [
-        f"plan_{n}_hide", f"plan_{n}_title", f"plan_{n}_tag", f"plan_{n}_total",
-        f"plan_{n}_reason", f"plan_{n}_policies", f"plan_{n}_btn_row_2_hide",
+        f"plan_{n}_hide", f"plan_{n}_title", f"plan_{n}_tag", f"plan_{n}_tag_hide",
+        f"plan_{n}_total", f"plan_{n}_reason", f"plan_{n}_policies",
     ] + [f"plan_{n}_btn_{b}_hide" for b in range(1, 5)] + [f"plan_{n}_btn_{b}_text" for b in range(1, 5)] + [f"plan_{n}_btn_{b}_action" for b in range(1, 5)]
 
 
@@ -238,10 +238,54 @@ def test_withdraw_plan_extractor_max_three_plans() -> None:
 
     visible = [n for n in (1, 2, 3) if not flat.get(f"plan_{n}_hide", True)]
     assert len(visible) <= 3, f"Expected at most 3 plans, got {visible}"
+    # With new priority logic: Plan 1 is combo (zc 20k + loan 30k = 50k), no alternatives since combo
+    assert flat["plan_1_hide"] is False
+    assert "★ 推荐" in flat["plan_1_title"]
     for n in visible:
         assert flat[f"plan_{n}_total"]
         assert isinstance(flat[f"plan_{n}_policies"], list)
         assert "queryMsg" in flat[f"plan_{n}_btn_1_action"] or flat[f"plan_{n}_btn_1_hide"]
+
+
+def test_withdraw_plan_extractor_priority_combo_over_risk_only() -> None:
+    """Plan 1 uses priority combo: partial_withdrawal before policy_loan (matches SKILL.md order)."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 60000,
+            "options": [
+                {"policy_id": "P1", "product_name": "金瑞人生", "product_type": "annuity",
+                 "survival_fund_amt": 12000, "bonus_amt": 5200, "loan_amt": 0, "refund_amt": 160000},
+                {"policy_id": "P2", "product_name": "智盈人生", "product_type": "universal",
+                 "survival_fund_amt": 0, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 85000},
+                {"policy_id": "P3", "product_name": "平安福", "product_type": "whole_life",
+                 "survival_fund_amt": 0, "bonus_amt": 0, "loan_amt": 33600, "refund_amt": 42000},
+            ],
+        },
+    }
+    flat = withdraw_plan_extractor(context, None)
+
+    assert flat["plan_1_hide"] is False
+    assert "★ 推荐" in flat["plan_1_title"]
+
+    # New priority order: partial_withdrawal before policy_loan
+    # Allocation: survival(12k) + bonus(5.2k) + partial_P1(42.8k) = 60k  (loan NOT used)
+    policies = flat["plan_1_policies"]
+    total_alloc = sum(float(p["value"].replace("¥", "").replace(",", "").strip()) for p in policies)
+    assert abs(total_alloc - 60000) < 1, f"Expected 60k allocation, got {total_alloc}"
+
+    labels = [p["label"] for p in policies]
+    assert any("生存金" in l for l in labels), "survival_fund should be allocated first"
+    assert any("红利" in l for l in labels), "bonus should be allocated"
+    assert any("部分领取" in l for l in labels), "partial_withdrawal should be used before loan"
+    # loan should NOT be used since partial_withdrawal satisfies the remaining amount
+    assert not any("贷款" in l for l in labels), "policy_loan should NOT be used when partial covers it"
+
+    btn_texts = [flat[f"plan_1_btn_{i}_text"] for i in range(1, 5) if not flat[f"plan_1_btn_{i}_hide"]]
+    assert len(btn_texts) >= 2, f"Combo plan should have multiple buttons, got {btn_texts}"
+
+    # Plan 2/3 hidden (Plan 1 is combo)
+    assert flat["plan_2_hide"] is True
+    assert flat["plan_3_hide"] is True
 
 
 def test_withdraw_plan_extractor_insufficient_total_shows_max() -> None:
@@ -408,6 +452,295 @@ def test_a2ui_withdraw_plan_hide_uses_path() -> None:
             hide_val = spec["hide"]
             assert isinstance(hide_val, dict), f"{comp['id']}.{typ}.hide must be object"
             assert "path" in hide_val, f"{comp['id']}.{typ}.hide must use path for dynamic binding"
+
+
+# ----- withdraw_plan_extractor with card_args.plans (LLM-driven) -----
+
+
+def test_withdraw_plan_extractor_with_plans_spec_autofill_when_channels_insufficient() -> None:
+    """Key bug fix: when preferred channels can't meet target, extractor auto-fills to reach it."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 30000,
+            "options": [
+                # zero-cost: 17,200 total (insufficient for 30k)
+                {"policy_id": "P1", "product_name": "A", "product_type": "annuity",
+                 "survival_fund_amt": 12000, "bonus_amt": 5200, "loan_amt": 0, "refund_amt": 50000},
+            ],
+        },
+    }
+    card_args = {
+        "plans": [
+            {"title": "★ 推荐: 零成本优先", "tag": "(不影响保障优先)", "reason": "零成本优先",
+             "channels": ["survival_fund", "bonus"]},
+        ]
+    }
+    flat = withdraw_plan_extractor(context, card_args)
+
+    assert flat["plan_1_hide"] is False
+    policies = flat["plan_1_policies"]
+    total_alloc = sum(float(p["value"].replace("¥", "").replace(",", "").strip()) for p in policies)
+    # Auto-fill should have added partial_withdrawal to reach 30,000
+    assert abs(total_alloc - 30000) < 1, f"Expected 30k after auto-fill, got {total_alloc}"
+    labels = [p["label"] for p in policies]
+    assert any("生存金" in l for l in labels), "survival_fund should be in allocation"
+    assert any("红利" in l for l in labels), "bonus should be in allocation"
+    assert any("部分领取" in l for l in labels), "partial_withdrawal auto-filled to reach target"
+
+
+def test_withdraw_plan_extractor_with_plans_spec_autofill_respects_exclude_channels() -> None:
+    """exclude_channels prevents auto-fill from using the excluded channel."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 30000,
+            "options": [
+                {"policy_id": "P1", "product_name": "A", "product_type": "annuity",
+                 "survival_fund_amt": 12000, "bonus_amt": 5200, "loan_amt": 20000, "refund_amt": 50000},
+            ],
+        },
+    }
+    card_args = {
+        "plans": [
+            {
+                "title": "★ 推荐（不含贷款）",
+                "tag": "(不含贷款)",
+                "reason": "排除贷款渠道",
+                "channels": ["survival_fund", "bonus"],
+                "exclude_channels": ["policy_loan"],
+            }
+        ]
+    }
+    flat = withdraw_plan_extractor(context, card_args)
+
+    assert flat["plan_1_hide"] is False
+    policies = flat["plan_1_policies"]
+    labels = [p["label"] for p in policies]
+    # loan must NOT appear despite being available
+    assert not any("贷款" in l for l in labels), "policy_loan must be excluded even during auto-fill"
+    # partial_withdrawal should be used instead
+    assert any("部分领取" in l for l in labels), "partial_withdrawal should fill the gap"
+    total_alloc = sum(float(p["value"].replace("¥", "").replace(",", "").strip()) for p in policies)
+    assert abs(total_alloc - 30000) < 1, f"Expected 30k after auto-fill (no loan), got {total_alloc}"
+
+
+def test_withdraw_plan_extractor_with_plans_spec_autofill_impossible_shows_max() -> None:
+    """When all non-excluded channels still can't meet target, show honest maximum."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 30000,
+            "options": [
+                {"policy_id": "P1", "product_name": "A", "product_type": "annuity",
+                 "survival_fund_amt": 12000, "bonus_amt": 5200, "loan_amt": 0, "refund_amt": 0},
+            ],
+        },
+    }
+    card_args = {
+        "plans": [
+            {
+                "title": "★ 只用零成本",
+                "tag": "(不影响保障)",
+                "reason": "仅零成本渠道",
+                "channels": ["survival_fund", "bonus"],
+                "exclude_channels": ["partial_withdrawal", "policy_loan", "surrender"],
+            }
+        ]
+    }
+    flat = withdraw_plan_extractor(context, card_args)
+
+    assert flat["plan_1_hide"] is False
+    total_alloc = sum(float(p["value"].replace("¥", "").replace(",", "").strip()) for p in flat["plan_1_policies"])
+    # Only 17,200 available; plan honestly shows that, not 30,000
+    assert abs(total_alloc - 17200) < 1, f"Expected honest max 17,200, got {total_alloc}"
+    assert "30,000" not in flat["plan_1_total"], "Should not show target when it's unreachable"
+
+
+def test_withdraw_plan_extractor_with_plans_spec_no_autofill_when_sufficient() -> None:
+    """When channels already meet target, no extra channels are added (deterministic)."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 10000,
+            "options": [
+                {"policy_id": "P1", "product_name": "A", "product_type": "annuity",
+                 "survival_fund_amt": 15000, "bonus_amt": 5000, "loan_amt": 8000, "refund_amt": 20000},
+            ],
+        },
+    }
+    card_args = {
+        "plans": [
+            {"title": "★ 零成本", "tag": "", "reason": "足够", "channels": ["survival_fund", "bonus"]},
+        ]
+    }
+    flat = withdraw_plan_extractor(context, card_args)
+
+    assert flat["plan_1_hide"] is False
+    labels = [p["label"] for p in flat["plan_1_policies"]]
+    # Only zero-cost channels should appear; no auto-fill needed
+    assert not any("贷款" in l for l in labels), "No auto-fill when channels are sufficient"
+    assert not any("部分" in l for l in labels), "No auto-fill when channels are sufficient"
+    assert "10,000" in flat["plan_1_total"]
+
+
+def test_withdraw_plan_extractor_with_plans_spec_basic() -> None:
+    """LLM-specified channels are respected; only those channels are allocated."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 10000,
+            "options": [
+                {"policy_id": "P1", "product_name": "A", "survival_fund_amt": 8000, "bonus_amt": 3000, "loan_amt": 5000, "refund_amt": 0},
+            ],
+        },
+    }
+    card_args = {
+        "plans": [
+            {"title": "★ 推荐: 零成本", "tag": "(不影响保障)", "reason": "零成本优先", "channels": ["survival_fund", "bonus"]},
+        ]
+    }
+    flat = withdraw_plan_extractor(context, card_args)
+
+    assert flat["plan_1_hide"] is False
+    assert flat["plan_1_title"] == "★ 推荐: 零成本"
+    assert flat["plan_1_tag"] == "(不影响保障)"
+    labels = [p["label"] for p in flat["plan_1_policies"]]
+    assert any("生存金" in l for l in labels)
+    assert any("红利" in l for l in labels)
+    # loan NOT in spec → should not appear
+    assert not any("贷款" in l for l in labels)
+    # total should be capped at actual available in those channels (8000+2000=10000)
+    assert "10,000" in flat["plan_1_total"]
+
+
+def test_withdraw_plan_extractor_with_plans_spec_exclude_policies() -> None:
+    """exclude_policies removes specified policies from allocation."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 5000,
+            "options": [
+                {"policy_id": "POL001", "product_name": "A", "survival_fund_amt": 6000, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0},
+                {"policy_id": "POL002", "product_name": "B", "survival_fund_amt": 4000, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0},
+            ],
+        },
+    }
+    card_args = {
+        "plans": [
+            {
+                "title": "★ 推荐",
+                "tag": "",
+                "reason": "不动POL001",
+                "channels": ["survival_fund"],
+                "exclude_policies": ["POL001"],
+            }
+        ]
+    }
+    flat = withdraw_plan_extractor(context, card_args)
+
+    assert flat["plan_1_hide"] is False
+    labels = [p["label"] for p in flat["plan_1_policies"]]
+    assert not any("POL001" in l for l in labels), "POL001 should be excluded"
+    assert any("POL002" in l for l in labels), "POL002 should be allocated"
+
+
+def test_withdraw_plan_extractor_with_plans_spec_invalid_channel_skipped() -> None:
+    """Invalid channel IDs are silently skipped; remaining valid channels still allocated."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 5000,
+            "options": [
+                {"policy_id": "P1", "survival_fund_amt": 8000, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0},
+            ],
+        },
+    }
+    card_args = {
+        "plans": [
+            {"title": "测试", "tag": "", "reason": "", "channels": ["bad_channel", "survival_fund"]},
+        ]
+    }
+    flat = withdraw_plan_extractor(context, card_args)
+
+    # valid channel (survival_fund) still allocates correctly
+    assert flat["plan_1_hide"] is False
+    labels = [p["label"] for p in flat["plan_1_policies"]]
+    assert any("生存金" in l for l in labels)
+
+
+def test_withdraw_plan_extractor_with_plans_spec_all_invalid_falls_back() -> None:
+    """All-invalid channels in spec causes fallback to _generate_plans."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 5000,
+            "options": [
+                {"policy_id": "P1", "survival_fund_amt": 8000, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0},
+            ],
+        },
+    }
+    card_args = {
+        "plans": [
+            {"title": "bad", "tag": "", "reason": "", "channels": ["nonexistent_channel"]},
+        ]
+    }
+    flat = withdraw_plan_extractor(context, card_args)
+
+    # Falls back to _generate_plans; Plan 1 should still render
+    assert flat["plan_1_hide"] is False
+    assert flat["plan_1_total"] != ""
+
+
+def test_withdraw_plan_extractor_with_plans_spec_empty_list_falls_back() -> None:
+    """Empty plans list falls back to _generate_plans."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 5000,
+            "options": [
+                {"policy_id": "P1", "survival_fund_amt": 8000, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0},
+            ],
+        },
+    }
+    flat = withdraw_plan_extractor(context, {"plans": []})
+
+    assert flat["plan_1_hide"] is False
+    assert "★ 推荐" in flat["plan_1_title"] or "全部可用" in flat["plan_1_title"]
+
+
+def test_withdraw_plan_extractor_with_plans_spec_insufficient_channels() -> None:
+    """When channels can't meet target, actual_total (not target) is shown in plan total."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 50000,
+            "options": [
+                {"policy_id": "P1", "survival_fund_amt": 3000, "bonus_amt": 2000, "loan_amt": 40000, "refund_amt": 0},
+            ],
+        },
+    }
+    card_args = {
+        "plans": [
+            {"title": "★ 零成本", "tag": "", "reason": "无法满足全额", "channels": ["survival_fund", "bonus"]},
+        ]
+    }
+    flat = withdraw_plan_extractor(context, card_args)
+
+    assert flat["plan_1_hide"] is False
+    # Only 5000 available in those channels, not 50000
+    assert "5,000" in flat["plan_1_total"]
+    assert "50,000" not in flat["plan_1_total"]
+
+
+def test_withdraw_plan_extractor_backward_compat_no_plans_key() -> None:
+    """No plans key in card_args → _generate_plans used (backward compatible)."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 5000,
+            "options": [
+                {"policy_id": "P1", "survival_fund_amt": 8000, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0},
+            ],
+        },
+    }
+    flat_with_args = withdraw_plan_extractor(context, {"page_title": "自定义"})
+    flat_no_args = withdraw_plan_extractor(context, None)
+
+    # Both should produce the same plan structure (from _generate_plans)
+    assert flat_with_args["plan_1_hide"] is False
+    assert flat_no_args["plan_1_hide"] is False
+    assert flat_with_args["plan_1_title"] == flat_no_args["plan_1_title"]
+    assert flat_with_args["page_title"] == "自定义"
 
 
 # ----- policy_detail_extractor -----

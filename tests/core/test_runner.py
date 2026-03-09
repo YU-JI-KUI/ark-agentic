@@ -5,11 +5,13 @@ from unittest.mock import AsyncMock, MagicMock
 from typing import Any, AsyncIterator
 import asyncio
 
+import json
+
 from ark_agentic.core.runner import AgentRunner, RunnerConfig, RunResult
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.tools.registry import ToolRegistry
-from ark_agentic.core.types import AgentMessage, AgentToolResult, ToolCall, MessageRole
+from ark_agentic.core.types import AgentMessage, AgentToolResult, ToolCall, MessageRole, ToolResultType
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 
@@ -302,6 +304,109 @@ async def test_temp_state_stripped_after_run() -> None:
     state = session.state
     assert "temp:trace_id" not in state
     assert state["user:id"] == "U1"
+
+
+# ============ A2UI History Marker Tests ============
+
+
+class _A2UITool(AgentTool):
+    """Tool that returns an A2UI component result."""
+
+    name = "a2ui_tool"
+    description = "A tool that renders a UI card"
+    parameters = [
+        ToolParameter(name="title", type="string", description="Card title"),
+    ]
+
+    async def execute(self, tool_call: ToolCall, context: dict[str, Any] | None = None) -> AgentToolResult:
+        return AgentToolResult.a2ui_result(
+            tool_call.id,
+            data={"type": "card", "title": "Test Card", "amount": 99999},
+        )
+
+
+def _make_runner_with_a2ui(responses: list[Any]) -> AgentRunner:
+    mock_llm = MockChatModel(responses=responses)
+    registry = ToolRegistry()
+    registry.register(_A2UITool())
+    session_mgr = SessionManager(enable_persistence=False)
+    config = RunnerConfig(max_turns=5, enable_streaming=False, auto_compact=False)
+    return AgentRunner(llm=mock_llm, tool_registry=registry, session_manager=session_mgr, config=config)
+
+
+@pytest.mark.asyncio
+async def test_a2ui_history_marker_is_neutral() -> None:
+    """A2UI tool result in LLM history must be a neutral JSON marker, not a display-completion sentence."""
+    responses = [
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "a2ui_tool", "args": {"title": "Plan"}, "id": "call_a2ui_1"}],
+        ),
+        AIMessage(content="Here is your plan."),
+    ]
+    runner = _make_runner_with_a2ui(responses)
+    session = runner.session_manager.create_session_sync()
+
+    await runner.run(session.session_id, "Show me a plan")
+
+    # Inspect what _build_messages produces for the A2UI tool result
+    state = session.state
+    messages = runner._build_messages(session.session_id, state)
+    tool_messages = [m for m in messages if m["role"] == "tool" and m.get("tool_call_id") == "call_a2ui_1"]
+
+    assert len(tool_messages) == 1, "Expected exactly one tool message for the A2UI call"
+    content = tool_messages[0]["content"]
+
+    # Must be parseable as JSON (machine-readable, not conversational)
+    parsed = json.loads(content)
+    assert parsed.get("kind") == "ui_event"
+    assert parsed.get("event") == "a2ui_emitted"
+    assert "component_count" in parsed
+
+    # Must NOT contain display-completion wording
+    for bad_phrase in ["已成功渲染", "已展示", "请勿在文字中重复", "已生成", "do not repeat"]:
+        assert bad_phrase not in content, f"History marker must not contain '{bad_phrase}'"
+
+    # Must NOT leak card payload values
+    assert "99999" not in content
+    assert "Test Card" not in content
+
+
+@pytest.mark.asyncio
+async def test_a2ui_on_ui_component_still_fires() -> None:
+    """A2UI result must still trigger on_ui_component so the frontend receives the card."""
+    responses = [
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "a2ui_tool", "args": {"title": "Plan"}, "id": "call_a2ui_2"}],
+        ),
+        AIMessage(content="Done."),
+    ]
+    runner = _make_runner_with_a2ui(responses)
+    session = runner.session_manager.create_session_sync()
+
+    captured_components: list[dict] = []
+
+    class _Handler:
+        def on_step(self, text: str) -> None:
+            pass
+
+        def on_content_delta(self, delta: str, turn: int = 1) -> None:
+            pass
+
+        def on_tool_call_start(self, tool_call_id: str, name: str, args: Any) -> None:
+            pass
+
+        def on_tool_call_result(self, tool_call_id: str, name: str, result: Any) -> None:
+            pass
+
+        def on_ui_component(self, component: dict) -> None:
+            captured_components.append(component)
+
+    await runner.run(session.session_id, "Show me a plan", handler=_Handler())
+
+    assert len(captured_components) == 1, "on_ui_component must be called once for the A2UI tool result"
+    assert captured_components[0].get("type") == "card"
 
 
 @pytest.mark.asyncio

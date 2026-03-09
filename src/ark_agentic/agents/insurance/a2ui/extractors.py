@@ -8,7 +8,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from ark_agentic.agents.insurance.tools.rule_engine import (
     LOAN_INTEREST_RATE as _LOAN_INTEREST_RATE,
@@ -148,7 +151,7 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
     }
 
 
-_ALL_CHANNELS = ("survival_fund", "bonus", "policy_loan", "partial_withdrawal", "surrender")
+_ALL_CHANNELS = ("survival_fund", "bonus", "partial_withdrawal", "policy_loan", "surrender")
 
 _CAT_CHANNELS: dict[str, tuple[str, ...]] = {
     "zero_cost": ("survival_fund", "bonus"),
@@ -253,8 +256,105 @@ def _allocs_to_plan_parts(
     return policies, buttons
 
 
+_CAT_PRIORITY = ("zero_cost", "loan", "risk")
+
+_VALID_CHANNELS: frozenset[str] = frozenset(_ALL_CHANNELS)
+
+
+def _plans_from_spec(
+    options: list[dict[str, Any]],
+    specs: list[dict[str, Any]],
+    default_target: float,
+) -> list[dict[str, Any]]:
+    """按 LLM 提供的方案规格计算分配。
+
+    每个 spec 指定渠道顺序（channels）、目标金额（target）、排除保单（exclude_policies）和文案。
+    extractor 只负责按规格调用 _allocate_to_target 并计算具体金额。
+    """
+    plans: list[dict[str, Any]] = []
+    for spec in specs[:3]:
+        raw_channels: list[str] = spec.get("channels") or list(_ALL_CHANNELS)
+        channels = [ch for ch in raw_channels if ch in _VALID_CHANNELS]
+        if len(channels) < len(raw_channels):
+            invalid = [ch for ch in raw_channels if ch not in _VALID_CHANNELS]
+            logger.warning("_plans_from_spec: 未知渠道ID已跳过: %s", invalid)
+        if not channels:
+            logger.warning("_plans_from_spec: 方案 %r 无有效渠道，跳过", spec.get("title", ""))
+            continue
+
+        exclude_channels: set[str] = set(spec.get("exclude_channels") or [])
+        exclude_pids: set[str] = set(spec.get("exclude_policies") or [])
+        filtered = [o for o in options if o.get("policy_id") not in exclude_pids] if exclude_pids else options
+
+        target_raw = spec.get("target")
+        if target_raw:
+            target = float(target_raw)
+        elif default_target > 0:
+            target = default_target
+        else:
+            target = sum(_channel_available(o, ch) for o in filtered for ch in channels)
+
+        allocs = _allocate_to_target(filtered, target, channels)
+        actual_total = sum(a for _, _, a in allocs)
+
+        # Auto-fill: if preferred channels can't meet target, extend with remaining
+        # channels (in _ALL_CHANNELS priority order), respecting exclude_channels.
+        if actual_total < target and target > 0:
+            channels_set = set(channels)
+            fill_channels = [
+                ch for ch in _ALL_CHANNELS
+                if ch not in channels_set and ch not in exclude_channels
+            ]
+            if fill_channels:
+                extra = _allocate_to_target(filtered, target - actual_total, fill_channels)
+                allocs = allocs + extra
+                actual_total = sum(a for _, _, a in allocs)
+
+        policies, buttons = _allocs_to_plan_parts(allocs)
+        plans.append({
+            "title": spec.get("title") or "",
+            "tag": spec.get("tag") or "",
+            "total": actual_total,
+            "reason": spec.get("reason") or "",
+            "policies": policies,
+            "buttons": buttons,
+        })
+    return plans
+
+
+def _used_categories(allocs: list[tuple[str, str, float]]) -> list[str]:
+    """从分配结果中提取实际使用的类别（保持优先级顺序）。"""
+    used: set[str] = set()
+    for _, ch, _ in allocs:
+        for cat, chs in _CAT_CHANNELS.items():
+            if ch in chs:
+                used.add(cat)
+                break
+    return [c for c in _CAT_PRIORITY if c in used]
+
+
+def _combo_tag(cats: list[str]) -> str:
+    """根据类别组合生成标签。"""
+    has_loan = "loan" in cats
+    has_risk = "risk" in cats
+    if has_loan and has_risk:
+        return "(部分需付利息且保障有损失)"
+    if has_loan:
+        return "(部分需付利息)"
+    if has_risk:
+        return "(部分保障有损失)"
+    return "(不影响保障)"
+
+
+def _combo_reason(cats: list[str]) -> str:
+    """根据类别组合生成推荐理由。"""
+    if len(cats) == 1:
+        return _CAT_META[cats[0]][2]
+    return "优先使用零成本渠道；不足部分依次搭配其他渠道补足。"
+
+
 def _generate_plans(options: list[dict[str, Any]], target: float) -> list[dict[str, Any]]:
-    """以目标金额为中心生成最多 3 个方案。"""
+    """以目标金额为中心生成最多 3 个方案。Plan 1 始终按优先级分配。"""
     cat_totals = {cat: _category_total(options, chs) for cat, chs in _CAT_CHANNELS.items()}
     all_total = sum(cat_totals.values())
     if all_total <= 0:
@@ -281,40 +381,40 @@ def _generate_plans(options: list[dict[str, Any]], target: float) -> list[dict[s
         })
         return plans
 
-    cat_order = ("zero_cost", "loan", "risk")
-    singles = [c for c in cat_order if cat_totals[c] >= target]
+    # Plan 1: 始终按优先级分配 (zero_cost -> loan -> risk)
+    allocs = _allocate_to_target(options, target, _ALL_CHANNELS)
+    policies, buttons = _allocs_to_plan_parts(allocs)
+    used_cats = _used_categories(allocs)
 
-    if singles:
-        for cat in singles[:3]:
-            name, tag, reason = _CAT_META[cat]
-            allocs = _allocate_to_target(options, target, _CAT_CHANNELS[cat])
-            policies, buttons = _allocs_to_plan_parts(allocs)
-            plans.append({"title": name, "tag": tag, "total": target,
-                           "reason": reason, "policies": policies, "buttons": buttons})
+    if len(used_cats) == 1:
+        name, tag, reason = _CAT_META[used_cats[0]]
     else:
-        combos: list[tuple[tuple[str, ...], str]] = [
-            (("zero_cost", "loan"), "(部分需付利息)"),
-            (("zero_cost", "risk"), "(部分保障有损失)"),
-            (("loan", "risk"), "(需付利息，部分保障有损失)"),
-            (("zero_cost", "loan", "risk"), "(部分需付利息且保障有损失)"),
-        ]
-        for cats, tag in combos:
+        name = " + ".join(_CAT_META[c][0] for c in used_cats)
+        tag = _combo_tag(used_cats)
+        reason = _combo_reason(used_cats)
+
+    plans.append({
+        "title": f"★ 推荐: {name}", "tag": tag, "total": target,
+        "reason": reason, "policies": policies, "buttons": buttons,
+    })
+
+    # 备选方案：仅当 Plan 1 是单类时，添加其他能独立满足的单类
+    if len(used_cats) == 1:
+        for cat in _CAT_PRIORITY:
             if len(plans) >= 3:
                 break
-            if sum(cat_totals[c] for c in cats) < target:
+            if cat == used_cats[0]:
                 continue
-            chs: list[str] = []
-            for c in cats:
-                chs.extend(_CAT_CHANNELS[c])
-            allocs = _allocate_to_target(options, target, chs)
-            policies, buttons = _allocs_to_plan_parts(allocs)
-            name = " + ".join(_CAT_META[c][0] for c in cats)
-            plans.append({"title": name, "tag": tag, "total": target,
-                           "reason": "优先使用零成本渠道；不足部分依次搭配其他渠道补足。",
-                           "policies": policies, "buttons": buttons})
+            if cat_totals[cat] < target:
+                continue
+            alt_allocs = _allocate_to_target(options, target, _CAT_CHANNELS[cat])
+            alt_policies, alt_buttons = _allocs_to_plan_parts(alt_allocs)
+            alt_name, alt_tag, alt_reason = _CAT_META[cat]
+            plans.append({
+                "title": alt_name, "tag": alt_tag, "total": target,
+                "reason": alt_reason, "policies": alt_policies, "buttons": alt_buttons,
+            })
 
-    if plans:
-        plans[0]["title"] = f"★ 推荐: {plans[0]['title']}"
     return plans
 
 
@@ -339,7 +439,13 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
     args = card_args or {}
     requested_amount = float(rule_data.get("requested_amount") or 0)
 
-    plans = _generate_plans(options, requested_amount)
+    specs = args.get("plans")
+    if specs and isinstance(specs, list):
+        plans = _plans_from_spec(options, specs, requested_amount)
+        if not plans:
+            plans = _generate_plans(options, requested_amount)
+    else:
+        plans = _generate_plans(options, requested_amount)
 
     data: dict[str, Any] = {
         "page_title": _str_from_args(args, "page_title", "为您推荐的取款方案"),
@@ -351,9 +457,11 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
         p = f"plan_{i + 1}_"
         if i < len(plans):
             plan = plans[i]
+            tag_str = plan.get("tag", "") or ""
             data[f"{p}hide"] = False
             data[f"{p}title"] = plan["title"]
-            data[f"{p}tag"] = plan["tag"]
+            data[f"{p}tag"] = tag_str
+            data[f"{p}tag_hide"] = not tag_str.strip()
             data[f"{p}total"] = f"合计：{_fmt(plan['total'])}"
             data[f"{p}reason"] = plan["reason"]
             data[f"{p}policies"] = plan["policies"]
@@ -368,11 +476,11 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
                     data[f"{p}btn_{bn}_hide"] = True
                     data[f"{p}btn_{bn}_text"] = ""
                     data[f"{p}btn_{bn}_action"] = {"queryMsg": ""}
-            data[f"{p}btn_row_2_hide"] = data[f"{p}btn_3_hide"] and data[f"{p}btn_4_hide"]
         else:
             data[f"{p}hide"] = True
             data[f"{p}title"] = ""
             data[f"{p}tag"] = ""
+            data[f"{p}tag_hide"] = True
             data[f"{p}total"] = ""
             data[f"{p}reason"] = ""
             data[f"{p}policies"] = []
@@ -380,7 +488,6 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
                 data[f"{p}btn_{bn}_hide"] = True
                 data[f"{p}btn_{bn}_text"] = ""
                 data[f"{p}btn_{bn}_action"] = {"queryMsg": ""}
-            data[f"{p}btn_row_2_hide"] = True
 
     return data
 
