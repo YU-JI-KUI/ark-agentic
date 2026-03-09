@@ -537,12 +537,23 @@ class AgentRunner:
             elif msg.role == MessageRole.TOOL:
                 if msg.tool_results:
                     for tr in msg.tool_results:
-                        # 确保 content 是正确的 JSON 字符串
-                        content = tr.content
-                        if isinstance(content, (dict, list)):
-                            content = json.dumps(content, ensure_ascii=False)
+                        if tr.result_type == ToolResultType.A2UI:
+                            # A2UI payload 是纯视图层数据（布局、样式、文案），
+                            # 已通过 SSE on_ui_component 推送给前端。
+                            # 回传给 LLM 会暴露大量结构化数字/文案，
+                            # 导致 LLM 复述卡片内容。
+                            # 业务数据由上游 rule_engine 等工具已在 history 中保留。
+                            content = (
+                                "[系统: A2UI 卡片已成功渲染并展示给用户，"
+                                "包含完整方案信息。"
+                                "请勿在文字中重复卡片内已展示的任何数据。]"
+                            )
                         else:
-                            content = str(content)
+                            content = tr.content
+                            if isinstance(content, (dict, list)):
+                                content = json.dumps(content, ensure_ascii=False)
+                            else:
+                                content = str(content)
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tr.tool_call_id,
