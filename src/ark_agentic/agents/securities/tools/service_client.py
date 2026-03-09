@@ -80,10 +80,27 @@ class BaseServiceAdapter(ABC):
                 )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            logger.error(
+                "service=%s method=%s url=%s status=%s payload=%s response=%s",
+                type(self).__name__,
+                self.http_method,
+                self.config.url,
+                exc.response.status_code,
+                payload,
+                exc.response.text[:500],
+            )
             raise ServiceError(
                 f"HTTP {exc.response.status_code}: {exc.response.text[:300]}"
             ) from exc
         except httpx.RequestError as exc:
+            logger.error(
+                "service=%s method=%s url=%s payload=%s error=%s",
+                type(self).__name__,
+                self.http_method,
+                self.config.url,
+                payload,
+                exc,
+            )
             raise ServiceError(f"Request failed: {exc}") from exc
 
         # 解析和标准化
