@@ -20,6 +20,7 @@
               "header-card",
               "card-zero-cost",
               "card-loan",
+              "card-partial-surrender",
               "card-advice",
               "btn-get-plan"
             ]
@@ -62,7 +63,7 @@
       "id": "header-title",
       "component": {
         "Text": {
-          "text": { "path": "header_title" },
+          "text": { "path": "header_title", "literalString": "目前可领取的总金额(含贷款)" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -73,7 +74,7 @@
       "id": "header-value",
       "component": {
         "Text": {
-          "text": { "path": "header_value" },
+          "text": { "path": "header_value", "literalString": "—" },
           "color": "#FF6600",
           "fontSize": "24px",
           "bold": true
@@ -84,7 +85,7 @@
       "id": "header-sub",
       "component": {
         "Text": {
-          "text": { "path": "header_sub" },
+          "text": { "path": "header_sub", "literalString": "" },
           "color": "#999999",
           "fontSize": "12px"
         }
@@ -94,12 +95,13 @@
       "id": "header-requested",
       "component": {
         "Text": {
-          "text": { "path": "requested_amount_display" },
+          "text": { "path": "requested_amount_display", "literalString": "—" },
           "color": "#666666",
           "fontSize": "12px"
         }
       }
     },
+
     {
       "id": "card-zero-cost",
       "component": {
@@ -145,11 +147,11 @@
     {
       "id": "cz-line",
       "component": {
-        "Text": {
-          "text": { "path": "section_marker" },
-          "color": "#FF6600",
-          "fontSize": "16px",
-          "bold": true
+        "Line": {
+          "backgroundColor": "#FF6600",
+          "minWidth": "3px",
+          "minHeight": "16px",
+          "borderRadius": "small"
         }
       }
     },
@@ -157,7 +159,7 @@
       "id": "cz-title",
       "component": {
         "Text": {
-          "text": { "path": "zero_cost_title" },
+          "text": { "path": "zero_cost_title", "literalString": "零成本领取" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -167,10 +169,10 @@
     {
       "id": "cz-tag",
       "component": {
-        "Text": {
-          "text": { "path": "zero_cost_tag" },
-          "color": "#999999",
-          "fontSize": "12px"
+        "Tag": {
+          "text": { "path": "zero_cost_tag", "literalString": "不影响保障" },
+          "color": "#6cb585",
+          "size": "small"
         }
       }
     },
@@ -178,7 +180,7 @@
       "id": "cz-total",
       "component": {
         "Text": {
-          "text": { "path": "zero_cost_total" },
+          "text": { "path": "zero_cost_total", "literalString": "合计：—" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -198,7 +200,18 @@
           "direction": "vertical",
           "gap": 8,
           "child": "cz-item-tpl",
-          "dataSource": { "path": "zero_cost_items" }
+          "dataSource": { "path": "zero_cost_items" },
+          "emptyChild": "cz-empty-text"
+        }
+      }
+    },
+    {
+      "id": "cz-empty-text",
+      "component": {
+        "Text": {
+          "text": { "literalString": "暂无可领取项" },
+          "usageHint": "tips",
+          "size": "small"
         }
       }
     },
@@ -234,6 +247,7 @@
         }
       }
     },
+
     {
       "id": "card-loan",
       "component": {
@@ -279,11 +293,11 @@
     {
       "id": "cl-line",
       "component": {
-        "Text": {
-          "text": { "path": "section_marker" },
-          "color": "#FF6600",
-          "fontSize": "16px",
-          "bold": true
+        "Line": {
+          "backgroundColor": "#FF6600",
+          "minWidth": "3px",
+          "minHeight": "16px",
+          "borderRadius": "small"
         }
       }
     },
@@ -291,7 +305,7 @@
       "id": "cl-title",
       "component": {
         "Text": {
-          "text": { "path": "loan_title" },
+          "text": { "path": "loan_title", "literalString": "保单贷款" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -301,10 +315,10 @@
     {
       "id": "cl-tag",
       "component": {
-        "Text": {
-          "text": { "path": "loan_tag" },
-          "color": "#999999",
-          "fontSize": "12px"
+        "Tag": {
+          "text": { "path": "loan_tag", "literalString": "需支付利息" },
+          "color": "#FF8800",
+          "size": "small"
         }
       }
     },
@@ -312,7 +326,7 @@
       "id": "cl-total",
       "component": {
         "Text": {
-          "text": { "path": "loan_total" },
+          "text": { "path": "loan_total", "literalString": "合计可贷：—" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -332,7 +346,18 @@
           "direction": "vertical",
           "gap": 8,
           "child": "cl-item-tpl",
-          "dataSource": { "path": "loan_items" }
+          "dataSource": { "path": "loan_items" },
+          "emptyChild": "cl-empty-text"
+        }
+      }
+    },
+    {
+      "id": "cl-empty-text",
+      "component": {
+        "Text": {
+          "text": { "literalString": "暂无可贷项" },
+          "usageHint": "tips",
+          "size": "small"
         }
       }
     },
@@ -368,6 +393,153 @@
         }
       }
     },
+
+    {
+      "id": "card-partial-surrender",
+      "component": {
+        "Card": {
+          "width": 100,
+          "backgroundColor": "#FFFFFF",
+          "borderRadius": "middle",
+          "padding": 16,
+          "children": {
+            "explicitList": ["cp-col"]
+          }
+        }
+      }
+    },
+    {
+      "id": "cp-col",
+      "component": {
+        "Column": {
+          "gap": 12,
+          "children": {
+            "explicitList": [
+              "cp-title-row",
+              "cp-total",
+              "cp-divider",
+              "cp-items-list"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "cp-title-row",
+      "component": {
+        "Row": {
+          "alignment": "middle",
+          "gap": 8,
+          "children": {
+            "explicitList": ["cp-line", "cp-title", "cp-tag"]
+          }
+        }
+      }
+    },
+    {
+      "id": "cp-line",
+      "component": {
+        "Line": {
+          "backgroundColor": "#CC6600",
+          "minWidth": "3px",
+          "minHeight": "16px",
+          "borderRadius": "small"
+        }
+      }
+    },
+    {
+      "id": "cp-title",
+      "component": {
+        "Text": {
+          "text": { "path": "partial_surrender_title", "literalString": "部分领取/退保" },
+          "color": "#333333",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "cp-tag",
+      "component": {
+        "Tag": {
+          "text": { "path": "partial_surrender_tag", "literalString": "保障有损失，不建议" },
+          "color": "#CC6600",
+          "size": "small"
+        }
+      }
+    },
+    {
+      "id": "cp-total",
+      "component": {
+        "Text": {
+          "text": { "path": "partial_surrender_total", "literalString": "合计：—" },
+          "color": "#999999",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "cp-divider",
+      "component": {
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "cp-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "cp-item-tpl",
+          "dataSource": { "path": "partial_surrender_items" },
+          "emptyChild": "cp-empty-text"
+        }
+      }
+    },
+    {
+      "id": "cp-empty-text",
+      "component": {
+        "Text": {
+          "text": { "literalString": "暂无退保金项" },
+          "usageHint": "tips",
+          "size": "small"
+        }
+      }
+    },
+    {
+      "id": "cp-item-tpl",
+      "component": {
+        "Row": {
+          "width": 100,
+          "distribution": "spaceBetween",
+          "children": {
+            "explicitList": ["cp-item-label", "cp-item-value"]
+          }
+        }
+      }
+    },
+    {
+      "id": "cp-item-label",
+      "component": {
+        "Text": {
+          "text": { "path": "label" },
+          "color": "#333333",
+          "fontSize": "14px"
+        }
+      }
+    },
+    {
+      "id": "cp-item-value",
+      "component": {
+        "Text": {
+          "text": { "path": "value" },
+          "color": "#333333",
+          "fontSize": "14px"
+        }
+      }
+    },
+
     {
       "id": "card-advice",
       "component": {
@@ -388,7 +560,7 @@
         "Column": {
           "gap": 8,
           "children": {
-            "explicitList": ["ca-title-row", "ca-t1", "ca-t2"]
+            "explicitList": ["ca-title-row", "ca-t1", "ca-t2", "ca-t3"]
           }
         }
       }
@@ -409,7 +581,7 @@
       "id": "ca-icon",
       "component": {
         "Text": {
-          "text": { "path": "advice_icon" },
+          "text": { "path": "advice_icon", "literalString": "💡" },
           "fontSize": "16px"
         }
       }
@@ -418,7 +590,7 @@
       "id": "ca-title",
       "component": {
         "Text": {
-          "text": { "path": "advice_title" },
+          "text": { "path": "advice_title", "literalString": "建议方案" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -429,7 +601,7 @@
       "id": "ca-t1",
       "component": {
         "Text": {
-          "text": { "path": "advice_text_1" },
+          "text": { "path": "advice_text_1", "literalString": "• 建议优先领取零成本渠道（生存金、红利），不影响保障。" },
           "color": "#999999",
           "fontSize": "14px"
         }
@@ -439,8 +611,18 @@
       "id": "ca-t2",
       "component": {
         "Text": {
-          "text": { "path": "advice_text_2" },
+          "text": { "path": "advice_text_2", "literalString": "• 如需更多资金，可搭配保单贷款，年利率5%，保障不受影响。" },
           "color": "#999999",
+          "fontSize": "14px"
+        }
+      }
+    },
+    {
+      "id": "ca-t3",
+      "component": {
+        "Text": {
+          "text": { "path": "advice_text_3", "literalString": "• 部分领取或退保会导致保障减少或终止，不建议优先选择。" },
+          "color": "#CC6600",
           "fontSize": "14px"
         }
       }
@@ -451,7 +633,7 @@
         "Button": {
           "type": "primary",
           "width": 100,
-          "text": { "path": "plan_button_text" },
+          "text": { "path": "plan_button_text", "literalString": "获取最优方案" },
           "action": {
             "name": "query",
             "args": { "path": "plan_action_args" }

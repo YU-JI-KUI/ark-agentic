@@ -18,8 +18,9 @@
           "children": {
             "explicitList": [
               "page-title",
-              "card-rec",
-              "card-alt",
+              "card-plan-1",
+              "card-plan-2",
+              "card-plan-3",
               "prompt-text"
             ]
           }
@@ -37,54 +38,46 @@
         }
       }
     },
+
     {
-      "id": "card-rec",
+      "id": "card-plan-1",
       "component": {
         "Card": {
+          "hide": { "path": "plan_1_hide" },
           "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
-          "children": {
-            "explicitList": ["col-rec"]
-          }
+          "children": { "explicitList": ["p1-col"] }
         }
       }
     },
     {
-      "id": "col-rec",
+      "id": "p1-col",
       "component": {
         "Column": {
-          "width": 100,
-          "gap": 16,
+          "gap": 12,
           "children": {
             "explicitList": [
-              "row-rec-title",
-              "row-rec-amount",
-              "rec-policies-list",
-              "row-rec-rsn",
-              "btn-rec"
+              "p1-title-row", "p1-total", "p1-reason", "p1-divider",
+              "p1-items-list", "p1-btn-row-1", "p1-btn-row-2"
             ]
           }
         }
       }
     },
     {
-      "id": "row-rec-title",
+      "id": "p1-title-row",
       "component": {
         "Row": {
-          "width": 100,
           "alignment": "middle",
-          "distribution": "start",
           "gap": 8,
-          "children": {
-            "explicitList": ["text-rec-line", "text-rec-title"]
-          }
+          "children": { "explicitList": ["p1-marker", "p1-title", "p1-tag"] }
         }
       }
     },
     {
-      "id": "text-rec-line",
+      "id": "p1-marker",
       "component": {
         "Text": {
           "text": { "path": "section_marker" },
@@ -95,10 +88,10 @@
       }
     },
     {
-      "id": "text-rec-title",
+      "id": "p1-title",
       "component": {
         "Text": {
-          "text": { "path": "rec_title" },
+          "text": { "path": "plan_1_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -106,148 +99,178 @@
       }
     },
     {
-      "id": "row-rec-amount",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "bottom",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["text-rec-amount", "text-rec-unit"]
-          }
-        }
-      }
-    },
-    {
-      "id": "text-rec-amount",
+      "id": "p1-tag",
       "component": {
         "Text": {
-          "text": { "path": "rec_amount" },
-          "color": "#FF6600",
-          "fontSize": "24px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "text-rec-unit",
-      "component": {
-        "Text": {
-          "text": { "path": "amount_unit" },
-          "color": "#FF6600",
-          "fontSize": "14px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "rec-policies-list",
-      "component": {
-        "List": {
-          "direction": "vertical",
-          "gap": 8,
-          "child": "plan-policy-tpl",
-          "dataSource": { "path": "rec_policies" }
-        }
-      }
-    },
-    {
-      "id": "row-rec-rsn",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["lbl-rec-rsn", "val-rec-rsn"]
-          }
-        }
-      }
-    },
-    {
-      "id": "lbl-rec-rsn",
-      "component": {
-        "Text": {
-          "text": { "path": "label_reason" },
-          "color": "#999999",
+          "text": { "path": "plan_1_tag" },
+          "color": "#52C41A",
           "fontSize": "12px"
         }
       }
     },
     {
-      "id": "val-rec-rsn",
+      "id": "p1-total",
       "component": {
         "Text": {
-          "text": { "path": "rec_reason" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
+          "text": { "path": "plan_1_total" },
+          "color": "#FF6600",
+          "fontSize": "16px",
+          "bold": true
         }
       }
     },
     {
-      "id": "btn-rec",
+      "id": "p1-reason",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_1_reason" },
+          "color": "#999999",
+          "fontSize": "13px"
+        }
+      }
+    },
+    {
+      "id": "p1-divider",
+      "component": {
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "p1-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "plan-item-tpl",
+          "dataSource": { "path": "plan_1_policies" }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-row-1",
+      "component": {
+        "Row": {
+          "width": 100,
+          "gap": 8,
+          "children": { "explicitList": ["p1-btn-1", "p1-btn-2"] }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-1",
       "component": {
         "Button": {
+          "hide": { "path": "plan_1_btn_1_hide" },
+          "flex": 1,
           "type": "primary",
-          "size": "large",
-          "text": { "path": "rec_button_text" },
+          "size": "small",
+          "text": { "path": "plan_1_btn_1_text" },
           "action": {
             "name": "query",
-            "args": { "path": "rec_action_args" }
+            "args": { "path": "plan_1_btn_1_action" }
           }
         }
       }
     },
     {
-      "id": "card-alt",
+      "id": "p1-btn-2",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_1_btn_2_hide" },
+          "flex": 1,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_1_btn_2_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_1_btn_2_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-row-2",
+      "component": {
+        "Row": {
+          "hide": { "path": "plan_1_btn_row_2_hide" },
+          "width": 100,
+          "gap": 8,
+          "children": { "explicitList": ["p1-btn-3", "p1-btn-4"] }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-3",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_1_btn_3_hide" },
+          "flex": 1,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_1_btn_3_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_1_btn_3_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-4",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_1_btn_4_hide" },
+          "flex": 1,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_1_btn_4_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_1_btn_4_action" }
+          }
+        }
+      }
+    },
+
+    {
+      "id": "card-plan-2",
       "component": {
         "Card": {
+          "hide": { "path": "plan_2_hide" },
           "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
-          "children": {
-            "explicitList": ["col-alt"]
-          }
+          "children": { "explicitList": ["p2-col"] }
         }
       }
     },
     {
-      "id": "col-alt",
+      "id": "p2-col",
       "component": {
         "Column": {
-          "width": 100,
-          "gap": 16,
+          "gap": 12,
           "children": {
             "explicitList": [
-              "row-alt-title",
-              "row-alt-amount",
-              "alt-policies-list",
-              "btn-alt"
+              "p2-title-row", "p2-total", "p2-reason", "p2-divider",
+              "p2-items-list", "p2-btn-row-1", "p2-btn-row-2"
             ]
           }
         }
       }
     },
     {
-      "id": "row-alt-title",
+      "id": "p2-title-row",
       "component": {
         "Row": {
-          "width": 100,
           "alignment": "middle",
-          "distribution": "start",
           "gap": 8,
-          "children": {
-            "explicitList": ["text-alt-line", "text-alt-title"]
-          }
+          "children": { "explicitList": ["p2-marker", "p2-title", "p2-tag"] }
         }
       }
     },
     {
-      "id": "text-alt-line",
+      "id": "p2-marker",
       "component": {
         "Text": {
           "text": { "path": "section_marker" },
@@ -258,10 +281,10 @@
       }
     },
     {
-      "id": "text-alt-title",
+      "id": "p2-title",
       "component": {
         "Text": {
-          "text": { "path": "alt_title" },
+          "text": { "path": "plan_2_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -269,229 +292,371 @@
       }
     },
     {
-      "id": "row-alt-amount",
+      "id": "p2-tag",
       "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "bottom",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["text-alt-amount", "text-alt-unit"]
-          }
+        "Text": {
+          "text": { "path": "plan_2_tag" },
+          "color": "#FA8C16",
+          "fontSize": "12px"
         }
       }
     },
     {
-      "id": "text-alt-amount",
+      "id": "p2-total",
       "component": {
         "Text": {
-          "text": { "path": "alt_amount" },
+          "text": { "path": "plan_2_total" },
           "color": "#FF6600",
-          "fontSize": "24px",
+          "fontSize": "16px",
           "bold": true
         }
       }
     },
     {
-      "id": "text-alt-unit",
+      "id": "p2-reason",
       "component": {
         "Text": {
-          "text": { "path": "amount_unit" },
-          "color": "#FF6600",
-          "fontSize": "14px",
-          "bold": true
+          "text": { "path": "plan_2_reason" },
+          "color": "#999999",
+          "fontSize": "13px"
         }
       }
     },
     {
-      "id": "alt-policies-list",
+      "id": "p2-divider",
+      "component": {
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "p2-items-list",
       "component": {
         "List": {
           "direction": "vertical",
           "gap": 8,
-          "child": "plan-policy-tpl",
-          "dataSource": { "path": "alt_policies" }
+          "child": "plan-item-tpl",
+          "dataSource": { "path": "plan_2_policies" }
         }
       }
     },
     {
-      "id": "btn-alt",
+      "id": "p2-btn-row-1",
+      "component": {
+        "Row": {
+          "width": 100,
+          "gap": 8,
+          "children": { "explicitList": ["p2-btn-1", "p2-btn-2"] }
+        }
+      }
+    },
+    {
+      "id": "p2-btn-1",
       "component": {
         "Button": {
+          "hide": { "path": "plan_2_btn_1_hide" },
+          "flex": 1,
           "type": "secondary",
-          "size": "large",
-          "text": { "path": "alt_button_text" },
+          "size": "small",
+          "text": { "path": "plan_2_btn_1_text" },
           "action": {
             "name": "query",
-            "args": { "path": "alt_action_args" }
+            "args": { "path": "plan_2_btn_1_action" }
           }
         }
       }
     },
     {
-      "id": "plan-policy-tpl",
+      "id": "p2-btn-2",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_2_btn_2_hide" },
+          "flex": 1,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_2_btn_2_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_2_btn_2_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p2-btn-row-2",
+      "component": {
+        "Row": {
+          "hide": { "path": "plan_2_btn_row_2_hide" },
+          "width": 100,
+          "gap": 8,
+          "children": { "explicitList": ["p2-btn-3", "p2-btn-4"] }
+        }
+      }
+    },
+    {
+      "id": "p2-btn-3",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_2_btn_3_hide" },
+          "flex": 1,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_2_btn_3_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_2_btn_3_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p2-btn-4",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_2_btn_4_hide" },
+          "flex": 1,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_2_btn_4_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_2_btn_4_action" }
+          }
+        }
+      }
+    },
+
+    {
+      "id": "card-plan-3",
+      "component": {
+        "Card": {
+          "hide": { "path": "plan_3_hide" },
+          "width": 100,
+          "backgroundColor": "#FFFFFF",
+          "borderRadius": "middle",
+          "padding": 16,
+          "children": { "explicitList": ["p3-col"] }
+        }
+      }
+    },
+    {
+      "id": "p3-col",
       "component": {
         "Column": {
-          "width": 100,
-          "gap": 4,
+          "gap": 12,
           "children": {
             "explicitList": [
-              "pp-row-pol",
-              "pp-row-time",
-              "pp-row-cost",
-              "pp-row-imp"
+              "p3-title-row", "p3-total", "p3-reason", "p3-divider",
+              "p3-items-list", "p3-btn-row-1", "p3-btn-row-2"
             ]
           }
         }
       }
     },
     {
-      "id": "pp-row-pol",
+      "id": "p3-title-row",
       "component": {
         "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["pp-lbl-pol", "pp-val-pol"]
-          }
+          "alignment": "middle",
+          "gap": 8,
+          "children": { "explicitList": ["p3-marker", "p3-title", "p3-tag"] }
         }
       }
     },
     {
-      "id": "pp-lbl-pol",
+      "id": "p3-marker",
       "component": {
         "Text": {
-          "text": { "path": "label_policy" },
-          "color": "#999999",
+          "text": { "path": "section_marker" },
+          "color": "#FF6600",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p3-title",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_3_title" },
+          "color": "#333333",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p3-tag",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_3_tag" },
+          "color": "#FA8C16",
           "fontSize": "12px"
         }
       }
     },
     {
-      "id": "pp-val-pol",
+      "id": "p3-total",
       "component": {
         "Text": {
-          "text": { "path": "policy_name" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
+          "text": { "path": "plan_3_total" },
+          "color": "#FF6600",
+          "fontSize": "16px",
+          "bold": true
         }
       }
     },
     {
-      "id": "pp-row-time",
+      "id": "p3-reason",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_3_reason" },
+          "color": "#999999",
+          "fontSize": "13px"
+        }
+      }
+    },
+    {
+      "id": "p3-divider",
+      "component": {
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "p3-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "plan-item-tpl",
+          "dataSource": { "path": "plan_3_policies" }
+        }
+      }
+    },
+    {
+      "id": "p3-btn-row-1",
       "component": {
         "Row": {
           "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["pp-lbl-time", "pp-val-time"]
+          "gap": 8,
+          "children": { "explicitList": ["p3-btn-1", "p3-btn-2"] }
+        }
+      }
+    },
+    {
+      "id": "p3-btn-1",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_3_btn_1_hide" },
+          "flex": 1,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_3_btn_1_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_3_btn_1_action" }
           }
         }
       }
     },
     {
-      "id": "pp-lbl-time",
+      "id": "p3-btn-2",
       "component": {
-        "Text": {
-          "text": { "path": "label_time" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "pp-val-time",
-      "component": {
-        "Text": {
-          "text": { "path": "time" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
-        }
-      }
-    },
-    {
-      "id": "pp-row-cost",
-      "component": {
-        "Row": {
-          "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["pp-lbl-cost", "pp-val-cost"]
+        "Button": {
+          "hide": { "path": "plan_3_btn_2_hide" },
+          "flex": 1,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_3_btn_2_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_3_btn_2_action" }
           }
         }
       }
     },
     {
-      "id": "pp-lbl-cost",
-      "component": {
-        "Text": {
-          "text": { "path": "label_cost" },
-          "color": "#999999",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
-      "id": "pp-val-cost",
-      "component": {
-        "Text": {
-          "text": { "path": "cost" },
-          "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
-        }
-      }
-    },
-    {
-      "id": "pp-row-imp",
+      "id": "p3-btn-row-2",
       "component": {
         "Row": {
+          "hide": { "path": "plan_3_btn_row_2_hide" },
           "width": 100,
-          "alignment": "top",
-          "distribution": "start",
-          "gap": 4,
-          "children": {
-            "explicitList": ["pp-lbl-imp", "pp-val-imp"]
+          "gap": 8,
+          "children": { "explicitList": ["p3-btn-3", "p3-btn-4"] }
+        }
+      }
+    },
+    {
+      "id": "p3-btn-3",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_3_btn_3_hide" },
+          "flex": 1,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_3_btn_3_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_3_btn_3_action" }
           }
         }
       }
     },
     {
-      "id": "pp-lbl-imp",
+      "id": "p3-btn-4",
       "component": {
-        "Text": {
-          "text": { "path": "label_impact" },
-          "color": "#999999",
-          "fontSize": "12px"
+        "Button": {
+          "hide": { "path": "plan_3_btn_4_hide" },
+          "flex": 1,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_3_btn_4_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_3_btn_4_action" }
+          }
+        }
+      }
+    },
+
+    {
+      "id": "plan-item-tpl",
+      "component": {
+        "Row": {
+          "width": 100,
+          "distribution": "spaceBetween",
+          "children": {
+            "explicitList": ["plan-item-label", "plan-item-value"]
+          }
         }
       }
     },
     {
-      "id": "pp-val-imp",
+      "id": "plan-item-label",
       "component": {
         "Text": {
-          "text": { "path": "impact" },
+          "text": { "path": "label" },
           "color": "#333333",
-          "fontSize": "14px",
-          "flex": 1
+          "fontSize": "14px"
         }
       }
     },
+    {
+      "id": "plan-item-value",
+      "component": {
+        "Text": {
+          "text": { "path": "value" },
+          "color": "#333333",
+          "fontSize": "14px"
+        }
+      }
+    },
+
     {
       "id": "prompt-text",
       "component": {
         "Text": {
           "text": { "path": "prompt_text" },
-          "color": "#333333",
+          "color": "#666666",
           "fontSize": "14px"
         }
       }

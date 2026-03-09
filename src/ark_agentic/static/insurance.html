@@ -1523,6 +1523,20 @@
               return el;
             }
 
+            // A2UI standard 2.4.8: Line component (decorative bar)
+            case 'Line': {
+              const el = document.createElement('div');
+              el.style.backgroundColor = props.backgroundColor || '#E0E0E0';
+              if (props.minWidth) el.style.minWidth = typeof props.minWidth === 'number' ? props.minWidth + 'px' : props.minWidth;
+              if (props.minHeight) el.style.minHeight = typeof props.minHeight === 'number' ? props.minHeight + 'px' : props.minHeight;
+              if (props.borderRadius) {
+                const rMap = { small: '4px', middle: '8px', big: '12px' };
+                el.style.borderRadius = rMap[props.borderRadius] || (typeof props.borderRadius === 'number' ? props.borderRadius + 'px' : props.borderRadius);
+              }
+              el.style.flexShrink = '0';
+              return el;
+            }
+
             case 'Tag': {
               const el = document.createElement('span');
               el.textContent = resolveValue(props.text, localData);

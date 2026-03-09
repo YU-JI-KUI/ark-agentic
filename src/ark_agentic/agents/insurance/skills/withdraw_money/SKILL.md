@@ -1,6 +1,6 @@
 ---
 name: 保险取款
-description: 用户表达取钱、领钱、用钱、周转、借款等意图且已提及具体金额时，立即使用此技能。涵盖"取5万"、"需要3万"、"急用钱"等场景；调用 rule_engine 查询保单可用额度，以 A2UI 卡片展示推荐方案（优先生存金/红利）和备选方案，绝不用大段文字替代卡片。
+description: 用户表达取钱、领钱、用钱、周转、借款等意图且已提及具体金额时，立即使用此技能；或用户询问"能领多少钱"、"最多能取多少"、"有多少额度"等容量查询时也使用此技能。调用 rule_engine 查询保单可用额度，以 A2UI 卡片展示方案（有金额→withdraw_plan，容量查询→withdraw_summary），绝不用大段文字替代卡片。
 version: "4.0.0"
 invocation_policy: auto
 group: insurance
@@ -28,12 +28,13 @@ required_tools:
 
 ## 触发条件
 
-**同时满足以下两个条件**时触发：
-1. 用户表达了取款意图（"取钱"、"领取"、"借款"、"需要用钱"等）
-2. 用户已明确了取款金额（如"取5万"、"需要10万"）
+满足以下**任一情形**时触发：
+
+1. **有金额的执行意图**：用户表达了取款意图（"取钱"、"领取"、"借款"、"需要用钱"等）且已明确金额（如"取5万"、"需要10万"）→ 展示 `withdraw_plan` 卡
+2. **容量查询**：用户询问可领额度上限（"我能领多少钱"、"最多能取多少"、"有多少额度"、"能取多少"等），无需金额 → 展示 `withdraw_summary` 卡
 
 **不触发**的情况：
-- 用户只说了"想取钱"但没说金额 → 应由 clarify_need 技能先收集金额
+- 用户只说了"想取钱"但没说金额，且无容量查询意图 → 应由 clarify_need 技能先收集金额
 - 用户在聊非取款话题
 
 ## 回复结构
@@ -45,6 +46,8 @@ required_tools:
 
 ## 执行流程
 
+> 根据触发情形（有金额 or 容量查询），流程在**第二步**和**第五步**有所不同，其余步骤相同。
+
 ### 第一步：信息收集
 
 调用 `customer_info` 获取用户基本信息（年龄、性别、家庭关系），用于后续推荐话术的针对性调整：
@@ -55,6 +58,8 @@ customer_info(info_type="identity", user_id=用户ID)
 
 ### 第二步：调用规则引擎
 
+**情形 A — 有金额（执行意图）**：
+
 ```
 rule_engine(
   action="list_options",
@@ -63,7 +68,18 @@ rule_engine(
 )
 ```
 
-**不需要再做需求澄清**：金额在触发本技能前已由 clarify_need 技能确认。
+**情形 B — 容量查询（无金额）**：
+
+```
+rule_engine(
+  action="list_options",
+  user_id=用户ID
+)
+```
+
+`amount` 不传，规则引擎返回所有保单的完整可用额度，`requested_amount` 为 null。
+
+**不需要再做需求澄清**：情形 A 的金额在触发本技能前已由 clarify_need 技能确认；情形 B 本就不需要金额。
 
 ### 第三步：理解返回数据
 
@@ -129,47 +145,51 @@ rule_engine(
 
 #### 卡片选择规则
 
-- **用户已明确金额** → 必须调用 `render_card(card_type="withdraw_plan", card_args=...)` 展示具体方案卡
-- **用户仅查询可领总额（无金额）** → 调用 `render_card(card_type="withdraw_summary", card_args=...)` 展示汇总卡
+- **情形 A（有金额）** → 调用 `render_card(card_type="withdraw_plan", card_args=...)` 展示具体方案卡
+- **情形 B（容量查询）** → 调用 `render_card(card_type="withdraw_summary", card_args=...)` 展示汇总卡
 
-本技能触发时用户已有明确金额，**应始终渲染 `withdraw_plan` 卡**。
+#### withdraw_plan card_args 说明
 
-#### withdraw_plan card_args 完整示例
+卡片所有金额、保单、方案和按钮均由提取器从 `rule_engine` 结果**确定性自动生成**，无需 LLM 手动填写。
 
-你必须严格填写以下所有字段并传入 card_args，不得留空：
+**方案生成逻辑**（最多 3 个方案，以目标金额为中心）：
+
+1. **有 `requested_amount`，单类渠道可满足**：显示满足目标的单类方案（如"零成本领取"），每个方案只分配恰好目标金额
+2. **有 `requested_amount`，单类不够**：显示组合方案（如"零成本领取 + 保单贷款"），按优先级分配到目标金额
+3. **所有渠道总额仍不足**：显示"最大可取"方案，合并所有渠道
+4. **无 `requested_amount`**（容量查询后）：显示全部可用渠道汇总
+
+每个方案卡片包含：标题（★ 推荐标记）、标签、合计金额、推荐理由、保单列表、2×2 按钮网格（按涉及的渠道类型生成）。
+
+`card_args` **仅用于覆盖页面文案**，所有字段可选：
 
 ```json
 {
   "page_title": "为您推荐的取款方案",
-  "rec_policy_id": "POL002",
-  "rec_option_type": "survival_fund",
-  "rec_amount": 50000,
-  "rec_title": "★ 推荐: 生存金领取",
-  "rec_policy": "金瑞人生年金险|POL002",
-  "rec_time": "1-3个工作日",
-  "rec_cost": "0元",
-  "rec_impact": "不影响保障",
-  "rec_reason": "零成本、无风险，不影响您的任何保障",
-  "rec_button_text": "办理生存金领取",
-  "rec_query_msg": "我想办理生存金领取",
-  "alt_policy_id": "POL002",
-  "alt_option_type": "loan",
-  "alt_amount": 50000,
-  "alt_title": "备选一: 保单贷款",
-  "alt_policy": "金瑞人生年金险|POL002",
-  "alt_time": "1-3个工作日",
-  "alt_cost": "年利率5%",
-  "alt_impact": "不影响保障，逾期可致保单中止",
-  "alt_reason": "保障不受影响，适合短期周转",
-  "alt_button_text": "办理保单贷款",
-  "alt_query_msg": "我想办理保单贷款"
+  "prompt_text": "请问您想选择哪个方案？确认后我可以为您办理。"
+}
+```
+
+- 不传 `card_args` 时，卡片仍可正常渲染
+- 按钮 queryMsg 完全由提取器从分配结果生成（格式：`办理生存金领取，POL001，10000.00`），无需 LLM 覆盖
+
+#### withdraw_summary card_args 完整示例（情形 B）
+
+以下四个字段均为可选文案，extractor 有合理默认值，无需强制覆盖：
+
+```json
+{
+  "advice_text_1": "• 建议优先领取零成本渠道（生存金、红利），不影响保障。",
+  "advice_text_2": "• 如需更多资金，可搭配保单贷款，年利率5%，保障不受影响。",
+  "plan_button_text": "获取最优方案",
+  "plan_action_query": "帮我制定取款方案"
 }
 ```
 
 **字段说明**：
-- `rec_option_type` / `alt_option_type` 取值：`survival_fund`（生存金）、`bonus`（红利）、`partial_refund`（部分领取）、`loan`（保单贷款）、`surrender`（退保）
-- `rec_amount` / `alt_amount`：本次实际取款金额（数值，不含单位）
-- `rec_policy_id` / `alt_policy_id`：从 rule_engine 返回的 `options[].policy_id`
+- `advice_text_1` / `advice_text_2`：建议方案区的两行提示文案
+- `plan_button_text`：汇总卡底部按钮文案
+- `plan_action_query`：用户点击按钮后发送的消息（触发 withdraw_money 展示具体方案）
 
 #### 卡片发出后的文字
 
@@ -204,13 +224,13 @@ rule_engine(
 
 **主呈现 = A2UI 取款方案卡片（`withdraw_plan`）**。卡片渲染成功后，文字部分**严格限制**在 1 句以内（≤25字）。
 
-### 正常方案（有金额）
+### 情形 A（有金额）
 
 `render_card(card_type="withdraw_plan", ...)` → 之后仅 1 句确认引导，无其他文字。
 
-### 仅查询总额（无金额）
+### 情形 B（容量查询）
 
-`render_card(card_type="withdraw_summary", ...)` → 之后仅 1 句引导用户提供具体金额，无其他文字。
+`render_card(card_type="withdraw_summary", ...)` → 之后仅 1 句引导用户告知具体金额，无其他文字。示例："请问您需要取多少，我来为您匹配最优方案？"
 
 ### 总额不足时
 

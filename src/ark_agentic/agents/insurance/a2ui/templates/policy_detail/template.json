@@ -55,7 +55,18 @@
           "direction": "vertical",
           "gap": 16,
           "child": "policy-card-tpl",
-          "dataSource": { "path": "policies" }
+          "dataSource": { "path": "policies" },
+          "emptyChild": "empty-hint"
+        }
+      }
+    },
+    {
+      "id": "empty-hint",
+      "component": {
+        "Text": {
+          "text": { "literalString": "暂无保单信息" },
+          "color": "#999999",
+          "fontSize": "14px"
         }
       }
     },
@@ -107,7 +118,7 @@
       "id": "line-marker",
       "component": {
         "Text": {
-          "text": { "path": "section_marker" },
+          "text": { "literalString": "|" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
