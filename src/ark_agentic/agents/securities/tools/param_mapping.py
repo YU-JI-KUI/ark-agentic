@@ -217,6 +217,10 @@ def validate_validatedata_fields(
     if context is None:
         return required_fields.copy()
 
+    # 前端直接提供 validatedata 时无需逐字段校验
+    if _get_context_value(context, "validatedata"):
+        return []
+
     missing = []
     for field in required_fields:
         value = _get_context_value(context, field)
@@ -250,13 +254,13 @@ def build_validatedata(
         ...     "user:channel": "REST",
         ...     "user:usercode": "150573383",
         ...     "user:userid": "12977997",
-        ...     "user:account": "3310123",
+        ...     "user:account": "331012302926",
         ...     "user:branchno": "3310",
         ...     "user:loginflag": "3",
         ...     "user:mobileNo": "137123123",
         ... }
         >>> build_validatedata(context)
-        'channel=REST&usercode=150573383&userid=12977997&account=3310123&branchno=3310&loginflag=3&mobileNo=137123123'
+        'channel=REST&usercode=150573383&userid=12977997&account=331012302926&branchno=3310&loginflag=3&mobileNo=137123123'
     """
     # Mock 模式下返回空字符串
     if skip_on_mock and get_mock_mode_for_context(context):
@@ -269,6 +273,11 @@ def build_validatedata(
         raise ValueError(
             f"validatedata 构建失败：context 为空，需要字段: {', '.join(required_fields)}"
         )
+
+    # 前端直接提供 validatedata 时直接使用，跳过逐字段构建
+    direct = _get_context_value(context, "validatedata")
+    if direct:
+        return str(direct)
 
     # 收集字段值
     parts = []
