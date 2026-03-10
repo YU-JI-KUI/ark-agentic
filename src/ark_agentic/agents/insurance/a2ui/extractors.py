@@ -448,9 +448,7 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
         plans = _generate_plans(options, requested_amount)
 
     data: dict[str, Any] = {
-        "page_title": _str_from_args(args, "page_title", "为您推荐的取款方案"),
         "section_marker": "|",
-        "prompt_text": _str_from_args(args, "prompt_text", "请问您想选择哪个方案？确认后我可以为您办理。"),
     }
 
     for i in range(3):
@@ -511,8 +509,6 @@ def policy_detail_extractor(context: dict[str, Any], card_args: dict[str, Any] |
     options: list[dict[str, Any]] = rule_data.get("options", [])
     options = sorted(options, key=lambda o: -float(o.get("available_amount") or 0))
 
-    args = card_args or {}
-
     def _build_policy_item(opt: dict[str, Any]) -> dict[str, Any]:
         name = opt.get("product_name") or opt.get("policy_id", "保单")
         pid = opt.get("policy_id", "")
@@ -539,8 +535,6 @@ def policy_detail_extractor(context: dict[str, Any], card_args: dict[str, Any] |
         }
 
     return {
-        "page_title": _str_from_args(args, "page_title", "您的保单详情"),
         "section_marker": "|",
         "policies": [_build_policy_item(opt) for opt in options],
-        "prompt_text": _str_from_args(args, "prompt_text", "如需了解某张保单详情，请告诉我保单名称。"),
     }

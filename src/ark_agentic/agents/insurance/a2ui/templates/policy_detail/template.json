@@ -17,34 +17,9 @@
           "gap": 16,
           "children": {
             "explicitList": [
-              "card-title",
-              "policy-list",
-              "card-prompt"
+              "policy-list"
             ]
           }
-        }
-      }
-    },
-    {
-      "id": "card-title",
-      "component": {
-        "Card": {
-          "width": 100,
-          "backgroundColor": "#FFFFFF",
-          "borderRadius": "middle",
-          "padding": 16,
-          "children": { "explicitList": ["page-title"] }
-        }
-      }
-    },
-    {
-      "id": "page-title",
-      "component": {
-        "Text": {
-          "text": { "path": "page_title" },
-          "color": "#333333",
-          "fontSize": "18px",
-          "bold": true
         }
       }
     },
@@ -327,28 +302,6 @@
           "color": "#FF6600",
           "fontSize": "14px",
           "bold": true
-        }
-      }
-    },
-    {
-      "id": "card-prompt",
-      "component": {
-        "Card": {
-          "width": 100,
-          "backgroundColor": "#FFFFFF",
-          "borderRadius": "middle",
-          "padding": 16,
-          "children": { "explicitList": ["prompt-text"] }
-        }
-      }
-    },
-    {
-      "id": "prompt-text",
-      "component": {
-        "Text": {
-          "text": { "path": "prompt_text" },
-          "color": "#666666",
-          "fontSize": "14px"
         }
       }
     }

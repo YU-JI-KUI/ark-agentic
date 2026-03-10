@@ -17,28 +17,14 @@
           "gap": 16,
           "children": {
             "explicitList": [
-              "page-title",
               "card-plan-1",
               "card-plan-2",
-              "card-plan-3",
-              "prompt-text"
+              "card-plan-3"
             ]
           }
         }
       }
     },
-    {
-      "id": "page-title",
-      "component": {
-        "Text": {
-          "text": { "path": "page_title" },
-          "color": "#333333",
-          "fontSize": "18px",
-          "bold": true
-        }
-      }
-    },
-
     {
       "id": "card-plan-1",
       "component": {
@@ -526,7 +512,7 @@
         "Button": {
           "hide": { "path": "plan_3_btn_1_hide" },
           "width": 100,
-          "type": "secondary",
+          "type": "primary",
           "size": "small",
           "text": { "path": "plan_3_btn_1_text" },
           "action": {
@@ -542,7 +528,7 @@
         "Button": {
           "hide": { "path": "plan_3_btn_2_hide" },
           "width": 100,
-          "type": "secondary",
+          "type": "primary",
           "size": "small",
           "text": { "path": "plan_3_btn_2_text" },
           "action": {
@@ -558,7 +544,7 @@
         "Button": {
           "hide": { "path": "plan_3_btn_3_hide" },
           "width": 100,
-          "type": "secondary",
+          "type": "primary",
           "size": "small",
           "text": { "path": "plan_3_btn_3_text" },
           "action": {
@@ -574,7 +560,7 @@
         "Button": {
           "hide": { "path": "plan_3_btn_4_hide" },
           "width": 100,
-          "type": "secondary",
+          "type": "primary",
           "size": "small",
           "text": { "path": "plan_3_btn_4_text" },
           "action": {
@@ -613,17 +599,6 @@
         "Text": {
           "text": { "path": "value" },
           "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-
-    {
-      "id": "prompt-text",
-      "component": {
-        "Text": {
-          "text": { "path": "prompt_text" },
-          "color": "#666666",
           "fontSize": "14px"
         }
       }

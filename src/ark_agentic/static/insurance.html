@@ -1628,14 +1628,12 @@
         }
 
         if (name === 'query') {
-          const query = typeof args === 'object' ? (args.queryMsg || '') : String(args);
+          const query = typeof args === 'object'
+            ? (args.queryMsg ?? args.message ?? '')
+            : String(args);
           if (query) {
-            const inputEl = document.querySelector('#input-field');
-            const sendBtn = document.querySelector('#send-btn');
-            if (inputEl && sendBtn) {
-              inputEl.value = query;
-              sendBtn.click();
-            }
+            $input.value = query;
+            $sendBtn.click();
           }
         } else if (name === 'openLink') {
           const url = typeof args === 'object' ? (args.url || '') : String(args);

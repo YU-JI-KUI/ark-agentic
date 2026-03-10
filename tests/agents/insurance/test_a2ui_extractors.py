@@ -158,9 +158,7 @@ def test_withdraw_plan_extractor_returns_data_with_defaults() -> None:
     flat = withdraw_plan_extractor(context, None)
 
     # Assert: global + 3 plan slots
-    assert flat["page_title"] == "为您推荐的取款方案"
     assert flat["section_marker"] == "|"
-    assert "prompt_text" in flat and len(flat["prompt_text"]) > 0
     for k in _plan_keys(1) + _plan_keys(2) + _plan_keys(3):
         assert k in flat, f"missing key {k}"
     # Plan 1 visible with 零成本 content
@@ -174,7 +172,7 @@ def test_withdraw_plan_extractor_returns_data_with_defaults() -> None:
     assert flat["plan_3_hide"] is True
 
 
-def test_withdraw_plan_extractor_uses_card_args_for_page_and_prompt() -> None:
+def test_withdraw_plan_extractor_uses_card_args_for_plans() -> None:
     context = {
         "_rule_engine_result": {
             "options": [
@@ -183,11 +181,8 @@ def test_withdraw_plan_extractor_uses_card_args_for_page_and_prompt() -> None:
             ],
         },
     }
-    card_args = {"page_title": "自定义标题", "prompt_text": "请选择方案"}
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, {"plans": None})
 
-    assert flat["page_title"] == "自定义标题"
-    assert flat["prompt_text"] == "请选择方案"
     assert flat["plan_1_hide"] is False
     assert isinstance(flat["plan_1_policies"], list)
     assert any("P-A" in p["label"] and "生存金" in p["label"] for p in flat["plan_1_policies"])
@@ -733,14 +728,12 @@ def test_withdraw_plan_extractor_backward_compat_no_plans_key() -> None:
             ],
         },
     }
-    flat_with_args = withdraw_plan_extractor(context, {"page_title": "自定义"})
+    flat_with_args = withdraw_plan_extractor(context, None)
     flat_no_args = withdraw_plan_extractor(context, None)
 
-    # Both should produce the same plan structure (from _generate_plans)
     assert flat_with_args["plan_1_hide"] is False
     assert flat_no_args["plan_1_hide"] is False
     assert flat_with_args["plan_1_title"] == flat_no_args["plan_1_title"]
-    assert flat_with_args["page_title"] == "自定义"
 
 
 # ----- policy_detail_extractor -----
@@ -765,7 +758,6 @@ def test_policy_detail_extractor_one_policy() -> None:
     }
     flat = policy_detail_extractor(context, None)
 
-    assert flat["page_title"] == "您的保单详情"
     policies = flat["policies"]
     assert isinstance(policies, list) and len(policies) == 1
     assert policies[0]["title"] == "鸿利04"
@@ -799,7 +791,6 @@ def test_policy_detail_extractor_empty_options() -> None:
     flat = policy_detail_extractor(context, None)
 
     assert flat["policies"] == []
-    assert flat["prompt_text"] != ""
 
 
 def test_policy_detail_extractor_raises_when_no_policy_data() -> None:

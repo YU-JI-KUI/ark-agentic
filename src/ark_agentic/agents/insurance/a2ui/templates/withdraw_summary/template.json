@@ -21,8 +21,7 @@
               "card-zero-cost",
               "card-loan",
               "card-partial-surrender",
-              "card-advice",
-              "btn-get-plan"
+              "card-advice"
             ]
           }
         }
@@ -627,19 +626,5 @@
         }
       }
     },
-    {
-      "id": "btn-get-plan",
-      "component": {
-        "Button": {
-          "type": "primary",
-          "width": 100,
-          "text": { "path": "plan_button_text", "literalString": "获取最优方案" },
-          "action": {
-            "name": "query",
-            "args": { "path": "plan_action_args" }
-          }
-        }
-      }
-    }
   ]
 }
