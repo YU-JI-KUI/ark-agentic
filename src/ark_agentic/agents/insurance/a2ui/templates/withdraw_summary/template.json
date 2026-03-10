@@ -20,8 +20,7 @@
               "header-card",
               "card-zero-cost",
               "card-loan",
-              "card-partial-surrender",
-              "card-advice"
+              "card-partial-surrender"
             ]
           }
         }
@@ -105,6 +104,7 @@
       "id": "card-zero-cost",
       "component": {
         "Card": {
+          "hide": { "path": "zero_cost_hide" },
           "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
@@ -251,6 +251,7 @@
       "id": "card-loan",
       "component": {
         "Card": {
+          "hide": { "path": "loan_hide" },
           "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
@@ -397,6 +398,7 @@
       "id": "card-partial-surrender",
       "component": {
         "Card": {
+          "hide": { "path": "partial_surrender_hide" },
           "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
@@ -534,94 +536,6 @@
         "Text": {
           "text": { "path": "value" },
           "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-
-    {
-      "id": "card-advice",
-      "component": {
-        "Card": {
-          "width": 100,
-          "backgroundColor": "#FFFFFF",
-          "borderRadius": "middle",
-          "padding": 16,
-          "children": {
-            "explicitList": ["ca-col"]
-          }
-        }
-      }
-    },
-    {
-      "id": "ca-col",
-      "component": {
-        "Column": {
-          "gap": 8,
-          "children": {
-            "explicitList": ["ca-title-row", "ca-t1", "ca-t2", "ca-t3"]
-          }
-        }
-      }
-    },
-    {
-      "id": "ca-title-row",
-      "component": {
-        "Row": {
-          "alignment": "middle",
-          "gap": 8,
-          "children": {
-            "explicitList": ["ca-icon", "ca-title"]
-          }
-        }
-      }
-    },
-    {
-      "id": "ca-icon",
-      "component": {
-        "Text": {
-          "text": { "path": "advice_icon", "literalString": "💡" },
-          "fontSize": "16px"
-        }
-      }
-    },
-    {
-      "id": "ca-title",
-      "component": {
-        "Text": {
-          "text": { "path": "advice_title", "literalString": "建议方案" },
-          "color": "#333333",
-          "fontSize": "16px",
-          "bold": true
-        }
-      }
-    },
-    {
-      "id": "ca-t1",
-      "component": {
-        "Text": {
-          "text": { "path": "advice_text_1", "literalString": "• 建议优先领取零成本渠道（生存金、红利），不影响保障。" },
-          "color": "#999999",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "ca-t2",
-      "component": {
-        "Text": {
-          "text": { "path": "advice_text_2", "literalString": "• 如需更多资金，可搭配保单贷款，年利率5%，保障不受影响。" },
-          "color": "#999999",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "ca-t3",
-      "component": {
-        "Text": {
-          "text": { "path": "advice_text_3", "literalString": "• 部分领取或退保会导致保障减少或终止，不建议优先选择。" },
-          "color": "#CC6600",
           "fontSize": "14px"
         }
       }

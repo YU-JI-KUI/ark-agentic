@@ -44,17 +44,11 @@ def _fmt(amount: float) -> str:
     return f"¥ {amount:,.2f}"
 
 
-def _str_from_args(card_args: dict[str, Any] | None, key: str, default: str = "") -> str:
-    if not card_args or key not in card_args:
-        return default
-    v = card_args[key]
-    return str(v).strip() if v is not None else default
-
 
 def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]:
     """
-    取款汇总卡片：从 context 读 _rule_engine_result，计算金额并展平为 item_1/item_2；
-    从 card_args 仅读 advice_text_1、advice_text_2、plan_button_text、plan_action_query（文案）。
+    取款汇总卡片：从 context 读 _rule_engine_result，按渠道分组计算金额；
+    无数据的渠道卡片通过 hide flag 隐藏。
     """
     rule_data: Any = context.get("_rule_engine_result")
     if not rule_data:
@@ -114,40 +108,27 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
     else:
         requested_amount_display = "—"
 
-    plan_button_text = _str_from_args(card_args, "plan_button_text", "获取最优方案")
-    action_query = _str_from_args(card_args, "plan_action_query", plan_button_text)
-
     return {
         "header_title": "目前可领取的总金额(含贷款)",
         "header_value": _fmt(total_incl_loan),
         "header_sub": f"不含贷款可领金额：{_fmt(total_excl_loan)}",
         "requested_amount_display": requested_amount_display,
         "section_marker": "|",
+        "zero_cost_hide": not zero_cost_items,
         "zero_cost_title": "零成本领取",
         "zero_cost_tag": "不影响保障",
         "zero_cost_total": f"合计：{_fmt(zero_cost_sum)}",
         "zero_cost_items": zero_cost_items,
+        "loan_hide": not loan_items,
         "loan_title": "保单贷款",
         "loan_tag": "需支付利息",
         "loan_total": f"合计可贷：{_fmt(loan_sum)}",
         "loan_items": loan_items,
+        "partial_surrender_hide": not partial_surrender_items,
         "partial_surrender_title": "部分领取/退保",
         "partial_surrender_tag": "保障有损失，不建议",
         "partial_surrender_total": f"合计：{_fmt(partial_surrender_sum)}",
         "partial_surrender_items": partial_surrender_items,
-        "advice_icon": "💡",
-        "advice_title": "建议方案",
-        "advice_text_1": _str_from_args(
-            card_args, "advice_text_1", "• 建议优先领取零成本渠道（生存金、红利），不影响保障。"
-        ),
-        "advice_text_2": _str_from_args(
-            card_args, "advice_text_2", "• 如需更多资金，可搭配保单贷款，年利率5%，保障不受影响。"
-        ),
-        "advice_text_3": _str_from_args(
-            card_args, "advice_text_3", "• 部分领取或退保会导致保障减少或终止，不建议优先选择。"
-        ),
-        "plan_button_text": plan_button_text,
-        "plan_action_args": {"queryMsg": action_query},
     }
 
 

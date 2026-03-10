@@ -198,7 +198,7 @@ rule_engine(
     {
       "title": "★ 推荐: 零成本优先",
       "tag": "(不影响保障优先)",
-      "reason": "优先使用零成本渠道（生存金、红利），不足时自动补充其他方式。",
+      "reason": "零成本，到账快",
       "channels": ["survival_fund", "bonus"]
     },
     {
