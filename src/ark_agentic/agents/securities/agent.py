@@ -130,6 +130,8 @@ def create_securities_agent(
         memory_manager = MemoryManager(memory_config)
         logger.info(f"Memory enabled: workspace={memory_dir}, index={index_sub}")
         
+    from .tools.param_mapping import enrich_securities_context
+
     # 创建并返回 AgentRunner
     return AgentRunner(
         llm=llm,
@@ -138,4 +140,5 @@ def create_securities_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
+        context_preprocessor=enrich_securities_context,
     )

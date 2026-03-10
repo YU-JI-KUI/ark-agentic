@@ -2110,6 +2110,16 @@
 
         appendUserMessage(text);
 
+        const validatedata = [
+          `channel=${selectedChannel}`,
+          `usercode=${selectedUsercode}`,
+          `userid=${selectedUserid}`,
+          `account=${selectedAccount}`,
+          `branchno=${selectedBranch}`,
+          `loginflag=${selectedLoginflag}`,
+          `mobileNo=${selectedMobile}`,
+        ].join('&');
+
         const payload = {
           message: text,
           stream: isStreaming,
@@ -2118,13 +2128,7 @@
           user_id: selectedUserId,
           context: {
             user_id: selectedUserId,
-            channel: selectedChannel,
-            usercode: selectedUsercode,
-            userid: selectedUserid,
-            account: selectedAccount,
-            branchno: selectedBranch,
-            loginflag: selectedLoginflag,
-            mobileNo: selectedMobile,
+            validatedata,
             signature: selectedSignature,
             account_type: selectedAccountType,
             mock_mode: ctxMockEnabled ? 'true' : 'false',
