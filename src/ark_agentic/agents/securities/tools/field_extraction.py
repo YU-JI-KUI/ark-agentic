@@ -68,10 +68,10 @@ ACCOUNT_OVERVIEW_FIELD_MAPPING: dict[str, str] = {
     "fund_market_value": "results.rmb.fundMktAssetsInfo.fundMktVal",
     "today_profit": "results.rmb.mktAssetsInfo.totalMktProfitToday",
     "today_return_rate": "results.rmb.mktAssetsInfo.totalMktYieldToday",
-    # 两融账户特有字段
-    "net_assets": "results.rmb.rzrqAssetsInfo.netWorth",
-    "total_liabilities": "results.rmb.rzrqAssetsInfo.totalLiabilities",
-    "maintenance_margin_ratio": "results.rmb.rzrqAssetsInfo.mainRatio",
+    "positions": "results.rmb.positions",
+    "prudent_positions": "results.rmb.prudentPositions",
+    # 两融账户特有字段：整个对象直接透传，保留所有原始字段
+    "rzrq_assets_info": "results.rmb.rzrqAssetsInfo",
 }
 
 
@@ -311,30 +311,23 @@ def extract_fund_holdings(data: dict[str, Any]) -> dict[str, Any]:
 
 # ============ 开户营业部字段映射 ============
 
-BRANCH_INFO_FIELD_MAPPING: dict[str, str] = {
-    "branch_name": "results.branchName",
-    "address": "results.address",
-    "service_phone": "results.servicePhone",
-}
-
-
 def extract_branch_info(data: dict[str, Any]) -> dict[str, Any]:
     """提取开户营业部字段
 
-    Args:
-        data: API 响应数据
+    直接透传 results 对象，清洗 servicePhone 前缀后原样返回。
 
     Returns:
-        提取后的字段字典，其中 service_phone 去除"营业部联系电话: "前缀
+        {"branch_info": {"branchName": ..., "address": ..., "servicePhone": ..., "seatNo": ...}}
     """
-    extracted = extract_fields(data, BRANCH_INFO_FIELD_MAPPING)
+    results: dict[str, Any] = data.get("results") or {}
+    branch_info = dict(results)  # 浅拷贝，保留所有原始字段
 
-    # servicePhone 格式："营业部联系电话: 95511-8-9-2"，提取纯电话号码
-    phone = extracted.get("service_phone", "")
+    # servicePhone 格式："营业部联系电话: 95511-8-9-2"，提取纯号码
+    phone = branch_info.get("servicePhone", "")
     if isinstance(phone, str) and ": " in phone:
-        extracted["service_phone"] = phone.split(": ", 1)[1]
+        branch_info["servicePhone"] = phone.split(": ", 1)[1]
 
-    return extracted
+    return {"branch_info": branch_info}
 
 
 # ============ 服务字段配置注册表 ============

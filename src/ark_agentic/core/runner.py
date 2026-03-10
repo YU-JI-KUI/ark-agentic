@@ -121,6 +121,7 @@ class AgentRunner:
         skill_loader: SkillLoader | None = None,
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
+        context_preprocessor: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
         self.llm = llm  # LLM following LangChain protocol
         self.tool_registry = tool_registry or ToolRegistry()
@@ -128,6 +129,7 @@ class AgentRunner:
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
         self._memory_manager = memory_manager
+        self._context_preprocessor = context_preprocessor
 
         # 自动注册 memory 工具（如果提供了 memory_manager）
         if memory_manager is not None:
@@ -189,6 +191,10 @@ class AgentRunner:
         # 惰性初始化 Memory
         if self._memory_manager and not self._memory_manager._initialized:
             await self._memory_manager.initialize()
+
+        # Agent 级别的 context 预处理（如字段解析/注入），在合并前执行
+        if self._context_preprocessor:
+            input_context = self._context_preprocessor(input_context)
 
         # 将 input_context 合并到 session.state（前缀感知策略）
         session = self.session_manager.get_session_required(session_id)

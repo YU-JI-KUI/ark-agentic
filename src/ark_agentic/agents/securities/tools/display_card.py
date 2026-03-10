@@ -146,8 +146,10 @@ class DisplayCardTool(AgentTool):
             else:
                 template = TemplateRenderer.render_holdings_list_card(asset_class, data)
         elif render_type == "account_overview":
-            # 使用字段提取工具从 API 响应中提取显示字段
             extracted_data = extract_account_overview(data)
+            account = _get_context_value(context, "account")
+            masked = _mask_account(account)
+            extracted_data["title"] = f"资金账号：{masked}的资产信息"
             template = TemplateRenderer.render_account_overview_card(extracted_data)
         elif render_type == "cash_assets":
             # 使用字段提取工具从 API 响应中提取显示字段
@@ -157,9 +159,9 @@ class DisplayCardTool(AgentTool):
             template = TemplateRenderer.render_security_detail_card(data)
         elif render_type == "branch_info":
             extracted_data = extract_branch_info(data)
-            # 从 context 取账号并脱敏后注入模板
             account = _get_context_value(context, "account")
-            extracted_data["account"] = _mask_account(account)
+            masked = _mask_account(account)
+            extracted_data["title"] = f"资金账号：{masked}的开户营业部信息"
             template = TemplateRenderer.render_branch_info_card(extracted_data)
         else:
             return AgentToolResult.error_result(

@@ -948,6 +948,100 @@
     }
 
     /* ============================================================
+   Account overview card — grid layout
+   ============================================================ */
+    .ao-card {
+      background: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--card-shadow);
+      overflow: hidden;
+      animation: fadeIn .3s ease;
+    }
+
+    .ao-header {
+      padding: 14px 16px 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .ao-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      padding: 4px 0;
+    }
+
+    .ao-cell {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+
+    .ao-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .ao-info-icon {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      border: 1px solid var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      line-height: 1;
+      cursor: default;
+    }
+
+    .ao-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.3px;
+    }
+
+    .ao-value.ao-profit {
+      color: #e03030;
+    }
+
+    .ao-value.ao-loss {
+      color: #34a853;
+    }
+
+    .ao-footer {
+      border-top: 1px solid var(--border);
+      padding: 12px 16px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: color .15s;
+    }
+
+    .ao-footer:hover {
+      color: var(--orange);
+    }
+
+    /* margin-specific extra rows */
+    .ao-extra-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ============================================================
    Utilities
    ============================================================ */
     .hidden {
@@ -1677,7 +1771,7 @@
         channel: 'REST',
         usercode: '150573383',
         userid: '12977997',
-        account: '3310123',
+        account: '331012302926',
         branchno: '3310',
         loginflag: '3',
         mobile: '137123123',
@@ -2016,6 +2110,16 @@
 
         appendUserMessage(text);
 
+        const validatedata = [
+          `channel=${selectedChannel}`,
+          `usercode=${selectedUsercode}`,
+          `userid=${selectedUserid}`,
+          `account=${selectedAccount}`,
+          `branchno=${selectedBranch}`,
+          `loginflag=${selectedLoginflag}`,
+          `mobileNo=${selectedMobile}`,
+        ].join('&');
+
         const payload = {
           message: text,
           stream: isStreaming,
@@ -2024,13 +2128,7 @@
           user_id: selectedUserId,
           context: {
             user_id: selectedUserId,
-            channel: selectedChannel,
-            usercode: selectedUsercode,
-            userid: selectedUserid,
-            account: selectedAccount,
-            branchno: selectedBranch,
-            loginflag: selectedLoginflag,
-            mobileNo: selectedMobile,
+            validatedata,
             signature: selectedSignature,
             account_type: selectedAccountType,
             mock_mode: ctxMockEnabled ? 'true' : 'false',
@@ -2195,7 +2293,7 @@
                 if (d.ui_protocol === 'A2UI') {
                   const comp = d.ui_data;
                   if (comp) {
-                    if (comp.template_type !== undefined) {
+                    if (comp.template !== undefined) {
                       renderTemplateCard(comp, msgEl);
                     } else if (a2uiContainer) {
                       a2uiContainer.classList.remove('hidden');
@@ -2378,25 +2476,30 @@
       // ---- Template card rendering ----
       function renderTemplateCard(template, containerEl) {
         const cardDiv = document.createElement('div');
-        cardDiv.className = 'template-card';
 
-        switch (template.template_type) {
+        switch (template.template) {
           case 'account_overview_card':
+            // ao-card 有自己的外壳，不需要 template-card wrapper
             cardDiv.innerHTML = renderAccountOverviewCard(template.data);
             break;
           case 'holdings_list_card':
+            cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderHoldingsListCard(template);
             break;
           case 'cash_assets_card':
+            cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderCashAssetsCard(template.data);
             break;
           case 'security_detail_card':
+            cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderSecurityDetailCard(template.data);
             break;
           case 'branch_info_card':
+            cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderBranchInfoCard(template.data);
             break;
           default:
+            cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderGenericCard(template);
         }
 
@@ -2404,59 +2507,90 @@
         containerEl.insertBefore(cardDiv, answerBubble);
       }
 
+      function maskAccount(account) {
+        if (!account) return '';
+        const s = String(account);
+        if (s.length <= 7) return s;
+        return s.slice(0, 3) + '****' + s.slice(-4);
+      }
+
       function renderAccountOverviewCard(data) {
-        const accountTypeBadge = data.account_type === 'margin' ? '两融账户' : '普通账户';
-        const todayProfit = toNum(data.today_profit);
-        const profitClass = todayProfit >= 0 ? 'profit' : 'loss';
+        // 新格式：字段在 data.assetData 下，使用原始 API 字段名
+        const ad = data.assetData || {};
+        const mkt = ad.mktAssetsInfo || {};
+        const fund = ad.fundMktAssetsInfo || {};
+        const cash = ad.cashGainAssetsInfo || {};
+        const rzrq = ad.rzrqAssetsInfo || {};
+
+        const todayProfit = toNum(mkt.totalMktProfitToday);
+        const todayReturnRate = toNum(mkt.totalMktYieldToday);
+        const profitValueClass = todayProfit >= 0 ? 'ao-profit' : 'ao-loss';
         const profitSign = todayProfit >= 0 ? '+' : '';
+        const rateDisplay = (todayReturnRate * 100).toFixed(2);
+
+        const fundMktRaw = fund.fundMktVal;
+        const fv = toNum(fundMktRaw);
+        // 若绝对值 < 100 且非零，按收益率百分比展示
+        let fundDisplay;
+        if (fv !== 0 && Math.abs(fv) < 100) {
+          const fSign = fv >= 0 ? '+' : '';
+          const fClass = fv >= 0 ? 'ao-profit' : 'ao-loss';
+          fundDisplay = `<span class="ao-value ${fClass}">${fSign}${(fv * 100).toFixed(2)}%</span>`;
+        } else {
+          fundDisplay = `<span class="ao-value">${formatNumber(fundMktRaw)}</span>`;
+        }
+
+        // title 由后端构造（含脱敏账号），前端做二次 mask 兜底
+        const accountLabel = data.title || '账户资产信息';
+
+        const marginExtra = data.account_type === 'margin' ? `
+          <div class="ao-extra-row">
+            <span class="ao-label">净资产</span>
+            <span class="ao-value" style="font-size:15px;">￥${formatNumber(rzrq.netWorth)}</span>
+          </div>
+          <div class="ao-extra-row">
+            <span class="ao-label">总负债</span>
+            <span class="ao-value" style="font-size:15px;">￥${formatNumber(rzrq.totalLiabilities)}</span>
+          </div>
+          ${rzrq.mainRatio ? `
+            <div class="ao-extra-row">
+              <span class="ao-label">维持担保比率</span>
+              <span class="ao-value ${toNum(rzrq.mainRatio) < 150 ? 'ao-profit' : ''}" style="font-size:15px;">${escHtml(String(rzrq.mainRatio))}%</span>
+            </div>
+          ` : ''}
+        ` : '';
 
         return `
-          <div class="template-card-header">
-            <div class="tc-title">账户总览</div>
-            <div class="tc-badge">${accountTypeBadge}</div>
-          </div>
-          <div class="template-card-body">
-            <div class="tc-metric">
-              <span class="tc-label">总资产</span>
-              <span class="tc-value">￥${formatNumber(data.total_assets)}</span>
-            </div>
-            <div class="tc-metric">
-              <span class="tc-label">现金余额</span>
-              <span class="tc-value">￥${formatNumber(data.cash_balance)}</span>
-            </div>
-            <div class="tc-metric">
-              <span class="tc-label">持仓市值</span>
-              <span class="tc-value">￥${formatNumber(data.stock_market_value)}</span>
-            </div>
-            <div class="tc-metric">
-              <span class="tc-label">今日收益</span>
-              <span class="tc-value ${profitClass}">
-                ${profitSign}￥${formatNumber(Math.abs(todayProfit))}
-                (${profitSign}${(toNum(data.today_return_rate || data.profit_rate) * 100).toFixed(2)}%)
-              </span>
-            </div>
-            ${data.account_type === 'margin' ? `
-              <div class="tc-metric">
-                <span class="tc-label">净资产</span>
-                <span class="tc-value">￥${formatNumber(data.net_assets)}</span>
+          <div class="ao-card">
+            <div class="ao-header">${escHtml(accountLabel)}</div>
+            <div class="ao-grid">
+              <div class="ao-cell">
+                <span class="ao-label">总资产 <span class="ao-info-icon">i</span></span>
+                <span class="ao-value">${formatNumber(ad.totalAssetVal)}</span>
               </div>
-              <div class="tc-metric">
-                <span class="tc-label">总负债</span>
-                <span class="tc-value">￥${formatNumber(data.total_liabilities)}</span>
+              <div class="ao-cell">
+                <span class="ao-label">现金</span>
+                <span class="ao-value">${formatNumber(cash.cashBalance)}</span>
               </div>
-              ${data.maintenance_margin_ratio ? `
-                <div class="tc-metric">
-                  <span class="tc-label">维持担保比率</span>
-                  <span class="tc-value ${toNum(data.maintenance_margin_ratio) < 150 ? 'warning' : ''}">${data.maintenance_margin_ratio}%</span>
-                </div>
-              ` : ''}
-              ${data.risk_level ? `
-                <div class="tc-metric">
-                  <span class="tc-label">风险等级</span>
-                  <span class="tc-value">${data.risk_level}</span>
-                </div>
-              ` : ''}
-            ` : ''}
+              <div class="ao-cell">
+                <span class="ao-label">股票证券市值</span>
+                <span class="ao-value">${formatNumber(mkt.totalMktVal)}</span>
+              </div>
+              <div class="ao-cell">
+                <span class="ao-label">基金理财市值</span>
+                ${fundDisplay}
+              </div>
+              <div class="ao-cell">
+                <span class="ao-label">今日收益</span>
+                <span class="ao-value ${profitValueClass}">${profitSign}${formatNumber(Math.abs(todayProfit))}</span>
+              </div>
+              <div class="ao-cell">
+                <span class="ao-label">今日收益率</span>
+                <span class="ao-value ${profitValueClass}">${profitSign}${rateDisplay}</span>
+              </div>
+            </div>
+            ${marginExtra}
+            <div class="ao-footer">查看更多 &rsaquo;</div>
           </div>
         `;
       }
@@ -2641,14 +2775,13 @@
       }
 
       function renderBranchInfoCard(data) {
-        const account = data.account ? escHtml(data.account) : '';
-        const title = account
-          ? `资金账号：${account} 的开户营业部信息`
-          : '开户营业部信息';
-        const branchName = escHtml(data.branch_name || '—');
-        const address = escHtml(data.address || '—');
-        const phone = escHtml(data.service_phone || '—');
-        const phoneRaw = (data.service_phone || '').replace(/[^0-9\-]/g, '');
+        // 新格式：字段在 data.resData 下，title 由后端构造
+        const bi = data.resData || {};
+        const title = escHtml(data.title || '开户营业部信息');
+        const branchName = escHtml(bi.branchName || '—');
+        const address = escHtml(bi.address || '—');
+        const phone = escHtml(bi.servicePhone || '—');
+        const phoneRaw = (bi.servicePhone || '').replace(/[^0-9\-]/g, '');
 
         return `
           <div class="template-card-header">
@@ -2685,7 +2818,7 @@
       function renderGenericCard(template) {
         return `
           <div class="template-card-header">
-            <div class="tc-title">${escHtml(template.template_type || '数据卡片')}</div>
+            <div class="tc-title">${escHtml(template.template || '数据卡片')}</div>
           </div>
           <div class="template-card-body">
             <pre style="font-size:12px;overflow-x:auto;">${escHtml(JSON.stringify(template.data, null, 2))}</pre>

@@ -80,12 +80,14 @@ def create_securities_agent_from_env(
         memory_dir = Path(memory_dir)
     memory_dir.mkdir(parents=True, exist_ok=True)
 
+    enable_memory = os.getenv("ENABLE_MEMORY", "").lower() in ("true", "1")
+
     runner = create_securities_agent(
         llm=llm,
         sessions_dir=sessions_dir,
         enable_persistence=enable_persistence,
         memory_dir=memory_dir,
-        enable_memory=False,
+        enable_memory=enable_memory,
     )
 
     # 记录配置信息

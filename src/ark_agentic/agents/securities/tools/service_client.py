@@ -140,6 +140,29 @@ class BaseServiceAdapter(ABC):
             await self._http.aclose()
 
 
+def _require_context_fields(
+    context: dict[str, Any],
+    fields: list[str],
+    service_name: str = "",
+) -> None:
+    """校验 context 中必需字段，缺失则 raise ValueError（Mock 模式跳过）
+
+    Args:
+        context: 上下文字典（支持 user: 前缀和裸 key）
+        fields: 必需字段名列表（不含前缀）
+        service_name: 服务名称，用于错误信息
+    """
+    from .param_mapping import _get_context_value
+
+    if get_mock_mode_for_context(context):
+        return
+
+    missing = [f for f in fields if not _get_context_value(context, f)]
+    if missing:
+        prefix = f"[{service_name}] " if service_name else ""
+        raise ValueError(f"{prefix}context 缺少必需字段: {', '.join(missing)}")
+
+
 class AccountOverviewAdapter(BaseServiceAdapter):
     """账户总资产服务适配器
 
@@ -168,6 +191,7 @@ class AccountOverviewAdapter(BaseServiceAdapter):
 
         # 从 params 中获取 context（扁平结构）
         context = params.get("_context", {})
+        _require_context_fields(context, ["validatedata"], "account_overview")
 
         # 确保扁平结构中有 account_type
         if "account_type" not in context:
@@ -230,6 +254,7 @@ class ETFHoldingsAdapter(BaseServiceAdapter):
         )
 
         context = params.get("_context", {})
+        _require_context_fields(context, ["validatedata"], "etf_holdings")
 
         # 使用参数映射构建请求体
         config = SERVICE_PARAM_CONFIGS.get("etf_holdings", {})
@@ -287,6 +312,7 @@ class HKSCHoldingsAdapter(BaseServiceAdapter):
         )
 
         context = params.get("_context", {})
+        _require_context_fields(context, ["validatedata"], "hksc_holdings")
 
         # 使用参数映射构建请求体
         config = SERVICE_PARAM_CONFIGS.get("hksc_holdings", {})
@@ -347,6 +373,7 @@ class FundHoldingsAdapter(BaseServiceAdapter):
         )
 
         context = params.get("_context", {})
+        _require_context_fields(context, ["validatedata", "usercode", "channel"], "fund_holdings")
 
         # query params: usercode + channel
         param_config = SERVICE_PARAM_CONFIGS.get("fund_holdings", {})
@@ -411,6 +438,7 @@ class CashAssetsAdapter(BaseServiceAdapter):
 
         # 从 params 中获取 context（扁平结构）
         context = params.get("_context", {})
+        _require_context_fields(context, ["validatedata"], "cash_assets")
 
         # 确保扁平结构中有 account_type
         if "account_type" not in context:
@@ -469,6 +497,7 @@ class SecurityDetailAdapter(BaseServiceAdapter):
         )
 
         context = params.get("_context", {})
+        _require_context_fields(context, ["validatedata"], "security_detail")
 
         # 构建请求体
         body = {"user_id": user_id, "account_type": account_type}
@@ -527,6 +556,7 @@ class BranchInfoAdapter(BaseServiceAdapter):
         )
 
         context = params.get("_context", {})
+        _require_context_fields(context, ["validatedata"], "branch_info")
 
         headers = {"Content-Type": "application/json"}
         header_config = SERVICE_HEADER_CONFIGS.get("branch_info", {})
