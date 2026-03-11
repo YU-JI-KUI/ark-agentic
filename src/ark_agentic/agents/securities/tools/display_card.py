@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall, ToolResultType
@@ -57,7 +57,7 @@ _RENDER_MAP: dict[str, str] = {
     "branch_info": "branch_info",
 }
 
-_ASSET_CLASS_MAP: dict[str, str] = {
+_ASSET_CLASS_MAP: dict[str, Literal["ETF", "HKSC", "Fund", "Cash"]] = {
     "etf_holdings": "ETF",
     "hksc_holdings": "HKSC",
     "fund_holdings": "Fund",
@@ -130,38 +130,47 @@ class DisplayCardTool(AgentTool):
         render_type = _RENDER_MAP[source_tool]
         template: dict[str, Any]
 
+        account = _get_context_value(context, "account")
+        masked = _mask_account(account)
+        account_type = _get_context_value(context, "account_type", "normal")
+
         if render_type == "holdings_list":
             asset_class = _ASSET_CLASS_MAP[source_tool]
-            
-            # ETF 和 HKSC 使用字段提取工具从 API 响应中提取显示字段
+
+            _HOLDINGS_TITLE: dict[str, str] = {
+                "etf_holdings": f"资金账号：{masked}的ETF资产信息",
+                "hksc_holdings": f"资金账号：{masked}的港股通资产信息",
+                "fund_holdings": f"资金账号：{masked}的基金资产信息",
+            }
+
             if source_tool == "etf_holdings":
                 extracted_data = extract_etf_holdings(data)
-                template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
             elif source_tool == "hksc_holdings":
                 extracted_data = extract_hksc_holdings(data)
-                template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
             elif source_tool == "fund_holdings":
                 extracted_data = extract_fund_holdings(data)
-                template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
             else:
-                template = TemplateRenderer.render_holdings_list_card(asset_class, data)
+                extracted_data = data
+            extracted_data["title"] = _HOLDINGS_TITLE.get(source_tool, "")
+            extracted_data["account_type"] = account_type
+            template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
         elif render_type == "account_overview":
             extracted_data = extract_account_overview(data)
-            account = _get_context_value(context, "account")
-            masked = _mask_account(account)
             extracted_data["title"] = f"资金账号：{masked}的资产信息"
+            extracted_data["account_type"] = account_type
             template = TemplateRenderer.render_account_overview_card(extracted_data)
         elif render_type == "cash_assets":
-            # 使用字段提取工具从 API 响应中提取显示字段
             extracted_data = extract_cash_assets(data)
+            extracted_data["title"] = f"资金账号：{masked}的现金资产信息"
+            extracted_data["account_type"] = account_type
             template = TemplateRenderer.render_cash_assets_card(extracted_data)
         elif render_type == "security_detail":
+            data["account_type"] = account_type
             template = TemplateRenderer.render_security_detail_card(data)
         elif render_type == "branch_info":
             extracted_data = extract_branch_info(data)
-            account = _get_context_value(context, "account")
-            masked = _mask_account(account)
             extracted_data["title"] = f"资金账号：{masked}的开户营业部信息"
+            extracted_data["account_type"] = account_type
             template = TemplateRenderer.render_branch_info_card(extracted_data)
         else:
             return AgentToolResult.error_result(
