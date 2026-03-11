@@ -17,8 +17,8 @@ async def test_securities_agent_integration():
     
     # 设置 Mock 模式
     os.environ["SECURITIES_SERVICE_MOCK"] = "true"
-    os.environ["LLM_PROVIDER"] = "deepseek"
-    os.environ["DEEPSEEK_API_KEY"] = "test_key"
+    os.environ["LLM_PROVIDER"] = "openai"
+    os.environ["API_KEY"] = "test_key"
     
     try:
         # 1. 测试导入

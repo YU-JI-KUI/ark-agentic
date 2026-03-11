@@ -19,10 +19,9 @@ def test_pa_sx_works_without_pycryptodome():
         assert llm is not None
 
 
-def test_deepseek_works_without_pycryptodome():
-    """Test that DeepSeek models work without pycryptodome installed."""
-    # This should work without pycryptodome
-    llm = create_chat_model("deepseek-chat", api_key="sk-test")
+def test_openai_compat_works_without_pycryptodome():
+    """Test that OpenAI-compatible models work without pycryptodome installed."""
+    llm = create_chat_model("gpt-4o", api_key="sk-test")
     assert llm is not None
 
 
