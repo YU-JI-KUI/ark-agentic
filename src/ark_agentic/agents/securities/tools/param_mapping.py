@@ -378,7 +378,7 @@ UNIFIED_HEADER_CONFIG: dict[str, tuple] = {
 # 基金理财持仓 API 参数配置（HTTP GET query params）
 FUND_HOLDINGS_PARAM_CONFIG: dict[str, tuple] = {
     "usercode": ("context", "usercode"),  # 来自 user:usercode 或 usercode
-    "channel":  ("context", "channel"),   # 来自 user:channel 或 channel
+    "channel":  ("static", "10014"),      # 固定值 10014
 }
 
 # 服务参数配置注册表
