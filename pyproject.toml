@@ -1,6 +1,6 @@
 [project]
 name = "ark-agentic"
-version = "0.1.0"
+version = "0.2.5.1"
 description = "Lightweight ReAct agent framework"
 readme = "README.md"
 requires-python = ">=3.10"
