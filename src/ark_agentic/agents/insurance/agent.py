@@ -102,9 +102,6 @@ def create_insurance_agent(
     # 1. 创建工具注册器并注册保险工具 + Demo A2UI 工具
     tool_registry = ToolRegistry()
     tool_registry.register_all(create_insurance_tools())
-    # tool_registry.register(DemoA2UITool())
-    # tool_registry.register(SetStateDemoTool())
-    # tool_registry.register(GetStateDemoTool())
 
     # 2. 创建会话管理器（支持持久化，使用 LLM 摘要器进行上下文压缩）
     if enable_persistence:
