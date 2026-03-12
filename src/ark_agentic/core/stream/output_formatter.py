@@ -185,6 +185,7 @@ class EnterpriseAGUIFormatter:
             dp.ui_protocol = "text"
             dp.ui_data = event.message or ""
         elif event.type == "run_error":
+            dp.code = "500"
             dp.ui_protocol = "text"
             dp.ui_data = event.error_message or ""
         else:
