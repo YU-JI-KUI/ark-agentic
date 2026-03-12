@@ -3,7 +3,8 @@
 
 在 ReAct 循环中实时区分思考态和最终生成态。
 跨 chunk 维护状态，支持标签断裂、缺失闭合、嵌套等边界情况。
-宽松模式 (lenient)：LLM 未使用标签时回退为当前行为（全部视为 final）。
+严格模式 (strict)：只有 <final> 标签内的内容才输出为 final；
+未包裹的文本静默丢弃。Runner 层通过 ever_in_final 标志实现最终轮 fallback。
 
 参考: openclaw-main/src/agents/pi-embedded-subscribe.ts — stripBlockTags()
 """
@@ -87,7 +88,9 @@ class ThinkingTagParser:
             return ("", "")
         if self.in_think:
             return (remaining, "")
-        return ("", remaining)
+        if self.in_final:
+            return ("", remaining)
+        return ("", "")
 
     def reset(self) -> None:
         """每个 ReAct turn 开始前 reset。"""
@@ -107,6 +110,28 @@ class ThinkingTagParser:
         if not text:
             return text
         return _ALL_TAGS_RE.sub("", text)
+
+    @staticmethod
+    def extract_non_think(text: str) -> str:
+        """提取所有不在 <think>/<thinking> 标签内的内容，并去掉 <final> 标签本身。
+
+        用于 runner-level fallback：当整轮未出现 <final> 时，
+        从 full_content 中提取可展示给用户的非思考内容。
+        """
+        if not text:
+            return text
+        parts: list[str] = []
+        last_idx = 0
+        in_think = False
+        for m in _THINK_TAG_RE.finditer(text):
+            if not in_think:
+                parts.append(text[last_idx : m.start()])
+            in_think = m.group(1) != "/"
+            last_idx = m.end()
+        if not in_think:
+            parts.append(text[last_idx:])
+        result = "".join(parts)
+        return _ALL_TAGS_RE.sub("", result)
 
     # ---- 内部实现 ----
 
@@ -155,10 +180,7 @@ class ThinkingTagParser:
         return ("".join(non_think_parts), "".join(thinking_parts))
 
     def _extract_final(self, text: str) -> str:
-        """扫描 <final> 标签，提取 final 内容。
-
-        Lenient 模式：outside both tags 的内容也归入 final。
-        """
+        """扫描 <final> 标签，仅提取 <final> 内的内容（strict 模式）。"""
         if not text:
             return ""
 
@@ -170,9 +192,6 @@ class ThinkingTagParser:
             segment = text[last_idx : m.start()]
             if in_final:
                 final_parts.append(segment)
-            else:
-                # lenient: 标签外的内容也归入 final
-                final_parts.append(segment)
 
             is_close = m.group(1) == "/"
             if not is_close:
@@ -183,8 +202,8 @@ class ThinkingTagParser:
             last_idx = m.end()
 
         tail = text[last_idx:]
-        # lenient: 无论 in_final 与否，非 think 内容都归 final
-        final_parts.append(tail)
+        if in_final:
+            final_parts.append(tail)
 
         self.in_final = in_final
         return "".join(final_parts)

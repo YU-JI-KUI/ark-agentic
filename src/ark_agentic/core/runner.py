@@ -472,6 +472,12 @@ class AgentRunner:
                         for i in validation.issues
                     ]
 
+            # strict thinking-tags fallback: 整轮未出现 <final> 时补发非 think 内容
+            if self.config.enable_thinking_tags and handler:
+                fallback = response.metadata.get("thinking_fallback_content")
+                if fallback:
+                    handler.on_content_delta(fallback, turns)
+
             return RunResult(
                 response=response,
                 turns=turns,
@@ -787,6 +793,13 @@ class AgentRunner:
         msg.metadata["finish_reason"] = finish_reason
         if usage:
             msg.metadata["usage"] = usage
+
+        # strict 模式：整轮未出现 <final> 时，预计算 fallback 供 _run_loop 最终轮补发
+        if parser and not parser.ever_in_final and full_content:
+            fallback = ThinkingTagParser.extract_non_think(full_content)
+            if fallback:
+                msg.metadata["thinking_fallback_content"] = fallback
+
         logger.debug(f"[LLM_STREAM_DONE] content={len(full_content)}B tools={len(tool_calls_data)}")
         return msg
 

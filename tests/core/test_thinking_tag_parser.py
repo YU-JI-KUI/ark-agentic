@@ -1,12 +1,14 @@
 """ThinkingTagParser 单元测试
 
-覆盖 6 个核心场景：
+覆盖 8 个核心场景：
 1. 正常标签解析
 2. 缺失闭合标签
 3. 标签跨 chunk 断裂
-4. 无标签 fallback（lenient 模式）
+4. strict 模式（未标签内容不输出为 final）
 5. 嵌套/重复标签
 6. strip_tags 静态方法
+7. extract_non_think 静态方法
+8. reset 方法
 """
 
 import pytest
@@ -99,12 +101,12 @@ class TestCrossChunkTags:
         parser = ThinkingTagParser()
 
         t1, f1 = parser.process_chunk("前文<thi")
-        assert "前文" in f1
+        assert f1 == ""  # strict: 未包裹内容不输出
         assert parser._pending == "<thi"
 
         t2, f2 = parser.process_chunk("nk>思考内容</think>后文")
         assert t2 == "思考内容"
-        assert "后文" in f2
+        assert f2 == ""  # strict: "后文" 未在 <final> 内
 
     def test_closing_tag_split(self) -> None:
         parser = ThinkingTagParser()
@@ -114,20 +116,20 @@ class TestCrossChunkTags:
         assert parser._pending == "</thi"
 
         t2, f2 = parser.process_chunk("nk>回到正常")
-        assert "回到正常" in f2
+        assert f2 == ""  # strict: "回到正常" 未在 <final> 内
 
     def test_lone_lt_at_end(self) -> None:
         parser = ThinkingTagParser()
 
         t1, f1 = parser.process_chunk("文本<")
         assert parser._pending == "<"
-        assert "文本" in f1
+        assert f1 == ""  # strict: "文本" 未在 <final> 内
 
     def test_non_tag_lt_not_buffered(self) -> None:
         """price < 100 中的 < 不应被缓冲"""
         parser = ThinkingTagParser()
         t, f = parser.process_chunk("price < 100")
-        assert f == "price < 100"
+        assert f == ""  # strict: 未在 <final> 内
         assert parser._pending == ""
 
     def test_lt_with_number_not_buffered(self) -> None:
@@ -137,27 +139,52 @@ class TestCrossChunkTags:
         assert parser._pending == ""
 
 
-class TestLenientFallback:
-    """场景 4: 无标签 fallback（lenient 模式）"""
+class TestStrictMode:
+    """场景 4: strict 模式（未标签内容不输出为 final）"""
 
     def test_no_tags_at_all(self) -> None:
         parser = ThinkingTagParser()
         thinking, final = parser.process_chunk("您的保单如下，保额10万")
         assert thinking == ""
-        assert final == "您的保单如下，保额10万"
+        assert final == ""  # strict: 未在 <final> 内
+        assert parser.ever_in_final is False
 
-    def test_untagged_content_goes_to_final(self) -> None:
+    def test_untagged_content_ignored(self) -> None:
         parser = ThinkingTagParser()
         t, f = parser.process_chunk("开头文本<think>思考</think>尾部文本")
         assert t == "思考"
-        assert "开头文本" in f
-        assert "尾部文本" in f
+        assert f == ""  # strict: "开头文本"/"尾部文本" 均不在 <final> 内
+
+    def test_untagged_with_final(self) -> None:
+        """有 <final> 时，只输出 <final> 内的内容"""
+        parser = ThinkingTagParser()
+        t, f = parser.process_chunk("前导<think>思考</think>中间<final>结果</final>尾部")
+        assert t == "思考"
+        assert f == "结果"
+        assert parser.ever_in_final is True
 
     def test_empty_chunk(self) -> None:
         parser = ThinkingTagParser()
         t, f = parser.process_chunk("")
         assert t == ""
         assert f == ""
+
+    def test_flush_untagged_content_discarded(self) -> None:
+        """flush 时未在任何标签内的 pending 内容被丢弃"""
+        parser = ThinkingTagParser()
+        parser._pending = "游离内容"
+        t, f = parser.flush()
+        assert t == ""
+        assert f == ""
+
+    def test_flush_in_final_emits(self) -> None:
+        """flush 时 in_final=True 的 pending 内容正常输出"""
+        parser = ThinkingTagParser()
+        parser.in_final = True
+        parser._pending = "尾部内容"
+        t, f = parser.flush()
+        assert t == ""
+        assert f == "尾部内容"
 
 
 class TestNestedTags:
@@ -169,11 +196,10 @@ class TestNestedTags:
         assert "内容" in t
 
     def test_orphan_close_tag(self) -> None:
-        """孤立的 </think> 应被忽略"""
+        """孤立的 </think> 应被忽略，但 strict 下未标签文本不输出"""
         parser = ThinkingTagParser()
         t, f = parser.process_chunk("正常文本</think>后续")
-        assert "正常文本" in f
-        assert "后续" in f
+        assert f == ""  # strict: 均未在 <final> 内
 
 
 class TestStripTags:
@@ -231,3 +257,43 @@ class TestReset:
         t2, f2 = parser.process_chunk("<final>最终回答</final>")
         assert f2 == "最终回答"
         assert t2 == ""
+
+
+class TestExtractNonThink:
+    """场景 7: extract_non_think 静态方法（用于 runner fallback）"""
+
+    def test_no_tags(self) -> None:
+        assert ThinkingTagParser.extract_non_think("普通文本") == "普通文本"
+
+    def test_empty(self) -> None:
+        assert ThinkingTagParser.extract_non_think("") == ""
+        assert ThinkingTagParser.extract_non_think(None) is None  # type: ignore[arg-type]
+
+    def test_only_think(self) -> None:
+        result = ThinkingTagParser.extract_non_think("<think>思考内容</think>")
+        assert result == ""
+
+    def test_think_with_surrounding(self) -> None:
+        result = ThinkingTagParser.extract_non_think("前导<think>思考</think>尾部")
+        assert result == "前导尾部"
+
+    def test_strips_final_tags(self) -> None:
+        result = ThinkingTagParser.extract_non_think("<final>结果</final>")
+        assert result == "结果"
+
+    def test_mixed(self) -> None:
+        result = ThinkingTagParser.extract_non_think(
+            "开头<think>思考</think>中间<final>答案</final>结尾"
+        )
+        assert result == "开头中间答案结尾"
+
+    def test_thinking_variant(self) -> None:
+        result = ThinkingTagParser.extract_non_think(
+            "<thinking>推理</thinking>结论"
+        )
+        assert result == "结论"
+
+    def test_unclosed_think(self) -> None:
+        """未闭合的 <think> 后面的内容被视为 thinking，不出现在结果中"""
+        result = ThinkingTagParser.extract_non_think("前文<think>思考中...")
+        assert result == "前文"
