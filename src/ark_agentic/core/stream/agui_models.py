@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 class AGUIDataPayload(BaseModel):
     """AGUI data 层字段（§3.6 data 参数定义）。"""
 
-    code: str = "success"
+    code: str = "200"
     msg: str | None = None
     request_id: str | None = None
     trace_id: str | None = None
