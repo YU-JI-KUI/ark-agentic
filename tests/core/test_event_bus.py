@@ -146,6 +146,46 @@ class TestStreamEventBusToolCalls:
         assert len(str(result_event.tool_result)) < 2100
 
 
+class TestStreamEventBusThinkingDelta:
+    """Test on_thinking_delta → thinking_message_start + thinking_message_content."""
+
+    def test_thinking_delta_emits_start_then_content(self) -> None:
+        bus, q = _make_bus()
+        bus.on_thinking_delta("推理内容", turn=1)
+        events = _drain(q)
+        assert len(events) == 2
+        assert events[0].type == "thinking_message_start"
+        assert events[0].message_id is not None
+        assert events[1].type == "thinking_message_content"
+        assert events[1].delta == "推理内容"
+        assert events[1].turn == 1
+        assert events[1].message_id == events[0].message_id
+
+    def test_multiple_thinking_deltas_share_message_id(self) -> None:
+        bus, q = _make_bus()
+        bus.on_thinking_delta("A", turn=1)
+        bus.on_thinking_delta("B", turn=1)
+        events = _drain(q)
+        start_ev = next(e for e in events if e.type == "thinking_message_start")
+        content_evs = [e for e in events if e.type == "thinking_message_content"]
+        assert all(e.message_id == start_ev.message_id for e in content_evs)
+
+    def test_emit_completed_closes_thinking_message(self) -> None:
+        bus, q = _make_bus()
+        bus.on_thinking_delta("思考", turn=1)
+        _ = _drain(q)
+        bus.emit_completed(message="done", turns=1)
+        events = _drain(q)
+        types = [e.type for e in events]
+        assert "thinking_message_end" in types
+        assert "run_finished" in types
+
+    def test_empty_thinking_delta_ignored(self) -> None:
+        bus, q = _make_bus()
+        bus.on_thinking_delta("", turn=1)
+        assert q.empty()
+
+
 class TestStreamEventBusUIComponent:
     """Test A2UI event emission (text_message_content + content_kind=a2ui)."""
 

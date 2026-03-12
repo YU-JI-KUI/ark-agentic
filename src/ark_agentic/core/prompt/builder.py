@@ -50,6 +50,9 @@ class PromptConfig:
     # 仅注入技能元数据（不注入全文）；模型通过 read_skill 按 id 加载一个技能
     use_skill_metadata_only: bool = False
 
+    # <think>/<final> 标签指引（非空时注入到 system prompt）
+    thinking_tag_instructions: str = ""
+
 
 # 动态模式下的 skill 加载说明（对齐 openclaw buildSkillsSection）
 LOAD_ONE_SKILL_INSTRUCTIONS = """\
@@ -253,7 +256,8 @@ class SystemPromptBuilder:
         Returns:
             构建的系统提示
         """
-        builder = cls(config)
+        effective_config = config or PromptConfig()
+        builder = cls(effective_config)
         builder.add_identity()
         builder.add_runtime_info()
 
@@ -265,6 +269,8 @@ class SystemPromptBuilder:
             builder.add_skills(skills)
         if context:
             builder.add_context(context)
+        if effective_config.thinking_tag_instructions:
+            builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
         if custom_instructions:
             builder.add_custom_instructions(custom_instructions)
 

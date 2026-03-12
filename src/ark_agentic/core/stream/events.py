@@ -51,6 +51,10 @@ EventType = Literal[
     "state_delta",
     # 消息快照 (§3.3 #15)
     "messages_snapshot",
+    # 思考流 (thinking tags)
+    "thinking_message_start",
+    "thinking_message_content",
+    "thinking_message_end",
     # 自定义 / 原始透传 (§3.3 #16-17)
     "custom",
     "raw",
