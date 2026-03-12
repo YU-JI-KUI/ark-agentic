@@ -251,8 +251,6 @@ def create_chat_model_from_env(
         )
 
     provider = os.getenv("LLM_PROVIDER", "pa").lower()
-    api_key = _resolve_api_key(None)
-    base_url = os.getenv("LLM_BASE_URL", "").strip() or None
 
     if provider == "pa":
         try:
@@ -262,12 +260,20 @@ def create_chat_model_from_env(
                 f"Invalid MODEL_NAME={model_name_env!r} for LLM_PROVIDER=pa. "
                 f"Valid values: {[m.value for m in PAModel]}"
             )
-        return create_chat_model(model=pa_model)
-    # OpenAI-compatible path
+        return create_chat_model(
+            model=pa_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            streaming=streaming,
+        )
+
+    # OpenAI-compatible（pa 以外的任意 provider: openai, deepseek 等）
+    api_key = _resolve_api_key(None)
     if not api_key:
         raise ValueError(
-            "LLM_PROVIDER is not 'pa' and no API key found. Set API_KEY or use LLM_PROVIDER=pa."
+            f"API_KEY is required for LLM_PROVIDER={provider!r}. Set API_KEY env var."
         )
+    base_url = os.getenv("LLM_BASE_URL", "").strip() or None
     return create_chat_model(
         model=model_name_env,
         api_key=api_key,

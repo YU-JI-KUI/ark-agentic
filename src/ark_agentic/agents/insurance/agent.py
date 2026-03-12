@@ -56,24 +56,11 @@ _SKILLS_DIR = _AGENT_DIR / "skills"
 
 
 def get_llm_client(args: argparse.Namespace) -> Any:
-    """根据命令行参数创建 LLM"""
-    provider = args.provider
-    api_key = args.api_key
-
-    if not api_key:
-        api_key = os.environ.get("API_KEY", "")
-
-    if not api_key:
-        raise ValueError(
-            "API key is required. Set --api-key or API_KEY environment variable."
-        )
-
-    logger.info(f"Using {provider.upper()} client (model: {args.model or 'default'})")
-
+    """透传 CLI 参数给 factory；校验逻辑由 factory 统一处理。"""
     return create_chat_model(
         model=args.model,
-        api_key=api_key,
-        base_url=args.base_url,
+        api_key=args.api_key or None,
+        base_url=args.base_url or None,
     )
 
 
@@ -317,16 +304,10 @@ Examples:
 """,
     )
 
-    # LLM 配置
-    parser.add_argument(
-        "--provider",
-        choices=["pa"],
-        default="pa",
-        help="LLM 提供商 (default: openai)",
-    )
+    # LLM 配置（provider 由 LLM_PROVIDER 环境变量控制）
     parser.add_argument(
         "--api-key",
-        help="API Key（也可通过环境变量设置）",
+        help="API Key（也可通过 API_KEY 环境变量设置）",
     )
     parser.add_argument(
         "--base-url",
@@ -392,7 +373,6 @@ async def main():
         llm_client = get_llm_client(args)
     except ValueError as e:
         print(f"[错误] {e}")
-        print("\n提示：设置 API_KEY 或使用 --api-key 指定 API Key")
         return
 
     # 创建 Agent
