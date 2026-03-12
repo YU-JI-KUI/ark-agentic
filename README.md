@@ -67,7 +67,7 @@ result = await agent.run(session_id, "我想取点钱")
 ## API 服务
 
 ```bash
-export DEEPSEEK_API_KEY=sk-xxx
+export API_KEY=sk-xxx
 ark-agentic-api
 ```
 
@@ -138,7 +138,7 @@ docker build -t ark-agentic .
 
 docker run -d \
   -p 8080:8080 \
-  -e DEEPSEEK_API_KEY=sk-xxx \
+  -e API_KEY=sk-xxx \
   -v ark-sessions:/data/sessions \
   -v ark-memory:/data/memory \
   ark-agentic
@@ -151,7 +151,7 @@ docker run -d \
 python -m ark_agentic.agents.insurance.agent --mock --demo
 
 # 交互模式
-export DEEPSEEK_API_KEY=sk-xxx
+export API_KEY=sk-xxx
 python -m ark_agentic.agents.insurance.agent -i
 
 # 持久化 + Memory
@@ -196,15 +196,15 @@ uv run ark-agentic add-agent risk-engine
 
   ```bash
   LLM_PROVIDER=deepseek
-  DEEPSEEK_API_KEY=sk-xxx
-  # LLM_BASE_URL=https://api.deepseek.com
+  API_KEY=sk-xxx
+  # LLM_BASE_URL=https://api.deepseek.com/v1
   ```
 
 - 当 `--llm-provider=openai`:
 
   ```bash
   LLM_PROVIDER=openai
-  DEEPSEEK_API_KEY=sk-xxx
+  API_KEY=sk-xxx
   # LLM_BASE_URL=https://api.openai.com/v1
   ```
 
@@ -212,7 +212,7 @@ uv run ark-agentic add-agent risk-engine
 
   ```bash
   LLM_PROVIDER=pa
-  PA_MODEL=PA-SX-80B
+  MODEL_NAME=PA-SX-80B
   # PA_SX_BASE_URL=https://pa-sx.example.com
   # PA_JT_BASE_URL=https://pa-jt.example.com
   ```
@@ -368,7 +368,7 @@ runner.register_tool(create_pa_knowledge_api_tool(PAKnowledgeAPIConfig(
 ```python
 from ark_agentic.core.llm import create_chat_model
 
-# DeepSeek (从环境变量读取 DEEPSEEK_API_KEY)
+# DeepSeek (从环境变量读取 API_KEY)
 llm = create_chat_model("deepseek-chat")
 
 # 显式指定 API key
@@ -456,7 +456,8 @@ src/ark_agentic/
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `DEEPSEEK_API_KEY` | DeepSeek / OpenAI 兼容端点 API Key | - |
+| `API_KEY` | OpenAI 兼容端点 API Key | - |
+| `MODEL_NAME` | 模型 id（PA 时为 PA-SX-80B 等，兼容时为 deepseek-chat / gpt-4o 等） | - |
 | `DEFAULT_TEMPERATURE` | LLM 温度 | `0.7` |
 | `API_HOST` | API 监听地址 | `0.0.0.0` |
 | `API_PORT` | API 端口 | `8080` |
@@ -472,8 +473,8 @@ uv run pytest -v
 uv run pytest tests/core/test_runner.py -v
 uv run pytest tests/core/test_compaction.py -v
 
-# 运行 LLM 集成测试（需要 DEEPSEEK_API_KEY）
-export DEEPSEEK_API_KEY=sk-xxx
+# 运行 LLM 集成测试（需要 API_KEY）
+export API_KEY=sk-xxx
 uv run pytest tests/core/test_compaction.py -v
 ```
 
