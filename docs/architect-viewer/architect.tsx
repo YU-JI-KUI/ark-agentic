@@ -251,7 +251,7 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
                   <BaseBlock title="大模型平台" className="flex-1 min-w-[100px] font-semibold py-2 text-slate-600" bgClass="bg-slate-100/50" borderClass="border border-slate-200" />
                 <BaseBlock title="赛飞平台" className="flex-1 min-w-[100px] font-semibold py-2 text-slate-600" bgClass="bg-slate-100/50" borderClass="border border-slate-200" />
                 <BaseBlock title="BU私有环境" className="flex-1 min-w-[100px] font-semibold py-2 text-slate-600" bgClass="bg-slate-100/50" borderClass="border border-slate-200" />
-                <BaseBlock title="数据库 · 向量数据库 " className="flex-1 min-w-[140px] font-semibold py-2 text-slate-600" bgClass="bg-slate-100/50" borderClass="border border-slate-200" />
+                <BaseBlock title="数据库 · 向量数据库 " className="flex-1 min-w-[140px] font-semibold py-2 text-slate-600" bgClass="bg-slate-100/50" borderClass="border border-slate-200" />
                 </div>
               </div>
             </LayerRow>

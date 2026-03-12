@@ -19,6 +19,8 @@ data/*
 # Claude
 CLAUDE.md
 
+node_modules/
+
 # Sessions
 data/ark_securities
 data/ark_sessions

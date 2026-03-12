@@ -16,7 +16,7 @@ function saveSourcePlugin() {
           try {
             const { oldText, newText } = JSON.parse(body);
             if (oldText && newText && oldText !== newText) {
-              const filePath = path.resolve(__dirname, '../architect.tsx');
+              const filePath = path.resolve(__dirname, 'architect.tsx');
               let content = fs.readFileSync(filePath, 'utf-8');
 
               // 用简单字符串查找替换，避免 regex 特殊字符问题

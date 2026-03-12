@@ -19,5 +19,5 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true
   },
-  "include": ["src", "../architect.tsx"]
+  "include": ["src", "architect.tsx"]
 }
