@@ -154,6 +154,26 @@ class TemplateRenderer:
         }
     
     @staticmethod
+    def render_branch_info_card(data: dict[str, Any]) -> dict[str, Any]:
+        """渲染开户营业部卡片
+
+        支持的字段：
+        - branch_name: 营业部名称
+        - address: 营业部地址
+        - service_phone: 营业部电话（纯号码，已去除前缀）
+        - account: 脱敏后的资金账号（可选）
+        """
+        return {
+            "template_type": "branch_info_card",
+            "data": {
+                "branch_name": data.get("branch_name"),
+                "address": data.get("address"),
+                "service_phone": data.get("service_phone"),
+                "account": data.get("account"),
+            },
+        }
+
+    @staticmethod
     def render_profit_summary_card(data: dict[str, Any]) -> dict[str, Any]:
         """渲染收益汇总卡片"""
         return {

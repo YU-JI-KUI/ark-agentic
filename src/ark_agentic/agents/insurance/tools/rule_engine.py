@@ -219,7 +219,8 @@ class RuleEngineTool(AgentTool):
                 "options": [],
             }
 
-        return self._build_options(policies, amount)
+        out = self._build_options(policies, amount)
+        return out
 
     def _build_options(
         self,

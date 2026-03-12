@@ -19,6 +19,7 @@ from .memory import MemorySearchTool, MemoryGetTool, create_memory_tools
 from .pa_knowledge_api import PAKnowledgeAPIConfig, PAKnowledgeAPITool, create_pa_knowledge_api_tool
 from .demo_state import SetStateDemoTool, GetStateDemoTool
 from .render_card import CardExtractor, RenderCardTool
+from .render_dynamic_card import RenderDynamicCardTool
 
 __all__ = [
     # Base
@@ -43,6 +44,8 @@ __all__ = [
     # Demo state tools (session state read/write)
     "SetStateDemoTool",
     "GetStateDemoTool",
+    # A2UI rendering tools
     "CardExtractor",
     "RenderCardTool",
+    "RenderDynamicCardTool",
 ]

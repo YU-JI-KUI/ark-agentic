@@ -132,7 +132,7 @@ def create_insurance_agent(
         skill_directories=[str(_SKILLS_DIR)],
         agent_id="insurance",
         enable_eligibility_check=True,
-        default_load_mode=SkillLoadMode.dynamic,  # 保险 Agent 默认全量加载（最可靠）
+        default_load_mode=SkillLoadMode.full,  # 保险 Agent 默认全量加载（最可靠）
     )
     skill_loader = SkillLoader(skill_config)
 

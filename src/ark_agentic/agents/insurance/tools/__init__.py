@@ -12,7 +12,7 @@
 
 from pathlib import Path
 
-from ark_agentic.core.tools import RenderCardTool
+from ark_agentic.core.tools import RenderCardTool, RenderDynamicCardTool
 
 from ..a2ui.extractors import withdraw_summary_extractor
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
@@ -32,6 +32,10 @@ def _create_render_card_tool() -> RenderCardTool:
     )
 
 
+def _create_render_dynamic_card_tool() -> RenderDynamicCardTool:
+    return RenderDynamicCardTool(group="insurance")
+
+
 __all__ = [
     "DataServiceClient",
     "MockDataServiceClient",
@@ -40,6 +44,7 @@ __all__ = [
     "RuleEngineTool",
     "CustomerInfoTool",
     "RenderCardTool",
+    "RenderDynamicCardTool",
     "create_insurance_tools",
     "create_insurance_tools_minimal",
 ]
@@ -50,9 +55,7 @@ def create_insurance_tools(
 ) -> list:
     """创建保险工具集合（完整版）
 
-    Args:
-        data_client: 可选的 DataServiceClient 实例。
-                     不传则使用全局单例（从环境变量读取配置）。
+    Both render tools are registered; the Runner filters by a2ui_mode per-request.
     """
     client = data_client or get_data_service_client()
     return [
@@ -60,6 +63,7 @@ def create_insurance_tools(
         RuleEngineTool(client=client),
         CustomerInfoTool(client=client),
         _create_render_card_tool(),
+        _create_render_dynamic_card_tool(),
     ]
 
 
@@ -72,4 +76,5 @@ def create_insurance_tools_minimal(
         PolicyQueryTool(client=client),
         RuleEngineTool(client=client),
         _create_render_card_tool(),
+        _create_render_dynamic_card_tool(),
     ]

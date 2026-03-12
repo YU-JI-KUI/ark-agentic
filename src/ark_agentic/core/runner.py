@@ -74,6 +74,9 @@ class RunnerConfig:
     # 技能配置
     skill_config: SkillConfig = field(default_factory=SkillConfig)
 
+    # A2UI 渲染模式默认值 (template|dynamic)，可通过环境变量 A2UI_MODE 覆盖
+    a2ui_mode: str = field(default_factory=lambda: os.getenv("A2UI_MODE", "dynamic"))
+
 
 @dataclass
 class RunResult:
@@ -186,6 +189,8 @@ class AgentRunner:
         raw = self.config.skill_config.default_load_mode
         resolved_skill_load_mode: str = raw.value
 
+        effective_a2ui_mode = self.config.a2ui_mode
+
         # 惰性初始化 Memory
         if self._memory_manager and not self._memory_manager._initialized:
             await self._memory_manager.initialize()
@@ -214,6 +219,7 @@ class AgentRunner:
                 model_override=effective_model,
                 temperature_override=effective_temperature,
                 skill_load_mode=resolved_skill_load_mode,
+                a2ui_mode=effective_a2ui_mode,
                 handler=handler,
             )
         finally:
@@ -308,6 +314,7 @@ class AgentRunner:
         model_override: str | None = None,
         temperature_override: float | None = None,
         skill_load_mode: str = "full",
+        a2ui_mode: str = "dynamic",
         handler: AgentEventHandler | None = None,
     ) -> RunResult:
         """ReAct 循环: LLM → Tool → LLM → ... → Response"""
@@ -326,8 +333,8 @@ class AgentRunner:
             turns += 1
 
             state = session.state
-            messages = self._build_messages(session_id, state, skill_load_mode=skill_load_mode)
-            tools = self._build_tools()
+            messages = self._build_messages(session_id, state, skill_load_mode=skill_load_mode, a2ui_mode=a2ui_mode)
+            tools = self._build_tools(a2ui_mode=a2ui_mode)
             logger.info(
                 f"Turn {turns} | messages={len(messages)} tools={len(tools)} "
                 f"model={model_override or self.config.model}"
@@ -497,6 +504,7 @@ class AgentRunner:
         state: dict[str, Any],
         *,
         skill_load_mode: str = "full",
+        a2ui_mode: str = "dynamic",
     ) -> list[dict[str, Any]]:
         """构建 LLM 消息列表"""
         import json
@@ -506,7 +514,8 @@ class AgentRunner:
 
         # 系统提示
         system_prompt = self._build_system_prompt(
-            state, session_id=session_id, skill_load_mode=skill_load_mode
+            state, session_id=session_id, skill_load_mode=skill_load_mode,
+            a2ui_mode=a2ui_mode
         )
         messages.append({"role": "system", "content": system_prompt})
 
@@ -557,9 +566,10 @@ class AgentRunner:
         session_id: str | None = None,
         *,
         skill_load_mode: str = "full",
+        a2ui_mode: str = "dynamic",
     ) -> str:
         """构建系统提示"""
-        tools = self.tool_registry.list_all()
+        tools = self._filter_tools_by_a2ui_mode(self.tool_registry.list_all(), a2ui_mode)
 
         # 将已注册的工具名注入，供 skill 资格检查使用
         skill_context = {**state, "available_tools": {t.name for t in tools}}
@@ -613,10 +623,16 @@ class AgentRunner:
             include_memory_instructions=include_memory,
         )
 
-    def _build_tools(self) -> list[dict[str, Any]]:
-        """构建工具定义"""
-        tools = self.tool_registry.list_all()
+    def _build_tools(self, a2ui_mode: str = "dynamic") -> list[dict[str, Any]]:
+        """构建工具定义（按 a2ui_mode 过滤互斥的渲染工具）"""
+        tools = self._filter_tools_by_a2ui_mode(self.tool_registry.list_all(), a2ui_mode)
         return [tool.get_json_schema() for tool in tools]
+
+    @staticmethod
+    def _filter_tools_by_a2ui_mode(tools: list[AgentTool], mode: str) -> list[AgentTool]:
+        """Keep only the render tool matching the current a2ui_mode."""
+        exclude = {"render_dynamic_card"} if mode == "template" else {"render_card"}
+        return [t for t in tools if t.name not in exclude]
 
     def _get_llm(self, model_override: str | None = None, temperature_override: float | None = None) -> BaseChatModel:
         """获取 LLM 实例，支持 per-call model/temperature 覆盖。"""
@@ -784,8 +800,10 @@ class AgentRunner:
         handler: AgentEventHandler | None = None,
     ) -> list[AgentToolResult]:
         timeout = self.config.tool_timeout
+        # Mutable context so later tools in the same turn see state_delta and _tool_results_by_name
+        ctx = {**context, "_tool_results_by_name": dict(context.get("_tool_results_by_name") or {})}
 
-        async def execute_single(tc: ToolCall) -> AgentToolResult:
+        async def execute_single(tc: ToolCall, current_ctx: dict[str, Any]) -> AgentToolResult:
             logger.debug(f"[TOOL_START] {tc.name} args={tc.arguments}")
             if handler:
                 handler.on_tool_call_start(tc.id, tc.name, tc.arguments)
@@ -800,7 +818,7 @@ class AgentRunner:
             else:
                 try:
                     result = await asyncio.wait_for(
-                        tool.execute(tc, context),
+                        tool.execute(tc, current_ctx),
                         timeout=timeout,
                     )
                 except asyncio.TimeoutError:
@@ -833,12 +851,18 @@ class AgentRunner:
         if len(tool_calls) > len(limited_calls):
             logger.warning(f"[TOOLS_LIMIT] requested={len(tool_calls)} limited={len(limited_calls)}")
 
-        results = await asyncio.gather(
-            *[execute_single(tc) for tc in limited_calls],
-            return_exceptions=False,
-        )
+        results: list[AgentToolResult] = []
+        for tc in limited_calls:
+            result = await execute_single(tc, ctx)
+            results.append(result)
+            state_delta = result.metadata.get("state_delta") if result.metadata else None
+            if isinstance(state_delta, dict) and state_delta:
+                ctx.update(state_delta)
+            by_name = ctx.get("_tool_results_by_name") or {}
+            by_name[tc.name] = result.content
+            ctx["_tool_results_by_name"] = by_name
 
-        return list(results)
+        return results
 
     # ============ 便捷方法 ============
 

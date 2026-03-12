@@ -21,7 +21,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from ark_agentic.core.tools.base import AgentTool, ToolParameter, read_string_param
@@ -69,11 +68,6 @@ class AccountOverviewTool(AgentTool):
         ),
     ]
 
-    def __init__(self):
-        self._adapter = create_service_adapter(
-            "account_overview",
-            mock=os.getenv("SECURITIES_SERVICE_MOCK", "").lower() in ("true", "1"),
-        )
 
     async def execute(
         self,
@@ -93,7 +87,7 @@ class AccountOverviewTool(AgentTool):
 
         try:
             # 传递完整 context 给 adapter（用于参数映射）
-            data = await self._adapter.call(
+            data = await create_service_adapter("account_overview", context=context).call(
                 account_type=account_type,
                 user_id=user_id,
                 _context=context,  # 传递完整上下文供参数映射使用
