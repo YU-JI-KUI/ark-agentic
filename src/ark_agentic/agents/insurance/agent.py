@@ -8,11 +8,11 @@
 - 工具调用（用户画像、保单查询、规则引擎）
 - 会话持久化（JSONL 格式）
 - 技能系统集成
-- 支持多种 LLM 提供商（DeepSeek, OpenAI, PA 等）
+- 支持多种 LLM 提供商（OpenAI 兼容、PA 等）
 
 使用方法：
-    # 使用 DeepSeek（默认）
-    export DEEPSEEK_API_KEY=sk-xxx
+    # 使用 OpenAI 兼容端点（需 API_KEY、可选 LLM_BASE_URL）
+    export API_KEY=sk-xxx
     python -m ark_agentic.agents.insurance.agent
 
     # 交互模式
@@ -56,26 +56,11 @@ _SKILLS_DIR = _AGENT_DIR / "skills"
 
 
 def get_llm_client(args: argparse.Namespace) -> Any:
-    """根据命令行参数创建 LLM"""
-    provider = args.provider
-    api_key = args.api_key
-
-    # 从环境变量获取 API Key
-    if not api_key:
-        env_key = "DEEPSEEK_API_KEY"
-        api_key = os.environ.get(env_key, "")
-
-    if not api_key:
-        raise ValueError(
-            "API key is required. Set --api-key or DEEPSEEK_API_KEY environment variable."
-        )
-
-    logger.info(f"Using {provider.upper()} client (model: {args.model or 'default'})")
-
+    """透传 CLI 参数给 factory；校验逻辑由 factory 统一处理。"""
     return create_chat_model(
-        model=args.model or "deepseek-chat",
-        api_key=api_key,
-        base_url=args.base_url,
+        model=args.model,
+        api_key=args.api_key or None,
+        base_url=args.base_url or None,
     )
 
 
@@ -88,6 +73,7 @@ def create_insurance_agent(
     enable_persistence: bool = False,
     memory_dir: str | Path | None = None,
     enable_memory: bool = False,
+    enable_thinking_tags: bool = False,
 ) -> AgentRunner:
     """创建保险取款智能体
 
@@ -97,6 +83,7 @@ def create_insurance_agent(
         enable_persistence: 是否启用持久化
         memory_dir: Memory 数据目录（用于向量存储等）
         enable_memory: 是否启用 Memory 系统
+        enable_thinking_tags: 是否启用 <think>/<final> 标签解析（流式思考态/最终态区分）
 
     Returns:
         配置好的 AgentRunner
@@ -104,9 +91,6 @@ def create_insurance_agent(
     # 1. 创建工具注册器并注册保险工具 + Demo A2UI 工具
     tool_registry = ToolRegistry()
     tool_registry.register_all(create_insurance_tools())
-    # tool_registry.register(DemoA2UITool())
-    # tool_registry.register(SetStateDemoTool())
-    # tool_registry.register(GetStateDemoTool())
 
     # 2. 创建会话管理器（支持持久化，使用 LLM 摘要器进行上下文压缩）
     if enable_persistence:
@@ -177,6 +161,7 @@ def create_insurance_agent(
         max_tokens=4096,
         max_turns=10,
         enable_streaming=False,
+        enable_thinking_tags=enable_thinking_tags,
         prompt_config=PromptConfig(
             agent_name="保险智能助手",
             agent_description="专业的保险咨询和业务处理助手，帮助您管理保单和解决保险相关问题。",
@@ -314,7 +299,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # 使用 DeepSeek（需要设置 DEEPSEEK_API_KEY 环境变量）
+  # 使用 OpenAI 兼容端点（需要设置 API_KEY 环境变量）
   python examples/insurance_withdrawal_agent.py
 
   # 交互模式
@@ -322,16 +307,10 @@ Examples:
 """,
     )
 
-    # LLM 配置
-    parser.add_argument(
-        "--provider",
-        choices=["deepseek"],
-        default="deepseek",
-        help="LLM 提供商 (default: deepseek)",
-    )
+    # LLM 配置（provider 由 LLM_PROVIDER 环境变量控制）
     parser.add_argument(
         "--api-key",
-        help="API Key（也可通过环境变量设置）",
+        help="API Key（也可通过 API_KEY 环境变量设置）",
     )
     parser.add_argument(
         "--base-url",
@@ -397,7 +376,6 @@ async def main():
         llm_client = get_llm_client(args)
     except ValueError as e:
         print(f"[错误] {e}")
-        print("\n提示：设置 DEEPSEEK_API_KEY 或使用 --api-key 指定 API Key")
         return
 
     # 创建 Agent

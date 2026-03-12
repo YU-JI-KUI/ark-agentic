@@ -7,6 +7,7 @@ from .factory import (
     PAModel,
     PAModelConfig,
     create_chat_model,
+    create_chat_model_from_env,
 )
 
 from .errors import (
@@ -20,6 +21,7 @@ __all__ = [
     "PAModel",
     "PAModelConfig",
     "create_chat_model",
+    "create_chat_model_from_env",
     # Errors
     "LLMErrorReason",
     "LLMError",

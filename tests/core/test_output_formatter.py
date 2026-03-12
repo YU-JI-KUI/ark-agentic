@@ -154,11 +154,21 @@ class TestEnterpriseAGUIFormatter:
         f = EnterpriseAGUIFormatter()
         ev = _event(type="step_started", step_name="查询中")
         result = f.format(ev)
-        _, data = _parse_sse(result)
-        dp = data["data"]
-        assert dp["ui_protocol"] == "json"
-        assert dp["ui_data"]["think"] == "查询中"
-        assert dp["ui_data"]["think_status"] == 1
+        # result is a string with multiple SSE events (reasoning_start + reasoning_message_content)
+        events = [e for e in result.split("\n\n") if e.strip()]
+        assert len(events) == 2
+        
+        # Check reasoning_start
+        etype1, data1 = _parse_sse(events[0] + "\n\n")
+        assert etype1 == "reasoning_start"
+        assert data1["data"]["ui_protocol"] == "text"
+        
+        # Check reasoning_message_content
+        etype2, data2 = _parse_sse(events[1] + "\n\n")
+        assert etype2 == "reasoning_message_content"
+        dp = data2["data"]
+        assert dp["ui_protocol"] == "text"
+        assert dp["ui_data"] == "\n查询中\n"
 
     def test_text_content_ui_protocol_text(self) -> None:
         f = EnterpriseAGUIFormatter()
@@ -193,9 +203,87 @@ class TestEnterpriseAGUIFormatter:
         f = EnterpriseAGUIFormatter()
         ev = _event(type="step_started", step_name="查询中")
         result = f.format(ev)
-        _, data = _parse_sse(result)
+        events = [e for e in result.split("\n\n") if e.strip()]
+        _, data = _parse_sse(events[-1] + "\n\n")
         dp = data["data"]
         assert dp.get("message_id") is None
+
+    def test_thinking_message_content_maps_to_reasoning_message_content(self) -> None:
+        """thinking_message_content → reasoning_start (if first) + reasoning_message_content."""
+        f = EnterpriseAGUIFormatter()
+        ev = _event(type="thinking_message_content", delta="分析中", message_id="m1")
+        result = f.format(ev)
+        events = [e for e in result.split("\n\n") if e.strip()]
+        assert len(events) == 2
+        etype1, _ = _parse_sse(events[0] + "\n\n")
+        etype2, data2 = _parse_sse(events[1] + "\n\n")
+        assert etype1 == "reasoning_start"
+        assert etype2 == "reasoning_message_content"
+        assert data2["data"]["ui_data"] == "分析中"
+
+    def test_thinking_message_end_emits_reasoning_end(self) -> None:
+        """thinking_message_end → reasoning_end when reasoning was active."""
+        f = EnterpriseAGUIFormatter()
+        f.format(_event(type="step_started", step_name="步骤"))
+        ev_end = _event(type="thinking_message_end", message_id="m1")
+        result = f.format(ev_end)
+        etype, data = _parse_sse(result)
+        assert etype == "reasoning_end"
+        assert data["event"] == "reasoning_end"
+
+    def test_step_finished_maps_to_reasoning_message_content(self) -> None:
+        """step_finished → reasoning_message_content with '完成' suffix."""
+        f = EnterpriseAGUIFormatter()
+        ev = _event(type="step_finished", step_name="查询")
+        result = f.format(ev)
+        events = [e for e in result.split("\n\n") if e.strip()]
+        _, data = _parse_sse(events[-1] + "\n\n")
+        assert data["event"] == "reasoning_message_content"
+        assert "查询" in data["data"]["ui_data"]
+        assert "完成" in data["data"]["ui_data"]
+
+    def test_tool_call_start_maps_to_reasoning_message_content(self) -> None:
+        """tool_call_start → reasoning_start + reasoning_message_content."""
+        f = EnterpriseAGUIFormatter()
+        ev = _event(type="tool_call_start", tool_name="policy_query")
+        result = f.format(ev)
+        events = [e for e in result.split("\n\n") if e.strip()]
+        assert len(events) == 2
+        _, data = _parse_sse(events[1] + "\n\n")
+        assert data["event"] == "reasoning_message_content"
+        assert "policy_query" in data["data"]["ui_data"]
+
+    def test_tool_call_result_maps_to_reasoning_message_content(self) -> None:
+        """tool_call_result → reasoning_message_content."""
+        f = EnterpriseAGUIFormatter()
+        f.format(_event(type="step_started", step_name="x"))
+        ev = _event(type="tool_call_result", tool_name="policy_query", tool_result="ok")
+        result = f.format(ev)
+        events = [e for e in result.split("\n\n") if e.strip()]
+        _, data = _parse_sse(events[-1] + "\n\n")
+        assert data["event"] == "reasoning_message_content"
+        assert "policy_query" in data["data"]["ui_data"]
+        assert "完成" in data["data"]["ui_data"]
+
+    def test_run_finished_emits_reasoning_end_when_active(self) -> None:
+        """run_finished emits reasoning_end prefix when reasoning was active."""
+        f = EnterpriseAGUIFormatter()
+        f.format(_event(type="step_started", step_name="查询中"))
+        ev = _event(type="run_finished", message="完成", turns=1)
+        result = f.format(ev)
+        parts = result.split("\n\n")
+        assert any("reasoning_end" in p for p in parts)
+        assert any("run_finished" in p for p in parts)
+
+    def test_thinking_message_start_only_emits_reasoning_start(self) -> None:
+        """thinking_message_start alone → reasoning_start only (no content)."""
+        f = EnterpriseAGUIFormatter()
+        ev = _event(type="thinking_message_start", message_id="m1")
+        result = f.format(ev)
+        events = [e for e in result.split("\n\n") if e.strip()]
+        assert len(events) == 1
+        etype, _ = _parse_sse(events[0] + "\n\n")
+        assert etype == "reasoning_start"
 
 
 class TestAloneFormatter:

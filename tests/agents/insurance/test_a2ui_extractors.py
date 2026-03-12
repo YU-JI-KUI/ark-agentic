@@ -25,7 +25,7 @@ def test_withdraw_summary_extractor_returns_data_from_rule_engine_result() -> No
         },
         "session_id": "s1",
     }
-    card_args = {"advice_text_1": "建议一", "advice_text_2": "建议二", "plan_button_text": "获取方案"}
+    card_args = None  # card_args no longer used for withdraw_summary
 
     flat = withdraw_summary_extractor(context, card_args)
 
@@ -38,14 +38,12 @@ def test_withdraw_summary_extractor_returns_data_from_rule_engine_result() -> No
     assert zc[0]["label"] != ""
     assert zc[0]["value"] == "¥ 4,000.00"
     assert zc[1]["value"] == "¥ 29.63"
+    assert flat["zero_cost_hide"] is False
     li = flat["loan_items"]
     assert isinstance(li, list) and len(li) == 2
     assert li[0]["value"] == "¥ 1,493.63"
     assert li[1]["value"] == "¥ 1,434.50"
-    assert flat["advice_text_1"] == "建议一"
-    assert flat["advice_text_2"] == "建议二"
-    assert flat["plan_button_text"] == "获取方案"
-    assert flat["plan_action_args"] == {"queryMsg": "获取方案"}
+    assert flat["loan_hide"] is False
     assert flat["zero_cost_tag"] == "不影响保障"
     assert flat["loan_tag"] == "需支付利息"
     assert li[0]["label"].endswith("可贷(年利率5%)") and " 可贷" not in li[0]["label"]
@@ -56,25 +54,24 @@ def test_withdraw_summary_extractor_returns_data_from_rule_engine_result() -> No
     assert "手续费" in ps[0]["label"]
     assert ps[1]["value"] == "¥ 3,000.00"
     assert "手续费" not in ps[1]["label"]
+    assert flat["partial_surrender_hide"] is False
     assert flat["partial_surrender_tag"] == "保障有损失，不建议"
     assert flat["partial_surrender_total"] == "合计：¥ 8,000.00"
-    assert "advice_text_3" in flat
 
 
-def test_withdraw_summary_extractor_uses_fallback_when_card_args_empty() -> None:
+def test_withdraw_summary_extractor_empty_options_sets_hide_true() -> None:
     context = {
         "_rule_engine_result": {"total_available_excl_loan": 0, "total_available_incl_loan": 0, "options": []},
     }
     flat = withdraw_summary_extractor(context, None)
 
-    assert flat["advice_text_1"] != ""
-    assert "零成本" in flat["advice_text_1"] or "保障" in flat["advice_text_1"]
-    assert flat["plan_button_text"] == "获取最优方案"
-    assert flat["plan_action_args"]["queryMsg"] == "获取最优方案"
     assert flat["zero_cost_items"] == []
     assert flat["loan_items"] == []
     assert flat["partial_surrender_items"] == []
-    assert "advice_text_3" in flat and flat["advice_text_3"] != ""
+    assert flat["zero_cost_hide"] is True
+    assert flat["loan_hide"] is True
+    assert flat["partial_surrender_hide"] is True
+    assert flat["header_value"] == "¥ 0.00"
 
 
 def test_withdraw_summary_extractor_raises_when_no_rule_engine_result() -> None:
@@ -133,6 +130,27 @@ def test_withdraw_summary_extractor_partial_surrender_fee_rate_in_label() -> Non
     assert len(ps) == 2
     assert "手续费3%" in ps[0]["label"]
     assert "手续费" not in ps[1]["label"]
+    assert flat["partial_surrender_hide"] is False
+    assert flat["zero_cost_hide"] is True
+    assert flat["loan_hide"] is True
+
+
+def test_withdraw_summary_extractor_hide_only_when_channel_empty() -> None:
+    """Only zero_cost has items → zero_cost_hide False, loan_hide and partial_surrender_hide True."""
+    context = {
+        "_rule_engine_result": {
+            "total_available_excl_loan": 100,
+            "total_available_incl_loan": 100,
+            "options": [
+                {"product_name": "P", "survival_fund_amt": 100, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0},
+            ],
+        },
+    }
+    flat = withdraw_summary_extractor(context, None)
+    assert flat["zero_cost_hide"] is False
+    assert len(flat["zero_cost_items"]) == 1
+    assert flat["loan_hide"] is True
+    assert flat["partial_surrender_hide"] is True
 
 
 # ----- withdraw_plan_extractor -----

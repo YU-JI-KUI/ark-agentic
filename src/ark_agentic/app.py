@@ -28,6 +28,10 @@ logging.basicConfig(
 for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
     logging.getLogger(_lib).setLevel(logging.WARNING)
 
+if _log_level == logging.DEBUG:
+    from langchain_core.globals import set_debug
+    set_debug(True)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse

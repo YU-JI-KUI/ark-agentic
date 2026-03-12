@@ -19,8 +19,8 @@ def test_pa_sx_without_crypto():
 
         # Mock environment for PA-SX
         os.environ.update({
-            'PA_SX_BASE_URL': 'https://test-sx.example.com',
-            'PA_SX_API_KEY': 'test-key',
+            'LLM_BASE_URL': 'https://test-sx.example.com',
+            'API_KEY': 'test-key',
             'PA_SX_80B_APP_ID': 'test-app-id'
         })
 
@@ -32,19 +32,16 @@ def test_pa_sx_without_crypto():
         print(f"❌ PA-SX model creation failed: {e}")
         return False
 
-def test_deepseek_without_crypto():
-    """Test that DeepSeek models work without pycryptodome"""
-    print("Testing DeepSeek model creation without pycryptodome...")
-
+def test_openai_compat_without_crypto():
+    """Test that OpenAI-compatible models work without pycryptodome."""
     try:
         from ark_agentic.core.llm.factory import create_chat_model
 
-        llm = create_chat_model("deepseek-chat", api_key="sk-test")
-        print("✅ DeepSeek model creation successful")
+        llm = create_chat_model("gpt-4o", api_key="sk-test")
+        assert llm is not None
         return True
-
     except Exception as e:
-        print(f"❌ DeepSeek model creation failed: {e}")
+        print(f"OpenAI-compat model creation failed: {e}")
         return False
 
 def test_pa_jt_error_handling():
@@ -56,7 +53,7 @@ def test_pa_jt_error_handling():
 
         # Mock environment for PA-JT
         os.environ.update({
-            'PA_JT_BASE_URL': 'https://test-jt.example.com',
+            'LLM_BASE_URL': 'https://test-jt.example.com',
             'PA_JT_OPEN_API_CODE': 'test-code',
             'PA_JT_OPEN_API_CREDENTIAL': 'test-cred',
             'PA_JT_RSA_PRIVATE_KEY': 'test-key',
@@ -137,7 +134,7 @@ def main():
 
     tests = [
         test_pa_sx_without_crypto,
-        test_deepseek_without_crypto,
+        test_openai_compat_without_crypto,
         test_pa_jt_error_handling,
         test_transport_error_handling,
         test_hmac_still_works,

@@ -103,7 +103,7 @@ def create_{agent_name_snake}_agent(
     sessions_dir: str | Path | None = None,
 ) -> AgentRunner:
     if llm is None:
-        api_key = os.getenv("DEEPSEEK_API_KEY", "")
+        api_key = os.getenv("API_KEY", "")
         llm = create_chat_model(model="deepseek-chat", api_key=api_key)
 
     tool_registry = ToolRegistry()

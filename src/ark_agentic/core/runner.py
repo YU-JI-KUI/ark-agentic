@@ -62,6 +62,9 @@ class RunnerConfig:
     # 流式输出
     enable_streaming: bool = True
 
+    # 思考标签：启用后 system prompt 注入 <think>/<final> 指引，流式解析器按标签路由
+    enable_thinking_tags: bool = False
+
     # 自动压缩
     auto_compact: bool = True
 
@@ -339,12 +342,16 @@ class AgentRunner:
                 f"model={model_override or self.config.model}"
             )
 
-            # 绑定当前 ReAct 轮次到 content 回调（1-based）
+            # 绑定当前 ReAct 轮次到 content / thinking 回调（1-based）
             _current_turn = turns
 
             def _scoped_content(text: str, _turn: int = _current_turn) -> None:
                 if handler:
                     handler.on_content_delta(text, _turn)
+
+            def _scoped_thinking(text: str, _turn: int = _current_turn) -> None:
+                if handler:
+                    handler.on_thinking_delta(text, _turn)
 
             try:
                 if use_streaming:
@@ -353,6 +360,7 @@ class AgentRunner:
                         model_override=model_override,
                         temperature_override=temperature_override,
                         content_callback=_scoped_content,
+                        thinking_callback=_scoped_thinking,
                         handler=handler,
                     )
                 else:
@@ -469,6 +477,12 @@ class AgentRunner:
                         }
                         for i in validation.issues
                     ]
+
+            # strict thinking-tags fallback: 整轮未出现 <final> 时补发非 think 内容
+            if self.config.enable_thinking_tags and handler:
+                fallback = response.metadata.get("thinking_fallback_content")
+                if fallback:
+                    handler.on_content_delta(fallback, turns)
 
             return RunResult(
                 response=response,
@@ -618,6 +632,14 @@ class AgentRunner:
             use_skill_metadata_only = False
         prompt_config = replace(base_config, use_skill_metadata_only=use_skill_metadata_only)
 
+        # 当 enable_thinking_tags=True 且 prompt_config 未自定义指令时，自动填充默认模板
+        if self.config.enable_thinking_tags and not prompt_config.thinking_tag_instructions:
+            from .stream.thinking_tag_parser import DEFAULT_THINKING_TAG_INSTRUCTIONS
+            prompt_config = replace(
+                prompt_config,
+                thinking_tag_instructions=DEFAULT_THINKING_TAG_INSTRUCTIONS,
+            )
+
         # 默认只注入 user: 前缀的状态到提示词，减少噪声
         user_state = {k: v for k, v in state.items() if k.startswith("user:")}
 
@@ -680,15 +702,25 @@ class AgentRunner:
         model_override: str | None = None,
         temperature_override: float | None = None,
         content_callback: Callable[[str], None] | None = None,
+        thinking_callback: Callable[[str], None] | None = None,
         handler: AgentEventHandler | None = None,
     ) -> AgentMessage:
-        """流式 LLM 调用（ChatOpenAI.astream）"""
+        """流式 LLM 调用（ChatOpenAI.astream）
+
+        当 enable_thinking_tags=True 时，通过 ThinkingTagParser 实时解析
+        <think>/<final> 标签，将 thinking 内容路由到 thinking_callback，
+        final 内容路由到 content_callback。
+        """
+        from .stream.thinking_tag_parser import ThinkingTagParser
+
         llm = self._get_llm(model_override, temperature_override)
         if tools:
             llm = llm.bind_tools(tools)
 
         model = model_override or self.config.model
         logger.info(f"LLM stream start | model={model}")
+
+        parser = ThinkingTagParser() if self.config.enable_thinking_tags else None
 
         full_content = ""
         tool_calls_data: dict[int, dict[str, str]] = {}  # index → {id, name, args}
@@ -700,7 +732,13 @@ class AgentRunner:
                 # Content delta
                 if chunk.content:
                     full_content += chunk.content
-                    if content_callback:
+                    if parser:
+                        thinking, final = parser.process_chunk(chunk.content)
+                        if thinking and thinking_callback:
+                            thinking_callback(thinking)
+                        if final and content_callback:
+                            content_callback(final)
+                    elif content_callback:
                         content_callback(chunk.content)
 
                 # Tool call chunks (dict or ToolCallChunk-like; index may be int or str)
@@ -735,6 +773,14 @@ class AgentRunner:
             error = classify_error(exc, model=model)
             raise error from exc
 
+        # flush parser pending buffer
+        if parser:
+            thinking, final = parser.flush()
+            if thinking and thinking_callback:
+                thinking_callback(thinking)
+            if final and content_callback:
+                content_callback(final)
+
         # 组装工具调用
         parsed_tool_calls = None
         if tool_calls_data:
@@ -747,10 +793,19 @@ class AgentRunner:
                     args = {"_raw": tc["args"]}
                 parsed_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
 
-        msg = AgentMessage.assistant(content=full_content, tool_calls=parsed_tool_calls)
+        # strip 标签后存入 content，防止污染对话历史
+        clean_content = ThinkingTagParser.strip_tags(full_content) if parser else full_content
+        msg = AgentMessage.assistant(content=clean_content, tool_calls=parsed_tool_calls)
         msg.metadata["finish_reason"] = finish_reason
         if usage:
             msg.metadata["usage"] = usage
+
+        # strict 模式：整轮未出现 <final> 时，预计算 fallback 供 _run_loop 最终轮补发
+        if parser and not parser.ever_in_final and full_content:
+            fallback = ThinkingTagParser.extract_non_think(full_content)
+            if fallback:
+                msg.metadata["thinking_fallback_content"] = fallback
+
         logger.debug(f"[LLM_STREAM_DONE] content={len(full_content)}B tools={len(tool_calls_data)}")
         return msg
 
