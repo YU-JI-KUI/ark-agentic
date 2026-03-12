@@ -46,6 +46,7 @@ from .llm import (
     PAModel,
     PAModelConfig,
     create_chat_model,
+    create_chat_model_from_env,
     LLMError,
     LLMErrorReason,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "PAModel",
     "PAModelConfig",
     "create_chat_model",
+    "create_chat_model_from_env",
     "LLMError",
     "LLMErrorReason",
 ]

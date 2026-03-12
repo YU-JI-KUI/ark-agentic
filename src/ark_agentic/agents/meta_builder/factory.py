@@ -46,29 +46,8 @@ def create_meta_builder_from_env(
         配置好的 AgentRunner，agent_id 应注册为 "meta_builder"。
     """
     if llm is None:
-        from ark_agentic.core.llm import create_chat_model, PAModel
-        provider = os.getenv("LLM_PROVIDER", "pa")
-        if provider == "pa":
-            pa_model_str = os.getenv("PA_MODEL", "PA-SX-80B")
-            try:
-                pa_model = PAModel(pa_model_str)
-            except ValueError:
-                pa_model = PAModel.PA_SX_80B
-            llm = create_chat_model(model=pa_model)
-            logger.info("MetaBuilder using PA Internal LLM: %s", pa_model.value)
-        else:
-            api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("LLM_API_KEY")
-            base_url = os.getenv("LLM_BASE_URL")
-            if not api_key:
-                raise ValueError(
-                    "MetaBuilder LLM requires LLM_PROVIDER=pa or DEEPSEEK_API_KEY env."
-                )
-            llm = create_chat_model(
-                model="deepseek-chat" if provider == "deepseek" else provider,
-                api_key=api_key,
-                base_url=base_url,
-            )
-            logger.info("MetaBuilder using %s LLM", provider)
+        from ark_agentic.core.llm import create_chat_model_from_env
+        llm = create_chat_model_from_env()
 
     # 工具注册（方案 A：3 个复合工具，覆盖 Agent/Skill/Tool 全部能力）
     tool_registry = ToolRegistry()

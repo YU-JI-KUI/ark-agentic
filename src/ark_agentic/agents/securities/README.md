@@ -9,8 +9,8 @@
 ```bash
 # LLM 配置（必选其一）
 LLM_PROVIDER=pa                    # pa / deepseek / openai / mock
-PA_MODEL=PA-SX-80B                 # PA 模型（PA-JT-80B / PA-SX-80B / PA-SX-235B）
-DEEPSEEK_API_KEY=sk-xxx            # DeepSeek 模式时需要
+MODEL_NAME=PA-SX-80B               # PA 模型（PA-JT-80B / PA-SX-80B / PA-SX-235B）
+API_KEY=sk-xxx                     # OpenAI 兼容模式时需要
 
 # 证券服务配置
 SECURITIES_SERVICE_MOCK=true       # 启用 Mock 模式（开发/测试用）

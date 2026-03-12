@@ -8,11 +8,11 @@
 - 工具调用（用户画像、保单查询、规则引擎）
 - 会话持久化（JSONL 格式）
 - 技能系统集成
-- 支持多种 LLM 提供商（DeepSeek, OpenAI, PA 等）
+- 支持多种 LLM 提供商（OpenAI 兼容、PA 等）
 
 使用方法：
-    # 使用 DeepSeek（默认）
-    export DEEPSEEK_API_KEY=sk-xxx
+    # 使用 OpenAI 兼容端点（需 API_KEY、可选 LLM_BASE_URL）
+    export API_KEY=sk-xxx
     python -m ark_agentic.agents.insurance.agent
 
     # 交互模式
@@ -60,20 +60,18 @@ def get_llm_client(args: argparse.Namespace) -> Any:
     provider = args.provider
     api_key = args.api_key
 
-    # 从环境变量获取 API Key
     if not api_key:
-        env_key = "DEEPSEEK_API_KEY"
-        api_key = os.environ.get(env_key, "")
+        api_key = os.environ.get("API_KEY", "")
 
     if not api_key:
         raise ValueError(
-            "API key is required. Set --api-key or DEEPSEEK_API_KEY environment variable."
+            "API key is required. Set --api-key or API_KEY environment variable."
         )
 
     logger.info(f"Using {provider.upper()} client (model: {args.model or 'default'})")
 
     return create_chat_model(
-        model=args.model or "deepseek-chat",
+        model=args.model,
         api_key=api_key,
         base_url=args.base_url,
     )
@@ -314,7 +312,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # 使用 DeepSeek（需要设置 DEEPSEEK_API_KEY 环境变量）
+  # 使用 OpenAI 兼容端点（需要设置 API_KEY 环境变量）
   python examples/insurance_withdrawal_agent.py
 
   # 交互模式
@@ -325,9 +323,9 @@ Examples:
     # LLM 配置
     parser.add_argument(
         "--provider",
-        choices=["deepseek"],
-        default="deepseek",
-        help="LLM 提供商 (default: deepseek)",
+        choices=["pa"],
+        default="pa",
+        help="LLM 提供商 (default: openai)",
     )
     parser.add_argument(
         "--api-key",
@@ -397,7 +395,7 @@ async def main():
         llm_client = get_llm_client(args)
     except ValueError as e:
         print(f"[错误] {e}")
-        print("\n提示：设置 DEEPSEEK_API_KEY 或使用 --api-key 指定 API Key")
+        print("\n提示：设置 API_KEY 或使用 --api-key 指定 API Key")
         return
 
     # 创建 Agent

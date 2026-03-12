@@ -162,7 +162,7 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
                       <div className="flex flex-col gap-1 p-1.5 bg-slate-50">
                         <BaseBlock title="Agent Loop - 思考，规划 -工具调用" className="text-[10px] py-0.5" />
                         <BaseBlock title="Spawn(子任务) · 并行调度" className="text-[10px] py-0.5" />
-                        <BaseBlock title="✦ 自我反思 · 输出评估与自动修正" className="text-[10px] py-0.5" bgClass="bg-slate-100/80" borderClass="border border-dashed border-slate-400" textClass="text-slate-400" />
+                        <BaseBlock title="自我反思 · 输出评估与自动修正" className="text-[10px] py-0.5" />
                       </div>
                     </div>
                     {/* Skill */}
@@ -220,16 +220,16 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
 
                 </div>
 
-                {/* 右侧：元智能体纵栏 */}
-                <div className="w-20 lg:w-24 shrink-0 flex flex-col border-l-2 border-[#EA5504]/40 bg-[#FFF5F0] rounded-md py-2 px-1.5">
-                  <div className="text-[#EA5504] font-bold text-[10px] text-center mb-2 leading-tight">
+                {/* 右侧：元智能体纵栏（靛蓝区分） */}
+                <div className="w-20 lg:w-24 shrink-0 flex flex-col border-l-2 border-indigo-400 bg-indigo-50 rounded-md py-2 px-1.5">
+                  <div className="text-indigo-700 font-bold text-[10px] text-center mb-2 leading-tight">
                     <EditableText text="元智能体" />
                   </div>
                   <div className="flex flex-col gap-1.5 flex-1 justify-center">
-                    <BaseBlock title="Skill 管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-[#EA5504]/30" textClass="text-[#EA5504]" />
-                    <BaseBlock title="智能体管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-[#EA5504]/30" textClass="text-[#EA5504]" />
-                    <BaseBlock title="工具管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-[#EA5504]/30" textClass="text-[#EA5504]" />
-                    <BaseBlock title="Session 管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-[#EA5504]/30" textClass="text-[#EA5504]" />
+                    <BaseBlock title="Skill 管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-indigo-300" textClass="text-indigo-700" />
+                    <BaseBlock title="智能体管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-indigo-300" textClass="text-indigo-700" />
+                    <BaseBlock title="工具管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-indigo-300" textClass="text-indigo-700" />
+                    <BaseBlock title="Session 管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-indigo-300" textClass="text-indigo-700" />
                   </div>
                 </div>
 
@@ -258,16 +258,17 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
 
           </div>
 
-          {/* ================= 垂直：监控/审计层 ================= */}
-          <div className="w-20 lg:w-24 shrink-0 flex flex-col border-l-4 border-[#EA5504] bg-slate-800 rounded-r-lg py-3 px-2 shadow-sm">
-            <div className="text-white/90 font-bold text-xs text-center mb-3 tracking-widest">
+          {/* ================= 垂直：监控/审计层（规划中） ================= */}
+          <div className="w-20 lg:w-24 shrink-0 flex flex-col border-l-4 border-dashed border-slate-400 bg-slate-100 rounded-r-lg py-3 px-2">
+            <div className="text-slate-500 font-bold text-xs text-center mb-1 tracking-widest">
               <EditableText text="监控/审计" />
             </div>
+            <div className="text-slate-400 text-[9px] text-center mb-2">✦ 规划中</div>
             <div className="flex flex-col gap-2 flex-1 justify-center">
-              <BaseBlock title="操作监控" className="w-full text-[10px] py-1.5" bgClass="bg-slate-700/50" borderClass="border border-slate-600" textClass="text-slate-200" />
-              <BaseBlock title="Trace" className="w-full text-[10px] py-1.5" bgClass="bg-slate-700/50" borderClass="border border-slate-600" textClass="text-slate-200" />
-              <BaseBlock title="审计日志" className="w-full text-[10px] py-1.5" bgClass="bg-slate-700/50" borderClass="border border-slate-600" textClass="text-slate-200" />
-              <BaseBlock title="运维监控" className="w-full text-[10px] py-1.5" bgClass="bg-slate-700/50" borderClass="border border-slate-600" textClass="text-slate-200" />
+              <BaseBlock title="操作监控" className="w-full text-[10px] py-1.5" bgClass="bg-slate-200/60" borderClass="border border-dashed border-slate-400" textClass="text-slate-500" />
+              <BaseBlock title="Trace" className="w-full text-[10px] py-1.5" bgClass="bg-slate-200/60" borderClass="border border-dashed border-slate-400" textClass="text-slate-500" />
+              <BaseBlock title="审计日志" className="w-full text-[10px] py-1.5" bgClass="bg-slate-200/60" borderClass="border border-dashed border-slate-400" textClass="text-slate-500" />
+              <BaseBlock title="运维监控" className="w-full text-[10px] py-1.5" bgClass="bg-slate-200/60" borderClass="border border-dashed border-slate-400" textClass="text-slate-500" />
             </div>
           </div>
 

@@ -4,7 +4,7 @@ LLM Client 工厂（ChatOpenAI 统一入口）
 统一 PA 内部模型和 OpenAI 兼容模型的创建，返回 BaseChatModel。
 
 模型分类：
-1. DeepSeek 等 OpenAI 兼容模型 — 标准 ChatOpenAI
+1. OpenAI 兼容模型 — 标准 ChatOpenAI（API_KEY + LLM_BASE_URL）
 2. PA 内部模型：
    A. PA-JT-*: JT transport（RSA + HMAC 签名 + body 注入）
    B. PA-SX-*: SX transport（trace headers + body 注入）
@@ -60,16 +60,23 @@ class PAModelConfig:
 def _load_pa_model_config(model: PAModel) -> PAModelConfig:
     """从环境变量加载 PA 模型配置（延迟读取）。
 
+    公共变量: LLM_BASE_URL（PA-JT/PA-SX 共用）、API_KEY（PA-SX 鉴权）
+    PA-JT 签名专用: PA_JT_OPEN_API_CODE、PA_JT_OPEN_API_CREDENTIAL、
+                   PA_JT_RSA_PRIVATE_KEY、PA_JT_GPT_APP_KEY、
+                   PA_JT_GPT_APP_SECRET、PA_JT_SCENE_ID
+    PA-SX trace 专用: PA_SX_80B_APP_ID、PA_SX_235B_APP_ID
+
     Raises:
         ValueError: 如果必需的环境变量缺失
     """
+    base_url = os.getenv("LLM_BASE_URL", "").strip()
+    if not base_url:
+        raise ValueError(
+            "LLM_BASE_URL is required for PA models. "
+            "Please set it in your .env file."
+        )
+
     if model == PAModel.PA_JT_80B:
-        base_url = os.getenv("PA_JT_BASE_URL", "")
-        if not base_url:
-            raise ValueError(
-                "PA_JT_BASE_URL is required for PA-JT models. "
-                "Please set it in your .env file."
-            )
         return PAModelConfig(
             base_url=base_url,
             model_name="PA-JT-80B",
@@ -83,24 +90,14 @@ def _load_pa_model_config(model: PAModel) -> PAModelConfig:
         )
 
     # PA-SX 系列
-    base_url = os.getenv("PA_SX_BASE_URL", "")
-    if not base_url:
-        raise ValueError(
-            "PA_SX_BASE_URL is required for PA-SX models. "
-            "Please set it in your .env file."
-        )
-
     app_id_env = (
         "PA_SX_80B_APP_ID" if model == PAModel.PA_SX_80B else "PA_SX_235B_APP_ID"
-    )
-    api_key_env = (
-        "PA_SX_80B_API_KEY" if model == PAModel.PA_SX_80B else "PA_SX_235B_API_KEY"
     )
     return PAModelConfig(
         base_url=base_url,
         model_name=model.value,
         model_type="sx",
-        api_key=os.getenv(api_key_env, ""),
+        api_key=os.getenv("API_KEY", ""),
         trace_app_id=os.getenv(app_id_env, ""),
     )
 
@@ -115,7 +112,7 @@ def create_chat_model(
     max_tokens: int = 4096,
     streaming: bool = False,
     enable_thinking: bool = False,
-    # DeepSeek / OpenAI 兼容专用
+    # OpenAI 兼容专用
     api_key: str | None = None,
     base_url: str | None = None,
     # 额外参数（PA 模型：合并进 ChatOpenAI.extra_body）
@@ -124,13 +121,13 @@ def create_chat_model(
     """创建 LangChain ChatOpenAI 实例，返回 BaseChatModel。
 
     Args:
-        model: 模型名称。PA-JT-80B / PA-SX-80B / PA-SX-235B / deepseek-chat / 其他
+        model: 模型名称。PA-JT-80B / PA-SX-80B / PA-SX-235B 或任意 OpenAI 兼容模型 id
         temperature: 温度
         max_tokens: 最大 token
         streaming: 是否启用流式
         enable_thinking: 是否启用 thinking
-        api_key: API Key（DeepSeek 等需要；PA 模型从环境变量读取）
-        base_url: API 端点（DeepSeek 等需要；PA 模型从环境变量读取）
+        api_key: API Key（OpenAI 兼容端点需要；PA 模型从环境变量读取）
+        base_url: API 端点（OpenAI 兼容端点需要；PA 模型从环境变量读取）
         extra_body: 额外 body 字段，合并进 ChatOpenAI.extra_body（PA 模型）
 
     Returns:
@@ -143,8 +140,8 @@ def create_chat_model(
         # PA-JT（需要网关签名）
         llm = create_chat_model("PA-JT-80B")
 
-        # DeepSeek
-        llm = create_chat_model("deepseek-chat", api_key="sk-xxx")
+        # OpenAI 兼容
+        llm = create_chat_model("gpt-4o", api_key="sk-xxx", base_url="https://api.openai.com/v1")
     """
     model_str = model.value if isinstance(model, PAModel) else model
 
@@ -184,19 +181,14 @@ def create_chat_model(
     )
 
 
-# ============ DeepSeek / OpenAI 兼容 ============
+# ============ OpenAI 兼容 ============
 
 
-_PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
-    "deepseek-chat": {
-        "base_url": "https://api.deepseek.com/v1",
-        "env_key": "DEEPSEEK_API_KEY",
-    },
-    "deepseek-reasoner": {
-        "base_url": "https://api.deepseek.com/v1",
-        "env_key": "DEEPSEEK_API_KEY",
-    },
-}
+def _resolve_api_key(api_key: str | None) -> str:
+    """Resolve API key: argument > API_KEY env."""
+    if api_key:
+        return api_key
+    return os.getenv("API_KEY", "")
 
 
 def _create_openai_compat_model(
@@ -207,21 +199,15 @@ def _create_openai_compat_model(
     api_key: str | None,
     base_url: str | None,
 ) -> "BaseChatModel":
-    """创建 OpenAI 兼容模型（DeepSeek 等）。"""
+    """创建 OpenAI 兼容模型（API_KEY + LLM_BASE_URL）。"""
     from langchain_openai import ChatOpenAI
 
-    defaults = _PROVIDER_DEFAULTS.get(model_name, {})
-
-    effective_base_url = base_url or defaults.get("base_url", "")
-    effective_api_key = api_key
-    if not effective_api_key:
-        env_key = defaults.get("env_key", "")
-        if env_key:
-            effective_api_key = os.getenv(env_key, "")
+    effective_base_url = (base_url or os.getenv("LLM_BASE_URL", "") or "").strip()
+    effective_api_key = _resolve_api_key(api_key)
     if not effective_api_key:
         raise ValueError(
             f"api_key is required for model '{model_name}'. "
-            f"Pass it directly or set {defaults.get('env_key', 'API_KEY')} env var."
+            "Pass it directly or set API_KEY env var."
         )
 
     kwargs: dict[str, Any] = {
@@ -237,9 +223,64 @@ def _create_openai_compat_model(
     return ChatOpenAI(**kwargs)
 
 
+# ============ 从环境创建 ============
+
+
+def create_chat_model_from_env(
+    *,
+    temperature: float = 0.7,
+    max_tokens: int = 4096,
+    streaming: bool = False,
+) -> "BaseChatModel":
+    """从环境变量创建 LLM。仅从环境读取，无覆盖参数。
+
+    必填环境变量:
+    - MODEL_NAME: 模型标识，如 PA-SX-80B、PA-JT-80B、gpt-4o 等（未设置则报错）
+    - LLM_BASE_URL: 端点 URL（PA 和 OpenAI 兼容共用；PA 时必填，OpenAI 兼容时可选）
+
+    其他环境变量:
+    - LLM_PROVIDER: pa | openai 等，默认 pa
+    - API_KEY: OpenAI 兼容端点必填；PA-SX 端点鉴权用
+    - PA-JT 签名专用: PA_JT_OPEN_API_CODE / PA_JT_RSA_PRIVATE_KEY 等
+    - PA-SX trace 专用: PA_SX_80B_APP_ID / PA_SX_235B_APP_ID
+    """
+    model_name_env = os.getenv("MODEL_NAME", "").strip()
+    if not model_name_env:
+        raise ValueError(
+            "MODEL_NAME is required. Set MODEL_NAME env var (e.g. PA-SX-80B, gpt-4o)."
+        )
+
+    provider = os.getenv("LLM_PROVIDER", "pa").lower()
+    api_key = _resolve_api_key(None)
+    base_url = os.getenv("LLM_BASE_URL", "").strip() or None
+
+    if provider == "pa":
+        try:
+            pa_model = PAModel(model_name_env)
+        except ValueError:
+            raise ValueError(
+                f"Invalid MODEL_NAME={model_name_env!r} for LLM_PROVIDER=pa. "
+                f"Valid values: {[m.value for m in PAModel]}"
+            )
+        return create_chat_model(model=pa_model)
+    # OpenAI-compatible path
+    if not api_key:
+        raise ValueError(
+            "LLM_PROVIDER is not 'pa' and no API key found. Set API_KEY or use LLM_PROVIDER=pa."
+        )
+    return create_chat_model(
+        model=model_name_env,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        streaming=streaming,
+    )
+
+
 # ============ 便捷函数 ============
 
 
 def get_available_models() -> list[str]:
-    """获取所有可用的模型名称"""
-    return [m.value for m in PAModel] + list(_PROVIDER_DEFAULTS.keys())
+    """获取 PA 模型名称；OpenAI 兼容端点可使用任意模型 id，由 MODEL_NAME/LLM_BASE_URL 指定。"""
+    return [m.value for m in PAModel]

@@ -11,7 +11,7 @@ from ark_agentic import AgentRunner, RunnerConfig, create_chat_model
 from ark_agentic.core.tools import AgentTool, ToolRegistry
 from ark_agentic.core.session import SessionManager
 
-llm = create_chat_model(model="deepseek-chat", api_key="sk-xxx")
+llm = create_chat_model(model="PA-JT-80B", api_key="sk-xxx")
 runner = AgentRunner(llm, ToolRegistry())
 session_id = await runner.create_session()
 result = await runner.run(session_id, "你好")
@@ -42,6 +42,7 @@ from .core import (
     SkillLoadMode,
     PAModel,
     create_chat_model,
+    create_chat_model_from_env,
     CompactionConfig,
     ContextCompactor,
     LLMError,
@@ -66,6 +67,7 @@ __all__ = [
     # LLM
     "PAModel",
     "create_chat_model",
+    "create_chat_model_from_env",
     "LLMError",
     # Tools
     "AgentTool",

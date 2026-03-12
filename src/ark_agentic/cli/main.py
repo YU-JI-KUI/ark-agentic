@@ -51,32 +51,29 @@ def _render_env_sample(llm_provider: str, package_name: str = "") -> str:
         provider_block = "\n".join(
             [
                 "LLM_PROVIDER=pa",
-                "PA_MODEL=PA-SX-80B",
-                "PA_SX_BASE_URL=https://pa-sx.example.com",
+                "MODEL_NAME=PA-SX-80B",
+                "API_KEY=your-sx-api-key",
+                "LLM_BASE_URL=https://pa-sx.example.com",
+                "# PA-SX trace 专用（可选）: PA_SX_80B_APP_ID=  PA_SX_235B_APP_ID=",
             ]
         )
     elif llm_provider == "pa-jt":
         provider_block = "\n".join(
             [
                 "LLM_PROVIDER=pa",
-                "PA_MODEL=PA-JT-80B",
-                "PA_JT_BASE_URL=https://pa-jt.example.com",
+                "MODEL_NAME=PA-JT-80B",
+                "API_KEY=",
+                "LLM_BASE_URL=https://pa-jt.example.com",
+                "# PA-JT 签名（必填）: PA_JT_OPEN_API_CODE=  PA_JT_OPEN_API_CREDENTIAL=  PA_JT_RSA_PRIVATE_KEY=  PA_JT_GPT_APP_KEY=  PA_JT_GPT_APP_SECRET=  PA_JT_SCENE_ID=",
             ]
         )
-    elif llm_provider == "openai":
+    else:  # openai (default)
         provider_block = "\n".join(
             [
                 "LLM_PROVIDER=openai",
-                "DEEPSEEK_API_KEY=sk-xxx",
+                "MODEL_NAME=gpt-4o",
+                "API_KEY=sk-xxx",
                 "# LLM_BASE_URL=https://api.openai.com/v1",
-            ]
-        )
-    else:  # deepseek (default)
-        provider_block = "\n".join(
-            [
-                "LLM_PROVIDER=deepseek",
-                "DEEPSEEK_API_KEY=sk-xxx",
-                "# LLM_BASE_URL=https://api.deepseek.com",
             ]
         )
 
@@ -256,9 +253,9 @@ def main() -> None:
     p_init.add_argument("--memory", action="store_true", help="包含记忆系统配置")
     p_init.add_argument(
         "--llm-provider",
-        default="deepseek",
-        choices=["deepseek", "openai", "pa-sx", "pa-jt"],
-        help="默认 LLM 提供商 (default: deepseek)",
+        default="openai",
+        choices=["openai", "pa-sx", "pa-jt"],
+        help="LLM 提供商 (default: openai)",
     )
 
     # add-agent

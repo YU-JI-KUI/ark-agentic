@@ -19,8 +19,8 @@ def test_pa_sx_without_crypto():
 
         # Mock environment for PA-SX
         os.environ.update({
-            'PA_SX_BASE_URL': 'https://test-sx.example.com',
-            'PA_SX_API_KEY': 'test-key',
+            'LLM_BASE_URL': 'https://test-sx.example.com',
+            'API_KEY': 'test-key',
             'PA_SX_80B_APP_ID': 'test-app-id'
         })
 
@@ -53,7 +53,7 @@ def test_pa_jt_error_handling():
 
         # Mock environment for PA-JT
         os.environ.update({
-            'PA_JT_BASE_URL': 'https://test-jt.example.com',
+            'LLM_BASE_URL': 'https://test-jt.example.com',
             'PA_JT_OPEN_API_CODE': 'test-code',
             'PA_JT_OPEN_API_CREDENTIAL': 'test-cred',
             'PA_JT_RSA_PRIVATE_KEY': 'test-key',

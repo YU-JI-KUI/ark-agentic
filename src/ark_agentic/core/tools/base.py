@@ -80,7 +80,7 @@ class AgentTool(ABC):
             if param.required:
                 required.append(param.name)
 
-        # OpenAI/DeepSeek 格式
+        # OpenAI 格式
         return {
             "type": "function",
             "function": {

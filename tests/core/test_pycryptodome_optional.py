@@ -8,10 +8,9 @@ from ark_agentic.core.llm.factory import create_chat_model, PAModel
 
 def test_pa_sx_works_without_pycryptodome():
     """Test that PA-SX models work without pycryptodome installed."""
-    # Mock environment variables for PA-SX
     with patch.dict('os.environ', {
-        'PA_SX_BASE_URL': 'https://test-sx.example.com',
-        'PA_SX_API_KEY': 'test-key',
+        'LLM_BASE_URL': 'https://test-sx.example.com',
+        'API_KEY': 'test-key',
         'PA_SX_80B_APP_ID': 'test-app-id'
     }):
         # This should work without pycryptodome
@@ -32,7 +31,7 @@ def test_pa_jt_fails_without_pycryptodome():
             "PA-JT models require pycryptodome for RSA signing. Install with: uv add 'ark-agentic[pa-jt]' or uv add pycryptodome"
         )
         with patch.dict('os.environ', {
-            'PA_JT_BASE_URL': 'https://test-jt.example.com',
+            'LLM_BASE_URL': 'https://test-jt.example.com',
             'PA_JT_OPEN_API_CODE': 'test-code',
             'PA_JT_OPEN_API_CREDENTIAL': 'test-cred',
             'PA_JT_RSA_PRIVATE_KEY': 'test-key',

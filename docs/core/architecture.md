@@ -37,6 +37,7 @@ graph TD
 
     subgraph LLM["LLM 层 (core/llm/)"]
         FACTORY["create_chat_model()"]
+        FROM_ENV["create_chat_model_from_env()"]
         ERRORS["LLM 错误分类"]
     end
 
@@ -211,7 +212,8 @@ sequenceDiagram
 
 **关键设计:**
 - 基于 LangChain 的 `BaseChatModel` 抽象
-- `create_chat_model()`: 工厂函数，返回 ChatOpenAI 或自定义实例
+- `create_chat_model()`: 工厂函数，返回 ChatOpenAI 或 PA 自定义实例
+- `create_chat_model_from_env()`: 从环境变量创建 LLM（读取 LLM_PROVIDER、MODEL_NAME、API_KEY、LLM_BASE_URL），统一 OpenAI 兼容与 PA 两套配置
 - 支持 DeepSeek、PA-SX-80B/235B、PA-JT-80B 等模型
 - PA-JT 系列：RSA 签名 + HMAC 认证
 - PA-SX 系列：Trace headers + body 注入
@@ -345,7 +347,7 @@ src/ark_agentic/
 │   ├── types.py               # 核心类型定义 (358 行)
 │   ├── validation.py          # 输出验证（幻觉检测, 169 行)
 │   ├── llm/
-│   │   ├── factory.py         # create_chat_model() (LangChain)
+│   │   ├── factory.py         # create_chat_model(), create_chat_model_from_env() (LangChain)
 │   │   ├── pa_jt_llm.py       # PA-JT 系列 (RSA 签名)
 │   │   ├── pa_sx_llm.py       # PA-SX 系列 (Trace headers)
 │   │   ├── base.py            # LLM 基类 (289 行)
