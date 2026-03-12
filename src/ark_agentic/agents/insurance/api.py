@@ -57,10 +57,12 @@ def create_insurance_agent_from_env(
         memory_dir = Path(memory_dir)
     memory_dir.mkdir(parents=True, exist_ok=True)
 
+    enable_thinking_tags = os.getenv("ENABLE_THINKING_TAGS", "").lower() in ("true", "1")
     return create_insurance_agent(
         llm=llm,
         sessions_dir=sessions_dir,
         enable_persistence=enable_persistence,
         memory_dir=memory_dir,
         enable_memory=False,
+        enable_thinking_tags=enable_thinking_tags,
     )

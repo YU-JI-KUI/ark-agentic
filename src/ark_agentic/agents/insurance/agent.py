@@ -73,6 +73,7 @@ def create_insurance_agent(
     enable_persistence: bool = False,
     memory_dir: str | Path | None = None,
     enable_memory: bool = False,
+    enable_thinking_tags: bool = False,
 ) -> AgentRunner:
     """创建保险取款智能体
 
@@ -82,6 +83,7 @@ def create_insurance_agent(
         enable_persistence: 是否启用持久化
         memory_dir: Memory 数据目录（用于向量存储等）
         enable_memory: 是否启用 Memory 系统
+        enable_thinking_tags: 是否启用 <think>/<final> 标签解析（流式思考态/最终态区分）
 
     Returns:
         配置好的 AgentRunner
@@ -159,6 +161,7 @@ def create_insurance_agent(
         max_tokens=4096,
         max_turns=10,
         enable_streaming=False,
+        enable_thinking_tags=enable_thinking_tags,
         prompt_config=PromptConfig(
             agent_name="保险智能助手",
             agent_description="专业的保险咨询和业务处理助手，帮助您管理保单和解决保险相关问题。",
