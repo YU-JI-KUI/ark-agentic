@@ -48,6 +48,7 @@ class ETFHoldingsTool(AgentTool):
 
     name = "etf_holdings"
     description = "查询用户的 ETF 持仓信息，包括持仓列表、市值、今日收益等。ETF 持仓不区分普通账户和两融账户。"
+    thinking_hint = "正在查询ETF持仓…"
     parameters = [
         ToolParameter(
             name="account_type",

@@ -45,6 +45,7 @@ class RenderCardTool(AgentTool):
         "根据 card_type 渲染对应 A2UI 卡片，在前端展示。"
         "需先准备好数据源（如先调用 rule_engine 等），再传入 card_type 和可选的 card_args（文案等）。"
     )
+    thinking_hint = "正在渲染卡片组件…"
     group: str | None = None
 
     def __init__(

@@ -48,6 +48,7 @@ class SecurityDetailTool(AgentTool):
 
     name = "security_detail"
     description = "查询具体标的（股票、基金、ETF）的持仓和行情信息"
+    thinking_hint = "正在查询持仓行情…"
     parameters = [
         ToolParameter(
             name="security_code",

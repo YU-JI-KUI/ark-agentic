@@ -77,6 +77,7 @@ class DisplayCardTool(AgentTool):
         "获取数据后，必须调用此工具将数据渲染为可视化卡片推送给用户。"
         "参数 source_tool 为之前调用的数据工具名称。"
     )
+    thinking_hint = "正在渲染展示卡片…"
     parameters = [
         ToolParameter(
             name="source_tool",

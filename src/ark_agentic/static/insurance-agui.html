@@ -410,12 +410,6 @@
     .th-icon {
       width: 16px;
       height: 16px;
-      animation: spin 3s linear infinite;
-      color: #34a853;
-    }
-
-    .th-icon.done {
-      animation: none;
       color: #34a853;
     }
 
@@ -440,27 +434,6 @@
       padding: 4px 0;
     }
 
-/* Individual step items */
-.think-step {
-  padding: 8px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border-left: 2px solid transparent;
-  transition: background 0.2s;
-}
-.think-step:hover { background: rgba(0,0,0,0.02); }
-.think-step.active { border-left-color: var(--orange); background: rgba(240,118,43,0.04); }
-.ts-header { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
-.ts-icon {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: #ddd;
-  flex-shrink: 0;
-  transition: all 0.3s;
-}
-.think-step.active .ts-icon { background: var(--orange); box-shadow: 0 0 0 3px rgba(240,118,43,0.15); }
-.think-step.done .ts-icon { background: #34a853; }
 .turn-output {
   font-size: 12px;
   color: var(--text-secondary);
@@ -469,23 +442,25 @@
   line-height: 1.55;
   word-break: break-word;
 }
-.ts-expand {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-muted);
-  transition: transform 0.2s;
-}
-.ts-expand.open { transform: rotate(90deg); }
-.ts-detail {
+.think-line {
+  padding: 4px 14px 4px 26px;
   font-size: 12px;
-  color: var(--text-secondary);
-  padding: 4px 0 2px 16px;
+  color: var(--text-muted);
   line-height: 1.55;
   word-break: break-word;
-  white-space: pre-wrap;
-  display: none;
+  position: relative;
 }
-.ts-detail.open { display: block; animation: fadeIn 0.3s; }
+.think-line::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34a853;
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  flex-shrink: 0;
+}
 
     /* Typing cursor */
     .typing-cursor::after {
@@ -495,7 +470,6 @@
       margin-left: 2px;
     }
 
-@keyframes spin { 100% { transform: rotate(360deg); } }
 @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.25;} }
 @keyframes fadeIn { from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
 .msg-meta {
@@ -1088,6 +1062,7 @@
         const payload = {
           message: text,
           stream: isStreaming,
+          protocol: 'enterprise',
           agent_id: selectedAgent,
           user_id: selectedUserId,
           context: {
@@ -1133,7 +1108,7 @@
         $statusText.textContent = '';
       }
 
-      // ---- Streaming ----
+      // ---- Streaming (enterprise AGUIEnvelope protocol) ----
       async function sendStreaming(payload) {
         const resp = await fetch('/chat', {
           method: 'POST',
@@ -1148,20 +1123,18 @@
         const msgEl = createAssistantContainer();
         const thinkCard = msgEl.querySelector('.thinking-card');
         const thinkContent = msgEl.querySelector('.thinking-content');
-        const thinkIcon = msgEl.querySelector('.th-icon');
         const statusText = msgEl.querySelector('.status-text');
         const answerBubble = msgEl.querySelector('.answer-bubble');
         const a2uiContainer = msgEl.querySelector('.a2ui-container');
-        const metaEl = msgEl.querySelector('.msg-meta');
 
-        let hadThinkingContent = false;
-        let currentStepEl = null;
         let finalText = '';
         let currentTurn = 0;
+        let thinkAccum = null;
 
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let sseEventType = null;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -1171,158 +1144,115 @@
           const lines = buffer.split('\n');
           buffer = lines.pop();
 
-          let currentEventType = null;
           for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed.startsWith('event:')) {
-              currentEventType = trimmed.slice(6).trim();
+              sseEventType = trimmed.slice(6).trim();
               continue;
             }
             if (!trimmed.startsWith('data:')) continue;
             const jsonStr = trimmed.slice(5).trim();
-            if (!jsonStr) continue;
+            if (!jsonStr) { sseEventType = null; continue; }
 
-            let event;
-            try { event = JSON.parse(jsonStr); } catch { continue; }
+            let envelope;
+            try { envelope = JSON.parse(jsonStr); } catch { sseEventType = null; continue; }
 
-            const EVENT_ALIASES = {
-              'run_started': 'response.created',
-              'step_started': 'response.step',
-              'step_finished': 'response.step.done',
-              'text_message_content': 'response.content.delta',
-              'text_message_start': '_skip',
-              'text_message_end': '_skip',
-              'tool_call_start': 'response.tool_call.start',
-              'tool_call_args': '_skip',
-              'tool_call_end': '_skip',
-              'tool_call_result': 'response.tool_call.result',
-              'custom': 'response.ui.component',
-              'run_finished': 'response.completed',
-              'run_error': 'response.failed',
-            };
+            const eventType = envelope.event || sseEventType || '';
+            const d = envelope.data || {};
+            sseEventType = null;
 
-            const rawType = event.type || currentEventType || '';
-            const eventType = EVENT_ALIASES[rawType] || rawType;
-            currentEventType = null;
-
-            if (eventType === '_skip') continue;
-
-            if (event.session_id && !sessionId) {
-              sessionId = event.session_id;
+            if (d.conversation_id && !sessionId) {
+              sessionId = d.conversation_id;
               sessionStorage.setItem('ark_session_id', sessionId);
             }
 
             switch (eventType) {
-              case 'response.created': {
-                const text = event.content || event.run_content || '';
-                if (text) {
-                  hadThinkingContent = true;
-                  thinkCard.style.display = '';
-                  const step = document.createElement('div');
-                  step.className = 'think-step active';
-                  step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(text) + '</span></div>';
-                  thinkContent.appendChild(step);
-                  currentStepEl = step;
-                  thinkCard.dataset.latestStep = text;
-                  statusText.textContent = thinkCard.classList.contains('collapsed') ? text : '正在思考中…';
-                }
+              case 'run_started':
                 scrollToBottom();
                 break;
-              }
 
-              case 'response.step': {
-                hadThinkingContent = true;
+              case 'reasoning_start':
                 thinkCard.style.display = '';
-                if (currentStepEl) {
-                  currentStepEl.classList.remove('active');
-                  currentStepEl.classList.add('done');
+                thinkCard.classList.remove('collapsed');
+                statusText.textContent = '正在思考中…';
+                thinkAccum = null;
+                answerBubble.classList.add('hidden');
+                scrollToBottom();
+                break;
+
+              case 'reasoning_message_content': {
+                const raw = d.ui_data || '';
+                const text = raw.trim();
+                if (!text) break;
+                const isStep = raw.startsWith('\n');
+                if (isStep || !thinkAccum) {
+                  thinkAccum = document.createElement('div');
+                  thinkAccum.className = 'think-line';
+                  thinkAccum.textContent = text;
+                  thinkContent.appendChild(thinkAccum);
+                } else {
+                  thinkAccum.textContent += raw;
                 }
-                const stepText = event.content || event.step_name || '';
-                const step = document.createElement('div');
-                step.className = 'think-step active';
-                step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(stepText) + '</span></div>';
-                thinkContent.appendChild(step);
-                currentStepEl = step;
-                thinkCard.dataset.latestStep = stepText || '思考中…';
-                statusText.textContent = thinkCard.classList.contains('collapsed') ? (stepText || '思考中…') : '正在思考中…';
                 scrollToBottom();
                 break;
               }
 
-              case 'response.step.done': {
-                if (currentStepEl) {
-                  currentStepEl.classList.remove('active');
-                  currentStepEl.classList.add('done');
-                }
+              case 'reasoning_end':
+                thinkAccum = null;
+                thinkCard.classList.add('collapsed');
+                statusText.textContent = '思考完成';
+                scrollToBottom();
                 break;
-              }
 
-              case 'response.content.delta': {
-                const turn = Number(event.turn) || 1;
-                if (turn !== currentTurn) {
-                  if (currentTurn !== 0 && finalText.trim()) {
-                    hadThinkingContent = true;
-                    thinkCard.style.display = '';
-                    const prevBlock = document.createElement('div');
-                    prevBlock.className = 'turn-output';
-                    prevBlock.innerHTML = md(finalText);
-                    thinkContent.appendChild(prevBlock);
+              case 'text_message_start':
+              case 'text_message_end':
+                break;
+
+              case 'text_message_content': {
+                if (d.ui_protocol === 'A2UI') {
+                  if (d.ui_data && a2uiContainer) {
+                    a2uiContainer.classList.remove('hidden');
+                    a2uiContainer.appendChild(renderA2UIComponent(d.ui_data));
+                    scrollToBottom();
                   }
-                  currentTurn = turn;
-                  finalText = '';
-                }
-                answerBubble.classList.remove('hidden');
-                finalText += event.delta || '';
-                answerBubble.innerHTML = md(finalText);
-                scrollToBottom();
-                break;
-              }
-
-              case 'response.ui.component': {
-                const comp = event.ui_component;
-                if (comp && a2uiContainer) {
-                  a2uiContainer.classList.remove('hidden');
-                  a2uiContainer.appendChild(renderA2UIComponent(comp));
+                } else {
+                  const turn = Number(d.turn) || 1;
+                  if (turn !== currentTurn) {
+                    if (currentTurn !== 0 && finalText.trim()) {
+                      thinkCard.style.display = '';
+                      const prevBlock = document.createElement('div');
+                      prevBlock.className = 'turn-output';
+                      prevBlock.innerHTML = md(finalText);
+                      thinkContent.appendChild(prevBlock);
+                    }
+                    currentTurn = turn;
+                    finalText = '';
+                  }
+                  finalText += d.ui_data || '';
+                  answerBubble.innerHTML = md(finalText.trimStart());
+                  answerBubble.classList.remove('hidden');
                   scrollToBottom();
                 }
                 break;
               }
 
-              case 'response.completed': {
-                if (currentStepEl) {
-                  currentStepEl.classList.remove('active');
-                  currentStepEl.classList.add('done');
-                  currentStepEl = null;
-                }
-                if (hadThinkingContent) {
-                  thinkCard.classList.add('collapsed');
-                  thinkIcon.outerHTML = '<svg class="th-icon done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
-                  statusText.textContent = '思考完成';
-                } else {
-                  thinkCard.style.display = 'none';
-                }
+              case 'run_finished':
                 answerBubble.classList.remove('typing-cursor');
-                if (event.usage) {
-                  const inp = event.usage.prompt_tokens || 0;
-                  const out = event.usage.completion_tokens || 0;
-                  metaEl.textContent = (event.turns || '-') + ' 轮 · ' + (inp + out) + ' tokens';
-                  metaEl.classList.remove('hidden');
+                if (finalText.trim()) {
+                  answerBubble.classList.remove('hidden');
                 }
-                if (event.session_id) {
-                  sessionId = event.session_id;
-                  sessionStorage.setItem('ark_session_id', sessionId);
+                if (thinkCard.style.display !== 'none' && !thinkContent.children.length) {
+                  thinkCard.style.display = 'none';
                 }
                 $statusText.textContent = '';
                 scrollToBottom();
                 break;
-              }
 
-              case 'response.failed': {
+              case 'run_error':
                 thinkCard.style.display = 'none';
-                appendErrorMessage(event.error_message || '未知错误');
+                appendErrorMessage(d.ui_data || '未知错误');
                 $statusText.textContent = '';
                 break;
-              }
             }
           }
         }
@@ -1665,17 +1595,11 @@
           '<div class="thinking-content"></div>' +
           '</div>' +
           '<div class="a2ui-container hidden"></div>' +
-          '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>' +
-          '<div class="msg-meta hidden"></div>';
+          '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>';
         const header = div.querySelector('.thinking-header');
         const card = div.querySelector('.thinking-card');
         header.addEventListener('click', () => {
           card.classList.toggle('collapsed');
-          const st = card.querySelector('.status-text');
-          if (st && !card.querySelector('.th-icon.done')) {
-            const latest = card.dataset.latestStep || '思考中…';
-            st.textContent = card.classList.contains('collapsed') ? latest : '正在思考中…';
-          }
         });
         $chat.appendChild(div);
         scrollToBottom();

@@ -79,6 +79,7 @@ class PAKnowledgeAPITool(AgentTool):
     # AgentTool 非 dataclass，parameters 必须用类级字面量（而非 field()）
     name = "pa_knowledge_api"
     description = "调用 PA 内部在线 RAG 知识库 API，并行检索多个 query 并融合结果"
+    thinking_hint = "正在检索知识库…"
     parameters = [
         ToolParameter(
             name="queries",

@@ -17,6 +17,7 @@ class ReadSkillTool(AgentTool):
     """按 skill id 加载一个技能的完整内容（SKILL.md 正文 + frontmatter 解析后的元数据）。"""
 
     name = "read_skill"
+    thinking_hint = "正在读取技能文档…"
     description = (
         "Load the full SKILL.md content of one skill by its id. "
         "MUST be called before following any skill from <available_skills>. "

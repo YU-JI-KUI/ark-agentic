@@ -237,8 +237,68 @@ async def test_run_streaming_with_tool_call() -> None:
     
     assert captured_deltas == ["Done ", "processing."]
     assert captured_tool_starts == ["mock_tool"]
-    # Verify on_step was called
+    # Verify on_step was called (mock_tool has no thinking_hint → fallback)
     assert len(captured_steps) > 0
+    assert any("mock_tool" in s for s in captured_steps), "on_step should show tool name when thinking_hint is empty"
+
+
+@pytest.mark.asyncio
+async def test_execute_tools_on_step_uses_tool_thinking_hint() -> None:
+    """When a tool defines thinking_hint, on_step is called with that text."""
+    class ToolWithHint(AgentTool):
+        name = "hint_tool"
+        description = "Tool with thinking hint"
+        thinking_hint = "正在查询保单信息…"
+        parameters = [
+            ToolParameter(name="key", type="string", description="key"),
+        ]
+
+        async def execute(self, tool_call: ToolCall, context: dict[str, Any] | None = None) -> AgentToolResult:
+            return AgentToolResult(tool_call_id=tool_call.id, result_type="json", content={"ok": True})
+
+    stream_responses = [
+        [
+            AIMessageChunk(
+                content="",
+                tool_call_chunks=[{"name": "hint_tool", "args": "{\"key\": \"x\"}", "id": "call_1", "index": 0}],
+            )
+        ],
+        [AIMessageChunk(content="Done.")],
+    ]
+    mock_llm = MockChatModel(responses=[], stream_responses=stream_responses)
+    registry = ToolRegistry()
+    registry.register(ToolWithHint())
+    session_mgr = SessionManager(enable_persistence=False)
+    runner = AgentRunner(
+        llm=mock_llm,  # type: ignore[arg-type]
+        tool_registry=registry,
+        session_manager=session_mgr,
+        config=RunnerConfig(max_turns=5, enable_streaming=True, auto_compact=False),
+    )
+    session = runner.session_manager.create_session_sync()
+    captured_steps: list[str] = []
+
+    class MockHandler:
+        def on_content_delta(self, delta: str, turn: int = 1) -> None:
+            pass
+
+        def on_tool_call_start(self, tool_call_id: str, name: str, args: Any) -> None:
+            pass
+
+        def on_tool_call_result(self, tool_call_id: str, name: str, result: Any) -> None:
+            pass
+
+        def on_step(self, status: str) -> None:
+            captured_steps.append(status)
+
+        def on_ui_component(self, component: dict) -> None:
+            pass
+
+    await runner.run(session.session_id, "Use hint_tool", handler=MockHandler())
+
+    assert "正在查询保单信息…" in captured_steps, (
+        f"on_step should be called with tool.thinking_hint, got: {captured_steps}"
+    )
 
 
 # ============ State Mechanism Tests ============

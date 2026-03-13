@@ -143,6 +143,48 @@ class TestAgentTool:
         assert "query" in func["parameters"]["required"]
         assert "limit" not in func["parameters"]["required"]
 
+    def test_thinking_hint_default_empty(self) -> None:
+        """AgentTool.thinking_hint defaults to empty string."""
+        class NoHintTool(AgentTool):
+            name = "no_hint"
+            description = "No hint"
+            parameters = []
+
+            async def execute(self, tool_call, context=None):
+                return AgentToolResult.text_result(tool_call.id, "ok")
+
+        tool = NoHintTool()
+        assert tool.thinking_hint == ""
+
+    def test_thinking_hint_subclass_override(self) -> None:
+        """Subclass can set thinking_hint for UI status text."""
+        class HintTool(AgentTool):
+            name = "hint_tool"
+            description = "Has hint"
+            thinking_hint = "正在处理自定义提示…"
+            parameters = []
+
+            async def execute(self, tool_call, context=None):
+                return AgentToolResult.text_result(tool_call.id, "ok")
+
+        tool = HintTool()
+        assert tool.thinking_hint == "正在处理自定义提示…"
+
+    def test_get_json_schema_omits_thinking_hint(self) -> None:
+        """get_json_schema does not expose thinking_hint (UI-only metadata)."""
+        class HintTool(AgentTool):
+            name = "hint_tool"
+            description = "Has hint"
+            thinking_hint = "Custom status"
+            parameters = []
+
+            async def execute(self, tool_call, context=None):
+                return AgentToolResult.text_result(tool_call.id, "ok")
+
+        schema = HintTool().get_json_schema()
+        assert "thinking_hint" not in schema
+        assert schema["function"].get("thinking_hint") is None
+
 
 class TestToolRegistry:
     """Tests for ToolRegistry."""

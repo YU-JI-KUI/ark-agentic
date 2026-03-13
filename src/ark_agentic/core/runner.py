@@ -836,18 +836,6 @@ class AgentRunner:
 
         return msg
 
-    # 工具名 → 用户可见状态描述
-    _TOOL_STATUS: dict[str, str] = {
-        "policy_query": "正在查询您的保单信息，请稍等…",
-        "customer_info": "正在查询您的客户信息…",
-        "user_profile": "正在获取用户画像信息…",
-        "rule_engine": "正在为您计算取款方案…",
-        "verify_identity": "正在进行身份验证…",
-        "memory_search": "正在检索相关信息…",
-        "memory_get": "正在读取相关资料…",
-        "memory_set": "正在保存关键信息…",
-    }
-
     async def _execute_tools(
         self,
         tool_calls: list[ToolCall],
@@ -858,12 +846,12 @@ class AgentRunner:
 
         async def execute_single(tc: ToolCall) -> AgentToolResult:
             logger.debug(f"[TOOL_START] {tc.name} args={tc.arguments}")
-            if handler:
-                handler.on_tool_call_start(tc.id, tc.name, tc.arguments)
-                status = self._TOOL_STATUS.get(tc.name, f"正在处理 {tc.name}…")
-                handler.on_step(status)
 
             tool = self.tool_registry.get(tc.name)
+            if handler:
+                handler.on_tool_call_start(tc.id, tc.name, tc.arguments)
+                status = (tool.thinking_hint if tool and tool.thinking_hint else f"正在处理 {tc.name}…")
+                handler.on_step(status)
             if tool is None:
                 result = AgentToolResult.error_result(
                     tc.id, f"Tool not found: {tc.name}"

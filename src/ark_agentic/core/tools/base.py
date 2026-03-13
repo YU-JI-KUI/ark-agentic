@@ -62,6 +62,9 @@ class AgentTool(ABC):
     # 是否需要确认
     requires_confirmation: bool = False
 
+    # 工具调用时展示给用户的状态提示（UI only，不传给 LLM）
+    thinking_hint: str = ""
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         # 确保子类定义了 name 和 description

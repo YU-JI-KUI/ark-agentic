@@ -31,6 +31,7 @@ class CustomerInfoTool(AgentTool):
 
     name = "customer_info"
     description = "查询客户完整信息，包括身份验证、联系方式、受益人信息、历史交易记录等"
+    thinking_hint = "正在查询客户信息…"
     group = "insurance"
 
     parameters = [

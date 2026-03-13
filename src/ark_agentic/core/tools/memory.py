@@ -32,6 +32,7 @@ class MemorySearchTool(AgentTool):
     """
 
     name = "memory_search"
+    thinking_hint = "正在检索记忆库…"
     description = (
         "Semantically search MEMORY.md and memory/*.md files. "
         "Use this tool BEFORE answering questions about prior work, decisions, "
@@ -131,6 +132,7 @@ class MemoryGetTool(AgentTool):
     """
 
     name = "memory_get"
+    thinking_hint = "正在读取记忆内容…"
     description = (
         "Read specific lines from a memory file (MEMORY.md or memory/*.md). "
         "Use this after memory_search to get more context around a result. "
@@ -257,6 +259,7 @@ class MemorySetTool(AgentTool):
     """
 
     name = "memory_set"
+    thinking_hint = "正在保存关键记忆…"
     description = (
         "Write important information to a memory file for long-term persistence. "
         "Use this to save key decisions, user preferences, action items, "
