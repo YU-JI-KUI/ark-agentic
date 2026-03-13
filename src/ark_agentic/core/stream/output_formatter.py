@@ -131,10 +131,18 @@ class EnterpriseAGUIFormatter:
     """将 AG-UI 事件包装为企业 AGUI 信封格式（AGUIEnvelope）。
 
     source_bu_type / app_type 在构造时注入。
-    
+
     内部状态：
     - _reasoning_active: 管理 reasoning_start 和 reasoning_end 的自动闭合。
     """
+
+    _SKIP_ENTERPRISE: frozenset[str] = frozenset({
+        "tool_call_start",
+        "tool_call_args",
+        "tool_call_end",
+        "tool_call_result",
+        "step_finished",
+    })
 
     def __init__(self, source_bu_type: str = "", app_type: str = "") -> None:
         self._source_bu_type = source_bu_type
@@ -143,8 +151,7 @@ class EnterpriseAGUIFormatter:
 
     def format(self, event: AgentStreamEvent) -> str | None:
         # 1. 拦截并处理 reasoning 相关事件
-        _SKIP_ENTERPRISE = {"tool_call_start", "tool_call_result", "step_finished"}
-        if event.type in _SKIP_ENTERPRISE:
+        if event.type in self._SKIP_ENTERPRISE:
             return None
 
         reasoning_events = {
