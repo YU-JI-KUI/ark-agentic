@@ -134,6 +134,7 @@ class EnterpriseAGUIFormatter:
 
     内部状态：
     - _reasoning_active: 管理 reasoning_start 和 reasoning_end 的自动闭合。
+    - _current_step: 记录最近一次 step_started 的名称，供 thinking_message_content 引用。
     """
 
     _SKIP_ENTERPRISE: frozenset[str] = frozenset({
@@ -148,6 +149,7 @@ class EnterpriseAGUIFormatter:
         self._source_bu_type = source_bu_type
         self._app_type = app_type
         self._reasoning_active = False
+        self._current_step: str = ""
 
     def format(self, event: AgentStreamEvent) -> str | None:
         # 1. 拦截并处理 reasoning 相关事件
@@ -211,17 +213,19 @@ class EnterpriseAGUIFormatter:
         if event.type == "thinking_message_start":
             return result if result else None
 
-        # 构建 reasoning_message_content
+        # 构建 reasoning_message_content（结构化 JSON）
+        if event.type == "step_started":
+            self._current_step = event.step_name or ""
+
         dp = AGUIDataPayload(
             message_id=event.message_id,
             conversation_id=event.session_id,
-            ui_protocol="text",
+            ui_protocol="json",
+            ui_data={
+                "think": self._current_step,
+                "content": [event.delta or ""] if event.type == "thinking_message_content" else [""],
+            },
         )
-
-        if event.type == "thinking_message_content":
-            dp.ui_data = event.delta or ""
-        elif event.type == "step_started":
-            dp.ui_data = f"\n{event.step_name}\n"
 
         content_env = AGUIEnvelope(
             id=event.seq,
