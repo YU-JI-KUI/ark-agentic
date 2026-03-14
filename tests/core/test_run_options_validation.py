@@ -65,7 +65,7 @@ class TestRunnerConfigurationPrecedence:
         runner.session_manager.sync_session_state = AsyncMock()
         
         # Prevent lazy init from failing
-        runner._memory_manager = None 
+        runner._memory_base_manager = None 
         
         return runner
 
@@ -77,6 +77,7 @@ class TestRunnerConfigurationPrecedence:
         await runner.run(
             session_id="test-session",
             user_input="hello",
+            user_id="test_user",
             run_options=run_opts
         )
         
@@ -94,6 +95,7 @@ class TestRunnerConfigurationPrecedence:
         await runner.run(
             session_id="test-session",
             user_input="hello",
+            user_id="test_user",
             run_options=run_opts
         )
         
@@ -107,6 +109,7 @@ class TestRunnerConfigurationPrecedence:
         await runner.run(
             session_id="test-session",
             user_input="hello",
+            user_id="test_user",
             run_options=None
         )
         
@@ -118,13 +121,13 @@ class TestRunnerConfigurationPrecedence:
     async def test_skill_load_mode_precedence(self, runner: AgentRunner) -> None:
         """Test skill_load_mode comes from config only (no run_options, no env)."""
         # 1. Config default "full"
-        await runner.run(session_id="s1", user_input="hi")
+        await runner.run(session_id="s1", user_input="hi", user_id="test_user")
         _, kwargs = runner._run_loop.call_args
         assert kwargs["skill_load_mode"] == "full"
 
         # 2. Config "dynamic"
         runner.config.skill_config.default_load_mode = SkillLoadMode.dynamic
-        await runner.run(session_id="s2", user_input="hi", run_options=RunOptions(model="foo"))
+        await runner.run(session_id="s2", user_input="hi", user_id="test_user", run_options=RunOptions(model="foo"))
         _, kwargs = runner._run_loop.call_args
         assert kwargs["skill_load_mode"] == "dynamic"
 
@@ -133,6 +136,6 @@ class TestRunnerConfigurationPrecedence:
         """Test that skill_load_mode is taken from config only (env has no effect)."""
         runner.config.skill_config.default_load_mode = SkillLoadMode.full
         with patch.dict("os.environ", {"ARK_SKILL_LOAD_MODE": "dynamic"}, clear=False):
-            await runner.run(session_id="s1", user_input="hi")
+            await runner.run(session_id="s1", user_input="hi", user_id="test_user")
         _, kwargs = runner._run_loop.call_args
         assert kwargs["skill_load_mode"] == "full"

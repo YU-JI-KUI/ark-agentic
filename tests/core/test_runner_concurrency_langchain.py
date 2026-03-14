@@ -103,7 +103,7 @@ class TestRunnerConcurrency:
         """测试并发运行时的回调隔离"""
 
         # 创建测试会话
-        session = await session_manager.create_session(model="mock")
+        session = await session_manager.create_session("test_user", model="mock")
         session_id = session.session_id
 
         runner = AgentRunner(
@@ -122,6 +122,7 @@ class TestRunnerConcurrency:
             runner.run(
                 session_id=session_id,
                 user_input="Test message 1",
+                user_id="test_user",
                 handler=handler1
             )
         )
@@ -130,6 +131,7 @@ class TestRunnerConcurrency:
             runner.run(
                 session_id=session_id,
                 user_input="Test message 2",
+                user_id="test_user",
                 handler=handler2
             )
         )
@@ -160,7 +162,7 @@ class TestRunnerConcurrency:
         """测试流式回调的线程安全性"""
 
         # 创建测试会话
-        session = await session_manager.create_session(model="mock")
+        session = await session_manager.create_session("test_user", model="mock")
         session_id = session.session_id
 
         runner = AgentRunner(
@@ -175,6 +177,7 @@ class TestRunnerConcurrency:
         result = await runner.run(
             session_id=session_id,
             user_input="Test streaming",
+            user_id="test_user",
             handler=handler
         )
 
@@ -207,7 +210,7 @@ class TestRunnerConcurrency:
         )
 
         # 创建测试会话
-        session = await session_manager.create_session(model="mock")
+        session = await session_manager.create_session("test_user", model="mock")
         session_id = session.session_id
 
         runner = AgentRunner(
@@ -220,7 +223,7 @@ class TestRunnerConcurrency:
         # 并发执行多个包含工具调用的任务
         tasks = [
             asyncio.create_task(
-                runner.run(session_id=session_id, user_input=f"Test tool call {i}")
+                runner.run(session_id=session_id, user_input=f"Test tool call {i}", user_id="test_user")
             )
             for i in range(3)
         ]
@@ -254,8 +257,8 @@ class TestRunnerConcurrency:
         )
 
         # 创建会话
-        session1 = await session_manager1.create_session(model="mock")
-        session2 = await session_manager2.create_session(model="mock")
+        session1 = await session_manager1.create_session("test_user", model="mock")
+        session2 = await session_manager2.create_session("test_user", model="mock")
 
         runner1 = AgentRunner(
             llm=mock_llm,
@@ -273,11 +276,11 @@ class TestRunnerConcurrency:
 
         # 并发运行不同会话的任务
         task1 = asyncio.create_task(
-            runner1.run(session_id=session1.session_id, user_input="Message for session 1")
+            runner1.run(session_id=session1.session_id, user_input="Message for session 1", user_id="test_user")
         )
 
         task2 = asyncio.create_task(
-            runner2.run(session_id=session2.session_id, user_input="Message for session 2")
+            runner2.run(session_id=session2.session_id, user_input="Message for session 2", user_id="test_user")
         )
 
         results = await asyncio.gather(task1, task2)

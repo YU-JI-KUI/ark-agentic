@@ -8,12 +8,13 @@ Memory 管理器
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from .chunker import ChunkConfig, MarkdownChunker
 from .embeddings import BGEConfig, BGEEmbedding
@@ -35,37 +36,22 @@ logger = logging.getLogger(__name__)
 class MemoryConfig:
     """Memory 系统配置"""
 
-    # 工作目录
     workspace_dir: str = ""
+    index_dir: str = ""
 
-    # 索引存储路径
-    index_dir: str = ""  # 空则使用 workspace_dir/.memory
-
-    # Memory 文件路径（相对于 workspace_dir）
     memory_paths: list[str] = field(
         default_factory=lambda: ["MEMORY.md", "memory/"]
     )
 
-    # Embedding 配置
+    # File-based engine components
     embedding: BGEConfig = field(default_factory=BGEConfig)
-
-    # 向量存储配置
     vector: FAISSConfig = field(default_factory=FAISSConfig)
-
-    # 关键词搜索配置
     keyword: BM25Config = field(default_factory=BM25Config)
-
-    # 混合搜索配置
     hybrid: HybridConfig = field(default_factory=HybridConfig)
-
-    # 分块配置
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
 
-    # 自动同步
     auto_sync: bool = True
     sync_on_init: bool = True
-
-    # 文件监控
     watch_files: bool = False
 
 
@@ -87,65 +73,51 @@ class MemoryManager:
             else self._workspace_dir / ".memory"
         )
 
-        # 组件
         self._embedding: BGEEmbedding | None = None
         self._vector_store: FAISSVectorStore | None = None
         self._keyword_searcher: JiebaBM25Searcher | None = None
         self._hybrid_searcher: HybridSearcher | None = None
         self._chunker: MarkdownChunker | None = None
 
-        # 状态
         self._initialized = False
         self._last_sync: datetime | None = None
-        self._file_hashes: dict[str, str] = {}  # path -> content_hash
+        self._file_hashes: dict[str, str] = {}
 
     async def initialize(self) -> None:
-        """初始化 Memory 系统"""
         if self._initialized:
             return
 
+        await self._initialize_file_engine()
+
+        self._initialized = True
+        logger.info("Memory system initialized")
+
+    async def _initialize_file_engine(self) -> None:
         logger.info(f"Initializing Memory system at {self._workspace_dir}")
 
-        # 确保索引目录存在
         self._index_dir.mkdir(parents=True, exist_ok=True)
-
-        # 初始化 Embedding
         self._embedding = BGEEmbedding(self.config.embedding)
 
-        # 初始化向量存储
         dimensions = self._embedding.dimensions
         if dimensions == 0:
-            # 需要先加载模型获取维度
             _ = await self._embedding.embed_query("test")
             dimensions = self._embedding.dimensions
 
         self._vector_store = FAISSVectorStore(dimensions, self.config.vector)
-
-        # 初始化关键词搜索
         self._keyword_searcher = JiebaBM25Searcher(self.config.keyword)
-
-        # 初始化混合搜索器
         self._hybrid_searcher = HybridSearcher(
             self._vector_store,
             self._keyword_searcher,
             self._embedding,
             self.config.hybrid,
         )
-
-        # 初始化分块器
         self._chunker = MarkdownChunker(self.config.chunk)
 
-        # 尝试加载已有索引
         await self._load_index()
 
-        # 标记为已初始化（必须在 sync 之前，否则 sync→initialize 无限递归）
-        self._initialized = True
-
-        # 初始同步
         if self.config.sync_on_init:
+            self._initialized = True
             await self.sync()
-
-        logger.info("Memory system initialized")
 
     async def _load_index(self) -> bool:
         """加载已有索引"""
@@ -283,20 +255,9 @@ class MemoryManager:
         max_results: int = 10,
         min_score: float = 0.0,
         sources: list[MemorySource] | None = None,
-        search_mode: str = "hybrid",  # "hybrid", "vector", "keyword"
+        search_mode: str = "hybrid",
+        user_id: str = "",
     ) -> list[MemorySearchResult]:
-        """搜索记忆
-
-        Args:
-            query: 查询文本
-            max_results: 最大结果数
-            min_score: 最低分数阈值
-            sources: 过滤来源
-            search_mode: 搜索模式
-
-        Returns:
-            搜索结果列表
-        """
         if not self._initialized:
             await self.initialize()
 
@@ -308,7 +269,6 @@ class MemoryManager:
             keyword_only=(search_mode == "keyword"),
         )
 
-        # 过滤来源
         if sources:
             results = [r for r in results if r.source in sources]
 

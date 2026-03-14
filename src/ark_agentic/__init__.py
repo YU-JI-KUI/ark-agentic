@@ -13,8 +13,8 @@ from ark_agentic.core.session import SessionManager
 
 llm = create_chat_model(model="PA-JT-80B", api_key="sk-xxx")
 runner = AgentRunner(llm, ToolRegistry())
-session_id = await runner.create_session()
-result = await runner.run(session_id, "你好")
+session_id = await runner.create_session(user_id="default")
+result = await runner.run(session_id, "你好", user_id="default")
 ```
 
 ## 模块结构

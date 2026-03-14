@@ -265,7 +265,7 @@ async def test_agent_margin_context_e2e():
     agent = create_securities_agent(llm=mock_llm)
     
     # Session setup
-    session = await agent.session_manager.create_session()
+    session = await agent.session_manager.create_session("test_user")
     # KEY STEP: Inject "margin" context
     agent.session_manager.update_state(session.session_id, {
         "account_type": "margin",
@@ -276,7 +276,8 @@ async def test_agent_margin_context_e2e():
     print("Starting Agent Run...")
     result = await agent.run(
         session_id=session.session_id,
-        user_input="Show my asset overview"
+        user_input="Show my asset overview",
+        user_id="test_user",
     )
     
     # Assert

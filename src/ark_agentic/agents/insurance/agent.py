@@ -194,6 +194,7 @@ async def run_demo(agent: AgentRunner):
 
     # 创建会话
     session_id = await agent.create_session(
+        user_id="U001",
         state={
             "user:id": "U001",
             "user:channel": "app",
@@ -202,7 +203,6 @@ async def run_demo(agent: AgentRunner):
     print(f"[系统] 会话已创建: {session_id[:8]}...")
     print()
 
-    # 预设对话
     conversations = [
         "我想取点钱",
         "我选方案一",
@@ -215,6 +215,7 @@ async def run_demo(agent: AgentRunner):
         result = await agent.run(
             session_id=session_id,
             user_input=user_input,
+            user_id="U001",
             input_context={"user:id": "U001"},
         )
 
@@ -241,7 +242,7 @@ async def interactive_mode(agent: AgentRunner):
     print()
 
     # 创建会话
-    session_id = await agent.create_session(state={"user:id": "U001"})
+    session_id = await agent.create_session(user_id="U001", state={"user:id": "U001"})
     print(f"[系统] 会话已创建: {session_id[:8]}...")
     print()
 
@@ -262,7 +263,7 @@ async def interactive_mode(agent: AgentRunner):
                 continue
 
             if user_input.lower() == "new":
-                session_id = await agent.create_session(state={"user:id": "U001"})
+                session_id = await agent.create_session(user_id="U001", state={"user:id": "U001"})
                 print(f"[系统] 新会话已创建: {session_id[:8]}...")
                 print()
                 continue
@@ -276,6 +277,7 @@ async def interactive_mode(agent: AgentRunner):
             result = await agent.run(
                 session_id=session_id,
                 user_input=user_input,
+                user_id="U001",
                 input_context={"user:id": "U001"},
             )
 
