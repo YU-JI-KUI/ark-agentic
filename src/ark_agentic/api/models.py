@@ -6,9 +6,10 @@ API 请求/响应数据模型
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ark_agentic.core.types import RunOptions
 
@@ -37,9 +38,24 @@ class ChatRequest(BaseModel):
     message_id: str | None = Field(None, description="消息 ID，为空则自动生成 UUID")
     context: dict[str, Any] | None = Field(None, description="业务上下文数据")
     idempotency_key: str | None = Field(None, description="幂等键，防止重复请求")
-    # 外部聊天历史
-    history: list[HistoryMessage] | None = Field(None, description="外部系统聊天历史（最近 N 轮）")
+    # 外部聊天历史（支持 array 或 JSON 字符串，校验后统一为 list）
+    history: list[HistoryMessage] | None = Field(None, description="外部系统聊天历史（最近 N 轮），可为 array 或 JSON 字符串")
     use_history: bool = Field(True, description="是否启用外部历史合并")
+
+    @field_validator("history", mode="before")
+    @classmethod
+    def history_accept_json_string(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            try:
+                data = json.loads(v)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"history: invalid JSON string: {e}") from e
+            if not isinstance(data, list):
+                raise ValueError("history: JSON string must be a list of messages")
+            return data
+        return v
 
 
 class ChatResponse(BaseModel):

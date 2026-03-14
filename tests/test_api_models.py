@@ -55,7 +55,7 @@ class TestChatRequest:
         assert req_with.message_id == "custom-id"
 
     def test_history_and_use_history(self):
-        """P1: history / use_history 可选，默认 use_history=True."""
+        """P1: history / use_history 可选，默认 use_history=True。"""
         req = ChatRequest(message="hi")
         assert req.history is None
         assert req.use_history is True
@@ -71,6 +71,27 @@ class TestChatRequest:
         assert req_with_history.history[0].role == "user"
         assert req_with_history.history[0].content == "外部问题"
         assert req_with_history.use_history is False
+
+    def test_history_accepts_json_string(self):
+        """P1: history 可为 JSON 字符串，解析后与 array 一致。"""
+        payload = [{"role": "user", "content": "你好"}, {"role": "assistant", "content": "您好"}]
+        req = ChatRequest(message="hi", history=json.dumps(payload))
+        assert req.history is not None
+        assert len(req.history) == 2
+        assert req.history[0].role == "user"
+        assert req.history[0].content == "你好"
+        assert req.history[1].role == "assistant"
+        assert req.history[1].content == "您好"
+
+    def test_history_invalid_json_string_raises(self):
+        """P2: history 为非法 JSON 字符串时抛出 ValueError。"""
+        with pytest.raises(ValueError, match="history: invalid JSON"):
+            ChatRequest(message="hi", history="not json")
+
+    def test_history_json_string_must_be_list(self):
+        """P2: history JSON 字符串必须为数组，否则抛出 ValueError。"""
+        with pytest.raises(ValueError, match="history: JSON string must be a list"):
+            ChatRequest(message="hi", history='{"role":"user","content":"x"}')
 
 
 class TestHistoryMessage:
