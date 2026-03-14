@@ -306,7 +306,6 @@ class SessionManager:
         if not hasattr(session, "_pending_messages"):
             session._pending_messages = []
 
-        # Process ops in reverse so earlier insertions don't shift later indices
         resolved: list[tuple[int, AgentMessage]] = []
         for op in ops:
             if op.anchor_message_id is None:
@@ -323,8 +322,14 @@ class SessionManager:
                 idx = anchor_idx if op.insert_before else anchor_idx + 1
             resolved.append((idx, op.message))
 
+        # When multiple ops share the same idx (e.g. all anchor=None → append),
+        # reversed insertion preserves forward order: last op inserts first and
+        # gets pushed rightward by subsequent insertions.
         for idx, msg in reversed(resolved):
             session.messages.insert(idx, msg)
+
+        # Append in forward order so JSONL persistence is chronological
+        for _, msg in resolved:
             session._pending_messages.append(msg)
 
         session.updated_at = datetime.now()

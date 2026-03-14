@@ -1,13 +1,19 @@
-"""Tests for external history merge: dedup, anchor positioning, kill switches."""
+"""Tests for external history merge: pair-based dedup, anchor positioning, kill switches."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
+import json
+import tempfile
 
 import pytest
 
 from ark_agentic.core.history_merge import (
     InsertOp,
+    _build_external_pairs,
+    _build_session_pairs,
+    _pairs_match,
     is_duplicate,
     merge_external_history,
     normalize_content,
@@ -94,7 +100,90 @@ class TestIsDuplicate:
         assert not is_duplicate("hello", "")
 
 
-# ── merge_external_history ───────────────────────────────────────────
+# ── _build_external_pairs ────────────────────────────────────────────
+
+
+class TestBuildExternalPairs:
+    def test_complete_pairs(self):
+        raw = [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+            {"role": "assistant", "content": "a2"},
+        ]
+        pairs = _build_external_pairs(raw)
+        assert len(pairs) == 2
+        assert pairs[0].user["content"] == "q1"
+        assert pairs[0].assistant["content"] == "a1"
+        assert pairs[1].user["content"] == "q2"
+
+    def test_trailing_user_dropped(self):
+        raw = [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "trailing"},
+        ]
+        pairs = _build_external_pairs(raw)
+        assert len(pairs) == 1
+
+    def test_standalone_assistant_dropped(self):
+        raw = [
+            {"role": "assistant", "content": "orphan"},
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+        ]
+        pairs = _build_external_pairs(raw)
+        assert len(pairs) == 1
+        assert pairs[0].user["content"] == "q1"
+
+    def test_empty(self):
+        assert _build_external_pairs([]) == []
+
+    def test_single_user(self):
+        assert _build_external_pairs([{"role": "user", "content": "hi"}]) == []
+
+
+# ── _build_session_pairs ─────────────────────────────────────────────
+
+
+class TestBuildSessionPairs:
+    def test_filters_tool_messages(self):
+        session = [_user("q", 0), _tool_msg(1), _assistant("a", 2)]
+        pairs = _build_session_pairs(session)
+        assert len(pairs) == 1
+        assert pairs[0].user.content == "q"
+        assert pairs[0].assistant.content == "a"
+
+    def test_trailing_user_not_paired(self):
+        session = [_user("q1", 0), _assistant("a1", 1), _user("q2", 2)]
+        pairs = _build_session_pairs(session)
+        assert len(pairs) == 1
+
+
+# ── _pairs_match ─────────────────────────────────────────────────────
+
+
+class TestPairsMatch:
+    def test_exact_match(self):
+        from ark_agentic.core.history_merge import _ExternalPair, _SessionPair
+        ep = _ExternalPair(
+            user={"role": "user", "content": "hello"},
+            assistant={"role": "assistant", "content": "world"},
+        )
+        sp = _SessionPair(user=_user("hello", 0), assistant=_assistant("world", 1))
+        assert _pairs_match(ep, sp)
+
+    def test_user_match_assistant_mismatch(self):
+        from ark_agentic.core.history_merge import _ExternalPair, _SessionPair
+        ep = _ExternalPair(
+            user={"role": "user", "content": "你好"},
+            assistant={"role": "assistant", "content": "你有什么事？请问需要什么帮助？"},
+        )
+        sp = _SessionPair(user=_user("你好", 0), assistant=_assistant("你好！很高兴为你服务，有什么需要帮忙的吗？", 1))
+        assert not _pairs_match(ep, sp)
+
+
+# ── merge_external_history (pair-based) ──────────────────────────────
 
 
 class TestMergeExternalHistory:
@@ -104,7 +193,7 @@ class TestMergeExternalHistory:
         assert merge_external_history(session, None) == []  # type: ignore[arg-type]
 
     def test_all_new_no_anchor(self):
-        """All external messages are new → append at end."""
+        """All external pairs are new → append at end."""
         session = [_user("old question", 0), _assistant("old answer", 1)]
         ext = [
             {"role": "user", "content": "new q1"},
@@ -112,22 +201,38 @@ class TestMergeExternalHistory:
         ]
         ops = merge_external_history(session, ext)
         assert len(ops) == 2
+        assert ops[0].message.role == MessageRole.USER
+        assert ops[1].message.role == MessageRole.ASSISTANT
         for op in ops:
             assert op.anchor_message_id is None
             assert op.message.metadata["source"] == "external"
 
     def test_all_duplicate(self):
-        """Full overlap → nothing to insert."""
+        """Full pair overlap → nothing to insert."""
         session = [_user("hello", 0), _assistant("world", 1)]
         ext = [
             {"role": "user", "content": "hello"},
             {"role": "assistant", "content": "world"},
         ]
+        assert merge_external_history(session, ext) == []
+
+    def test_same_user_different_assistant_not_duplicate(self):
+        """Same user content but different assistant → distinct pairs, both kept."""
+        s_user = _user("你好", 0)
+        s_asst = _assistant("内部回答：你好！很高兴为你服务。", 1)
+        session = [s_user, s_asst]
+
+        ext = [
+            {"role": "user", "content": "你好"},
+            {"role": "assistant", "content": "外部回答：你有什么事"},
+        ]
         ops = merge_external_history(session, ext)
-        assert ops == []
+        assert len(ops) == 2
+        assert ops[0].message.content == "你好"
+        assert ops[1].message.content == "外部回答：你有什么事"
 
     def test_mixed_anchor_before(self):
-        """New message before the first anchor → insert_before=True."""
+        """New pair before the first anchor pair → insert_before=True."""
         s_user = _user("查下基金", 2)
         s_asst = _assistant("好的，为您查询", 3)
         session = [s_user, s_asst]
@@ -142,10 +247,12 @@ class TestMergeExternalHistory:
         assert len(ops) == 2
         assert ops[0].insert_before is True
         assert ops[0].anchor_message_id == s_user.timestamp.isoformat()
+        assert ops[0].message.role == MessageRole.USER
         assert ops[1].insert_before is True
+        assert ops[1].message.role == MessageRole.ASSISTANT
 
     def test_mixed_anchor_after(self):
-        """New messages after the last anchor → insert_before=False."""
+        """New pair after the last anchor pair → insert_before=False."""
         s_user = _user("你好", 0)
         s_asst = _assistant("您好", 1)
         session = [s_user, s_asst]
@@ -162,7 +269,7 @@ class TestMergeExternalHistory:
         assert ops[0].anchor_message_id == s_asst.timestamp.isoformat()
 
     def test_mixed_between_anchors(self):
-        """New message between two anchors → after preceding anchor."""
+        """New pair between two anchor pairs → after preceding anchor."""
         s1u = _user("问题一", 0)
         s1a = _assistant("回答一", 1)
         s2u = _user("问题三", 4)
@@ -181,21 +288,18 @@ class TestMergeExternalHistory:
         assert len(ops) == 2
         assert ops[0].anchor_message_id == s1a.timestamp.isoformat()
         assert ops[0].insert_before is False
-        assert ops[1].anchor_message_id == s1a.timestamp.isoformat()
-        assert ops[1].insert_before is False
 
     def test_fuzzy_whitespace(self):
-        """Extra whitespace in external content still deduplicates."""
+        """Extra whitespace in external content still deduplicates as pair."""
         session = [_user("查询基金收益", 0), _assistant("收益如下", 1)]
         ext = [
             {"role": "user", "content": "  查询基金收益  \n"},
             {"role": "assistant", "content": "收益如下"},
         ]
-        ops = merge_external_history(session, ext)
-        assert ops == []
+        assert merge_external_history(session, ext) == []
 
     def test_fuzzy_truncation(self):
-        """Truncated external content (~85%+ preserved) still deduplicates."""
+        """Truncated external assistant (~85%+ preserved) still deduplicates."""
         full = "好的，我来为您查询一下这只基金的详细信息和近期表现数据，请您稍等" * 2
         truncated = full[: int(len(full) * 0.88)]
         session = [_user("查基金", 0), _assistant(full, 1)]
@@ -203,11 +307,10 @@ class TestMergeExternalHistory:
             {"role": "user", "content": "查基金"},
             {"role": "assistant", "content": truncated},
         ]
-        ops = merge_external_history(session, ext)
-        assert ops == []
+        assert merge_external_history(session, ext) == []
 
-    def test_tool_messages_in_session_ignored_for_dedup(self):
-        """Tool messages in session don't enter the dedup window."""
+    def test_tool_messages_in_session_ignored_for_pairing(self):
+        """Tool messages in session don't affect pair building."""
         s_user = _user("hello", 0)
         s_tool = _tool_msg(1)
         s_asst = _assistant("world", 2)
@@ -217,115 +320,64 @@ class TestMergeExternalHistory:
             {"role": "user", "content": "hello"},
             {"role": "assistant", "content": "world"},
         ]
-        ops = merge_external_history(session, ext)
-        assert ops == []
+        assert merge_external_history(session, ext) == []
 
     def test_source_tag(self):
         """Injected messages carry metadata.source == 'external'."""
-        ops = merge_external_history([], [{"role": "user", "content": "hi"}])
-        assert len(ops) == 1
-        assert ops[0].message.metadata["source"] == "external"
-        assert ops[0].message.role == MessageRole.USER
-        assert ops[0].message.content == "hi"
+        ext = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ]
+        ops = merge_external_history([], ext)
+        assert len(ops) == 2
+        for op in ops:
+            assert op.message.metadata["source"] == "external"
 
-    # ── structural pair check ────────────────────────────────────────
+    def test_trailing_user_ignored(self):
+        """Incomplete trailing user in external history is ignored."""
+        session = [_user("old", 0), _assistant("old reply", 1)]
+        ext = [
+            {"role": "user", "content": "new q"},
+            {"role": "assistant", "content": "new a"},
+            {"role": "user", "content": "trailing"},
+        ]
+        ops = merge_external_history(session, ext)
+        assert len(ops) == 2
+        contents = [op.message.content for op in ops]
+        assert "trailing" not in contents
 
-    def test_divergent_assistant_skipped(self):
-        """Same user message handled by both systems → external assistant skipped.
+    def test_only_trailing_user_returns_empty(self):
+        """External history with only a trailing user → no ops."""
+        session = [_user("old", 0), _assistant("reply", 1)]
+        ext = [{"role": "user", "content": "just a user"}]
+        assert merge_external_history(session, ext) == []
 
-        Scenario: user says "你好" once.
-        Internal handled it: user:"你好" → assistant:"你好！很高兴为你服务。"
-        External also saw it: user:"你好" → assistant:"你有什么事"
+    def test_two_hello_different_responses_both_kept(self):
+        """User says '你好' in both systems with different responses → both kept.
 
-        The external assistant response is a divergent reply to an already-
-        completed internal turn. It must be skipped to avoid two consecutive
-        assistant messages.
+        This is the key scenario that pair-based dedup solves: individual
+        message matching would incorrectly anchor the user messages together.
         """
         s_user = _user("你好", 0)
-        s_asst = _assistant("你好！很高兴为你服务。", 1)
+        s_asst = _assistant("内部：你好！很高兴为你服务。", 1)
         session = [s_user, s_asst]
 
         ext = [
             {"role": "user", "content": "你好"},
-            {"role": "assistant", "content": "你有什么事"},
+            {"role": "assistant", "content": "外部：你有什么事"},
         ]
         ops = merge_external_history(session, ext)
-        assert ops == [], (
-            "External assistant after a matched user anchor with existing internal "
-            "assistant must be skipped"
+        assert len(ops) == 2, (
+            "Same user content but different assistant → different pairs → inserted"
         )
 
-    def test_divergent_assistant_skipped_mid_conversation(self):
-        """Divergent response skip works even when the matched turn is not the first."""
-        s_u1 = _user("问题一", 0)
-        s_a1 = _assistant("内部回答一", 1)
-        s_u2 = _user("你好", 2)
-        s_a2 = _assistant("你好！很高兴为你服务。", 3)
-        session = [s_u1, s_a1, s_u2, s_a2]
-
+    def test_invalid_roles_skipped(self):
+        """Messages with invalid roles form no pairs → no ops."""
         ext = [
-            {"role": "user", "content": "你好"},
-            {"role": "assistant", "content": "你有什么事"},
+            {"role": "system", "content": "you are helpful"},
+            {"role": "tool", "content": "result"},
         ]
-        ops = merge_external_history(session, ext)
-        assert ops == []
-
-    def test_external_assistant_injected_when_no_internal_followup(self):
-        """External assistant IS injected when matched user has no internal assistant yet.
-
-        Scenario: user said "你好" and it appears in external history with an
-        external assistant response, but the internal session only has the user
-        message (assistant reply not yet added internally).
-        """
-        s_user = _user("你好", 0)
-        session = [s_user]  # no assistant yet
-
-        ext = [
-            {"role": "user", "content": "你好"},
-            {"role": "assistant", "content": "你有什么事"},
-        ]
-        ops = merge_external_history(session, ext)
-        assert len(ops) == 1
-        assert ops[0].message.role == MessageRole.ASSISTANT
-        assert ops[0].message.content == "你有什么事"
-
-    def test_two_independent_hello_turns(self):
-        """User says '你好' twice — each turn handled by a different system.
-
-        Internal: user:"你好"₁ → assistant:"I1"
-        External: [user:"你好"₁ → assistant:"E1"]  (only external saw turn 1)
-
-        The external user matches the internal user (same content, used_window
-        prevents double-matching). External assistant E1 is checked: internal
-        already has assistant I1 after that anchor → E1 skipped.
-        Result: no ops — internal history is authoritative for that turn.
-        """
-        s_u1 = _user("你好", 0)
-        s_a1 = _assistant("I1", 1)
-        session = [s_u1, s_a1]
-
-        ext = [
-            {"role": "user", "content": "你好"},
-            {"role": "assistant", "content": "E1"},
-        ]
-        ops = merge_external_history(session, ext)
-        assert ops == []
-
-    def test_external_new_user_after_divergent_skip(self):
-        """After skipping a divergent assistant, subsequent new user is still injected."""
-        s_user = _user("你好", 0)
-        s_asst = _assistant("内部回答", 1)
-        session = [s_user, s_asst]
-
-        ext = [
-            {"role": "user", "content": "你好"},
-            {"role": "assistant", "content": "外部回答"},  # divergent → skipped
-            {"role": "user", "content": "后续新问题"},     # genuinely new → injected
-        ]
-        ops = merge_external_history(session, ext)
-        assert len(ops) == 1
-        assert ops[0].message.role == MessageRole.USER
-        assert ops[0].message.content == "后续新问题"
+        assert merge_external_history([], ext) == []
 
 
 # ── SessionManager.inject_messages ───────────────────────────────────
@@ -415,3 +467,55 @@ class TestInjectMessages:
         messages = sm.get_messages(sid, include_system=False)
         contents = [m.content for m in messages]
         assert contents == ["a", "anchor", "b"]
+
+
+# ── persistence: _ensure_trailing_newline ─────────────────────────────
+
+
+class TestEnsureTrailingNewline:
+    def test_adds_newline_when_missing(self, tmp_path: Path):
+        from ark_agentic.core.persistence import TranscriptManager
+
+        f = tmp_path / "test.jsonl"
+        f.write_text('{"line":1}', encoding="utf-8")  # no trailing \n
+        TranscriptManager._ensure_trailing_newline(f)
+        raw = f.read_bytes()
+        assert raw.endswith(b"\n")
+
+    def test_noop_when_newline_exists(self, tmp_path: Path):
+        from ark_agentic.core.persistence import TranscriptManager
+
+        f = tmp_path / "test.jsonl"
+        f.write_text('{"line":1}\n', encoding="utf-8")
+        size_before = f.stat().st_size
+        TranscriptManager._ensure_trailing_newline(f)
+        assert f.stat().st_size == size_before
+
+    def test_noop_on_empty_file(self, tmp_path: Path):
+        from ark_agentic.core.persistence import TranscriptManager
+
+        f = tmp_path / "test.jsonl"
+        f.write_text("", encoding="utf-8")
+        TranscriptManager._ensure_trailing_newline(f)
+        assert f.stat().st_size == 0
+
+    def test_noop_on_nonexistent_file(self, tmp_path: Path):
+        from ark_agentic.core.persistence import TranscriptManager
+
+        f = tmp_path / "nonexistent.jsonl"
+        TranscriptManager._ensure_trailing_newline(f)  # should not raise
+
+    def test_concatenated_lines_prevented(self, tmp_path: Path):
+        """Simulate the bug: file without trailing \\n, then append."""
+        from ark_agentic.core.persistence import TranscriptManager
+
+        f = tmp_path / "test.jsonl"
+        f.write_text('{"first":"msg"}', encoding="utf-8")
+        TranscriptManager._ensure_trailing_newline(f)
+        with open(f, "a", encoding="utf-8") as fh:
+            fh.write('{"second":"msg"}\n')
+
+        lines = [l for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(lines) == 2
+        for line in lines:
+            json.loads(line)  # each line must be valid JSON

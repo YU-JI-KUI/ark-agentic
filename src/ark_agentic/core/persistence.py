@@ -400,6 +400,16 @@ class TranscriptManager:
     def _get_lock_path(self, session_id: str, user_id: str) -> Path:
         return self._get_user_dir(user_id) / f"{session_id}.jsonl.lock"
 
+    @staticmethod
+    def _ensure_trailing_newline(filepath: Path) -> None:
+        """Guard against corrupted JSONL: ensure file ends with newline before append."""
+        if filepath.exists() and filepath.stat().st_size > 0:
+            with open(filepath, "rb") as rf:
+                rf.seek(-1, 2)
+                if rf.read(1) != b"\n":
+                    with open(filepath, "a", encoding="utf-8") as f:
+                        f.write("\n")
+
     async def ensure_header(self, session_id: str, user_id: str) -> None:
         session_file = self._get_session_file(session_id, user_id)
         if session_file.exists():
@@ -430,7 +440,9 @@ class TranscriptManager:
         )
 
         async with FileLock(self._get_lock_path(session_id, user_id)):
-            with open(self._get_session_file(session_id, user_id), "a", encoding="utf-8") as f:
+            filepath = self._get_session_file(session_id, user_id)
+            self._ensure_trailing_newline(filepath)
+            with open(filepath, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry.to_dict(), ensure_ascii=False) + "\n")
 
     async def append_messages(
@@ -453,7 +465,9 @@ class TranscriptManager:
             lines.append(json.dumps(entry.to_dict(), ensure_ascii=False))
 
         async with FileLock(self._get_lock_path(session_id, user_id)):
-            with open(self._get_session_file(session_id, user_id), "a", encoding="utf-8") as f:
+            filepath = self._get_session_file(session_id, user_id)
+            self._ensure_trailing_newline(filepath)
+            with open(filepath, "a", encoding="utf-8") as f:
                 f.write("\n".join(lines) + "\n")
 
     def load_messages(self, session_id: str, user_id: str) -> list[AgentMessage]:
