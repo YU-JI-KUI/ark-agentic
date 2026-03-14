@@ -386,27 +386,32 @@ class TranscriptManager:
         self,
         sessions_dir: str | Path | None = None,
     ):
-        """初始化转录管理器
-
-        Args:
-            sessions_dir: 会话存储目录，默认为 ~/.ark_nav/sessions
-        """
         if sessions_dir is None:
             sessions_dir = Path.home() / ".ark_nav" / "sessions"
         self.sessions_dir = Path(sessions_dir)
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_session_file(self, session_id: str) -> Path:
-        """获取会话文件路径"""
-        return self.sessions_dir / f"{session_id}.jsonl"
+    def _get_user_dir(self, user_id: str) -> Path:
+        return self.sessions_dir / user_id
 
-    def _get_lock_path(self, session_id: str) -> Path:
-        """获取锁文件路径"""
-        return self.sessions_dir / f"{session_id}.jsonl.lock"
+    def _get_session_file(self, session_id: str, user_id: str) -> Path:
+        return self._get_user_dir(user_id) / f"{session_id}.jsonl"
 
-    async def ensure_header(self, session_id: str) -> None:
-        """确保会话文件有头部"""
-        session_file = self._get_session_file(session_id)
+    def _get_lock_path(self, session_id: str, user_id: str) -> Path:
+        return self._get_user_dir(user_id) / f"{session_id}.jsonl.lock"
+
+    @staticmethod
+    def _ensure_trailing_newline(filepath: Path) -> None:
+        """Guard against corrupted JSONL: ensure file ends with newline before append."""
+        if filepath.exists() and filepath.stat().st_size > 0:
+            with open(filepath, "rb") as rf:
+                rf.seek(-1, 2)
+                if rf.read(1) != b"\n":
+                    with open(filepath, "a", encoding="utf-8") as f:
+                        f.write("\n")
+
+    async def ensure_header(self, session_id: str, user_id: str) -> None:
+        session_file = self._get_session_file(session_id, user_id)
         if session_file.exists():
             return
 
@@ -417,37 +422,39 @@ class TranscriptManager:
         )
 
         session_file.parent.mkdir(parents=True, exist_ok=True)
-        async with FileLock(self._get_lock_path(session_id)):
+        async with FileLock(self._get_lock_path(session_id, user_id)):
             with open(session_file, "w", encoding="utf-8") as f:
                 f.write(json.dumps(header.to_dict(), ensure_ascii=False) + "\n")
 
     async def append_message(
         self,
         session_id: str,
+        user_id: str,
         message: AgentMessage,
     ) -> None:
-        """追加消息到转录文件"""
-        await self.ensure_header(session_id)
+        await self.ensure_header(session_id, user_id)
 
         entry = MessageEntry(
             message=serialize_message(message),
             timestamp=int(message.timestamp.timestamp() * 1000),
         )
 
-        async with FileLock(self._get_lock_path(session_id)):
-            with open(self._get_session_file(session_id), "a", encoding="utf-8") as f:
+        async with FileLock(self._get_lock_path(session_id, user_id)):
+            filepath = self._get_session_file(session_id, user_id)
+            self._ensure_trailing_newline(filepath)
+            with open(filepath, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry.to_dict(), ensure_ascii=False) + "\n")
 
     async def append_messages(
         self,
         session_id: str,
+        user_id: str,
         messages: list[AgentMessage],
     ) -> None:
-        """批量追加消息"""
         if not messages:
             return
 
-        await self.ensure_header(session_id)
+        await self.ensure_header(session_id, user_id)
 
         lines: list[str] = []
         for msg in messages:
@@ -457,13 +464,14 @@ class TranscriptManager:
             )
             lines.append(json.dumps(entry.to_dict(), ensure_ascii=False))
 
-        async with FileLock(self._get_lock_path(session_id)):
-            with open(self._get_session_file(session_id), "a", encoding="utf-8") as f:
+        async with FileLock(self._get_lock_path(session_id, user_id)):
+            filepath = self._get_session_file(session_id, user_id)
+            self._ensure_trailing_newline(filepath)
+            with open(filepath, "a", encoding="utf-8") as f:
                 f.write("\n".join(lines) + "\n")
 
-    def load_messages(self, session_id: str) -> list[AgentMessage]:
-        """加载会话消息"""
-        session_file = self._get_session_file(session_id)
+    def load_messages(self, session_id: str, user_id: str) -> list[AgentMessage]:
+        session_file = self._get_session_file(session_id, user_id)
         if not session_file.exists():
             return []
 
@@ -483,9 +491,8 @@ class TranscriptManager:
 
         return messages
 
-    def load_header(self, session_id: str) -> SessionHeader | None:
-        """加载会话头部"""
-        session_file = self._get_session_file(session_id)
+    def load_header(self, session_id: str, user_id: str) -> SessionHeader | None:
+        session_file = self._get_session_file(session_id, user_id)
         if not session_file.exists():
             return None
 
@@ -503,46 +510,57 @@ class TranscriptManager:
     def get_recent_content(
         self,
         session_id: str,
+        user_id: str,
         message_count: int = 15,
         roles: list[str] | None = None,
     ) -> str | None:
-        """获取最近的会话内容（用于摘要生成）
-
-        参考: openclaw-main/src/hooks/bundled/session-memory/handler.ts
-        """
         if roles is None:
             roles = ["user", "assistant"]
 
-        messages = self.load_messages(session_id)
+        messages = self.load_messages(session_id, user_id)
 
-        # 过滤角色
         filtered: list[str] = []
         for msg in messages:
             if msg.role.value in roles and msg.content:
-                # 跳过命令消息
                 if not msg.content.startswith("/"):
                     filtered.append(f"{msg.role.value}: {msg.content}")
 
         if not filtered:
             return None
 
-        # 取最近 N 条
         recent = filtered[-message_count:]
         return "\n".join(recent)
 
-    def list_sessions(self) -> list[str]:
-        """列出所有会话 ID"""
+    def list_sessions(self, user_id: str) -> list[str]:
+        """列出指定用户的所有会话 ID"""
+        user_dir = self._get_user_dir(user_id)
+        if not user_dir.exists():
+            return []
         sessions: list[str] = []
-        for file in self.sessions_dir.glob("*.jsonl"):
+        for file in user_dir.glob("*.jsonl"):
             session_id = file.stem
             if not session_id.endswith(".lock"):
                 sessions.append(session_id)
         return sessions
 
-    def delete_session(self, session_id: str) -> bool:
-        """删除会话文件"""
-        session_file = self._get_session_file(session_id)
-        lock_file = self._get_lock_path(session_id)
+    def list_all_sessions(self) -> list[tuple[str, str]]:
+        """列出所有用户的所有会话，返回 (user_id, session_id) 列表（admin 用途）"""
+        results: list[tuple[str, str]] = []
+        if not self.sessions_dir.exists():
+            return results
+        for user_dir in self.sessions_dir.iterdir():
+            if not user_dir.is_dir():
+                continue
+            user_id = user_dir.name
+            for file in user_dir.glob("*.jsonl"):
+                sid = file.stem
+                if not sid.endswith(".lock"):
+                    results.append((user_id, sid))
+        return results
+
+    def delete_session(self, session_id: str, user_id: str) -> bool:
+        session_file = self._get_session_file(session_id, user_id)
+        lock_file = self._get_lock_path(session_id, user_id)
 
         deleted = False
         if session_file.exists():
@@ -553,23 +571,20 @@ class TranscriptManager:
 
         return deleted
 
-    def session_exists(self, session_id: str) -> bool:
-        """检查会话是否存在"""
-        return self._get_session_file(session_id).exists()
+    def session_exists(self, session_id: str, user_id: str) -> bool:
+        return self._get_session_file(session_id, user_id).exists()
 
-    def read_raw(self, session_id: str) -> str | None:
-        """读取会话原始 JSONL 全文（仅读磁盘，不持锁）。文件不存在返回 None。"""
-        session_file = self._get_session_file(session_id)
+    def read_raw(self, session_id: str, user_id: str) -> str | None:
+        session_file = self._get_session_file(session_id, user_id)
         if not session_file.exists():
             return None
         return session_file.read_text(encoding="utf-8")
 
-    async def write_raw(self, session_id: str, content: str) -> None:
+    async def write_raw(self, session_id: str, user_id: str, content: str) -> None:
         """校验并全量写入会话 JSONL 文件。持 FileLock。校验失败抛出 RawJsonlValidationError。"""
         lines = [line for line in content.splitlines() if line.strip()]
         if not lines:
             raise RawJsonlValidationError("至少需要一行（session header）", line_number=1)
-        # 首行：session header
         try:
             first = json.loads(lines[0])
         except json.JSONDecodeError as e:
@@ -582,7 +597,6 @@ class TranscriptManager:
                 f"首行 id 与 URL session_id 不一致: {header_id!r} vs {session_id!r}",
                 line_number=1,
             )
-        # 其余行：message（允许 0 条）
         for i, line in enumerate(lines[1:], start=2):
             try:
                 data = json.loads(line)
@@ -598,10 +612,10 @@ class TranscriptManager:
                     f"第 {i} 行必须含 message 对象",
                     line_number=i,
                 )
-        session_file = self._get_session_file(session_id)
+        session_file = self._get_session_file(session_id, user_id)
         session_file.parent.mkdir(parents=True, exist_ok=True)
         payload = content if content.endswith("\n") else content + "\n"
-        async with FileLock(self._get_lock_path(session_id)):
+        async with FileLock(self._get_lock_path(session_id, user_id)):
             session_file.write_text(payload, encoding="utf-8")
 
 
@@ -657,108 +671,101 @@ class SessionStoreEntry:
 
 
 class SessionStore:
-    """会话元数据存储
-
-    管理 sessions.json 文件。
+    """会话元数据存储（per-user sessions.json）
 
     参考: openclaw-main/src/config/sessions/store.ts
     """
 
-    def __init__(self, store_path: str | Path | None = None):
-        """初始化存储
+    def __init__(self, sessions_dir: str | Path | None = None):
+        if sessions_dir is None:
+            sessions_dir = Path.home() / ".ark_nav" / "sessions"
+        self.sessions_dir = Path(sessions_dir)
+        self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        self._caches: dict[str, dict[str, SessionStoreEntry]] = {}
+        self._cache_times: dict[str, float] = {}
+        self._cache_ttl: float = 45.0
 
-        Args:
-            store_path: 存储文件路径，默认为 ~/.ark_nav/sessions/sessions.json
-        """
-        if store_path is None:
-            store_path = Path.home() / ".ark_nav" / "sessions" / "sessions.json"
-        self.store_path = Path(store_path)
-        self.store_path.parent.mkdir(parents=True, exist_ok=True)
-        self._cache: dict[str, SessionStoreEntry] | None = None
-        self._cache_time: float = 0
-        self._cache_ttl: float = 45.0  # 45 秒缓存
+    def _store_path(self, user_id: str) -> Path:
+        return self.sessions_dir / user_id / "sessions.json"
 
-    def _get_lock_path(self) -> Path:
-        """获取锁文件路径"""
-        return self.store_path.with_suffix(".json.lock")
+    def _get_lock_path(self, user_id: str) -> Path:
+        return self.sessions_dir / user_id / "sessions.json.lock"
 
-    def _is_cache_valid(self) -> bool:
-        """检查缓存是否有效"""
-        if self._cache is None:
+    def _is_cache_valid(self, user_id: str) -> bool:
+        if user_id not in self._caches:
             return False
-        return (time.time() - self._cache_time) <= self._cache_ttl
+        return (time.time() - self._cache_times.get(user_id, 0)) <= self._cache_ttl
 
-    def _invalidate_cache(self) -> None:
-        """使缓存失效"""
-        self._cache = None
+    def _invalidate_cache(self, user_id: str) -> None:
+        self._caches.pop(user_id, None)
+        self._cache_times.pop(user_id, None)
 
-    def load(self, skip_cache: bool = False) -> dict[str, SessionStoreEntry]:
-        """加载会话存储"""
-        if not skip_cache and self._is_cache_valid():
-            return dict(self._cache)  # type: ignore
+    def load(self, user_id: str, skip_cache: bool = False) -> dict[str, SessionStoreEntry]:
+        if not skip_cache and self._is_cache_valid(user_id):
+            return dict(self._caches[user_id])
 
         store: dict[str, SessionStoreEntry] = {}
+        sp = self._store_path(user_id)
 
-        if self.store_path.exists():
+        if sp.exists():
             try:
-                with open(self.store_path, "r", encoding="utf-8") as f:
+                with open(sp, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     for key, entry_data in data.items():
                         store[key] = SessionStoreEntry.from_dict(entry_data)
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"加载会话存储失败: {e}")
 
-        # 更新缓存
-        self._cache = dict(store)
-        self._cache_time = time.time()
+        self._caches[user_id] = dict(store)
+        self._cache_times[user_id] = time.time()
 
         return store
 
-    async def save(self, store: dict[str, SessionStoreEntry]) -> None:
-        """保存会话存储"""
-        self._invalidate_cache()
-        self.store_path.parent.mkdir(parents=True, exist_ok=True)
+    async def save(self, user_id: str, store: dict[str, SessionStoreEntry]) -> None:
+        self._invalidate_cache(user_id)
+        sp = self._store_path(user_id)
+        sp.parent.mkdir(parents=True, exist_ok=True)
 
         data = {key: entry.to_dict() for key, entry in store.items()}
 
-        async with FileLock(self._get_lock_path()):
-            with open(self.store_path, "w", encoding="utf-8") as f:
+        async with FileLock(self._get_lock_path(user_id)):
+            with open(sp, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
     async def update(
         self,
+        user_id: str,
         session_key: str,
         entry: SessionStoreEntry,
     ) -> None:
-        """更新单个会话条目"""
-        async with FileLock(self._get_lock_path()):
-            store = self.load(skip_cache=True)
+        sp = self._store_path(user_id)
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        async with FileLock(self._get_lock_path(user_id)):
+            store = self.load(user_id, skip_cache=True)
             store[session_key] = entry
-            self._invalidate_cache()
+            self._invalidate_cache(user_id)
 
             data = {key: e.to_dict() for key, e in store.items()}
-            with open(self.store_path, "w", encoding="utf-8") as f:
+            with open(sp, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
-    def get(self, session_key: str) -> SessionStoreEntry | None:
-        """获取会话条目"""
-        store = self.load()
+    def get(self, user_id: str, session_key: str) -> SessionStoreEntry | None:
+        store = self.load(user_id)
         return store.get(session_key)
 
-    async def delete(self, session_key: str) -> bool:
-        """删除会话条目"""
-        async with FileLock(self._get_lock_path()):
-            store = self.load(skip_cache=True)
+    async def delete(self, user_id: str, session_key: str) -> bool:
+        async with FileLock(self._get_lock_path(user_id)):
+            store = self.load(user_id, skip_cache=True)
             if session_key in store:
                 del store[session_key]
-                self._invalidate_cache()
+                self._invalidate_cache(user_id)
 
                 data = {key: e.to_dict() for key, e in store.items()}
-                with open(self.store_path, "w", encoding="utf-8") as f:
+                sp = self._store_path(user_id)
+                with open(sp, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
                 return True
         return False
 
-    def list_keys(self) -> list[str]:
-        """列出所有会话键"""
-        return list(self.load().keys())
+    def list_keys(self, user_id: str) -> list[str]:
+        return list(self.load(user_id).keys())

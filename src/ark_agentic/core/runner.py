@@ -77,6 +77,9 @@ class RunnerConfig:
     # 技能配置
     skill_config: SkillConfig = field(default_factory=SkillConfig)
 
+    # 外部历史合并（agent 级开关）
+    accept_external_history: bool = True
+
 
 @dataclass
 class RunResult:
@@ -131,53 +134,78 @@ class AgentRunner:
         self.session_manager = session_manager or SessionManager()
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
-        self._memory_manager = memory_manager
         self._context_preprocessor = context_preprocessor
 
-        # 自动注册 memory 工具（如果提供了 memory_manager）
+        # memory: base manager config for cloning per-user managers
+        self._memory_base_manager = memory_manager
+        self._memory_managers: dict[str, MemoryManager] = {}
+
         if memory_manager is not None:
-            memory_tools = create_memory_tools(memory_manager)
+            memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
             logger.info(f"Registered {len(memory_tools)} memory tools")
 
-        # 自动注册 read_skill 工具（如果提供了 skill_loader）
         if skill_loader is not None:
             from .tools.read_skill import ReadSkillTool
             self.tool_registry.register(ReadSkillTool(skill_loader))
             logger.info("Registered read_skill tool for dynamic skill loading")
 
-        # 技能匹配器
         self.skill_matcher = (
             SkillMatcher(skill_loader) if skill_loader else None
         )
+
+    def _get_memory_for_user(self, user_id: str) -> MemoryManager | None:
+        """Get or create a user-scoped MemoryManager."""
+        if self._memory_base_manager is None:
+            return None
+        if user_id in self._memory_managers:
+            return self._memory_managers[user_id]
+
+        from .memory.manager import MemoryConfig, MemoryManager as MM
+        from pathlib import Path
+        import copy
+
+        base_cfg = self._memory_base_manager.config
+        user_workspace = str(Path(base_cfg.workspace_dir) / user_id)
+        user_config = copy.copy(base_cfg)
+        user_config.workspace_dir = user_workspace
+
+        mgr = MM(user_config)
+        self._memory_managers[user_id] = mgr
+        return mgr
 
     async def run(
         self,
         session_id: str,
         user_input: str,
+        user_id: str,
         input_context: dict[str, Any] | None = None,
         *,
         run_options: RunOptions | None = None,
         stream_override: bool | None = None,
         handler: AgentEventHandler | None = None,
+        history: list[dict[str, Any]] | None = None,
+        use_history: bool = True,
     ) -> RunResult:
         """执行智能体
 
         Args:
             session_id: 会话 ID
             user_input: 用户输入
+            user_id: 用户 ID（必须）
             input_context: 每次请求的调用方上下文，合并进 session.state
             run_options: 本次运行选项（model/temperature），优先于 config 默认值
             stream_override: 覆盖 config.enable_streaming
             handler: AgentEventHandler 实例（用于接收流式事件）
+            history: 外部系统聊天历史 [{role, content}]
+            use_history: 请求级开关，False 则忽略 history
 
         Returns:
             执行结果
         """
         input_context = input_context or {}
 
-        # 解析 model / temperature：run_options 优先，其次 config 默认值
         effective_model = (
             (run_options.model if run_options else None)
             or self.config.model
@@ -187,31 +215,36 @@ class AgentRunner:
             if (run_options and run_options.temperature is not None)
             else self.config.temperature
         )
-        # skill_load_mode
         raw = self.config.skill_config.default_load_mode
         resolved_skill_load_mode: str = raw.value
 
-        # 惰性初始化 Memory
-        if self._memory_manager and not self._memory_manager._initialized:
-            await self._memory_manager.initialize()
+        # 惰性初始化 user-scoped Memory
+        memory_mgr = self._get_memory_for_user(user_id) if self._memory_base_manager else None
+        if memory_mgr and not memory_mgr._initialized:
+            await memory_mgr.initialize()
 
-        # Agent 级别的 context 预处理（如字段解析/注入），在合并前执行
         if self._context_preprocessor:
             input_context = self._context_preprocessor(input_context)
 
-        # 将 input_context 合并到 session.state（前缀感知策略）
         session = self.session_manager.get_session_required(session_id)
         self._merge_input_context(session, input_context)
 
-        # 添加用户消息（input_context 存入消息 metadata 用于审计）
+        # 外部历史合并（在添加当前用户消息之前）
+        if history and self.config.accept_external_history and use_history:
+            from .history_merge import merge_external_history
+
+            ops = merge_external_history(session.messages, history)
+            if ops:
+                self.session_manager.inject_messages(session_id, ops)
+                logger.info(f"Merged {len(ops)} external history message(s)")
+
         user_message = AgentMessage.user(user_input, metadata=input_context)
         self.session_manager.add_message_sync(session_id, user_message)
 
-        # 自动压缩
         if self.config.auto_compact:
-            callback = self._make_pre_compact_callback() if self._memory_manager else None
+            callback = self._make_pre_compact_callback(user_id) if memory_mgr else None
             await self.session_manager.auto_compact_if_needed(
-                session_id, pre_compact_callback=callback,
+                session_id, user_id, pre_compact_callback=callback,
             )
 
         use_streaming = stream_override if stream_override is not None else self.config.enable_streaming
@@ -226,12 +259,10 @@ class AgentRunner:
                 handler=handler,
             )
         finally:
-            # 无论成功或失败，同步待写入消息到持久化存储
-            await self.session_manager.sync_pending_messages(session_id)
+            await self.session_manager.sync_pending_messages(session_id, user_id)
 
-        # 移除临时状态键后同步到持久化存储
         session.strip_temp_state()
-        await self.session_manager.sync_session_state(session_id)
+        await self.session_manager.sync_session_state(session_id, user_id)
 
         return result
 
@@ -241,17 +272,18 @@ class AgentRunner:
         for k, v in input_context.items():
             session.state[k] = v
 
-    def _make_pre_compact_callback(self) -> Callable[[str, list[AgentMessage]], Awaitable[None]]:
-        """创建压缩前回调：将即将丢弃的消息摘要写入 MEMORY.md"""
-        memory_mgr = self._memory_manager
+    def _make_pre_compact_callback(self, user_id: str) -> Callable[[str, list[AgentMessage]], Awaitable[None]]:
+        """创建压缩前回调：将即将丢弃的消息写入记忆（file 或 mem0）"""
+
+        def _get_mgr() -> MemoryManager | None:
+            return self._memory_managers.get(user_id)
 
         async def _flush_to_memory(
             session_id: str, messages: list[AgentMessage]
         ) -> None:
+            memory_mgr = _get_mgr()
             if not memory_mgr or not memory_mgr._initialized:
                 return
-
-            # 拼接即将被压缩的消息的关键内容（排除 system）
             parts: list[str] = []
             for msg in messages:
                 if msg.role == MessageRole.SYSTEM:
@@ -267,7 +299,6 @@ class AgentRunner:
             if not parts:
                 return
 
-            # 写入 MEMORY.md 作为一条压缩快照
             from pathlib import Path
             from datetime import datetime
 
@@ -277,13 +308,12 @@ class AgentRunner:
 
             snapshot = (
                 f"\n\n## Session Snapshot ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
-                + "\n".join(parts[:20])  # 最多保留 20 条摘要行
+                + "\n".join(parts[:20])
                 + "\n"
             )
             with open(memory_file, "a", encoding="utf-8") as f:
                 f.write(snapshot)
 
-            # 增量同步索引
             try:
                 await memory_mgr.sync()
             except Exception as e:
@@ -612,8 +642,7 @@ class AgentRunner:
             )
             skills = match_result.matched_skills
 
-        # 如果启用了 memory，添加 memory 使用指令
-        include_memory = self._memory_manager is not None
+        include_memory = self._memory_base_manager is not None
 
         # 技能注入模式
         base_config = self.config.prompt_config
@@ -903,13 +932,14 @@ class AgentRunner:
 
     async def create_session(
         self,
+        user_id: str,
         model: str = "Qwen3-80B-Instruct",
         provider: str = "ark",
         state: dict[str, Any] | None = None,
     ) -> str:
         """创建新会话并返回 ID（异步，支持持久化）"""
         session = await self.session_manager.create_session(
-            model=model, provider=provider, state=state
+            user_id=user_id, model=model, provider=provider, state=state
         )
         return session.session_id
 

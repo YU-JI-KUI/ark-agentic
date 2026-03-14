@@ -48,7 +48,8 @@ load_dotenv()
 
 async def main():
     agent = create_default_agent()
-    session_id = await agent.create_session()
+    user_id = "default"
+    session_id = await agent.create_session(user_id=user_id)
 
     print("智能体已启动，输入 'quit' 退出")
     while True:
@@ -57,7 +58,7 @@ async def main():
             break
         if not user_input:
             continue
-        result = await agent.run(session_id=session_id, user_input=user_input)
+        result = await agent.run(session_id=session_id, user_input=user_input, user_id=user_id)
         print(f"[助手] {{result.response.content}}")
         print()
 

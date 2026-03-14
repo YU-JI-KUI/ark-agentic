@@ -221,12 +221,14 @@ class TestSessionManagerCompaction:
         for i in range(5):
             manager.add_message_sync(session.session_id, AgentMessage.user(f"Message {i}"))
 
-        result = await manager.compact_session(session.session_id, force=True)
+        result = await manager.compact_session(session.session_id, "test_user", force=True)
         assert result.original_count == 5
 
 
 class TestSessionManagerPersistence:
     """Tests for session persistence."""
+
+    USER_ID = "test_user"
 
     @pytest.mark.asyncio
     async def test_create_session_with_persistence(self) -> None:
@@ -236,11 +238,11 @@ class TestSessionManagerPersistence:
                 sessions_dir=tmpdir,
                 enable_persistence=True
             )
-            session = await manager.create_session(model="test-model")
+            session = await manager.create_session(self.USER_ID, model="test-model")
             assert session.session_id
 
-            # Check file was created
-            session_file = Path(tmpdir) / f"{session.session_id}.jsonl"
+            # Check file was created under user dir
+            session_file = Path(tmpdir) / self.USER_ID / f"{session.session_id}.jsonl"
             assert session_file.exists()
 
     @pytest.mark.asyncio
@@ -251,11 +253,11 @@ class TestSessionManagerPersistence:
                 sessions_dir=tmpdir,
                 enable_persistence=True
             )
-            session = await manager.create_session()
-            await manager.add_message(session.session_id, AgentMessage.user("Hello"))
+            session = await manager.create_session(self.USER_ID)
+            await manager.add_message(session.session_id, self.USER_ID, AgentMessage.user("Hello"))
 
             # Check message was persisted
-            session_file = Path(tmpdir) / f"{session.session_id}.jsonl"
+            session_file = Path(tmpdir) / self.USER_ID / f"{session.session_id}.jsonl"
             content = session_file.read_text()
             assert "Hello" in content
 
@@ -268,15 +270,15 @@ class TestSessionManagerPersistence:
                 sessions_dir=tmpdir,
                 enable_persistence=True
             )
-            session = await manager1.create_session()
-            await manager1.add_message(session.session_id, AgentMessage.user("Test message"))
+            session = await manager1.create_session(self.USER_ID)
+            await manager1.add_message(session.session_id, self.USER_ID, AgentMessage.user("Test message"))
 
             # Create new manager and load
             manager2 = SessionManager(
                 sessions_dir=tmpdir,
                 enable_persistence=True
             )
-            loaded = await manager2.load_session(session.session_id)
+            loaded = await manager2.load_session(session.session_id, self.USER_ID)
             assert loaded is not None
             assert len(loaded.messages) == 1
             assert loaded.messages[0].content == "Test message"
@@ -289,9 +291,9 @@ class TestSessionManagerPersistence:
                 sessions_dir=tmpdir,
                 enable_persistence=True
             )
-            session = await manager.create_session()
-            session_file = Path(tmpdir) / f"{session.session_id}.jsonl"
+            session = await manager.create_session(self.USER_ID)
+            session_file = Path(tmpdir) / self.USER_ID / f"{session.session_id}.jsonl"
 
             assert session_file.exists()
-            await manager.delete_session(session.session_id)
+            await manager.delete_session(session.session_id, self.USER_ID)
             assert not session_file.exists()

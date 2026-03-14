@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -51,7 +51,6 @@ class SessionDetailResponse(BaseModel):
 
 
 def _message_to_item(msg: Any) -> MessageItem:
-    """序列化 AgentMessage 为 MessageItem（含 tool_results、thinking、metadata）。"""
     role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
     content = msg.content
     tool_calls = (
@@ -79,8 +78,11 @@ def _message_to_item(msg: Any) -> MessageItem:
 # ── Endpoints ───────────────────────────────────────────────────────
 
 @router.get("/agents/{agent_id}/sessions", response_model=SessionListResponse)
-async def list_agent_sessions(agent_id: str):
-    """列出指定 Agent 的所有会话（以磁盘为准）。"""
+async def list_agent_sessions(
+    agent_id: str,
+    user_id: str | None = Query(None, description="Filter by user_id; omit to list all users"),
+):
+    """列出指定 Agent 的会话（以磁盘为准）。可选按 user_id 过滤。"""
     registry = get_registry()
 
     try:
@@ -88,7 +90,7 @@ async def list_agent_sessions(agent_id: str):
     except KeyError:
         return SessionListResponse(sessions=[])
 
-    sessions = await runner.session_manager.list_sessions_from_disk()
+    sessions = await runner.session_manager.list_sessions_from_disk(user_id=user_id)
     return SessionListResponse(
         sessions=[
             SessionItem(
@@ -102,8 +104,12 @@ async def list_agent_sessions(agent_id: str):
 
 
 @router.get("/agents/{agent_id}/sessions/{session_id}", response_model=SessionDetailResponse)
-async def get_session_detail(agent_id: str, session_id: str):
-    """查看指定会话的详情和消息历史。未在内存时先从磁盘 load_session。"""
+async def get_session_detail(
+    agent_id: str,
+    session_id: str,
+    user_id: str = Query(..., description="User ID that owns this session"),
+):
+    """查看指定会话的详情和消息历史。"""
     registry = get_registry()
 
     try:
@@ -113,7 +119,7 @@ async def get_session_detail(agent_id: str, session_id: str):
 
     session = runner.session_manager.get_session(session_id)
     if session is None:
-        session = await runner.session_manager.load_session(session_id)
+        session = await runner.session_manager.load_session(session_id, user_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
@@ -127,7 +133,11 @@ async def get_session_detail(agent_id: str, session_id: str):
 
 
 @router.get("/agents/{agent_id}/sessions/{session_id}/raw")
-async def get_session_raw(agent_id: str, session_id: str):
+async def get_session_raw(
+    agent_id: str,
+    session_id: str,
+    user_id: str = Query(..., description="User ID that owns this session"),
+):
     """返回该会话原始 JSONL 全文（仅读磁盘）。"""
     registry = get_registry()
 
@@ -139,14 +149,19 @@ async def get_session_raw(agent_id: str, session_id: str):
     tm = runner.session_manager._transcript_manager
     if tm is None:
         raise HTTPException(status_code=404, detail="Persistence not enabled")
-    raw = tm.read_raw(session_id)
+    raw = tm.read_raw(session_id, user_id)
     if raw is None:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
     return PlainTextResponse(content=raw, media_type="application/x-ndjson")
 
 
 @router.put("/agents/{agent_id}/sessions/{session_id}/raw")
-async def put_session_raw(agent_id: str, session_id: str, request: Request):
+async def put_session_raw(
+    agent_id: str,
+    session_id: str,
+    request: Request,
+    user_id: str = Query(..., description="User ID that owns this session"),
+):
     """校验并全量写回会话 JSONL；写回后重载内存。"""
     registry = get_registry()
 
@@ -162,12 +177,12 @@ async def put_session_raw(agent_id: str, session_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Persistence not enabled")
 
     try:
-        await tm.write_raw(session_id, body)
+        await tm.write_raw(session_id, user_id, body)
     except RawJsonlValidationError as e:
         detail = {"message": str(e)}
         if e.line_number is not None:
             detail["line_number"] = e.line_number
         raise HTTPException(status_code=400, detail=detail)
 
-    await runner.session_manager.reload_session_from_disk(session_id)
+    await runner.session_manager.reload_session_from_disk(session_id, user_id)
     return {"status": "saved", "session_id": session_id}

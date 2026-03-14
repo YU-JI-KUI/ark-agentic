@@ -107,7 +107,7 @@ async def test_run_basic_text_response() -> None:
     session = runner.session_manager.create_session_sync()
     
     # Act
-    result = await runner.run(session.session_id, "Who are you?")
+    result = await runner.run(session.session_id, "Who are you?", user_id="test_user")
     
     # Assert
     assert result.response.content == "Hello! I am a helpful agent."
@@ -129,7 +129,7 @@ async def test_run_with_tool_call() -> None:
     session = runner.session_manager.create_session_sync()
     
     # Act
-    result = await runner.run(session.session_id, "Use the tool!", input_context={"input_val": "123"})
+    result = await runner.run(session.session_id, "Use the tool!", user_id="test_user", input_context={"input_val": "123"})
     
     # Assert
 
@@ -177,7 +177,7 @@ async def test_run_streaming_text_response() -> None:
             pass
 
     # Act
-    result = await runner.run(session.session_id, "Greeting", handler=MockHandler())
+    result = await runner.run(session.session_id, "Greeting", user_id="test_user", handler=MockHandler())
     
     # Assert
 
@@ -227,7 +227,7 @@ async def test_run_streaming_with_tool_call() -> None:
             pass
 
     # Act
-    result = await runner.run(session.session_id, "Use tool", handler=MockHandler(), input_context={"input_val": "abc"})
+    result = await runner.run(session.session_id, "Use tool", user_id="test_user", handler=MockHandler(), input_context={"input_val": "abc"})
     
     # Assert
 
@@ -294,7 +294,7 @@ async def test_execute_tools_on_step_uses_tool_thinking_hint() -> None:
         def on_ui_component(self, component: dict) -> None:
             pass
 
-    await runner.run(session.session_id, "Use hint_tool", handler=MockHandler())
+    await runner.run(session.session_id, "Use hint_tool", user_id="test_user", handler=MockHandler())
 
     assert "正在查询保单信息…" in captured_steps, (
         f"on_step should be called with tool.thinking_hint, got: {captured_steps}"
@@ -340,7 +340,7 @@ async def test_state_delta_merge() -> None:
     runner = AgentRunner(llm=mock_llm, tool_registry=registry, session_manager=session_mgr, config=config)
 
     session = session_mgr.create_session_sync()
-    result = await runner.run(session.session_id, "login")
+    result = await runner.run(session.session_id, "login", user_id="test_user")
 
     assert result.response.content == "Done."
     state = session.state
@@ -358,6 +358,7 @@ async def test_temp_state_stripped_after_run() -> None:
     await runner.run(
         session.session_id,
         "hi",
+        user_id="test_user",
         input_context={"temp:trace_id": "t1", "user:id": "U1"},
     )
 
@@ -407,7 +408,7 @@ async def test_a2ui_history_marker_is_neutral() -> None:
     runner = _make_runner_with_a2ui(responses)
     session = runner.session_manager.create_session_sync()
 
-    await runner.run(session.session_id, "Show me a plan")
+    await runner.run(session.session_id, "Show me a plan", user_id="test_user")
 
     # Inspect what _build_messages produces for the A2UI tool result
     state = session.state
@@ -463,7 +464,7 @@ async def test_a2ui_on_ui_component_still_fires() -> None:
         def on_ui_component(self, component: dict) -> None:
             captured_components.append(component)
 
-    await runner.run(session.session_id, "Show me a plan", handler=_Handler())
+    await runner.run(session.session_id, "Show me a plan", user_id="test_user", handler=_Handler())
 
     assert len(captured_components) == 1, "on_ui_component must be called once for the A2UI tool result"
     assert captured_components[0].get("type") == "card"
@@ -482,6 +483,7 @@ async def test_input_context_seed_only() -> None:
     await runner.run(
         session.session_id,
         "hi",
+        user_id="test_user",
         input_context={"user:id": "new_value", "temp:x": "t"},
     )
 
