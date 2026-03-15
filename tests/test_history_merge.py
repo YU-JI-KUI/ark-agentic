@@ -384,8 +384,12 @@ class TestMergeExternalHistory:
 
 
 class TestInjectMessages:
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_sessions_dir: Path) -> None:
+        self.sessions_dir = tmp_sessions_dir
+
     def _make_sm(self) -> tuple[SessionManager, str]:
-        sm = SessionManager(enable_persistence=False)
+        sm = SessionManager(self.sessions_dir)
         session = sm.create_session_sync()
         return sm, session.session_id
 

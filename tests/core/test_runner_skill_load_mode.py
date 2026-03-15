@@ -24,7 +24,7 @@ class _MockLLM:
 
 
 @pytest.fixture
-def runner_with_one_skill():
+def runner_with_one_skill(tmp_sessions_dir: Path):
     """AgentRunner with one skill (metadata + body)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         skill_dir = Path(tmpdir) / "test_skill"
@@ -36,7 +36,7 @@ def runner_with_one_skill():
         loader = SkillLoader(config)
         loader.load_from_directories()
 
-        session_manager = SessionManager()
+        session_manager = SessionManager(tmp_sessions_dir)
         session = session_manager.create_session_sync()
         session_id = session.session_id
         session_manager.add_message_sync(
@@ -46,8 +46,8 @@ def runner_with_one_skill():
 
         runner = AgentRunner(
             llm=_MockLLM(),
-            tool_registry=ToolRegistry(),
             session_manager=session_manager,
+            tool_registry=ToolRegistry(),
             skill_loader=loader,
             config=RunnerConfig(),
         )

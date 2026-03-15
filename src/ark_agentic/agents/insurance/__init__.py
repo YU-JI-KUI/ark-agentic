@@ -1,12 +1,7 @@
-"""
-保险取款智能体
+"""保险智能体"""
 
-提供保险取款场景的智能体实现和相关工具。
-"""
-
-from .agent import create_insurance_agent, main
+from .agent import create_insurance_agent
 
 __all__ = [
     "create_insurance_agent",
-    "main",
 ]

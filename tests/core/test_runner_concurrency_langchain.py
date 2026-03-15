@@ -82,7 +82,6 @@ class TestRunnerConcurrency:
         """创建 Session Manager"""
         return SessionManager(
             sessions_dir=str(tmp_path),
-            enable_persistence=True
         )
 
     @pytest.fixture
@@ -248,12 +247,10 @@ class TestRunnerConcurrency:
         # 创建两个不同的会话管理器
         session_manager1 = SessionManager(
             sessions_dir=str(tmp_path / "sessions1"),
-            enable_persistence=True
         )
 
         session_manager2 = SessionManager(
             sessions_dir=str(tmp_path / "sessions2"),
-            enable_persistence=True
         )
 
         # 创建会话

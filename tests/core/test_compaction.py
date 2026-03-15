@@ -154,7 +154,7 @@ class TestCompactionConfig:
     def test_default_values(self) -> None:
         """Test default configuration."""
         config = CompactionConfig()
-        assert config.context_window == 32000
+        assert config.context_window == 128000
         assert config.output_reserve == 4000
         assert config.system_reserve == 2000
         assert config.preserve_recent == 4

@@ -331,7 +331,7 @@ class CompactionConfig:
     """压缩配置"""
 
     # 上下文窗口大小（token）
-    context_window: int = 32000
+    context_window: int = 128000
 
     # 保留给输出的 token 数
     output_reserve: int = 4000
