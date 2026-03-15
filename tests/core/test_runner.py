@@ -1,6 +1,7 @@
 """Tests for AgentRunner core happy paths with ChatOpenAI backend."""
 
 import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from typing import Any, AsyncIterator
 import asyncio
@@ -70,9 +71,10 @@ class MockChatModel:
 # ============ Helpers ============
 
 def _make_runner(
+    sessions_dir: Path,
     responses: list[Any] = None,
     stream_responses: list[list[Any]] = None,
-    enable_streaming: bool = False
+    enable_streaming: bool = False,
 ) -> tuple[AgentRunner, _MockTool]:
     """Create a fresh AgentRunner with mock dependencies."""
     mock_llm = MockChatModel(responses=responses or [], stream_responses=stream_responses or [])
@@ -80,7 +82,7 @@ def _make_runner(
     registry = ToolRegistry()
     tool = _MockTool()
     registry.register(tool)
-    session_mgr = SessionManager(enable_persistence=False)
+    session_mgr = SessionManager(sessions_dir)
     config = RunnerConfig(
         max_turns=5,
         enable_streaming=enable_streaming,
@@ -88,8 +90,8 @@ def _make_runner(
     )
     runner = AgentRunner(
         llm=llm,
-        tool_registry=registry,
         session_manager=session_mgr,
+        tool_registry=registry,
         config=config,
     )
     return runner, tool
@@ -98,12 +100,12 @@ def _make_runner(
 # ============ Tests ============
 
 @pytest.mark.asyncio
-async def test_run_basic_text_response() -> None:
+async def test_run_basic_text_response(tmp_sessions_dir: Path) -> None:
     # Arrange
     responses = [
         AIMessage(content="Hello! I am a helpful agent.")
     ]
-    runner, _ = _make_runner(responses=responses)
+    runner, _ = _make_runner(tmp_sessions_dir, responses=responses)
     session = runner.session_manager.create_session_sync()
     
     # Act
@@ -116,7 +118,7 @@ async def test_run_basic_text_response() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_with_tool_call() -> None:
+async def test_run_with_tool_call(tmp_sessions_dir: Path) -> None:
     # Arrange
     responses = [
         AIMessage(
@@ -125,7 +127,7 @@ async def test_run_with_tool_call() -> None:
         ),
         AIMessage(content="I have processed your request using the tool.")
     ]
-    runner, _ = _make_runner(responses=responses)
+    runner, _ = _make_runner(tmp_sessions_dir, responses=responses)
     session = runner.session_manager.create_session_sync()
     
     # Act
@@ -146,7 +148,7 @@ async def test_run_with_tool_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_streaming_text_response() -> None:
+async def test_run_streaming_text_response(tmp_sessions_dir: Path) -> None:
     # Arrange
     stream_responses = [
         [
@@ -155,7 +157,7 @@ async def test_run_streaming_text_response() -> None:
             AIMessageChunk(content="!")
         ]
     ]
-    runner, _ = _make_runner(stream_responses=stream_responses, enable_streaming=True)
+    runner, _ = _make_runner(tmp_sessions_dir, stream_responses=stream_responses, enable_streaming=True)
     session = runner.session_manager.create_session_sync()
     
     captured_deltas = []
@@ -187,7 +189,7 @@ async def test_run_streaming_text_response() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_streaming_with_tool_call() -> None:
+async def test_run_streaming_with_tool_call(tmp_sessions_dir: Path) -> None:
     # Arrange
     stream_responses = [
         # Turn 1: Steaming tool call chunk
@@ -203,7 +205,7 @@ async def test_run_streaming_with_tool_call() -> None:
             AIMessageChunk(content="processing.")
         ]
     ]
-    runner, _ = _make_runner(stream_responses=stream_responses, enable_streaming=True)
+    runner, _ = _make_runner(tmp_sessions_dir, stream_responses=stream_responses, enable_streaming=True)
     session = runner.session_manager.create_session_sync()
     
     captured_deltas = []
@@ -243,7 +245,7 @@ async def test_run_streaming_with_tool_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_tools_on_step_uses_tool_thinking_hint() -> None:
+async def test_execute_tools_on_step_uses_tool_thinking_hint(tmp_sessions_dir: Path) -> None:
     """When a tool defines thinking_hint, on_step is called with that text."""
     class ToolWithHint(AgentTool):
         name = "hint_tool"
@@ -268,11 +270,11 @@ async def test_execute_tools_on_step_uses_tool_thinking_hint() -> None:
     mock_llm = MockChatModel(responses=[], stream_responses=stream_responses)
     registry = ToolRegistry()
     registry.register(ToolWithHint())
-    session_mgr = SessionManager(enable_persistence=False)
+    session_mgr = SessionManager(tmp_sessions_dir)
     runner = AgentRunner(
         llm=mock_llm,  # type: ignore[arg-type]
-        tool_registry=registry,
         session_manager=session_mgr,
+        tool_registry=registry,
         config=RunnerConfig(max_turns=5, enable_streaming=True, auto_compact=False),
     )
     session = runner.session_manager.create_session_sync()
@@ -323,7 +325,7 @@ class _StateDeltaTool(AgentTool):
 
 
 @pytest.mark.asyncio
-async def test_state_delta_merge() -> None:
+async def test_state_delta_merge(tmp_sessions_dir: Path) -> None:
     """Tool's state_delta is merged into session.state and visible in next turn."""
     responses = [
         AIMessage(
@@ -335,9 +337,9 @@ async def test_state_delta_merge() -> None:
     mock_llm = MockChatModel(responses=responses)
     registry = ToolRegistry()
     registry.register(_StateDeltaTool())
-    session_mgr = SessionManager(enable_persistence=False)
+    session_mgr = SessionManager(tmp_sessions_dir)
     config = RunnerConfig(max_turns=5, enable_streaming=False, auto_compact=False)
-    runner = AgentRunner(llm=mock_llm, tool_registry=registry, session_manager=session_mgr, config=config)
+    runner = AgentRunner(llm=mock_llm, session_manager=session_mgr, tool_registry=registry, config=config)
 
     session = session_mgr.create_session_sync()
     result = await runner.run(session.session_id, "login", user_id="test_user")
@@ -349,10 +351,10 @@ async def test_state_delta_merge() -> None:
 
 
 @pytest.mark.asyncio
-async def test_temp_state_stripped_after_run() -> None:
+async def test_temp_state_stripped_after_run(tmp_sessions_dir: Path) -> None:
     """temp: keys from input_context are available during run but stripped after."""
     responses = [AIMessage(content="ok")]
-    runner, _ = _make_runner(responses=responses)
+    runner, _ = _make_runner(tmp_sessions_dir, responses=responses)
     session = runner.session_manager.create_session_sync()
 
     await runner.run(
@@ -386,17 +388,17 @@ class _A2UITool(AgentTool):
         )
 
 
-def _make_runner_with_a2ui(responses: list[Any]) -> AgentRunner:
+def _make_runner_with_a2ui(sessions_dir: Path, responses: list[Any]) -> AgentRunner:
     mock_llm = MockChatModel(responses=responses)
     registry = ToolRegistry()
     registry.register(_A2UITool())
-    session_mgr = SessionManager(enable_persistence=False)
+    session_mgr = SessionManager(sessions_dir)
     config = RunnerConfig(max_turns=5, enable_streaming=False, auto_compact=False)
-    return AgentRunner(llm=mock_llm, tool_registry=registry, session_manager=session_mgr, config=config)
+    return AgentRunner(llm=mock_llm, session_manager=session_mgr, tool_registry=registry, config=config)
 
 
 @pytest.mark.asyncio
-async def test_a2ui_history_marker_is_neutral() -> None:
+async def test_a2ui_history_marker_is_neutral(tmp_sessions_dir: Path) -> None:
     """A2UI tool result in LLM history must be a neutral JSON marker, not a display-completion sentence."""
     responses = [
         AIMessage(
@@ -405,7 +407,7 @@ async def test_a2ui_history_marker_is_neutral() -> None:
         ),
         AIMessage(content="Here is your plan."),
     ]
-    runner = _make_runner_with_a2ui(responses)
+    runner = _make_runner_with_a2ui(tmp_sessions_dir, responses)
     session = runner.session_manager.create_session_sync()
 
     await runner.run(session.session_id, "Show me a plan", user_id="test_user")
@@ -434,7 +436,7 @@ async def test_a2ui_history_marker_is_neutral() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a2ui_on_ui_component_still_fires() -> None:
+async def test_a2ui_on_ui_component_still_fires(tmp_sessions_dir: Path) -> None:
     """A2UI result must still trigger on_ui_component so the frontend receives the card."""
     responses = [
         AIMessage(
@@ -443,7 +445,7 @@ async def test_a2ui_on_ui_component_still_fires() -> None:
         ),
         AIMessage(content="Done."),
     ]
-    runner = _make_runner_with_a2ui(responses)
+    runner = _make_runner_with_a2ui(tmp_sessions_dir, responses)
     session = runner.session_manager.create_session_sync()
 
     captured_components: list[dict] = []
@@ -471,13 +473,13 @@ async def test_a2ui_on_ui_component_still_fires() -> None:
 
 
 @pytest.mark.asyncio
-async def test_input_context_seed_only() -> None:
+async def test_input_context_seed_only(tmp_sessions_dir: Path) -> None:
     """input_context keys always overwrite session.state (覆盖语义).
 
     temp: prefixed keys are stripped after run() by strip_temp_state().
     """
     responses = [AIMessage(content="ok")]
-    runner, _ = _make_runner(responses=responses)
+    runner, _ = _make_runner(tmp_sessions_dir, responses=responses)
     session = runner.session_manager.create_session_sync(state={"user:id": "existing"})
 
     await runner.run(

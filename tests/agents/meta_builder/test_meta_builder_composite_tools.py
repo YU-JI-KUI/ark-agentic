@@ -18,9 +18,10 @@ class _MockLLM:
         return None
 
 
-def test_factory_registers_three_composite_tools(tmp_path):
+def test_factory_registers_three_composite_tools(tmp_path, monkeypatch):
     """方案 A：factory 注册 manage_agents / manage_skills / manage_tools；Runner 可能额外注册 read_skill。"""
-    runner = create_meta_builder_from_env(llm=_MockLLM(), sessions_dir=tmp_path)
+    monkeypatch.setenv("SESSIONS_DIR", str(tmp_path))
+    runner = create_meta_builder_from_env(llm=_MockLLM())
     tools = runner.tool_registry.list_all()
     names = {t.name for t in tools}
     assert {"manage_agents", "manage_skills", "manage_tools"}.issubset(names)

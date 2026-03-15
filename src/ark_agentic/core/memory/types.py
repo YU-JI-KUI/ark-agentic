@@ -118,11 +118,11 @@ class MemoryStatus:
 
     # 向量存储
     vector_enabled: bool = False
-    vector_backend: str = "faiss"
+    vector_backend: str = "sqlite-vec"
 
     # 关键词搜索
     keyword_enabled: bool = False
-    keyword_backend: str = "bm25"
+    keyword_backend: str = "fts5+jieba"
 
     # 缓存
     cache_enabled: bool = False

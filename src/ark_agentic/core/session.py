@@ -25,24 +25,15 @@ class SessionManager:
 
     def __init__(
         self,
+        sessions_dir: str | Path,
         compaction_config: CompactionConfig | None = None,
-        sessions_dir: str | Path | None = None,
-        enable_persistence: bool = True,
         summarizer: SummarizerProtocol | None = None,
     ) -> None:
         self._sessions: dict[str, SessionEntry] = {}
         self._compaction_config = compaction_config or CompactionConfig()
         self._compactor = ContextCompactor(self._compaction_config, summarizer=summarizer)
-
-        self._enable_persistence = enable_persistence
-        if enable_persistence:
-            self._transcript_manager = TranscriptManager(sessions_dir)
-            self._session_store = SessionStore(
-                sessions_dir or Path.home() / ".ark_nav" / "sessions"
-            )
-        else:
-            self._transcript_manager = None
-            self._session_store = None
+        self._transcript_manager = TranscriptManager(sessions_dir)
+        self._session_store = SessionStore(sessions_dir)
 
     # ============ 会话生命周期 ============
 
@@ -58,19 +49,18 @@ class SessionManager:
         )
         self._sessions[session.session_id] = session
 
-        if self._enable_persistence and self._transcript_manager and self._session_store:
-            await self._transcript_manager.ensure_header(session.session_id, user_id)
-            store_entry = SessionStoreEntry(
-                session_id=session.session_id,
-                updated_at=int(session.updated_at.timestamp() * 1000),
-                session_file=str(
-                    self._transcript_manager._get_session_file(session.session_id, user_id)
-                ),
-                model=model,
-                provider=provider,
-                state=state or {},
-            )
-            await self._session_store.update(user_id, session.session_id, store_entry)
+        await self._transcript_manager.ensure_header(session.session_id, user_id)
+        store_entry = SessionStoreEntry(
+            session_id=session.session_id,
+            updated_at=int(session.updated_at.timestamp() * 1000),
+            session_file=str(
+                self._transcript_manager._get_session_file(session.session_id, user_id)
+            ),
+            model=model,
+            provider=provider,
+            state=state or {},
+        )
+        await self._session_store.update(user_id, session.session_id, store_entry)
 
         logger.info(f"[SESSION_CREATE] id={session.session_id[:8]} user={user_id} model={model}")
         return session
@@ -81,7 +71,7 @@ class SessionManager:
         provider: str = "ark",
         state: dict[str, Any] | None = None,
     ) -> SessionEntry:
-        """同步创建新会话（不持久化，用于测试）"""
+        """同步创建新会话（仅写入内存，不落盘；需持久化请用 create_session）"""
         session = SessionEntry.create(
             model=model, provider=provider, state=state or {}
         )
@@ -104,11 +94,8 @@ class SessionManager:
             del self._sessions[session_id]
             deleted = True
 
-        if self._enable_persistence:
-            if self._transcript_manager:
-                self._transcript_manager.delete_session(session_id, user_id)
-            if self._session_store:
-                await self._session_store.delete(user_id, session_id)
+        self._transcript_manager.delete_session(session_id, user_id)
+        await self._session_store.delete(user_id, session_id)
 
         if deleted:
             logger.info(f"Deleted session: {session_id}")
@@ -127,9 +114,6 @@ class SessionManager:
 
     async def list_sessions_from_disk(self, user_id: str | None = None) -> list[SessionEntry]:
         """以磁盘为准列出会话。user_id=None 时列出所有用户的会话（admin）。"""
-        if not self._enable_persistence or not self._transcript_manager:
-            return self.list_sessions()
-
         if user_id is not None:
             ids = self._transcript_manager.list_sessions(user_id)
             result: list[SessionEntry] = []
@@ -150,13 +134,11 @@ class SessionManager:
     async def reload_session_from_disk(self, session_id: str, user_id: str) -> SessionEntry | None:
         if session_id not in self._sessions:
             return None
-        if not self._enable_persistence or not self._transcript_manager:
-            return self._sessions.get(session_id)
         if not self._transcript_manager.session_exists(session_id, user_id):
             return None
         messages = self._transcript_manager.load_messages(session_id, user_id)
         header = self._transcript_manager.load_header(session_id, user_id)
-        store_entry = self._session_store.get(user_id, session_id) if self._session_store else None
+        store_entry = self._session_store.get(user_id, session_id)
         session = SessionEntry(
             session_id=session_id,
             created_at=(
@@ -179,9 +161,6 @@ class SessionManager:
         return session
 
     async def load_session(self, session_id: str, user_id: str) -> SessionEntry | None:
-        if not self._enable_persistence or not self._transcript_manager:
-            return self.get_session(session_id)
-
         if session_id in self._sessions:
             return self._sessions[session_id]
 
@@ -190,10 +169,7 @@ class SessionManager:
 
         messages = self._transcript_manager.load_messages(session_id, user_id)
         header = self._transcript_manager.load_header(session_id, user_id)
-
-        store_entry = None
-        if self._session_store:
-            store_entry = self._session_store.get(user_id, session_id)
+        store_entry = self._session_store.get(user_id, session_id)
 
         session = SessionEntry(
             session_id=session_id,
@@ -219,9 +195,6 @@ class SessionManager:
         return session
 
     async def sync_pending_messages(self, session_id: str, user_id: str) -> None:
-        if not self._enable_persistence or not self._transcript_manager:
-            return
-
         session = self.get_session(session_id)
         if not session:
             return
@@ -235,9 +208,6 @@ class SessionManager:
     async def sync_session_state(self, session_id: str, user_id: str) -> None:
         await self.sync_pending_messages(session_id, user_id)
 
-        if not self._enable_persistence or not self._session_store:
-            return
-
         session = self.get_session(session_id)
         if not session:
             return
@@ -245,11 +215,7 @@ class SessionManager:
         store_entry = SessionStoreEntry(
             session_id=session.session_id,
             updated_at=int(session.updated_at.timestamp() * 1000),
-            session_file=(
-                str(self._transcript_manager._get_session_file(session_id, user_id))
-                if self._transcript_manager
-                else None
-            ),
+            session_file=str(self._transcript_manager._get_session_file(session_id, user_id)),
             model=session.model,
             provider=session.provider,
             prompt_tokens=session.token_usage.prompt_tokens,
@@ -268,9 +234,7 @@ class SessionManager:
         session = self.get_session_required(session_id)
         session.add_message(message)
 
-        if self._enable_persistence and self._transcript_manager:
-            await self._transcript_manager.append_message(session_id, user_id, message)
-
+        await self._transcript_manager.append_message(session_id, user_id, message)
         logger.debug(f"Added {message.role.value} message to session {session_id}")
 
     async def add_messages(self, session_id: str, user_id: str, messages: list[AgentMessage]) -> None:
@@ -278,8 +242,7 @@ class SessionManager:
         for msg in messages:
             session.add_message(msg)
 
-        if self._enable_persistence and self._transcript_manager:
-            await self._transcript_manager.append_messages(session_id, user_id, messages)
+        await self._transcript_manager.append_messages(session_id, user_id, messages)
 
     def add_message_sync(self, session_id: str, message: AgentMessage) -> None:
         """同步添加消息（标记为待持久化）

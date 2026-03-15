@@ -27,7 +27,8 @@ pa-jt = [
     "pycryptodome>=3.20.0",
 ]
 memory = [
-    "faiss-cpu>=1.9.0",
+    "sqlean.py>=0.24.0",
+    "sqlite-vec>=0.1.6",
     "jieba>=0.42.1",
     "sentence-transformers>=3.3.0",
 ]

@@ -122,16 +122,17 @@ class AgentRunner:
     def __init__(
         self,
         llm: BaseChatModel,
+        *,
+        session_manager: SessionManager,
         tool_registry: ToolRegistry | None = None,
-        session_manager: SessionManager | None = None,
         skill_loader: SkillLoader | None = None,
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
         context_preprocessor: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
-        self.llm = llm  # LLM following LangChain protocol
+        self.llm = llm
         self.tool_registry = tool_registry or ToolRegistry()
-        self.session_manager = session_manager or SessionManager()
+        self.session_manager = session_manager
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
         self._context_preprocessor = context_preprocessor
@@ -168,8 +169,11 @@ class AgentRunner:
 
         base_cfg = self._memory_base_manager.config
         user_workspace = str(Path(base_cfg.workspace_dir) / user_id)
+        # copy.copy() is a shallow copy: nested dataclass fields (embedding/store/chunk configs)
+        # remain shared references — safe here because only str fields are mutated below.
         user_config = copy.copy(base_cfg)
         user_config.workspace_dir = user_workspace
+        user_config.index_dir = ""  # reset so each user derives index from their own workspace_dir
 
         mgr = MM(user_config)
         self._memory_managers[user_id] = mgr

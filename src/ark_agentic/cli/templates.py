@@ -74,23 +74,27 @@ if __name__ == "__main__":
 AGENT_MODULE_TEMPLATE = '''\
 """
 {agent_name} 智能体
+
+环境变量:
+    SESSIONS_DIR: 会话持久化基础目录（默认 data/ark_sessions）
+    MEMORY_DIR: Memory 数据基础目录（默认 data/ark_memory）
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ark_agentic import AgentRunner, RunnerConfig, create_chat_model_from_env
 from ark_agentic.core.tools import ToolRegistry
+from ark_agentic.core.paths import prepare_agent_data_dir
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.prompt import PromptConfig
 
 
 def create_{agent_name_snake}_agent(
     llm: BaseChatModel | None = None,
-    sessions_dir: str | Path | None = None,
+    *,
+    enable_memory: bool = False,
 ) -> AgentRunner:
     if llm is None:
         llm = create_chat_model_from_env()
@@ -100,8 +104,7 @@ def create_{agent_name_snake}_agent(
     # tool_registry.register(YourTool())
 
     session_manager = SessionManager(
-        sessions_dir=sessions_dir,
-        enable_persistence=sessions_dir is not None,
+        sessions_dir=prepare_agent_data_dir("{agent_name_snake}"),
     )
 
     runner_config = RunnerConfig(
