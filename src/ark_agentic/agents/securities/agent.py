@@ -11,14 +11,13 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
-from ark_agentic.core.paths import prepare_agent_data_dir
+from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
@@ -53,7 +52,7 @@ def create_securities_agent(
 
     memory_dir: Path | None = None
     if enable_memory:
-        memory_dir = Path(os.getenv("MEMORY_DIR", "data/ark_memory")) / "securities"
+        memory_dir = get_memory_base_dir() / "securities"
 
     tool_registry = ToolRegistry()
     for tool in create_securities_tools():

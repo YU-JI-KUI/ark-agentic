@@ -309,15 +309,16 @@ class TestMemoryGetTool:
 
 
 class TestCreateMemoryTools:
-    def test_creates_both_tools(self) -> None:
+    def test_creates_all_tools(self) -> None:
         provider = _make_provider(MockMemoryManager())
         tools = create_memory_tools(provider)
 
-        assert len(tools) == 3
+        assert len(tools) == 4
         names = [t.name for t in tools]
         assert "memory_search" in names
         assert "memory_get" in names
         assert "memory_set" in names
+        assert "profile_set" in names
 
     def test_tools_share_provider(self) -> None:
         provider = _make_provider(MockMemoryManager())

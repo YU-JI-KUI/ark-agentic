@@ -14,3 +14,11 @@ def prepare_agent_data_dir(agent_name: str) -> Path:
     path = Path(os.getenv("SESSIONS_DIR") or "data/ark_sessions") / agent_name
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def get_memory_base_dir() -> Path:
+    """Resolve the memory base directory.
+
+    Resolution: MEMORY_DIR env var > data/ark_memory.
+    """
+    return Path(os.getenv("MEMORY_DIR") or "data/ark_memory")

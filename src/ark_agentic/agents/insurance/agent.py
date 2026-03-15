@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -19,7 +18,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
-from ark_agentic.core.paths import prepare_agent_data_dir
+from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
@@ -55,7 +54,7 @@ def create_insurance_agent(
 
     memory_dir: Path | None = None
     if enable_memory:
-        memory_dir = Path(os.getenv("MEMORY_DIR", "data/ark_memory")) / "insurance"
+        memory_dir = get_memory_base_dir() / "insurance"
 
     tool_registry = ToolRegistry()
     tool_registry.register_all(create_insurance_tools())

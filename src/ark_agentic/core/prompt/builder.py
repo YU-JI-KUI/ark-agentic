@@ -127,6 +127,17 @@ class SystemPromptBuilder:
 
         return self
 
+    def add_user_profile(self, content: str) -> SystemPromptBuilder:
+        """添加用户画像（全局 USER.md 内容）"""
+        if content.strip():
+            section = (
+                "## 用户画像\n\n"
+                "以下是该用户的持久化画像信息，请在整个对话中保持一致的个性化体验：\n\n"
+                + content.strip()
+            )
+            self._sections.append(("user_profile", section))
+        return self
+
     def add_tools(
         self,
         tools: list[AgentTool],
@@ -241,6 +252,7 @@ class SystemPromptBuilder:
         config: PromptConfig | None = None,
         include_tool_params: bool = False,
         include_memory_instructions: bool = False,
+        user_profile_content: str = "",
     ) -> str:
         """快速构建系统提示
 
@@ -252,6 +264,7 @@ class SystemPromptBuilder:
             config: 提示配置
             include_tool_params: 是否在工具描述中包含参数信息
             include_memory_instructions: 是否包含 memory 使用指令
+            user_profile_content: 全局用户画像 (USER.md) 内容
 
         Returns:
             构建的系统提示
@@ -261,6 +274,8 @@ class SystemPromptBuilder:
         builder.add_identity()
         builder.add_runtime_info()
 
+        if user_profile_content:
+            builder.add_user_profile(user_profile_content)
         if tools:
             builder.add_tools(tools, include_params=include_tool_params)
         if include_memory_instructions:
@@ -291,16 +306,22 @@ MEMORY_INSTRUCTIONS = """
 3. **保持上下文精简**：不要检索整个文件；只请求必要的内容
 4. **引用来源**：使用记忆中的信息时，引用文件和行号
 
-### 写入记忆
-当对话中出现重要信息时，将其持久化以供未来参考：
+### 写入记忆（分流规则）
+当对话中出现重要信息时，根据信息类型选择正确的写入目标：
 
-1. **保存关键决策**：使用 `memory_set` 记录用户选择、偏好和重要结果
-2. **保存行动项**：记录任何后续任务或待办事项
-3. **使用描述性章节**：传递 `section` 参数来组织内容（例如，"## 用户偏好"）
-4. **写入适当的文件**：使用 MEMORY.md 存储一般笔记，或使用 memory/*.md 存储特定主题
+**全局用户画像** → 使用 `profile_set`：
+- 用户的通用偏好（语言、沟通风格、技术水平）
+- 个人信息（姓名、时区、角色）
+- 跨场景的习惯和风格
+- 写入前先检查系统提示词中的「用户画像」段落，避免重复写入已有信息
+
+**当前 Agent 记忆** → 使用 `memory_set`：
+- 本 agent 相关的决策和上下文
+- 项目特定信息、行动项
+- 使用 MEMORY.md 存储一般笔记，或使用 memory/*.md 存储特定主题
 
 示例工作流：
-- 用户询问之前的决策 → 使用主题调用 `memory_search`
-- 在 MEMORY.md#L42-50 找到相关结果 → 调用 `memory_get` 获取这些行
-- 用户做出新决策 → 调用 `memory_set` 记录以供未来参考
+- 用户说"我喜欢简洁的回复" → 调用 `profile_set` 记录到全局画像
+- 用户做出业务决策 → 调用 `memory_set` 记录到当前 agent 记忆
+- 用户询问之前的决策 → 调用 `memory_search` 检索
 """

@@ -42,6 +42,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# ============ Preference Extraction Prompt ============
+
+_PREFERENCE_EXTRACTION_PROMPT = """\
+从以下对话片段中提取用户的持久化信息（偏好、沟通风格、习惯、重要个人事实）。
+只提取明确表达或可靠推断的信息，不要猜测。
+不要重复已有画像中的信息。
+如果没有新信息，只回复"无"。
+格式：每条一行，以 "- " 开头。
+
+当前用户画像：
+{current_profile}
+
+对话片段：
+{conversation}
+"""
+
+
 # ============ Runner Config ============
 
 
@@ -277,10 +294,12 @@ class AgentRunner:
             session.state[k] = v
 
     def _make_pre_compact_callback(self, user_id: str) -> Callable[[str, list[AgentMessage]], Awaitable[None]]:
-        """创建压缩前回调：将即将丢弃的消息写入记忆（file 或 mem0）"""
+        """创建压缩前回调：将即将丢弃的消息写入记忆（file 或 mem0）+ 提取用户偏好"""
 
         def _get_mgr() -> MemoryManager | None:
             return self._memory_managers.get(user_id)
+
+        get_llm = self._get_llm
 
         async def _flush_to_memory(
             session_id: str, messages: list[AgentMessage]
@@ -322,6 +341,31 @@ class AgentRunner:
                 await memory_mgr.sync()
             except Exception as e:
                 logger.warning(f"Memory sync after pre-compact flush failed: {e}")
+
+            # Extract user preferences from discarded messages
+            await _extract_preferences_to_profile(parts)
+
+        async def _extract_preferences_to_profile(parts: list[str]) -> None:
+            try:
+                from .paths import get_memory_base_dir
+                from .memory.user_profile import load_user_profile, append_to_profile
+
+                conversation_text = "\n".join(parts[:30])
+                current_profile = load_user_profile(get_memory_base_dir(), user_id)
+
+                prompt = _PREFERENCE_EXTRACTION_PROMPT.format(
+                    conversation=conversation_text,
+                    current_profile=current_profile or "(empty)",
+                )
+                llm = get_llm()
+                response = await llm.ainvoke(prompt)
+                extracted = response.content if hasattr(response, "content") else str(response)
+
+                if extracted and extracted.strip() and extracted.strip().lower() not in ("无", "none", "empty", ""):
+                    append_to_profile(get_memory_base_dir(), user_id, extracted.strip())
+                    logger.info("Extracted user preferences for user %s", user_id)
+            except Exception as e:
+                logger.warning("Preference extraction failed for user %s: %s", user_id, e)
 
         return _flush_to_memory
 
@@ -676,12 +720,24 @@ class AgentRunner:
         # 默认只注入 user: 前缀的状态到提示词，减少噪声
         user_state = {k: v for k, v in state.items() if k.startswith("user:")}
 
+        # 加载全局用户画像 (USER.md)
+        profile_content = ""
+        if include_memory:
+            user_id = state.get("user:id")
+            if user_id:
+                from .memory.user_profile import load_user_profile, truncate_profile
+                from .paths import get_memory_base_dir
+                profile_content = truncate_profile(
+                    load_user_profile(get_memory_base_dir(), str(user_id))
+                )
+
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
             context=user_state,
             config=prompt_config,
             include_memory_instructions=include_memory,
+            user_profile_content=profile_content,
         )
 
     def _build_tools(self) -> list[dict[str, Any]]:

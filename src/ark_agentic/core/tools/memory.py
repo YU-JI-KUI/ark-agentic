@@ -345,17 +345,77 @@ class MemorySetTool(AgentTool):
             return AgentToolResult.error_result(tool_call.id, str(e))
 
 
+class ProfileSetTool(AgentTool):
+    """全局用户画像写入工具（写入 USER.md，跨 agent 共享）"""
+
+    name = "profile_set"
+    thinking_hint = "正在更新用户画像…"
+    description = (
+        "Update the user's global profile (USER.md) with cross-agent preferences, "
+        "communication style, or personal information. This profile is shared across "
+        "all agents. Use memory_set for agent-specific context instead."
+    )
+    parameters = [
+        ToolParameter(
+            name="content",
+            type="string",
+            description="Content to append (markdown format recommended)",
+            required=True,
+        ),
+        ToolParameter(
+            name="section",
+            type="string",
+            description="Optional section heading (e.g., '## 偏好')",
+            required=False,
+        ),
+    ]
+
+    async def execute(
+        self, tool_call: "ToolCall", context: dict[str, Any] | None = None
+    ) -> AgentToolResult:
+        args = tool_call.arguments or {}
+        content = read_string_param(args, "content", "")
+        section = read_string_param(args, "section")
+
+        if not content:
+            return AgentToolResult.error_result(tool_call.id, "Content is required")
+
+        user_id = (context or {}).get("user:id")
+        if not user_id:
+            return AgentToolResult.error_result(
+                tool_call.id, "user:id is required in context"
+            )
+
+        try:
+            from ..memory.user_profile import append_to_profile
+            from ..paths import get_memory_base_dir
+
+            bytes_written = append_to_profile(
+                get_memory_base_dir(), str(user_id), content, section or "",
+            )
+            logger.info("profile_set: appended %d bytes for user %s", bytes_written, user_id)
+
+            return AgentToolResult.json_result(
+                tool_call_id=tool_call.id,
+                data={"status": "written", "bytes_written": bytes_written},
+            )
+        except Exception as e:
+            logger.exception("profile_set error: %s", e)
+            return AgentToolResult.error_result(tool_call.id, str(e))
+
+
 def create_memory_tools(memory_provider: MemoryProvider) -> list[AgentTool]:
-    """创建 memory 工具集
+    """创建 memory + profile 工具集
 
     Args:
         memory_provider: 根据 user_id 获取对应 MemoryManager 的回调
 
     Returns:
-        [MemorySearchTool, MemoryGetTool, MemorySetTool]
+        [MemorySearchTool, MemoryGetTool, MemorySetTool, ProfileSetTool]
     """
     return [
         MemorySearchTool(memory_provider),
         MemoryGetTool(memory_provider),
         MemorySetTool(memory_provider),
+        ProfileSetTool(),
     ]
