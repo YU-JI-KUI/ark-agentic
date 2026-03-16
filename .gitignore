@@ -33,6 +33,9 @@ CLAUDE.md
 .continue/
 .tasks/
 
+# OpenCode - keep config
+!.opencode/
+
 # Sessions
 data/ark_securities
 data/ark_sessions

@@ -1,0 +1,19 @@
+{
+  "eval_id": 2,
+  "eval_name": "analyze-loss",
+  "prompt": "帮我分析一下我的资产情况，看看为什么最近一直在亏损",
+  "assertions": [
+    {
+      "name": "调用 account_overview 工具",
+      "check": "输出中应包含对 account_overview 工具的调用"
+    },
+    {
+      "name": "输出 Markdown 分析报告",
+      "check": "应输出包含资产概览、收益分析的 Markdown 格式报告"
+    },
+    {
+      "name": "包含收益分析",
+      "check": "报告应包含今日收益、累计收益等分析内容"
+    }
+  ]
+}

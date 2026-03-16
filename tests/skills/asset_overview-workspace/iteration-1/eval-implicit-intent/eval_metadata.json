@@ -1,0 +1,15 @@
+{
+  "eval_id": 4,
+  "eval_name": "implicit-intent",
+  "prompt": "我有多少钱？",
+  "assertions": [
+    {
+      "name": "识别为资产查询意图",
+      "check": "应识别为资产总览查询，调用 account_overview 工具"
+    },
+    {
+      "name": "简短回复",
+      "check": "应简短回复并展示卡片，不输出详细数值"
+    }
+  ]
+}
