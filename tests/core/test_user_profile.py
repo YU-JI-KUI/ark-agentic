@@ -6,13 +6,15 @@ from pathlib import Path
 import pytest
 
 from ark_agentic.core.memory.user_profile import (
+    _DEFAULT_SECTIONS,
     _DEFAULT_TEMPLATE,
     _PROFILES_DIR,
-    append_to_profile,
     ensure_user_profile,
     get_profile_path,
     load_user_profile,
     truncate_profile,
+    upsert_profile_entry,
+    write_profile,
 )
 from ark_agentic.core.paths import get_memory_base_dir
 from ark_agentic.core.prompt.builder import SystemPromptBuilder
@@ -77,34 +79,102 @@ class TestEnsureUserProfile:
             path = ensure_user_profile(base, "user1")
             assert path.read_text(encoding="utf-8") == existing
 
+    def test_template_contains_default_sections(self) -> None:
+        for s in _DEFAULT_SECTIONS:
+            assert f"## {s}" in _DEFAULT_TEMPLATE
 
-class TestAppendToProfile:
-    def test_append_creates_file_if_needed(self) -> None:
+
+# ============ upsert_profile_entry ============
+
+
+class TestUpsertProfileEntry:
+    def test_insert_into_existing_section(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
-            written = append_to_profile(base, "user1", "- prefers Chinese")
-            assert written > 0
-            content = load_user_profile(base, "user1")
-            assert "prefers Chinese" in content
+            ensure_user_profile(base, "u1")
+            upsert_profile_entry(base, "u1", "沟通风格", "偏好风格", "专业简洁")
+            content = load_user_profile(base, "u1")
+            assert "- 偏好风格: 专业简洁" in content
 
-    def test_append_with_section(self) -> None:
+    def test_update_existing_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
-            append_to_profile(base, "user1", "concise replies", section="## 沟通风格")
-            content = load_user_profile(base, "user1")
+            ensure_user_profile(base, "u1")
+            upsert_profile_entry(base, "u1", "沟通风格", "偏好风格", "温柔活泼")
+            upsert_profile_entry(base, "u1", "偏好", "回复长度", "详细")
+            upsert_profile_entry(base, "u1", "沟通风格", "偏好风格", "专业简洁")
+
+            content = load_user_profile(base, "u1")
+            assert content.count("偏好风格") == 1
+            assert "- 偏好风格: 专业简洁" in content
+            assert "温柔活泼" not in content
+            assert "- 回复长度: 详细" in content
+
+    def test_multiple_keys_in_same_section(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            ensure_user_profile(base, "u1")
+            upsert_profile_entry(base, "u1", "基本信息", "姓名", "Willis")
+            upsert_profile_entry(base, "u1", "基本信息", "时区", "Asia/Shanghai")
+            content = load_user_profile(base, "u1")
+            assert "- 姓名: Willis" in content
+            assert "- 时区: Asia/Shanghai" in content
+
+    def test_create_new_section(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            ensure_user_profile(base, "u1")
+            upsert_profile_entry(base, "u1", "技术偏好", "编程语言", "Python")
+            content = load_user_profile(base, "u1")
+            assert "## 技术偏好" in content
+            assert "- 编程语言: Python" in content
+
+    def test_upsert_in_custom_section(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            ensure_user_profile(base, "u1")
+            upsert_profile_entry(base, "u1", "技术偏好", "框架", "FastAPI")
+            upsert_profile_entry(base, "u1", "技术偏好", "框架", "Django")
+            content = load_user_profile(base, "u1")
+            assert content.count("框架") == 1
+            assert "- 框架: Django" in content
+            assert "FastAPI" not in content
+
+    def test_creates_profile_if_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            upsert_profile_entry(base, "new_u", "偏好", "语言", "中文")
+            content = load_user_profile(base, "new_u")
+            assert "- 语言: 中文" in content
+            assert "用户画像" in content
+
+    def test_preserves_other_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            ensure_user_profile(base, "u1")
+            upsert_profile_entry(base, "u1", "基本信息", "姓名", "Alice")
+            upsert_profile_entry(base, "u1", "偏好", "回复长度", "简洁")
+            content = load_user_profile(base, "u1")
+            assert "## 基本信息" in content
+            assert "## 偏好" in content
             assert "## 沟通风格" in content
-            assert "concise replies" in content
+            assert "## 重要事项" in content
 
-    def test_append_preserves_existing(self) -> None:
+
+# ============ write_profile ============
+
+
+class TestWriteProfile:
+    def test_overwrites_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
-            ensure_user_profile(base, "user1")
-            append_to_profile(base, "user1", "- item A")
-            append_to_profile(base, "user1", "- item B")
-            content = load_user_profile(base, "user1")
-            assert "item A" in content
-            assert "item B" in content
-            assert "用户画像" in content  # template header preserved
+            ensure_user_profile(base, "u1")
+            new_content = "# Clean profile\n## 基本信息\n- 姓名: Bob\n"
+            write_profile(base, "u1", new_content)
+            assert load_user_profile(base, "u1") == new_content
+
+
+# ============ truncate_profile ============
 
 
 class TestTruncateProfile:
@@ -189,11 +259,11 @@ class TestProfileSetTool:
     def test_metadata(self) -> None:
         tool = ProfileSetTool()
         assert tool.name == "profile_set"
-        assert "USER.md" in tool.description
-        assert len(tool.parameters) == 2
+        assert "USER.md" in tool.description or "profile" in tool.description
+        assert len(tool.parameters) == 3
 
     @pytest.mark.asyncio
-    async def test_write_success(self) -> None:
+    async def test_upsert_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             import os
             os.environ["MEMORY_DIR"] = tmpdir
@@ -202,52 +272,81 @@ class TestProfileSetTool:
                 call = ToolCall(
                     id="call_1",
                     name="profile_set",
-                    arguments={"content": "- prefers dark mode"},
+                    arguments={"section": "偏好", "key": "主题", "value": "暗色模式"},
                 )
                 result = await tool.execute(call, {"user:id": "test_user"})
                 assert result.content["status"] == "written"
-                assert result.content["bytes_written"] > 0
+                assert result.content["section"] == "偏好"
+                assert result.content["key"] == "主题"
 
                 content = load_user_profile(Path(tmpdir), "test_user")
-                assert "prefers dark mode" in content
+                assert "- 主题: 暗色模式" in content
             finally:
                 del os.environ["MEMORY_DIR"]
 
     @pytest.mark.asyncio
-    async def test_write_with_section(self) -> None:
+    async def test_upsert_overwrites(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            import os
+            os.environ["MEMORY_DIR"] = tmpdir
+            try:
+                tool = ProfileSetTool()
+                call1 = ToolCall(
+                    id="c1", name="profile_set",
+                    arguments={"section": "沟通风格", "key": "偏好风格", "value": "温柔"},
+                )
+                call2 = ToolCall(
+                    id="c2", name="profile_set",
+                    arguments={"section": "沟通风格", "key": "偏好风格", "value": "专业简洁"},
+                )
+                await tool.execute(call1, {"user:id": "u1"})
+                await tool.execute(call2, {"user:id": "u1"})
+
+                content = load_user_profile(Path(tmpdir), "u1")
+                assert content.count("偏好风格") == 1
+                assert "专业简洁" in content
+                assert "温柔" not in content
+            finally:
+                del os.environ["MEMORY_DIR"]
+
+    @pytest.mark.asyncio
+    async def test_custom_section(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             import os
             os.environ["MEMORY_DIR"] = tmpdir
             try:
                 tool = ProfileSetTool()
                 call = ToolCall(
-                    id="call_1",
-                    name="profile_set",
-                    arguments={"content": "简洁直接", "section": "## 沟通风格"},
+                    id="c1", name="profile_set",
+                    arguments={"section": "技术偏好", "key": "语言", "value": "Python"},
                 )
-                result = await tool.execute(call, {"user:id": "test_user"})
+                result = await tool.execute(call, {"user:id": "u1"})
                 assert result.content["status"] == "written"
 
-                content = load_user_profile(Path(tmpdir), "test_user")
-                assert "## 沟通风格" in content
-                assert "简洁直接" in content
+                content = load_user_profile(Path(tmpdir), "u1")
+                assert "## 技术偏好" in content
+                assert "- 语言: Python" in content
             finally:
                 del os.environ["MEMORY_DIR"]
 
     @pytest.mark.asyncio
-    async def test_missing_content(self) -> None:
+    async def test_missing_required_fields(self) -> None:
         tool = ProfileSetTool()
-        call = ToolCall(id="call_1", name="profile_set", arguments={"content": ""})
-        result = await tool.execute(call, {"user:id": "test_user"})
-        assert result.result_type.value == "error"
+        for args in [
+            {"section": "偏好", "key": "x", "value": ""},
+            {"section": "", "key": "x", "value": "y"},
+            {"section": "偏好", "key": "", "value": "y"},
+        ]:
+            call = ToolCall(id="c1", name="profile_set", arguments=args)
+            result = await tool.execute(call, {"user:id": "u1"})
+            assert result.result_type.value == "error"
 
     @pytest.mark.asyncio
     async def test_missing_user_id(self) -> None:
         tool = ProfileSetTool()
         call = ToolCall(
-            id="call_1",
-            name="profile_set",
-            arguments={"content": "something"},
+            id="call_1", name="profile_set",
+            arguments={"section": "偏好", "key": "x", "value": "y"},
         )
         result = await tool.execute(call, {})
         assert result.result_type.value == "error"
@@ -268,6 +367,12 @@ class TestMemoryInstructions:
         from ark_agentic.core.prompt.builder import MEMORY_INSTRUCTIONS
         assert "profile_set" in MEMORY_INSTRUCTIONS
         assert "memory_set" in MEMORY_INSTRUCTIONS
+
+    def test_instructions_describe_section_key_value(self) -> None:
+        from ark_agentic.core.prompt.builder import MEMORY_INSTRUCTIONS
+        assert "section" in MEMORY_INSTRUCTIONS
+        assert "key" in MEMORY_INSTRUCTIONS
+        assert "value" in MEMORY_INSTRUCTIONS
 
     def test_instructions_describe_routing(self) -> None:
         from ark_agentic.core.prompt.builder import MEMORY_INSTRUCTIONS

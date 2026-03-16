@@ -324,12 +324,8 @@ class MemorySetTool(AgentTool):
 
             logger.info(f"Memory set: appended to {rel_path}")
 
-            try:
-                if memory._initialized:
-                    await memory.sync()
-                    logger.debug(f"Memory index synced after writing to {rel_path}")
-            except Exception as sync_err:
-                logger.warning(f"Memory sync after set failed: {sync_err}")
+            if memory._initialized:
+                memory.mark_dirty()
 
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
@@ -351,22 +347,33 @@ class ProfileSetTool(AgentTool):
     name = "profile_set"
     thinking_hint = "正在更新用户画像…"
     description = (
-        "Update the user's global profile (USER.md) with cross-agent preferences, "
-        "communication style, or personal information. This profile is shared across "
-        "all agents. Use memory_set for agent-specific context instead."
+        "Upsert a key-value entry in the user's global profile (USER.md). "
+        "This profile is shared across all agents. "
+        "Same (section, key) pair overwrites the previous value. "
+        "Use memory_set for agent-specific context instead."
     )
     parameters = [
         ToolParameter(
-            name="content",
+            name="section",
             type="string",
-            description="Content to append (markdown format recommended)",
+            description=(
+                "Profile section name. Common: 基本信息, 沟通风格, 偏好, 重要事项. "
+                "Can also use custom sections (e.g., 技术偏好, 工作习惯). "
+                "Prefer reusing existing sections shown in the user profile."
+            ),
             required=True,
         ),
         ToolParameter(
-            name="section",
+            name="key",
             type="string",
-            description="Optional section heading (e.g., '## 偏好')",
-            required=False,
+            description="Entry key (e.g., '偏好风格', '姓名', '编程语言')",
+            required=True,
+        ),
+        ToolParameter(
+            name="value",
+            type="string",
+            description="Entry value",
+            required=True,
         ),
     ]
 
@@ -374,11 +381,14 @@ class ProfileSetTool(AgentTool):
         self, tool_call: "ToolCall", context: dict[str, Any] | None = None
     ) -> AgentToolResult:
         args = tool_call.arguments or {}
-        content = read_string_param(args, "content", "")
-        section = read_string_param(args, "section")
+        section = read_string_param(args, "section", "")
+        key = read_string_param(args, "key", "")
+        value = read_string_param(args, "value", "")
 
-        if not content:
-            return AgentToolResult.error_result(tool_call.id, "Content is required")
+        if not section or not key or not value:
+            return AgentToolResult.error_result(
+                tool_call.id, "section, key, and value are all required"
+            )
 
         user_id = (context or {}).get("user:id")
         if not user_id:
@@ -387,17 +397,19 @@ class ProfileSetTool(AgentTool):
             )
 
         try:
-            from ..memory.user_profile import append_to_profile
+            from ..memory.user_profile import upsert_profile_entry
             from ..paths import get_memory_base_dir
 
-            bytes_written = append_to_profile(
-                get_memory_base_dir(), str(user_id), content, section or "",
+            upsert_profile_entry(
+                get_memory_base_dir(), str(user_id), section, key, value,
             )
-            logger.info("profile_set: appended %d bytes for user %s", bytes_written, user_id)
+            logger.info(
+                "profile_set: upserted [%s].%s for user %s", section, key, user_id,
+            )
 
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
-                data={"status": "written", "bytes_written": bytes_written},
+                data={"status": "written", "section": section, "key": key},
             )
         except Exception as e:
             logger.exception("profile_set error: %s", e)

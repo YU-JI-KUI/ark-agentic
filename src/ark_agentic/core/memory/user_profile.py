@@ -2,29 +2,29 @@
 
 Global user profile stored at {memory_base_dir}/_profiles/{user_id}/USER.md,
 shared across all agents. Injected into system prompt on every LLM call.
+
+Storage format: ``## section`` headings + ``- key: value`` entries.
+Writes use upsert semantics — same (section, key) always occupies one line.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 _PROFILES_DIR = "_profiles"
 _PROFILE_FILENAME = "USER.md"
+_DEFAULT_SECTIONS: tuple[str, ...] = ("基本信息", "沟通风格", "偏好", "重要事项")
 
-_DEFAULT_TEMPLATE = """\
-# 用户画像
+_DEFAULT_TEMPLATE = (
+    "# 用户画像\n"
+    + "".join(f"\n## {s}\n" for s in _DEFAULT_SECTIONS)
+)
 
-## 基本信息
-
-## 沟通风格
-
-## 偏好
-
-## 重要事项
-"""
+_SECTION_RE = re.compile(r"^##\s+(.+)$")
 
 
 def get_profile_path(base_dir: Path, user_id: str) -> Path:
@@ -54,16 +54,62 @@ def ensure_user_profile(base_dir: Path, user_id: str) -> Path:
     return path
 
 
-def append_to_profile(base_dir: Path, user_id: str, content: str, section: str = "") -> int:
-    """Append content to USER.md. Returns bytes written."""
+def upsert_profile_entry(
+    base_dir: Path, user_id: str, section: str, key: str, value: str,
+) -> None:
+    """Insert or update a ``- key: value`` entry inside *section*.
+
+    * If the section exists, the key line is replaced (or appended).
+    * If the section does not exist, it is created at the end of the file.
+    """
     path = ensure_user_profile(base_dir, user_id)
-    text = "\n"
-    if section:
-        text += f"\n{section}\n\n"
-    text += content + "\n"
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(text)
-    return len(text.encode("utf-8"))
+    content = path.read_text(encoding="utf-8")
+    lines = content.split("\n")
+
+    section_heading = f"## {section}"
+    entry_line = f"- {key}: {value}"
+    key_prefix = f"- {key}: "
+
+    section_start: int | None = None
+    next_section: int | None = None
+
+    for i, line in enumerate(lines):
+        if line.strip() == section_heading:
+            section_start = i
+        elif section_start is not None and _SECTION_RE.match(line.strip()):
+            next_section = i
+            break
+
+    if section_start is None:
+        # Append new section at end
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(section_heading)
+        lines.append(entry_line)
+    else:
+        end = next_section if next_section is not None else len(lines)
+        key_found = False
+        for i in range(section_start + 1, end):
+            if lines[i].startswith(key_prefix):
+                lines[i] = entry_line
+                key_found = True
+                break
+        if not key_found:
+            # Insert after last non-empty line in section (or right after heading)
+            insert_at = section_start + 1
+            for i in range(end - 1, section_start, -1):
+                if lines[i].strip():
+                    insert_at = i + 1
+                    break
+            lines.insert(insert_at, entry_line)
+
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_profile(base_dir: Path, user_id: str, content: str) -> None:
+    """Overwrite USER.md with *content* (for one-time migration / cleanup)."""
+    path = ensure_user_profile(base_dir, user_id)
+    path.write_text(content, encoding="utf-8")
 
 
 def truncate_profile(content: str, max_tokens: int = 1000) -> str:
@@ -74,7 +120,6 @@ def truncate_profile(content: str, max_tokens: int = 1000) -> str:
     tokens = estimate_tokens(content)
     if tokens <= max_tokens:
         return content
-    # Binary search for the cut point
     ratio = max_tokens / tokens
     cut = int(len(content) * ratio)
     while estimate_tokens(content[:cut]) > max_tokens:

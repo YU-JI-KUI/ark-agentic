@@ -309,11 +309,11 @@ MEMORY_INSTRUCTIONS = """
 ### 写入记忆（分流规则）
 当对话中出现重要信息时，根据信息类型选择正确的写入目标：
 
-**全局用户画像** → 使用 `profile_set`：
-- 用户的通用偏好（语言、沟通风格、技术水平）
-- 个人信息（姓名、时区、角色）
-- 跨场景的习惯和风格
-- 写入前先检查系统提示词中的「用户画像」段落，避免重复写入已有信息
+**全局用户画像** → 使用 `profile_set(section, key, value)`：
+- 按 (section, key) 写入，同 key 自动覆盖旧值
+- 常用 section: 基本信息, 沟通风格, 偏好, 重要事项（也可创建自定义 section）
+- 优先复用系统提示词中「用户画像」里已有的 section
+- 适用于：通用偏好、个人信息、跨场景习惯
 
 **当前 Agent 记忆** → 使用 `memory_set`：
 - 本 agent 相关的决策和上下文
@@ -321,7 +321,7 @@ MEMORY_INSTRUCTIONS = """
 - 使用 MEMORY.md 存储一般笔记，或使用 memory/*.md 存储特定主题
 
 示例工作流：
-- 用户说"我喜欢简洁的回复" → 调用 `profile_set` 记录到全局画像
+- 用户说"我喜欢简洁的回复" → `profile_set(section="沟通风格", key="偏好风格", value="简洁")`
 - 用户做出业务决策 → 调用 `memory_set` 记录到当前 agent 记忆
 - 用户询问之前的决策 → 调用 `memory_search` 检索
 """

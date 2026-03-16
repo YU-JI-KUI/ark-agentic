@@ -59,7 +59,12 @@ class MemoryManager:
     - 持久化存储
     """
 
-    def __init__(self, config: MemoryConfig) -> None:
+    def __init__(
+        self,
+        config: MemoryConfig,
+        *,
+        shared_embedding: BGEEmbedding | None = None,
+    ) -> None:
         self.config = config
         self._workspace_dir = Path(config.workspace_dir)
         self._index_dir = (
@@ -68,11 +73,13 @@ class MemoryManager:
             else self._workspace_dir / ".memory"
         )
 
+        self._shared_embedding = shared_embedding
         self._embedding: BGEEmbedding | None = None
         self._store: SQLiteMemoryStore | None = None
         self._chunker: MarkdownChunker | None = None
 
         self._initialized = False
+        self._dirty = False
         self._last_sync: datetime | None = None
         self._syncing: asyncio.Task[None] | None = None
 
@@ -85,11 +92,15 @@ class MemoryManager:
         self._initialized = True
         logger.info("Memory system initialized")
 
+    def mark_dirty(self) -> None:
+        """Mark index as stale so the next ``search()`` triggers a sync."""
+        self._dirty = True
+
     async def _initialize_file_engine(self) -> None:
         logger.info("Initializing Memory system at %s", self._workspace_dir)
 
         self._index_dir.mkdir(parents=True, exist_ok=True)
-        self._embedding = BGEEmbedding(self.config.embedding)
+        self._embedding = self._shared_embedding or BGEEmbedding(self.config.embedding)
 
         dimensions = self._embedding.dimensions
         if dimensions == 0:
@@ -267,6 +278,10 @@ class MemoryManager:
     ) -> list[MemorySearchResult]:
         if not self._initialized:
             await self.initialize()
+
+        if self._dirty:
+            await self.sync()
+            self._dirty = False
 
         query_embedding = await self._embedding.embed_query(query)
 

@@ -37,10 +37,14 @@ class MockMemoryManager:
     def __init__(self, workspace_dir: str = "") -> None:
         self.config = MockMemoryConfig(workspace_dir=workspace_dir)
         self._initialized = True
+        self._dirty = False
         self.search = AsyncMock(return_value=[])
 
     async def initialize(self) -> None:
         self._initialized = True
+
+    def mark_dirty(self) -> None:
+        self._dirty = True
 
 
 TEST_CONTEXT = {"user:id": "test_user"}

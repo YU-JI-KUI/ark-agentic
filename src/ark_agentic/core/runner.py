@@ -45,11 +45,15 @@ logger = logging.getLogger(__name__)
 # ============ Preference Extraction Prompt ============
 
 _PREFERENCE_EXTRACTION_PROMPT = """\
-从以下对话片段中提取用户的持久化信息（偏好、沟通风格、习惯、重要个人事实）。
+从以下对话片段中提取用户的持久化偏好信息。
 只提取明确表达或可靠推断的信息，不要猜测。
 不要重复已有画像中的信息。
-如果没有新信息，只回复"无"。
-格式：每条一行，以 "- " 开头。
+输出 JSON 对象，key 是 section 名，value 是 {{key: value}} 对象。
+常用 section: 基本信息, 沟通风格, 偏好, 重要事项。
+如有需要可使用自定义 section（如 技术偏好, 工作习惯）。
+如果没有新信息，输出 {{}}。
+
+示例：{{"沟通风格": {{"偏好风格": "专业简洁"}}, "技术偏好": {{"编程语言": "Python"}}}}
 
 当前用户画像：
 {current_profile}
@@ -157,8 +161,11 @@ class AgentRunner:
         # memory: base manager config for cloning per-user managers
         self._memory_base_manager = memory_manager
         self._memory_managers: dict[str, MemoryManager] = {}
+        self._shared_embedding = None
 
         if memory_manager is not None:
+            from .memory.embeddings import BGEEmbedding
+            self._shared_embedding = BGEEmbedding(memory_manager.config.embedding)
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
@@ -192,7 +199,7 @@ class AgentRunner:
         user_config.workspace_dir = user_workspace
         user_config.index_dir = ""  # reset so each user derives index from their own workspace_dir
 
-        mgr = MM(user_config)
+        mgr = MM(user_config, shared_embedding=self._shared_embedding)
         self._memory_managers[user_id] = mgr
         return mgr
 
@@ -337,18 +344,14 @@ class AgentRunner:
             with open(memory_file, "a", encoding="utf-8") as f:
                 f.write(snapshot)
 
-            try:
-                await memory_mgr.sync()
-            except Exception as e:
-                logger.warning(f"Memory sync after pre-compact flush failed: {e}")
+            memory_mgr.mark_dirty()
 
-            # Extract user preferences from discarded messages
             await _extract_preferences_to_profile(parts)
 
         async def _extract_preferences_to_profile(parts: list[str]) -> None:
             try:
                 from .paths import get_memory_base_dir
-                from .memory.user_profile import load_user_profile, append_to_profile
+                from .memory.user_profile import load_user_profile, upsert_profile_entry
 
                 conversation_text = "\n".join(parts[:30])
                 current_profile = load_user_profile(get_memory_base_dir(), user_id)
@@ -361,9 +364,37 @@ class AgentRunner:
                 response = await llm.ainvoke(prompt)
                 extracted = response.content if hasattr(response, "content") else str(response)
 
-                if extracted and extracted.strip() and extracted.strip().lower() not in ("无", "none", "empty", ""):
-                    append_to_profile(get_memory_base_dir(), user_id, extracted.strip())
-                    logger.info("Extracted user preferences for user %s", user_id)
+                if not extracted or not extracted.strip():
+                    return
+
+                text = extracted.strip()
+                # Extract JSON from possible markdown code fence
+                if "```" in text:
+                    for block in text.split("```"):
+                        block = block.strip()
+                        if block.startswith("json"):
+                            block = block[4:].strip()
+                        if block.startswith("{"):
+                            text = block
+                            break
+
+                data = json.loads(text)
+                if not isinstance(data, dict) or not data:
+                    return
+
+                base_dir = get_memory_base_dir()
+                count = 0
+                for section, entries in data.items():
+                    if not isinstance(entries, dict):
+                        continue
+                    for key, value in entries.items():
+                        upsert_profile_entry(base_dir, user_id, str(section), str(key), str(value))
+                        count += 1
+
+                if count:
+                    logger.info("Extracted %d profile entries for user %s", count, user_id)
+            except (json.JSONDecodeError, ValueError):
+                logger.debug("Preference extraction returned non-JSON for user %s, skipping", user_id)
             except Exception as e:
                 logger.warning("Preference extraction failed for user %s: %s", user_id, e)
 
