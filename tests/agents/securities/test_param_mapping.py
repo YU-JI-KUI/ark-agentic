@@ -7,13 +7,11 @@ from ark_agentic.agents.securities.tools.param_mapping import (
     build_api_request,
     build_api_headers_with_validatedata,
     build_validatedata,
-    validate_validatedata_fields,
     _get_by_path,
     _set_by_path,
     _get_context_value,
     ACCOUNT_OVERVIEW_PARAM_CONFIG,
     SERVICE_PARAM_CONFIGS,
-    VALIDATEDATA_REQUIRED_FIELDS,
 )
 
 
@@ -202,182 +200,40 @@ class TestGetContextValue:
 
 
 class TestBuildValidatedata:
-    """Test validatedata string building."""
+    """Test validatedata string from context (build_validatedata reads context.validatedata)."""
 
-    def test_build_validatedata_full_context(self):
-        """Test building validatedata with all required fields."""
-        context = {
-            "user:channel": "REST",
-            "user:usercode": "150573383",
-            "user:userid": "12977997",
-            "user:account": "3310123",
-            "user:branchno": "3310",
-            "user:loginflag": "3",
-            "user:mobileNo": "137123123",
-        }
+    def test_build_validatedata_from_user_prefix(self):
+        """Test returning validatedata from user:validatedata."""
+        raw = "channel=REST&usercode=150573383&userid=12977997"
+        context = {"user:validatedata": raw}
+        assert build_validatedata(context, skip_on_mock=False) == raw
 
-        validatedata = build_validatedata(context, skip_on_mock=False)
+    def test_build_validatedata_from_bare_key(self):
+        """Test returning validatedata from bare validatedata key."""
+        raw = "channel=REST&usercode=150573383"
+        context = {"validatedata": raw}
+        assert build_validatedata(context, skip_on_mock=False) == raw
 
-        assert "channel=REST" in validatedata
-        assert "usercode=150573383" in validatedata
-        assert "userid=12977997" in validatedata
-        assert "account=3310123" in validatedata
-        assert "branchno=3310" in validatedata
-        assert "loginflag=3" in validatedata
-        assert "mobileNo=137123123" in validatedata
+    def test_build_validatedata_user_prefix_priority(self):
+        """Test user: prefix takes priority over bare key."""
+        context = {"user:validatedata": "PREFIXED", "validatedata": "BARE"}
+        assert build_validatedata(context, skip_on_mock=False) == "PREFIXED"
 
-    def test_build_validatedata_with_bare_keys(self):
-        """Test building validatedata with bare keys (no user: prefix)."""
-        context = {
-            "channel": "REST",
-            "usercode": "150573383",
-            "userid": "12977997",
-            "account": "3310123",
-            "branchno": "3310",
-            "loginflag": "3",
-            "mobileNo": "137123123",
-        }
+    def test_build_validatedata_missing_returns_empty(self):
+        """Test missing validatedata returns empty string."""
+        context = {"other": "value"}
+        assert build_validatedata(context, skip_on_mock=False) == ""
 
-        validatedata = build_validatedata(context, skip_on_mock=False)
-
-        assert "channel=REST" in validatedata
-        assert "usercode=150573383" in validatedata
-
-    def test_build_validatedata_mixed_prefix_and_bare(self):
-        """Test that user: prefix takes priority when both exist."""
-        context = {
-            "user:channel": "PREFIXED",
-            "channel": "BARE",
-            "user:usercode": "150573383",
-            "userid": "12977997",
-            "account": "3310123",
-            "branchno": "3310",
-            "loginflag": "3",
-            "mobileNo": "137123123",
-        }
-
-        validatedata = build_validatedata(context, skip_on_mock=False)
-
-        assert "channel=PREFIXED" in validatedata
-
-    def test_build_validatedata_missing_field_raises_error(self):
-        """Test that missing required field raises ValueError."""
-        context = {
-            "channel": "REST",
-            "usercode": "150573383",
-            # Missing other required fields
-        }
-
-        with pytest.raises(ValueError, match="validatedata 缺少必需字段"):
-            build_validatedata(context, skip_on_mock=False)
-
-    def test_build_validatedata_empty_field_raises_error(self):
-        """Test that empty required field raises ValueError."""
-        context = {
-            "channel": "REST",
-            "usercode": "",  # Empty string
-            "userid": "12977997",
-            "account": "3310123",
-            "branchno": "3310",
-            "loginflag": "3",
-            "mobileNo": "137123123",
-        }
-
-        with pytest.raises(ValueError, match="validatedata 缺少必需字段"):
-            build_validatedata(context, skip_on_mock=False)
+    def test_build_validatedata_none_context_returns_empty(self):
+        """Test None context returns empty string."""
+        assert build_validatedata(None, skip_on_mock=False) == ""
 
     def test_build_validatedata_mock_mode_returns_empty(self):
         """Test that mock mode returns empty string."""
-        # Set mock environment variable
         os.environ["SECURITIES_SERVICE_MOCK"] = "true"
-
         try:
-            context = {"channel": "REST"}  # Incomplete context
-            validatedata = build_validatedata(context, skip_on_mock=True)
-            assert validatedata == ""
-        finally:
-            # Clean up
-            os.environ.pop("SECURITIES_SERVICE_MOCK", None)
-
-    def test_build_validatedata_custom_fields(self):
-        """Test building validatedata with custom required fields."""
-        custom_fields = ["channel", "usercode"]
-        context = {
-            "channel": "REST",
-            "usercode": "150573383",
-            # Other fields missing but not in custom list
-        }
-
-        validatedata = build_validatedata(
-            context, required_fields=custom_fields, skip_on_mock=False
-        )
-
-        assert "channel=REST" in validatedata
-        assert "usercode=150573383" in validatedata
-
-
-class TestValidateValidatedataFields:
-    """Test validatedata field validation."""
-
-    def test_validate_all_fields_present(self):
-        """Test validation with all required fields present."""
-        context = {
-            "user:channel": "REST",
-            "user:usercode": "150573383",
-            "user:userid": "12977997",
-            "user:account": "3310123",
-            "user:branchno": "3310",
-            "user:loginflag": "3",
-            "user:mobileNo": "137123123",
-        }
-
-        missing = validate_validatedata_fields(
-            context, required_fields=VALIDATEDATA_REQUIRED_FIELDS, skip_on_mock=False
-        )
-
-        assert missing == []
-
-    def test_validate_missing_fields(self):
-        """Test validation detects missing fields."""
-        context = {
-            "channel": "REST",
-            # Missing other fields
-        }
-
-        missing = validate_validatedata_fields(
-            context, required_fields=VALIDATEDATA_REQUIRED_FIELDS, skip_on_mock=False
-        )
-
-        assert len(missing) > 0
-        assert "usercode" in missing
-        assert "userid" in missing
-
-    def test_validate_empty_fields(self):
-        """Test validation detects empty fields."""
-        context = {
-            "channel": "",
-            "usercode": "150573383",
-            # Missing other fields
-        }
-
-        missing = validate_validatedata_fields(
-            context, required_fields=VALIDATEDATA_REQUIRED_FIELDS, skip_on_mock=False
-        )
-
-        assert "channel" in missing  # Empty string counts as missing
-
-    def test_validate_mock_mode_skip(self):
-        """Test that mock mode skips validation."""
-        os.environ["SECURITIES_SERVICE_MOCK"] = "true"
-
-        try:
-            context = {}  # Empty context
-            missing = validate_validatedata_fields(
-                context, required_fields=VALIDATEDATA_REQUIRED_FIELDS, skip_on_mock=True
-            )
-
-            # Mock mode should return empty list (no missing fields)
-            assert missing == []
+            context = {"user:validatedata": "channel=REST&usercode=123"}
+            assert build_validatedata(context, skip_on_mock=True) == ""
         finally:
             os.environ.pop("SECURITIES_SERVICE_MOCK", None)
 
@@ -393,13 +249,7 @@ class TestBuildApiHeadersWithValidatedata:
         }
 
         context = {
-            "channel": "REST",
-            "usercode": "150573383",
-            "userid": "12977997",
-            "account": "3310123",
-            "branchno": "3310",
-            "loginflag": "3",
-            "mobileNo": "137123123",
+            "validatedata": "channel=REST&usercode=150573383&userid=12977997&account=3310123&branchno=3310&loginflag=3&mobileNo=137123123",
             "signature": "test_signature",
         }
 

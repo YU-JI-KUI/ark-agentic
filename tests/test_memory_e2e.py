@@ -108,10 +108,11 @@ async def base_agent(memory_dir: Path, base_sessions_dir: Path):
     return runner
 
 
+@pytest.mark.skip(reason="memory_set 已移除，记忆写入由 MemoryExtractor 自动完成，见 Phase 2 compact 写入")
 @pytest.mark.asyncio
 async def test_phase1_react_loop_memory(base_agent: AgentRunner, memory_dir: Path):
     """
-    Phase 1: 测试 LLM 在 React Loop 中主动调用 memory_set 的行为。
+    Phase 1: 原测试 LLM 主动调用 memory_set；现设计改为仅由 compact/extractor 写入，此用例保留作历史参考。
     """
     user_id = "testuser_p1"
     session_id = await base_agent.create_session(

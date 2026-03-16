@@ -72,6 +72,12 @@ async def lifespan(app: FastAPI):
             logger.warning("MetaBuilder Agent failed to initialize, skipping: %s", e)
 
     api_deps.init_registry(_registry)
+
+    for agent_id in _registry.list_ids():
+        runner = _registry.get(agent_id)
+        runner.warmup()
+        logger.info("Agent '%s' warmed up", agent_id)
+
     logger.info("Unified API started with agents: %s", _registry.list_ids())
     yield
     logger.info("Unified API shutting down")

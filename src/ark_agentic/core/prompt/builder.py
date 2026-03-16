@@ -248,7 +248,6 @@ class SystemPromptBuilder:
         tools: list[AgentTool] | None = None,
         skills: list[SkillEntry] | None = None,
         context: dict[str, Any] | None = None,
-        custom_instructions: str | None = None,
         config: PromptConfig | None = None,
         include_tool_params: bool = False,
         include_memory_instructions: bool = False,
@@ -260,8 +259,7 @@ class SystemPromptBuilder:
             tools: 可用工具列表
             skills: 可用技能列表
             context: 上下文信息
-            custom_instructions: 自定义指令
-            config: 提示配置
+            config: 提示配置（含 custom_instructions 等）
             include_tool_params: 是否在工具描述中包含参数信息
             include_memory_instructions: 是否包含 memory 使用指令
             user_profile_content: 全局用户画像 (USER.md) 内容
@@ -286,8 +284,7 @@ class SystemPromptBuilder:
             builder.add_context(context)
         if effective_config.thinking_tag_instructions:
             builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
-        if custom_instructions:
-            builder.add_custom_instructions(custom_instructions)
+        builder.add_custom_instructions()
 
         return builder.build()
 
@@ -296,32 +293,14 @@ class SystemPromptBuilder:
 # 参考: openclaw-main/src/agents/system-prompt.ts - MEMORY_INSTRUCTIONS
 
 MEMORY_INSTRUCTIONS = """
-## 记忆检索与持久化
+## 记忆检索
 
-### 读取记忆
 在回答任何关于先前工作、决策、日期、人员、偏好或上下文的问题之前：
 
-1. **先搜索**：使用相关查询运行 `memory_search`，在 MEMORY.md 和 memory/*.md 文件中查找相关信息
+1. **先搜索**：使用相关查询运行 `memory_search`，在 MEMORY.md 中查找相关信息
 2. **获取详情**：使用 `memory_get` 仅提取你需要的特定行
-3. **保持上下文精简**：不要检索整个文件；只请求必要的内容
+3. **保持上下文精简**：不要检索整个文件，只请求必要的内容
 4. **引用来源**：使用记忆中的信息时，引用文件和行号
 
-### 写入记忆（分流规则）
-当对话中出现重要信息时，根据信息类型选择正确的写入目标：
-
-**全局用户画像** → 使用 `profile_set(section, key, value)`：
-- 按 (section, key) 写入，同 key 自动覆盖旧值
-- 常用 section: 基本信息, 沟通风格, 偏好, 重要事项（也可创建自定义 section）
-- 优先复用系统提示词中「用户画像」里已有的 section
-- 适用于：通用偏好、个人信息、跨场景习惯
-
-**当前 Agent 记忆** → 使用 `memory_set`：
-- 本 agent 相关的决策和上下文
-- 项目特定信息、行动项
-- 使用 MEMORY.md 存储一般笔记，或使用 memory/*.md 存储特定主题
-
-示例工作流：
-- 用户说"我喜欢简洁的回复" → `profile_set(section="沟通风格", key="偏好风格", value="简洁")`
-- 用户做出业务决策 → 调用 `memory_set` 记录到当前 agent 记忆
-- 用户询问之前的决策 → 调用 `memory_search` 检索
+记忆由系统自动更新，你无需手动保存。专注于检索和使用已有记忆即可。
 """

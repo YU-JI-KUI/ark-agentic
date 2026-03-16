@@ -10,7 +10,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field, replace
-from typing import Any, TYPE_CHECKING, Callable, Awaitable
+from typing import Any, TYPE_CHECKING, Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -40,27 +40,6 @@ if TYPE_CHECKING:
     from .memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
-
-
-# ============ Preference Extraction Prompt ============
-
-_PREFERENCE_EXTRACTION_PROMPT = """\
-从以下对话片段中提取用户的持久化偏好信息。
-只提取明确表达或可靠推断的信息，不要猜测。
-不要重复已有画像中的信息。
-输出 JSON 对象，key 是 section 名，value 是 {{key: value}} 对象。
-常用 section: 基本信息, 沟通风格, 偏好, 重要事项。
-如有需要可使用自定义 section（如 技术偏好, 工作习惯）。
-如果没有新信息，输出 {{}}。
-
-示例：{{"沟通风格": {{"偏好风格": "专业简洁"}}, "技术偏好": {{"编程语言": "Python"}}}}
-
-当前用户画像：
-{current_profile}
-
-对话片段：
-{conversation}
-"""
 
 
 # ============ Runner Config ============
@@ -162,10 +141,15 @@ class AgentRunner:
         self._memory_base_manager = memory_manager
         self._memory_managers: dict[str, MemoryManager] = {}
         self._shared_embedding = None
+        self._extractor = None
+        self._extract_locks: dict[str, asyncio.Lock] = {}
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
         if memory_manager is not None:
             from .memory.embeddings import BGEEmbedding
+            from .memory.extractor import MemoryExtractor
             self._shared_embedding = BGEEmbedding(memory_manager.config.embedding)
+            self._extractor = MemoryExtractor(self._get_llm)
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
@@ -202,6 +186,11 @@ class AgentRunner:
         mgr = MM(user_config, shared_embedding=self._shared_embedding)
         self._memory_managers[user_id] = mgr
         return mgr
+
+    def warmup(self) -> None:
+        """同步预加载 embedding 模型（供 lifespan 阶段调用）。"""
+        if self._shared_embedding is not None:
+            self._shared_embedding._ensure_model()
 
     async def run(
         self,
@@ -270,9 +259,8 @@ class AgentRunner:
         self.session_manager.add_message_sync(session_id, user_message)
 
         if self.config.auto_compact:
-            callback = self._make_pre_compact_callback(user_id) if memory_mgr else None
             await self.session_manager.auto_compact_if_needed(
-                session_id, user_id, pre_compact_callback=callback,
+                session_id, user_id, pre_compact_callback=None,
             )
 
         use_streaming = stream_override if stream_override is not None else self.config.enable_streaming
@@ -292,6 +280,15 @@ class AgentRunner:
         session.strip_temp_state()
         await self.session_manager.sync_session_state(session_id, user_id)
 
+        if self._extractor and memory_mgr:
+            task = asyncio.create_task(
+                self._background_extract(
+                    user_id, user_input, result.response.content or "", memory_mgr,
+                )
+            )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
         return result
 
     @staticmethod
@@ -300,105 +297,47 @@ class AgentRunner:
         for k, v in input_context.items():
             session.state[k] = v
 
-    def _make_pre_compact_callback(self, user_id: str) -> Callable[[str, list[AgentMessage]], Awaitable[None]]:
-        """创建压缩前回调：将即将丢弃的消息写入记忆（file 或 mem0）+ 提取用户偏好"""
+    async def _background_extract(
+        self,
+        user_id: str,
+        user_message: str,
+        assistant_response: str,
+        memory_mgr: MemoryManager,
+    ) -> None:
+        """后台异步提取记忆，per-user 加锁防抖。"""
+        if not self._extractor:
+            return
 
-        def _get_mgr() -> MemoryManager | None:
-            return self._memory_managers.get(user_id)
-
-        get_llm = self._get_llm
-
-        async def _flush_to_memory(
-            session_id: str, messages: list[AgentMessage]
-        ) -> None:
-            memory_mgr = _get_mgr()
-            if not memory_mgr or not memory_mgr._initialized:
-                return
-            parts: list[str] = []
-            for msg in messages:
-                if msg.role == MessageRole.SYSTEM:
-                    continue
-                label = msg.role.value.upper()
-                text = msg.content or ""
-                if msg.tool_calls:
-                    tool_names = ", ".join(tc.name for tc in msg.tool_calls)
-                    text += f" [tools: {tool_names}]"
-                if text.strip():
-                    parts.append(f"{label}: {text[:300]}")
-
-            if not parts:
-                return
-
-            from pathlib import Path
-            from datetime import datetime
-
-            workspace_dir = Path(memory_mgr.config.workspace_dir)
-            memory_file = workspace_dir / "MEMORY.md"
-            memory_file.parent.mkdir(parents=True, exist_ok=True)
-
-            snapshot = (
-                f"\n\n## Session Snapshot ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
-                + "\n".join(parts[:20])
-                + "\n"
-            )
-            with open(memory_file, "a", encoding="utf-8") as f:
-                f.write(snapshot)
-
-            memory_mgr.mark_dirty()
-
-            await _extract_preferences_to_profile(parts)
-
-        async def _extract_preferences_to_profile(parts: list[str]) -> None:
+        lock = self._extract_locks.setdefault(user_id, asyncio.Lock())
+        async with lock:
             try:
                 from .paths import get_memory_base_dir
-                from .memory.user_profile import load_user_profile, upsert_profile_entry
-
-                conversation_text = "\n".join(parts[:30])
-                current_profile = load_user_profile(get_memory_base_dir(), user_id)
-
-                prompt = _PREFERENCE_EXTRACTION_PROMPT.format(
-                    conversation=conversation_text,
-                    current_profile=current_profile or "(empty)",
-                )
-                llm = get_llm()
-                response = await llm.ainvoke(prompt)
-                extracted = response.content if hasattr(response, "content") else str(response)
-
-                if not extracted or not extracted.strip():
-                    return
-
-                text = extracted.strip()
-                # Extract JSON from possible markdown code fence
-                if "```" in text:
-                    for block in text.split("```"):
-                        block = block.strip()
-                        if block.startswith("json"):
-                            block = block[4:].strip()
-                        if block.startswith("{"):
-                            text = block
-                            break
-
-                data = json.loads(text)
-                if not isinstance(data, dict) or not data:
-                    return
+                from .memory.user_profile import read_frontmatter, get_profile_path
+                from pathlib import Path
 
                 base_dir = get_memory_base_dir()
-                count = 0
-                for section, entries in data.items():
-                    if not isinstance(entries, dict):
-                        continue
-                    for key, value in entries.items():
-                        upsert_profile_entry(base_dir, user_id, str(section), str(key), str(value))
-                        count += 1
+                profile_path = get_profile_path(base_dir, user_id)
+                current_profile = read_frontmatter(profile_path)
 
-                if count:
-                    logger.info("Extracted %d profile entries for user %s", count, user_id)
-            except (json.JSONDecodeError, ValueError):
-                logger.debug("Preference extraction returned non-JSON for user %s, skipping", user_id)
+                agent_name = self.config.prompt_config.agent_name or "assistant"
+                agent_desc = self.config.prompt_config.agent_description or ""
+
+                result = await self._extractor.extract(
+                    user_message=user_message,
+                    assistant_response=assistant_response,
+                    current_profile=current_profile,
+                    agent_name=agent_name,
+                    agent_description=agent_desc,
+                )
+
+                if result.has_content:
+                    agent_memory_path = Path(memory_mgr.config.workspace_dir) / "MEMORY.md"
+                    await self._extractor.save(result, profile_path, agent_memory_path)
+                    if result.agent_memory:
+                        memory_mgr.mark_dirty()
+
             except Exception as e:
-                logger.warning("Preference extraction failed for user %s: %s", user_id, e)
-
-        return _flush_to_memory
+                logger.warning("Background memory extraction failed for user %s: %s", user_id, e)
 
     def _get_user_friendly_error_message(self, error: LLMError) -> str:
         if error.reason == LLMErrorReason.AUTH:

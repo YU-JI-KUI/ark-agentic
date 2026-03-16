@@ -58,7 +58,7 @@ class TestMemorySearchTool:
     def test_tool_metadata(self) -> None:
         tool = MemorySearchTool(_make_provider(MockMemoryManager()))
         assert tool.name == "memory_search"
-        assert "MEMORY.md" in tool.description
+        assert "语义搜索" in tool.description
         assert len(tool.parameters) == 3
 
     def test_get_json_schema(self) -> None:
@@ -186,7 +186,7 @@ class TestMemoryGetTool:
     def test_tool_metadata(self) -> None:
         tool = MemoryGetTool(_make_provider(MockMemoryManager()))
         assert tool.name == "memory_get"
-        assert "memory file" in tool.description
+        assert "MEMORY.md" in tool.description or "记忆" in tool.description
         assert len(tool.parameters) == 3
 
     def test_get_json_schema(self) -> None:
@@ -317,12 +317,10 @@ class TestCreateMemoryTools:
         provider = _make_provider(MockMemoryManager())
         tools = create_memory_tools(provider)
 
-        assert len(tools) == 4
+        assert len(tools) == 2
         names = [t.name for t in tools]
         assert "memory_search" in names
         assert "memory_get" in names
-        assert "memory_set" in names
-        assert "profile_set" in names
 
     def test_tools_share_provider(self) -> None:
         provider = _make_provider(MockMemoryManager())
