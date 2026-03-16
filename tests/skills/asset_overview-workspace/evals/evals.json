@@ -1,0 +1,39 @@
+{
+  "skill_name": "asset_overview",
+  "skill_path": "src/ark_agentic/agents/securities/skills/asset_overview/SKILL.md",
+  "evals": [
+    {
+      "id": 1,
+      "name": "simple-view",
+      "prompt": "查看我的账户资产",
+      "expected_output": "应调用 account_overview 工具获取数据，然后调用 display_card 展示卡片，简短回复确认",
+      "expected_action": "VIEW",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "analyze-loss",
+      "prompt": "帮我分析一下我的资产情况，看看为什么最近一直在亏损",
+      "expected_output": "应调用 account_overview 工具获取数据，输出 Markdown 分析报告，包含收益分析",
+      "expected_action": "ANALYZE",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "margin-account",
+      "prompt": "我的两融账户现在风险怎么样？担保比率多少？",
+      "expected_output": "应识别为两融账户，展示维持担保比率、风险等级等两融指标",
+      "expected_action": "VIEW",
+      "expected_account_type": "MARGIN",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "implicit-intent",
+      "prompt": "我有多少钱？",
+      "expected_output": "应识别为资产查询意图，调用 account_overview 工具",
+      "expected_action": "VIEW",
+      "files": []
+    }
+  ]
+}
