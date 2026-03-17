@@ -1,12 +1,14 @@
 """
-静态评估 asset_overview 技能
+静态评估 asset_overview 技能 (重构后版本)
 
 评估技能的:
 1. 技能结构完整性
-2. 描述触发准确性
-3. 工具契约明确性
-4. 状态机清晰度
-5. 错误处理覆盖
+2. 意图模型清晰度
+3. 路由边界定义
+4. 工具契约明确性
+5. 执行流程清晰度
+6. 输出策略
+7. 错误处理覆盖
 """
 
 import json
@@ -24,7 +26,6 @@ def read_skill():
 
 
 def check_frontmatter(content: str) -> dict:
-    """检查 frontmatter 完整性"""
     results = {"passed": 0, "failed": 0, "items": []}
 
     lines = content.split("\n")
@@ -61,14 +62,13 @@ def check_frontmatter(content: str) -> dict:
 
 
 def check_skill_structure(content: str) -> dict:
-    """检查技能结构"""
     results = {"passed": 0, "failed": 0, "items": []}
 
     required_sections = [
         ("技能目标", "技能目标"),
-        ("用户意图识别", "用户意图识别"),
+        ("意图模型", "意图模型"),
         ("工具契约", "工具契约"),
-        ("执行状态机", "执行状态机"),
+        ("执行流程", "执行流程"),
         ("输出策略", "输出策略"),
         ("错误处理", "错误处理"),
     ]
@@ -85,14 +85,56 @@ def check_skill_structure(content: str) -> dict:
     return results
 
 
+def check_intent_model(content: str) -> dict:
+    results = {"passed": 0, "failed": 0, "items": []}
+
+    checks = [
+        ("定义 account_type 枚举", "account_type:" in content and "NORMAL" in content),
+        ("定义 mode 枚举", "mode:" in content),
+        ("定义 MODE_CARD", "MODE_CARD" in content),
+        ("定义 MODE_TEXT", "MODE_TEXT" in content),
+        ("包含默认推断规则", "默认推断规则" in content),
+    ]
+
+    for check_name, passed in checks:
+        status = "✓" if passed else "✗"
+        results["items"].append(f"  {status} {check_name}")
+        if passed:
+            results["passed"] += 1
+        else:
+            results["failed"] += 1
+
+    return results
+
+
+def check_routing_boundary(content: str) -> dict:
+    results = {"passed": 0, "failed": 0, "items": []}
+
+    checks = [
+        ("定义路由边界", "路由边界" in content),
+        ("指向 holdings_analysis", "holdings_analysis" in content),
+        ("指向 profit_inquiry", "profit_inquiry" in content),
+        ("包含跳转提示", "跳转" in content),
+    ]
+
+    for check_name, passed in checks:
+        status = "✓" if passed else "✗"
+        results["items"].append(f"  {status} {check_name}")
+        if passed:
+            results["passed"] += 1
+        else:
+            results["failed"] += 1
+
+    return results
+
+
 def check_tool_references(content: str) -> dict:
-    """检查工具引用"""
     results = {"passed": 0, "failed": 0, "items": []}
 
     checks = [
         ("引用 account_overview 工具", "account_overview" in content),
         ("引用 display_card 工具", "display_card" in content),
-        ("工具调用格式正确", "account_overview()" in content),
+        ("工具调用顺序约束", "必须在" in content),
         ("display_card 调用示例", "display_card(source_tool=" in content),
     ]
 
@@ -107,16 +149,40 @@ def check_tool_references(content: str) -> dict:
     return results
 
 
-def check_state_machine(content: str) -> dict:
-    """检查状态机定义"""
+def check_execution_flow(content: str) -> dict:
     results = {"passed": 0, "failed": 0, "items": []}
 
     checks = [
-        ("定义 STATE_1_INTENT_PARSE", "STATE_1_INTENT_PARSE" in content),
-        ("定义 STATE_2_FETCH_DATA", "STATE_2_FETCH_DATA" in content),
-        ("定义 STATE_3_ANALYSIS", "STATE_3_ANALYSIS" in content),
-        ("定义 STATE_4_CARD_DISPLAY", "STATE_4_CARD_DISPLAY" in content),
-        ("包含状态转换图", "STATE_1" in content and "→" in content or "↓" in content),
+        ("定义 STEP_1_INTENT_PARSE", "STEP_1_INTENT_PARSE" in content),
+        ("定义 STEP_2_FETCH_DATA", "STEP_2_FETCH_DATA" in content),
+        ("定义 MODE_CARD 分支", "MODE_CARD" in content and "触发条件" in content),
+        ("定义 MODE_TEXT 分支", "MODE_TEXT" in content),
+        ("包含流程图", "STEP_1" in content and "↓" in content),
+    ]
+
+    for check_name, passed in checks:
+        status = "✓" if passed else "✗"
+        results["items"].append(f"  {status} {check_name}")
+        if passed:
+            results["passed"] += 1
+        else:
+            results["failed"] += 1
+
+    return results
+
+
+def check_output_strategy(content: str) -> dict:
+    results = {"passed": 0, "failed": 0, "items": []}
+
+    checks = [
+        ("MODE_CARD 字数限制(≤30字)", "≤30字" in content),
+        ("MODE_TEXT 字数限制(≤200字)", "≤200字" in content),
+        (
+            "MODE_TEXT 禁止 display_card",
+            "MODE_TEXT" in content and "禁止调用 display_card" in content,
+        ),
+        ("包含普通账户示例", "普通账户" in content and "示例" in content),
+        ("包含两融账户示例", "两融账户" in content and "示例" in content),
     ]
 
     for check_name, passed in checks:
@@ -131,14 +197,13 @@ def check_state_machine(content: str) -> dict:
 
 
 def check_error_handling(content: str) -> dict:
-    """检查错误处理"""
     results = {"passed": 0, "failed": 0, "items": []}
 
     checks = [
         ("工具不可用处理", "工具不可用" in content),
         ("数据为空处理", "数据为空" in content),
         ("超时处理", "超时" in content),
-        ("部分失败处理", "部分" in content and "失败" in content),
+        ("部分失败处理", "部分失败" in content),
     ]
 
     for check_name, passed in checks:
@@ -153,13 +218,12 @@ def check_error_handling(content: str) -> dict:
 
 
 def check_constraints(content: str) -> dict:
-    """检查约束条件"""
     results = {"passed": 0, "failed": 0, "items": []}
 
     checks = [
         ("禁止使用历史数据", "历史" in content and "禁止" in content),
         ("禁止提供投资建议", "投资建议" in content and "禁止" in content),
-        ("禁止泄露原始 JSON", "原始 JSON" in content or "原始数据" in content),
+        ("禁止泄露原始数据", "原始" in content),
         ("实时调用工具约束", "实时调用" in content or "必须每次" in content),
     ]
 
@@ -175,14 +239,13 @@ def check_constraints(content: str) -> dict:
 
 
 def check_margin_support(content: str) -> dict:
-    """检查两融账户支持"""
     results = {"passed": 0, "failed": 0, "items": []}
 
     checks = [
         ("识别两融账户类型", "MARGIN" in content),
-        ("维持担保比率指标", "担保比率" in content or "维持担保" in content),
+        ("维持担保比率指标", "担保比率" in content),
         ("风险等级展示", "风险等级" in content),
-        ("保证金相关指标", "保证金" in content),
+        ("净资产/总负债指标", "净资产" in content or "总负债" in content),
     ]
 
     for check_name, passed in checks:
@@ -198,7 +261,7 @@ def check_margin_support(content: str) -> dict:
 
 def main():
     print("=" * 60)
-    print("asset_overview 技能静态评估")
+    print("asset_overview 技能静态评估 (重构后版本)")
     print("=" * 60)
     print()
 
@@ -207,8 +270,11 @@ def main():
     categories = [
         ("Frontmatter 完整性", check_frontmatter),
         ("技能结构", check_skill_structure),
+        ("意图模型", check_intent_model),
+        ("路由边界定义", check_routing_boundary),
         ("工具引用", check_tool_references),
-        ("状态机定义", check_state_machine),
+        ("执行流程", check_execution_flow),
+        ("输出策略", check_output_strategy),
         ("错误处理", check_error_handling),
         ("约束条件", check_constraints),
         ("两融账户支持", check_margin_support),
@@ -238,6 +304,7 @@ def main():
             "skill_name": "asset_overview",
             "skill_path": str(SKILL_PATH),
             "eval_type": "static",
+            "version": "refactored",
         },
         "summary": {
             "total_passed": total_passed,
@@ -247,7 +314,10 @@ def main():
     }
 
     output_path = (
-        Path(__file__).parent / "asset_overview-workspace" / "static_benchmark.json"
+        Path(__file__).parent
+        / "asset_overview-workspace"
+        / "iteration-2"
+        / "static_benchmark.json"
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
