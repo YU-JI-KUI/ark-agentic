@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .chunker import ChunkConfig, MarkdownChunker
-from .embeddings import BGEConfig, BGEEmbedding
+from .embeddings import BGEConfig, BGEEmbedding, infer_device
 from .sqlite_store import IndexMeta, SQLiteMemoryStore, SQLiteStoreConfig
 from .types import (
     MemoryChunk,
@@ -395,11 +395,11 @@ def build_memory_manager(memory_dir: str | Path | None = None) -> MemoryManager:
 def create_memory_manager(
     workspace_dir: str,
     embedding_model: str = "",
-    device: str = "cpu",
+    device: str | None = None,
 ) -> MemoryManager:
     config = MemoryConfig(
         workspace_dir=workspace_dir,
-        embedding=BGEConfig(model_name=embedding_model, device=device),
+        embedding=BGEConfig(model_name=embedding_model, device=device or infer_device()),
     )
     return MemoryManager(config)
 

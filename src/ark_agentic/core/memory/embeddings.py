@@ -14,8 +14,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from dataclasses import dataclass
-from typing import Any, Optional
+from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,30 @@ BGE_MODEL_DIMS = {
 }
 
 
+def get_available_devices() -> list[str]:
+    """获取可用的计算设备"""
+    devices = ["cpu"]
+    try:
+        import torch
+        if torch.cuda.is_available():
+            devices.append("cuda")
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            devices.append("mps")
+    except ImportError:
+        pass
+    return devices
+
+
+def infer_device() -> str:
+    """按优先级推断设备: cuda > mps > cpu"""
+    available = get_available_devices()
+    if "cuda" in available:
+        return "cuda"
+    if "mps" in available:
+        return "mps"
+    return "cpu"
+
+
 @dataclass
 class BGEConfig:
     """BGE 配置
@@ -37,10 +61,12 @@ class BGEConfig:
     1. 构造时显式传入的 model_name
     2. 环境变量 EMBEDDING_MODEL_PATH（本地路径或 HuggingFace ID）
     3. DEFAULT_BGE_MODEL
+
+    device 未传时按 cuda → mps → cpu 自动推断。
     """
 
     model_name: str = ""
-    device: str = "cpu"  # "cpu", "cuda", "mps"
+    device: str = field(default_factory=infer_device)  # 自动推断: cuda > mps > cpu
     normalize_embeddings: bool = True
     max_length: int = 512
     batch_size: int = 32
@@ -62,7 +88,7 @@ class BGEEmbedding:
 
     def __init__(self, config: BGEConfig | None = None) -> None:
         self.config = config or BGEConfig()
-        self._model: Optional[Any] = None  # SentenceTransformer model, kept as Any due to optional dependency
+        self._model: Any | None = None  # SentenceTransformer model, kept as Any due to optional dependency
         self._dimensions: int = 0
 
     @property
@@ -197,28 +223,11 @@ class BGEEmbedding:
 
 def create_bge_embedding(
     model_name: str = DEFAULT_BGE_MODEL,
-    device: str = "cpu",
+    device: str | None = None,
 ) -> BGEEmbedding:
     """创建 BGE Embedding 实例"""
-    config = BGEConfig(model_name=model_name, device=device)
+    config = BGEConfig(model_name=model_name, device=device or infer_device())
     return BGEEmbedding(config)
-
-
-def get_available_devices() -> list[str]:
-    """获取可用的计算设备"""
-    devices = ["cpu"]
-
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            devices.append("cuda")
-        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            devices.append("mps")
-    except ImportError:
-        pass
-
-    return devices
 
 
 def get_recommended_model() -> str:

@@ -93,24 +93,17 @@ def _embedding_to_blob(embedding: list[float]) -> bytes:
     return struct.pack(f"{len(embedding)}f", *embedding)
 
 
-def _get_sqlite_module():
-    """stdlib sqlite3 first (if load_extension works), then sqlean, then stdlib without extensions."""
+def _get_sqlite_module() -> Any:
+    """Use stdlib sqlite3; if load_extension is unavailable, sqlite-vec is disabled (cosine fallback)."""
     import sqlite3 as stdlib
-
     try:
         conn = stdlib.connect(":memory:")
         conn.enable_load_extension(True)
         conn.close()
         return stdlib
-    except Exception:
-        pass
-    try:
-        import sqlean  # type: ignore[import-untyped]
-
-        return sqlean
-    except ImportError:
+    except Exception:  # Probe; some builds raise AttributeError or OperationalError
         logger.info(
-            "sqlite3 extension loading unavailable and sqlean not installed; "
+            "sqlite3 extension loading unavailable; "
             "sqlite-vec will be disabled (cosine fallback active)"
         )
         return stdlib
