@@ -14,8 +14,8 @@ from typing import Any, Literal
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall, ToolResultType
 
-from ..template_renderer import TemplateRenderer
-from .field_extraction import (
+from ...template_renderer import TemplateRenderer
+from ..service.field_extraction import (
     extract_account_overview,
     extract_branch_info,
     extract_cash_assets,
@@ -25,7 +25,9 @@ from .field_extraction import (
 )
 
 
-def _get_context_value(context: dict[str, Any] | None, key: str, default: Any = None) -> Any:
+def _get_context_value(
+    context: dict[str, Any] | None, key: str, default: Any = None
+) -> Any:
     """从 context 获取值，优先 user: 前缀，兼容裸 key"""
     if context is None:
         return default
@@ -66,7 +68,7 @@ _ASSET_CLASS_MAP: dict[str, Literal["ETF", "HKSC", "Fund", "Cash"]] = {
 
 class DisplayCardTool(AgentTool):
     """在前端展示数据卡片
-    
+
     将指定数据工具的返回结果渲染为可视化卡片，推送至前端界面。
     必须在调用数据工具之后使用。
     """
@@ -103,11 +105,13 @@ class DisplayCardTool(AgentTool):
             return AgentToolResult.error_result(
                 tool_call_id=tool_call.id,
                 error=f"未知的数据工具: {source_tool}。"
-                      f"可选值: {', '.join(_RENDER_MAP.keys())}",
+                f"可选值: {', '.join(_RENDER_MAP.keys())}",
             )
 
         # 从 context 获取数据工具的返回内容（由 runner 注入，或者测试脚本注入）
-        tool_results: dict[str, Any] = (context or {}).get("_tool_results_by_name") or (context or {})
+        tool_results: dict[str, Any] = (context or {}).get("_tool_results_by_name") or (
+            context or {}
+        )
         source_data: dict[str, Any] = tool_results.get(source_tool) or {}
 
         if len(source_data) == 0:
@@ -154,7 +158,9 @@ class DisplayCardTool(AgentTool):
                 extracted_data = data
             extracted_data["title"] = _HOLDINGS_TITLE.get(source_tool, "")
             extracted_data["account_type"] = account_type
-            template = TemplateRenderer.render_holdings_list_card(asset_class, extracted_data)
+            template = TemplateRenderer.render_holdings_list_card(
+                asset_class, extracted_data
+            )
         elif render_type == "account_overview":
             extracted_data = extract_account_overview(data)
             extracted_data["title"] = f"资金账号：{masked}的资产信息"
@@ -179,7 +185,4 @@ class DisplayCardTool(AgentTool):
                 error=f"不支持的渲染类型: {render_type}",
             )
 
-        return AgentToolResult.a2ui_result(
-            tool_call_id=tool_call.id,
-            data=template
-        )
+        return AgentToolResult.a2ui_result(tool_call_id=tool_call.id, data=template)

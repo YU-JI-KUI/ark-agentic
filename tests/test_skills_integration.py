@@ -8,13 +8,13 @@
 import pytest
 import os
 from ark_agentic.core.types import ToolCall, ToolResultType
-from ark_agentic.agents.securities.tools.account_overview import AccountOverviewTool
-from ark_agentic.agents.securities.tools.etf_holdings import ETFHoldingsTool
-from ark_agentic.agents.securities.tools.hksc_holdings import HKSCHoldingsTool
-from ark_agentic.agents.securities.tools.fund_holdings import FundHoldingsTool
-from ark_agentic.agents.securities.tools.cash_assets import CashAssetsTool
-from ark_agentic.agents.securities.tools.security_detail import SecurityDetailTool
-from ark_agentic.agents.securities.tools.display_card import DisplayCardTool
+from ark_agentic.agents.securities.tools.agent.account_overview import AccountOverviewTool
+from ark_agentic.agents.securities.tools.agent.etf_holdings import ETFHoldingsTool
+from ark_agentic.agents.securities.tools.agent.hksc_holdings import HKSCHoldingsTool
+from ark_agentic.agents.securities.tools.agent.fund_holdings import FundHoldingsTool
+from ark_agentic.agents.securities.tools.agent.cash_assets import CashAssetsTool
+from ark_agentic.agents.securities.tools.agent.security_detail import SecurityDetailTool
+from ark_agentic.agents.securities.tools.agent.display_card import DisplayCardTool
 
 # Ensure mock environment
 os.environ["SECURITIES_SERVICE_MOCK"] = "true"
@@ -47,7 +47,7 @@ async def test_account_overview_data_and_card():
     # 卡片工具返回 A2UI 模板
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "account_overview_card"
+    assert template["template"] == "queryAccountAssetResultTpl"
     assert "data" in template
 
 
@@ -74,8 +74,8 @@ async def test_etf_holdings_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "holdings_list_card"
-    assert template["asset_class"] == "ETF"
+    assert template["template"] == "holdings_list_card"
+    assert template["assetClass"] == "ETF"
 
 
 @pytest.mark.asyncio
@@ -101,8 +101,8 @@ async def test_hksc_holdings_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "holdings_list_card"
-    assert template["asset_class"] == "HKSC"
+    assert template["template"] == "holdings_list_card"
+    assert template["assetClass"] == "HKSC"
 
 
 @pytest.mark.asyncio
@@ -128,8 +128,8 @@ async def test_fund_holdings_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "holdings_list_card"
-    assert template["asset_class"] == "Fund"
+    assert template["template"] == "holdings_list_card"
+    assert template["assetClass"] == "Fund"
 
 
 @pytest.mark.asyncio
@@ -155,8 +155,8 @@ async def test_cash_assets_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "cash_assets_card"
-    assert "cash_balance" in template["data"]
+    assert template["template"] == "cash_assets_card"
+    assert "cashBalance" in template["data"]
 
 
 @pytest.mark.asyncio
@@ -182,5 +182,5 @@ async def test_security_detail_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "security_detail_card"
-    assert template["data"]["security_code"] == "510300"
+    assert template["template"] == "security_detail_card"
+    assert template["data"]["securityCode"] == "510300"

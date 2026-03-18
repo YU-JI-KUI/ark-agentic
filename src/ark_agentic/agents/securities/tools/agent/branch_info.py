@@ -22,7 +22,7 @@ from typing import Any
 from ark_agentic.core.tools.base import AgentTool
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
-from .service_client import create_service_adapter
+from ..service import create_service_adapter
 
 
 class BranchInfoTool(AgentTool):

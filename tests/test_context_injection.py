@@ -7,8 +7,8 @@ context 结构: {"user_id": "U001", "token_id": "xxx", "account_type": "normal"}
 import pytest
 import os
 from ark_agentic.core.types import ToolCall
-from ark_agentic.agents.securities.tools.account_overview import AccountOverviewTool
-from ark_agentic.agents.securities.tools.field_extraction import extract_account_overview
+from ark_agentic.agents.securities.tools.agent.account_overview import AccountOverviewTool
+from ark_agentic.agents.securities.tools.service.field_extraction import extract_account_overview
 
 # Ensure mock environment
 os.environ["SECURITIES_SERVICE_MOCK"] = "true"
@@ -59,14 +59,15 @@ async def test_account_overview_context_injection():
     # 使用字段提取工具提取显示字段
     extracted_margin = extract_account_overview(data_margin)
     
-    # 两融账户应该有特有字段
-    assert extracted_margin.get("net_assets") is not None
-    assert extracted_margin.get("total_liabilities") is not None
-    assert extracted_margin.get("maintenance_margin_ratio") is not None
-    
-    print(f"Net Assets: {extracted_margin.get('net_assets')}")
-    print(f"Total Liabilities: {extracted_margin.get('total_liabilities')}")
-    print(f"Maintenance Margin Ratio: {extracted_margin.get('maintenance_margin_ratio')}")
+    # 两融账户应该有特有字段（整体透传为 rzrq_assets_info 对象）
+    rzrq = extracted_margin.get("rzrq_assets_info") or {}
+    assert rzrq.get("netWorth") is not None
+    assert rzrq.get("totalLiabilities") is not None
+    assert rzrq.get("mainRatio") is not None
+
+    print(f"Net Assets: {rzrq.get('netWorth')}")
+    print(f"Total Liabilities: {rzrq.get('totalLiabilities')}")
+    print(f"Maintenance Margin Ratio: {rzrq.get('mainRatio')}")
 
 
 
@@ -91,9 +92,10 @@ async def test_account_overview_prefixed_context_injection():
     extracted = extract_account_overview(data)
 
     # 两融账户应具备特有字段；若未正确读取 user:account_type 会退化为普通账户
-    assert extracted.get("net_assets") is not None
-    assert extracted.get("total_liabilities") is not None
-    assert extracted.get("maintenance_margin_ratio") is not None
+    rzrq = extracted.get("rzrq_assets_info") or {}
+    assert rzrq.get("netWorth") is not None
+    assert rzrq.get("totalLiabilities") is not None
+    assert rzrq.get("mainRatio") is not None
 
 
 if __name__ == "__main__":

@@ -150,8 +150,8 @@ intent_schema:
 
 **执行内容**：
 
-1. 先输出一句简短确认（≤30字）
-2. 调用 `display_card(source_tool="account_overview")` 展示卡片
+1. 调用 `display_card(source_tool="account_overview")` 展示卡片。
+2. 输出一句简短确认（≤30字），无需再补充额外信息。
 
 **失败处理**：
 
