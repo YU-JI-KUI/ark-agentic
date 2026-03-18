@@ -29,7 +29,7 @@ class ChunkConfig:
     # 重叠大小（字符数）
     chunk_overlap: int = 50
     # 最小块大小
-    min_chunk_size: int = 50
+    min_chunk_size: int = 10
 
     # Markdown 分块策略
     split_by_heading: bool = True  # 按标题分割

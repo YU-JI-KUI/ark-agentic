@@ -2,6 +2,7 @@
 Memory 管理器
 
 统一管理 SQLiteMemoryStore、文档同步和搜索。
+共享实例设计：单个 MemoryManager 实例通过 user_id 分区支持多用户。
 
 参考: openclaw-main/src/memory/manager.ts
 """
@@ -136,10 +137,17 @@ class MemoryManager:
             or stored.chunk_overlap != current_meta.chunk_overlap
         )
 
+    def _resolve_user_workspace(self, user_id: str) -> Path:
+        """按 user_id 定位文件目录: {workspace_dir}/{user_id}。"""
+        if user_id:
+            return self._workspace_dir / user_id
+        return self._workspace_dir
+
     async def sync(
         self,
         force: bool = False,
         progress_callback: Callable[[MemorySyncProgress], None] | None = None,
+        user_id: str = "",
     ) -> None:
         if not self._initialized and not force:
             await self.initialize()
@@ -154,7 +162,7 @@ class MemoryManager:
             return
 
         self._syncing = asyncio.ensure_future(
-            self._run_sync(force, progress_callback)
+            self._run_sync(force, progress_callback, user_id)
         )
         try:
             await self._syncing
@@ -165,16 +173,17 @@ class MemoryManager:
         self,
         force: bool = False,
         progress_callback: Callable[[MemorySyncProgress], None] | None = None,
+        user_id: str = "",
     ) -> None:
-        logger.info("Syncing memory index (force=%s)", force)
+        logger.info("Syncing memory index (force=%s, user_id=%s)", force, user_id)
 
+        user_workspace = self._resolve_user_workspace(user_id)
         current_meta = self._build_current_meta()
         need_full = force or self._needs_full_reindex(current_meta)
 
-        # Collect files
         files_to_index: list[tuple[Path, MemorySource]] = []
         for memory_path in self.config.memory_paths:
-            full_path = self._workspace_dir / memory_path
+            full_path = user_workspace / memory_path
             if full_path.is_file():
                 files_to_index.append((full_path, MemorySource.MEMORY))
             elif full_path.is_dir():
@@ -196,14 +205,16 @@ class MemoryManager:
                 logger.warning("Failed to read %s: %s", file_path, e)
                 continue
 
-            rel_path = str(file_path.relative_to(self._workspace_dir))
+            rel_path = str(file_path.relative_to(user_workspace))
 
             if not need_full:
-                old_hash = self._store.get_file_hash(rel_path)
+                old_hash = self._store.get_file_hash(rel_path, user_id)
                 if old_hash == content_hash:
                     continue
 
             chunks = self._chunker.chunk_text(content, rel_path, source)
+            for c in chunks:
+                c.user_id = user_id
             new_chunks.extend(chunks)
             changed_paths.append(rel_path)
 
@@ -211,6 +222,7 @@ class MemoryManager:
             self._store.set_file_hash(
                 rel_path, content_hash, source.value,
                 mtime_ms=stat.st_mtime * 1000, size=stat.st_size,
+                user_id=user_id,
             )
 
             if progress_callback:
@@ -231,7 +243,6 @@ class MemoryManager:
                 MemorySyncProgress(0, len(new_chunks), "Generating embeddings")
             )
 
-        # Embedding with cache
         model_name = self.config.embedding.model_name
         content_hashes = [c.content_hash for c in new_chunks]
         cached = self._store.get_cached_embeddings(model_name, content_hashes)
@@ -254,11 +265,11 @@ class MemoryManager:
             self._store.set_cached_embeddings(model_name, cache_entries)
 
         if need_full:
-            self._store.safe_reindex(new_chunks, current_meta)
+            self._store.safe_reindex(new_chunks, current_meta, user_id)
         else:
             for path in changed_paths:
-                self._store.delete_by_path(path)
-            self._store.add(new_chunks)
+                self._store.delete_by_path(path, user_id)
+            self._store.add(new_chunks, user_id)
             self._store.write_meta(current_meta)
 
         self._last_sync = datetime.now()
@@ -280,19 +291,19 @@ class MemoryManager:
             await self.initialize()
 
         if self._dirty:
-            await self.sync()
+            await self.sync(user_id=user_id)
             self._dirty = False
 
         query_embedding = await self._embedding.embed_query(query)
 
         if search_mode == "vector":
-            raw = self._store.vector_search(query_embedding, max_results)
+            raw = self._store.vector_search(query_embedding, max_results, user_id)
             results = [
                 MemorySearchResult.from_chunk(chunk, score, vector_score=score)
                 for chunk, score in raw
             ]
         elif search_mode == "keyword":
-            raw = self._store.keyword_search(query, max_results)
+            raw = self._store.keyword_search(query, max_results, user_id)
             results = [
                 MemorySearchResult.from_chunk(chunk, score, keyword_score=score)
                 for chunk, score in raw
@@ -300,7 +311,7 @@ class MemoryManager:
         else:
             results = self._store.hybrid_search(
                 query, query_embedding,
-                top_k=max_results, min_score=min_score,
+                top_k=max_results, min_score=min_score, user_id=user_id,
             )
 
         if sources:
@@ -336,6 +347,7 @@ class MemoryManager:
         content: str,
         path: str,
         source: MemorySource = MemorySource.MEMORY,
+        user_id: str = "",
     ) -> int:
         if not self._initialized:
             await self.initialize()
@@ -344,15 +356,18 @@ class MemoryManager:
         if not chunks:
             return 0
 
+        for c in chunks:
+            c.user_id = user_id
+
         texts = [c.text for c in chunks]
         embeddings = await self._embedding.embed_batch(texts)
 
         for chunk, embedding in zip(chunks, embeddings):
             chunk.embedding = embedding
 
-        self._store.add(chunks)
+        self._store.add(chunks, user_id)
 
-        logger.info("Added %d chunks from %s", len(chunks), path)
+        logger.info("Added %d chunks from %s (user=%s)", len(chunks), path, user_id)
         return len(chunks)
 
     async def close(self) -> None:

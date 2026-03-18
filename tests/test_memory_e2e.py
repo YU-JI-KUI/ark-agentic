@@ -108,7 +108,7 @@ async def base_agent(memory_dir: Path, base_sessions_dir: Path):
     return runner
 
 
-@pytest.mark.skip(reason="memory_set 已移除，记忆写入由 MemoryExtractor 自动完成，见 Phase 2 compact 写入")
+@pytest.mark.skip(reason="memory_set 已移除，记忆写入由 MemoryWriteTool / MemoryFlusher 完成")
 @pytest.mark.asyncio
 async def test_phase1_react_loop_memory(base_agent: AgentRunner, memory_dir: Path):
     """

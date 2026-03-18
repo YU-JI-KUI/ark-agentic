@@ -1,4 +1,4 @@
-"""Tests for MemoryExtractor — async memory extraction from conversations."""
+"""Tests for MemoryFlusher — pre-compaction memory extraction."""
 
 import tempfile
 from pathlib import Path
@@ -6,23 +6,37 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ark_agentic.core.memory.extractor import ExtractedMemory, MemoryExtractor
-from ark_agentic.core.memory.user_profile import read_frontmatter, write_frontmatter
+from ark_agentic.core.memory.extractor import FlushResult, MemoryFlusher, _extract_text_from_content
 
 
-class TestExtractedMemory:
+class TestFlushResult:
     def test_has_content_empty(self) -> None:
-        assert not ExtractedMemory().has_content
+        assert not FlushResult().has_content
 
     def test_has_content_with_profile(self) -> None:
-        assert ExtractedMemory(profile={"偏好": {"语言": "中文"}}).has_content
+        assert FlushResult(profile="## 姓名\n张三").has_content
 
     def test_has_content_with_agent_memory(self) -> None:
-        assert ExtractedMemory(agent_memory="some note").has_content
+        assert FlushResult(agent_memory="## 偏好\n简洁").has_content
+
+
+class TestExtractTextFromContent:
+    def test_string_content(self) -> None:
+        assert _extract_text_from_content("hello") == "hello"
+
+    def test_list_content(self) -> None:
+        content = [{"type": "text", "text": "hello "}, {"type": "text", "text": "world"}]
+        assert _extract_text_from_content(content) == "hello  world"
+
+    def test_list_with_non_dict(self) -> None:
+        content = ["hello", "world"]
+        assert _extract_text_from_content(content) == "hello world"
+
+    def test_none_content(self) -> None:
+        assert _extract_text_from_content(None) == ""
 
 
 def _make_llm(response_text: str):
-    """Create a mock LLM that returns the given text."""
     mock_response = MagicMock()
     mock_response.content = response_text
     llm = MagicMock()
@@ -30,12 +44,10 @@ def _make_llm(response_text: str):
     return llm
 
 
-class TestMemoryExtractorParse:
-    """Test _parse_response directly."""
-
-    def _parse(self, raw: str) -> ExtractedMemory:
-        extractor = MemoryExtractor(lambda: MagicMock())
-        return extractor._parse_response(raw)
+class TestMemoryFlusherParse:
+    def _parse(self, raw: str) -> FlushResult:
+        flusher = MemoryFlusher(lambda: MagicMock())
+        return flusher._parse_response(raw)
 
     def test_empty_input(self) -> None:
         result = self._parse("")
@@ -46,117 +58,65 @@ class TestMemoryExtractorParse:
         assert not result.has_content
 
     def test_profile_only(self) -> None:
-        result = self._parse('{"profile": {"偏好": {"语言": "中文"}}, "agent_memory": ""}')
-        assert result.profile == {"偏好": {"语言": "中文"}}
+        result = self._parse('{"profile": "## 姓名\\n张三", "agent_memory": ""}')
+        assert result.profile == "## 姓名\n张三"
         assert result.agent_memory == ""
 
     def test_agent_memory_only(self) -> None:
-        result = self._parse('{"profile": {}, "agent_memory": "用户只看第一个保单"}')
-        assert result.profile == {}
-        assert result.agent_memory == "用户只看第一个保单"
-
-    def test_both(self) -> None:
-        result = self._parse(
-            '{"profile": {"基本信息": {"姓名": "张三"}}, "agent_memory": "偏好简洁回复"}'
-        )
-        assert result.profile == {"基本信息": {"姓名": "张三"}}
-        assert result.agent_memory == "偏好简洁回复"
+        result = self._parse('{"profile": "", "agent_memory": "## 偏好\\n只看第一个保单"}')
+        assert result.profile == ""
+        assert result.agent_memory == "## 偏好\n只看第一个保单"
 
     def test_markdown_code_fence(self) -> None:
-        raw = '```json\n{"profile": {"偏好": {"x": "y"}}, "agent_memory": ""}\n```'
+        raw = '```json\n{"profile": "## 偏好\\n中文", "agent_memory": ""}\n```'
         result = self._parse(raw)
-        assert result.profile == {"偏好": {"x": "y"}}
+        assert result.profile == "## 偏好\n中文"
 
     def test_non_json_returns_empty(self) -> None:
         result = self._parse("I don't have anything to extract.")
         assert not result.has_content
 
-    def test_malformed_profile_entries_skipped(self) -> None:
-        result = self._parse('{"profile": {"偏好": "not a dict"}, "agent_memory": "ok"}')
-        assert result.profile == {}
-        assert result.agent_memory == "ok"
 
-
-class TestMemoryExtractorExtract:
+class TestMemoryFlusherFlush:
     @pytest.mark.asyncio
-    async def test_extract_calls_llm(self) -> None:
-        llm = _make_llm('{"profile": {"偏好": {"语言": "中文"}}, "agent_memory": ""}')
-        extractor = MemoryExtractor(lambda: llm)
+    async def test_flush_calls_llm(self) -> None:
+        llm = _make_llm('{"profile": "## 姓名\\n张三", "agent_memory": ""}')
+        flusher = MemoryFlusher(lambda: llm)
 
-        result = await extractor.extract(
-            user_message="我喜欢中文回复",
-            assistant_response="好的，我会用中文回复您。",
-            current_profile={},
+        result = await flusher.flush(
+            conversation_text="user: 我叫张三\nassistant: 好的，张三。",
+            current_profile="",
             agent_name="保险助手",
             agent_description="提供保险咨询服务",
         )
 
         llm.ainvoke.assert_called_once()
-        assert result.profile == {"偏好": {"语言": "中文"}}
+        assert "张三" in result.profile
 
 
-class TestMemoryExtractorSave:
-    @pytest.mark.asyncio
-    async def test_save_profile(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_path = Path(tmpdir) / "MEMORY.md"
-            agent_path = Path(tmpdir) / "agent" / "MEMORY.md"
-            write_frontmatter(profile_path, {"基本信息": {}})
-
-            extractor = MemoryExtractor(lambda: MagicMock())
-            result = ExtractedMemory(
-                profile={"基本信息": {"姓名": "张三"}, "偏好": {"语言": "中文"}},
-                agent_memory="",
-            )
-            await extractor.save(result, profile_path, agent_path)
-
-            data = read_frontmatter(profile_path)
-            assert data["基本信息"]["姓名"] == "张三"
-            assert data["偏好"]["语言"] == "中文"
-            assert not agent_path.exists()
-
+class TestMemoryFlusherSave:
     @pytest.mark.asyncio
     async def test_save_agent_memory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_path = Path(tmpdir) / "profile" / "MEMORY.md"
             agent_path = Path(tmpdir) / "agent" / "MEMORY.md"
 
-            extractor = MemoryExtractor(lambda: MagicMock())
-            result = ExtractedMemory(agent_memory="用户只看第一个保单")
-            await extractor.save(result, profile_path, agent_path)
+            flusher = MemoryFlusher(lambda: MagicMock())
+            result = FlushResult(agent_memory="## 偏好\n只看第一个保单")
+            await flusher.save(result, profile_path, agent_path)
 
             assert agent_path.exists()
             content = agent_path.read_text(encoding="utf-8")
-            assert "用户只看第一个保单" in content
+            assert "只看第一个保单" in content
 
-    @pytest.mark.asyncio
-    async def test_save_both(self) -> None:
+    def test_append_agent_memory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            profile_path = Path(tmpdir) / "MEMORY.md"
-            agent_path = Path(tmpdir) / "agent" / "MEMORY.md"
-            write_frontmatter(profile_path, {})
+            memory_path = Path(tmpdir) / "MEMORY.md"
+            memory_path.write_text("## 已有\n旧记忆\n", encoding="utf-8")
 
-            extractor = MemoryExtractor(lambda: MagicMock())
-            result = ExtractedMemory(
-                profile={"偏好": {"语言": "中文"}},
-                agent_memory="保单偏好: 只看第一个",
-            )
-            await extractor.save(result, profile_path, agent_path)
+            flusher = MemoryFlusher(lambda: MagicMock())
+            flusher._append_agent_memory("## 新记忆\n内容", memory_path)
 
-            assert read_frontmatter(profile_path)["偏好"]["语言"] == "中文"
-            assert "保单偏好" in agent_path.read_text(encoding="utf-8")
-
-    @pytest.mark.asyncio
-    async def test_save_merges_existing_profile(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_path = Path(tmpdir) / "MEMORY.md"
-            agent_path = Path(tmpdir) / "agent" / "MEMORY.md"
-            write_frontmatter(profile_path, {"基本信息": {"姓名": "李四"}})
-
-            extractor = MemoryExtractor(lambda: MagicMock())
-            result = ExtractedMemory(profile={"基本信息": {"时区": "UTC+8"}})
-            await extractor.save(result, profile_path, agent_path)
-
-            data = read_frontmatter(profile_path)
-            assert data["基本信息"]["姓名"] == "李四"
-            assert data["基本信息"]["时区"] == "UTC+8"
+            content = memory_path.read_text(encoding="utf-8")
+            assert "旧记忆" in content
+            assert "新记忆" in content

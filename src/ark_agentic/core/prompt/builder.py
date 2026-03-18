@@ -274,10 +274,10 @@ class SystemPromptBuilder:
 
         if user_profile_content:
             builder.add_user_profile(user_profile_content)
-        if tools:
-            builder.add_tools(tools, include_params=include_tool_params)
         if include_memory_instructions:
             builder.add_memory_instructions()
+        if tools:
+            builder.add_tools(tools, include_params=include_tool_params)
         if skills:
             builder.add_skills(skills)
         if context:
@@ -285,22 +285,43 @@ class SystemPromptBuilder:
         if effective_config.thinking_tag_instructions:
             builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
         builder.add_custom_instructions()
+        if include_memory_instructions:
+            builder.add_section(
+                "memory_reminder",
+                "记忆提醒：用户对你回复风格的批评（如「太啰嗦」「太正式」）是偏好表达，必须先调用 memory_write 保存再回复。",
+            )
 
         return builder.build()
 
 
 # ============ Memory 提示模板 ============
-# 参考: openclaw-main/src/agents/system-prompt.ts - MEMORY_INSTRUCTIONS
 
 MEMORY_INSTRUCTIONS = """
-## 记忆检索
+## 记忆系统
 
-在回答任何关于先前工作、决策、日期、人员、偏好或上下文的问题之前：
+你拥有跨对话的长期记忆能力。通过 memory_search 检索记忆，通过 memory_write 保存记忆。
 
-1. **先搜索**：使用相关查询运行 `memory_search`，在 MEMORY.md 中查找相关信息
-2. **获取详情**：使用 `memory_get` 仅提取你需要的特定行
-3. **保持上下文精简**：不要检索整个文件，只请求必要的内容
-4. **引用来源**：使用记忆中的信息时，引用文件和行号
+### 保存规则（最高优先级）
 
-记忆由系统自动更新，你无需手动保存。专注于检索和使用已有记忆即可。
+**每轮回复前，必须判断用户消息是否满足以下任一条件；满足则先调用 memory_write，再回复：**
+1. 用户表达了偏好或身份（无论直接还是间接）
+2. 用户对你的行为提出批评或要求调整——批评 = 偏好的反面表达
+3. 用户的表达与上方「用户画像」矛盾
+
+不保存：纯业务查询、寒暄、临时计算
+
+**示例：**
+- "好啰嗦，简洁点" → 批评 = 偏好（要简洁）→ memory_write(type=profile)
+- "我是张经理，在平安工作" → 身份信息 → memory_write(type=profile)
+- "以后贷款渠道都不要" → 持久决策 → memory_write(type=agent_memory)
+- "查一下我的保单" → 一次性查询 → 不保存
+
+### 检索（回答前）
+在回答关于历史决策、日期、人员、偏好的问题前，先运行 memory_search。
+使用 memory_get 获取搜索结果的更多上下文，保持请求量小以节省上下文窗口。
+
+### 格式
+内容使用 heading-based markdown：`## 标题\\n内容`
+- type=profile 写画像（按标题自动合并，不会重复）
+- type=agent_memory 写业务记忆（追加）
 """

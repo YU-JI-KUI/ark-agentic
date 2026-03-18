@@ -75,11 +75,15 @@ async def lifespan(app: FastAPI):
 
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
-        runner.warmup()
+        await runner.warmup()
         logger.info("Agent '%s' warmed up", agent_id)
 
     logger.info("Unified API started with agents: %s", _registry.list_ids())
     yield
+
+    for agent_id in _registry.list_ids():
+        runner = _registry.get(agent_id)
+        await runner.close_memory()
     logger.info("Unified API shutting down")
 
 

@@ -137,19 +137,12 @@ class AgentRunner:
         self.config = config or RunnerConfig()
         self._context_preprocessor = context_preprocessor
 
-        # memory: base manager config for cloning per-user managers
-        self._memory_base_manager = memory_manager
-        self._memory_managers: dict[str, MemoryManager] = {}
-        self._shared_embedding = None
-        self._extractor = None
-        self._extract_locks: dict[str, asyncio.Lock] = {}
-        self._background_tasks: set[asyncio.Task[None]] = set()
+        self._memory_manager = memory_manager
+        self._flusher = None
 
         if memory_manager is not None:
-            from .memory.embeddings import BGEEmbedding
-            from .memory.extractor import MemoryExtractor
-            self._shared_embedding = BGEEmbedding(memory_manager.config.embedding)
-            self._extractor = MemoryExtractor(self._get_llm)
+            from .memory.extractor import MemoryFlusher
+            self._flusher = MemoryFlusher(self._get_llm)
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
@@ -164,33 +157,19 @@ class AgentRunner:
             SkillMatcher(skill_loader) if skill_loader else None
         )
 
-    def _get_memory_for_user(self, user_id: str) -> MemoryManager | None:
-        """Get or create a user-scoped MemoryManager."""
-        if self._memory_base_manager is None:
-            return None
-        if user_id in self._memory_managers:
-            return self._memory_managers[user_id]
+    def _get_memory_for_user(self, user_id: str) -> "MemoryManager | None":
+        """返回共享 MemoryManager（所有用户共用一个实例）。"""
+        return self._memory_manager
 
-        from .memory.manager import MemoryConfig, MemoryManager as MM
-        from pathlib import Path
-        import copy
+    async def warmup(self) -> None:
+        """预加载 embedding 模型并初始化 Memory 系统（供 lifespan 阶段调用）。"""
+        if self._memory_manager is not None:
+            await self._memory_manager.initialize()
 
-        base_cfg = self._memory_base_manager.config
-        user_workspace = str(Path(base_cfg.workspace_dir) / user_id)
-        # copy.copy() is a shallow copy: nested dataclass fields (embedding/store/chunk configs)
-        # remain shared references — safe here because only str fields are mutated below.
-        user_config = copy.copy(base_cfg)
-        user_config.workspace_dir = user_workspace
-        user_config.index_dir = ""  # reset so each user derives index from their own workspace_dir
-
-        mgr = MM(user_config, shared_embedding=self._shared_embedding)
-        self._memory_managers[user_id] = mgr
-        return mgr
-
-    def warmup(self) -> None:
-        """同步预加载 embedding 模型（供 lifespan 阶段调用）。"""
-        if self._shared_embedding is not None:
-            self._shared_embedding._ensure_model()
+    async def close_memory(self) -> None:
+        """释放 Memory 资源（供 lifespan shutdown 调用）。"""
+        if self._memory_manager:
+            await self._memory_manager.close()
 
     async def run(
         self,
@@ -235,10 +214,8 @@ class AgentRunner:
         raw = self.config.skill_config.default_load_mode
         resolved_skill_load_mode: str = raw.value
 
-        # 惰性初始化 user-scoped Memory
-        memory_mgr = self._get_memory_for_user(user_id) if self._memory_base_manager else None
-        if memory_mgr and not memory_mgr._initialized:
-            await memory_mgr.initialize()
+        if self._memory_manager and not self._memory_manager._initialized:
+            await self._memory_manager.initialize()
 
         if self._context_preprocessor:
             input_context = self._context_preprocessor(input_context)
@@ -259,8 +236,9 @@ class AgentRunner:
         self.session_manager.add_message_sync(session_id, user_message)
 
         if self.config.auto_compact:
+            flush_cb = self._make_memory_flush_callback(user_id) if self._flusher else None
             await self.session_manager.auto_compact_if_needed(
-                session_id, user_id, pre_compact_callback=None,
+                session_id, user_id, pre_compact_callback=flush_cb,
             )
 
         use_streaming = stream_override if stream_override is not None else self.config.enable_streaming
@@ -280,15 +258,6 @@ class AgentRunner:
         session.strip_temp_state()
         await self.session_manager.sync_session_state(session_id, user_id)
 
-        if self._extractor and memory_mgr:
-            task = asyncio.create_task(
-                self._background_extract(
-                    user_id, user_input, result.response.content or "", memory_mgr,
-                )
-            )
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
-
         return result
 
     @staticmethod
@@ -297,47 +266,52 @@ class AgentRunner:
         for k, v in input_context.items():
             session.state[k] = v
 
-    async def _background_extract(
-        self,
-        user_id: str,
-        user_message: str,
-        assistant_response: str,
-        memory_mgr: MemoryManager,
-    ) -> None:
-        """后台异步提取记忆，per-user 加锁防抖。"""
-        if not self._extractor:
-            return
+    def _make_memory_flush_callback(
+        self, user_id: str,
+    ) -> Callable:
+        """返回 pre_compact_callback 闭包，在压缩前全量提取记忆。"""
+        from .types import AgentMessage as AM
 
-        lock = self._extract_locks.setdefault(user_id, asyncio.Lock())
-        async with lock:
+        async def _flush(session_id: str, messages: list[AM]) -> None:
+            if not self._flusher or not self._memory_manager:
+                return
             try:
                 from .paths import get_memory_base_dir
-                from .memory.user_profile import read_frontmatter, get_profile_path
+                from .memory.user_profile import (
+                    load_user_profile, get_profile_path, write_profile,
+                )
                 from pathlib import Path
 
                 base_dir = get_memory_base_dir()
-                profile_path = get_profile_path(base_dir, user_id)
-                current_profile = read_frontmatter(profile_path)
-
+                current_profile = load_user_profile(base_dir, user_id)
                 agent_name = self.config.prompt_config.agent_name or "assistant"
                 agent_desc = self.config.prompt_config.agent_description or ""
 
-                result = await self._extractor.extract(
-                    user_message=user_message,
-                    assistant_response=assistant_response,
+                conversation_text = "\n".join(
+                    f"{m.role.value}: {m.content or ''}" for m in messages if m.content
+                )
+
+                result = await self._flusher.flush(
+                    conversation_text=conversation_text,
                     current_profile=current_profile,
                     agent_name=agent_name,
                     agent_description=agent_desc,
                 )
 
                 if result.has_content:
-                    agent_memory_path = Path(memory_mgr.config.workspace_dir) / "MEMORY.md"
-                    await self._extractor.save(result, profile_path, agent_memory_path)
+                    if result.profile:
+                        write_profile(base_dir, user_id, result.profile)
                     if result.agent_memory:
-                        memory_mgr.mark_dirty()
+                        ws = Path(self._memory_manager.config.workspace_dir) / user_id
+                        agent_memory_path = ws / "MEMORY.md"
+                        self._flusher._append_agent_memory(result.agent_memory, agent_memory_path)
+                    self._memory_manager.mark_dirty()
+                    logger.info("Pre-compaction memory flush completed for user %s", user_id)
 
             except Exception as e:
-                logger.warning("Background memory extraction failed for user %s: %s", user_id, e)
+                logger.warning("Memory flush failed for user %s: %s", user_id, e)
+
+        return _flush
 
     def _get_user_friendly_error_message(self, error: LLMError) -> str:
         if error.reason == LLMErrorReason.AUTH:
@@ -660,7 +634,7 @@ class AgentRunner:
             )
             skills = match_result.matched_skills
 
-        include_memory = self._memory_base_manager is not None
+        include_memory = self._memory_manager is not None
 
         # 技能注入模式
         base_config = self.config.prompt_config

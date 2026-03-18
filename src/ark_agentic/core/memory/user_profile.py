@@ -1,10 +1,10 @@
 """用户画像管理
 
 全局用户画像存储在 {memory_base_dir}/_profiles/{user_id}/MEMORY.md，
-使用 YAML frontmatter 格式，跨 agent 共享，每次 LLM 调用注入 system prompt。
+使用 heading-based markdown 格式，跨 agent 共享，每次 LLM 调用注入 system prompt。
 
-存储格式: YAML frontmatter 嵌套 section → {key: value}。
-写入使用 upsert 语义——相同 (section, key) 始终覆盖。
+存储格式: ## heading + content，每个 heading 代表一个属性。
+写入使用 heading-level upsert 语义——同名 heading 始终覆盖。
 """
 
 from __future__ import annotations
@@ -12,14 +12,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import yaml
-
 logger = logging.getLogger(__name__)
 
 _PROFILES_DIR = "_profiles"
 _PROFILE_FILENAME = "MEMORY.md"
-_DEFAULT_SECTIONS: tuple[str, ...] = ("基本信息", "沟通风格", "偏好", "重要事项")
-_DEFAULT_FRONTMATTER: dict[str, dict[str, str]] = {s: {} for s in _DEFAULT_SECTIONS}
 
 
 def get_profile_path(base_dir: Path, user_id: str) -> Path:
@@ -27,113 +23,92 @@ def get_profile_path(base_dir: Path, user_id: str) -> Path:
     return base_dir / _PROFILES_DIR / user_id / _PROFILE_FILENAME
 
 
-def read_frontmatter(path: Path) -> dict:
-    """解析 MEMORY.md 的 YAML frontmatter，返回 dict。
+def parse_heading_sections(text: str) -> dict[str, str]:
+    """解析 heading-based markdown 为 {heading: content} 有序字典。
 
-    文件不存在、无 frontmatter、解析失败均返回空 dict。
+    >>> parse_heading_sections("## 姓名\\n张三\\n\\n## 偏好\\n简洁")
+    {'姓名': '张三', '偏好': '简洁'}
     """
-    if not path.exists():
-        return {}
-    try:
-        content = path.read_text(encoding="utf-8")
-    except Exception as e:
-        logger.warning("Failed to read %s: %s", path, e)
-        return {}
+    sections: dict[str, str] = {}
+    current_heading: str | None = None
+    current_lines: list[str] = []
 
-    if not content.startswith("---"):
-        return {}
+    for line in text.split("\n"):
+        if line.startswith("## "):
+            if current_heading is not None:
+                sections[current_heading] = "\n".join(current_lines).strip()
+            current_heading = line[3:].strip()
+            current_lines = []
+        elif current_heading is not None:
+            current_lines.append(line)
 
-    end = content.find("\n---", 3)
-    if end == -1:
-        return {}
+    if current_heading is not None:
+        sections[current_heading] = "\n".join(current_lines).strip()
 
-    yaml_text = content[4:end]
-    try:
-        data = yaml.safe_load(yaml_text)
-        return data if isinstance(data, dict) else {}
-    except yaml.YAMLError as e:
-        logger.warning("Failed to parse YAML frontmatter in %s: %s", path, e)
-        return {}
+    return sections
 
 
-def write_frontmatter(path: Path, data: dict) -> None:
-    """只改写 frontmatter，保留 body 不变。文件不存在则创建。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
+def format_heading_sections(sections: dict[str, str]) -> str:
+    """将 {heading: content} 格式化为 heading-based markdown。"""
+    parts = [f"## {h}\n{c}" for h, c in sections.items() if c]
+    return "\n\n".join(parts) + "\n" if parts else ""
 
-    body = ""
-    if path.exists():
+
+def upsert_profile_by_heading(file_path: Path, new_content: str) -> None:
+    """按 heading 合并 profile：同名 heading 替换已有，新 heading 追加。"""
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing_text = ""
+    if file_path.exists():
         try:
-            content = path.read_text(encoding="utf-8")
-            if content.startswith("---"):
-                end = content.find("\n---", 3)
-                if end != -1:
-                    body = content[end + 4:]
-            else:
-                body = "\n" + content
-        except Exception:
-            pass
+            existing_text = file_path.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warning("Failed to read profile %s: %s", file_path, e)
 
-    yaml_text = yaml.dump(
-        data, allow_unicode=True, default_flow_style=False, sort_keys=False,
-    )
-    new_content = f"---\n{yaml_text}---{body}"
-    path.write_text(new_content, encoding="utf-8")
+    existing_sections = parse_heading_sections(existing_text)
+    incoming_sections = parse_heading_sections(new_content)
+
+    if not incoming_sections:
+        logger.debug("No heading sections found in incoming profile content, skipping")
+        return
+
+    merged = {**existing_sections, **incoming_sections}
+    file_path.write_text(format_heading_sections(merged), encoding="utf-8")
+
+    count = len(incoming_sections)
+    logger.info("Upserted %d profile heading(s) in %s", count, file_path)
 
 
 def load_user_profile(base_dir: Path, user_id: str) -> str:
-    """读取用户画像，格式化为可注入 system prompt 的文本。
+    """读取用户画像，返回可直接注入 system prompt 的文本。
 
-    文件不存在或画像为空时返回空字符串。
+    文件不存在或为空时返回空字符串。
     """
-    data = read_frontmatter(get_profile_path(base_dir, user_id))
-    if not data:
+    path = get_profile_path(base_dir, user_id)
+    if not path.exists():
         return ""
-    return _format_profile(data)
-
-
-def _format_profile(data: dict) -> str:
-    """将 YAML dict 格式化为可读 markdown 文本（供 system prompt 注入）。"""
-    parts: list[str] = []
-    for section, entries in data.items():
-        if not isinstance(entries, dict) or not entries:
-            continue
-        parts.append(f"## {section}")
-        for key, value in entries.items():
-            parts.append(f"- {key}: {value}")
-        parts.append("")
-    return "\n".join(parts).strip()
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+        return content if content else ""
+    except Exception as e:
+        logger.warning("Failed to read profile %s: %s", path, e)
+        return ""
 
 
 def ensure_user_profile(base_dir: Path, user_id: str) -> Path:
-    """若画像文件不存在则创建默认模板，返回路径。"""
+    """若画像文件不存在则创建空文件，返回路径。"""
     path = get_profile_path(base_dir, user_id)
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        write_frontmatter(path, {s: {} for s in _DEFAULT_SECTIONS})
-        logger.info("Created default user profile: %s", path)
+        path.write_text("", encoding="utf-8")
+        logger.info("Created empty user profile: %s", path)
     return path
 
 
-def upsert_profile_entry(
-    base_dir: Path, user_id: str, section: str, key: str, value: str,
-) -> None:
-    """在 frontmatter 的 section 中插入或更新 key: value。
-
-    section 不存在时自动创建。
-    """
-    path = ensure_user_profile(base_dir, user_id)
-    data = read_frontmatter(path)
-
-    if section not in data or not isinstance(data.get(section), dict):
-        data[section] = {}
-    data[section][key] = value
-
-    write_frontmatter(path, data)
-
-
 def write_profile(base_dir: Path, user_id: str, content: str) -> None:
-    """用 content 覆盖整个画像文件（用于一次性清理）。"""
-    path = ensure_user_profile(base_dir, user_id)
+    """用 content 覆盖整个画像文件（用于 flush 全量重写）。"""
+    path = get_profile_path(base_dir, user_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
 

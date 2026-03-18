@@ -1,10 +1,8 @@
-"""Tests for memory tools (memory_search, memory_get)."""
+"""Tests for memory tools (memory_search, memory_get, memory_write)."""
 
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -28,6 +26,14 @@ class MockMemorySearchResult:
 
 
 @dataclass
+class MockChunk:
+    """Minimal chunk for MemoryGetTool (DB get_chunks_by_location)."""
+    start_line: int
+    end_line: int
+    text: str
+
+
+@dataclass
 class MockMemoryConfig:
     workspace_dir: str = ""
     index_dir: str = ""
@@ -39,6 +45,7 @@ class MockMemoryManager:
         self._initialized = True
         self._dirty = False
         self.search = AsyncMock(return_value=[])
+        self._store = MagicMock()
 
     async def initialize(self) -> None:
         self._initialized = True
@@ -202,49 +209,49 @@ class TestMemoryGetTool:
 
     @pytest.mark.asyncio
     async def test_get_success(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_file = Path(tmpdir) / "MEMORY.md"
-            test_content = "\n".join([f"Line {i}" for i in range(1, 11)])
-            test_file.write_text(test_content)
+        manager = MockMemoryManager()
+        manager._store.get_chunks_by_location.return_value = [
+            MockChunk(start_line=1, end_line=10, text="Line 1\nLine 2\n...\nLine 10"),
+        ]
+        tool = MemoryGetTool(_make_provider(manager))
+        call = ToolCall(
+            id="call_1", name="memory_get", arguments={"path": "MEMORY.md"}
+        )
 
-            manager = MockMemoryManager(workspace_dir=tmpdir)
-            tool = MemoryGetTool(_make_provider(manager))
-            call = ToolCall(
-                id="call_1", name="memory_get", arguments={"path": "MEMORY.md"}
-            )
+        result = await tool.execute(call, TEST_CONTEXT)
 
-            result = await tool.execute(call, TEST_CONTEXT)
-
-            assert result.tool_call_id == "call_1"
-            content = result.content
-            assert content["path"] == "MEMORY.md"
-            assert content["from_line"] == 1
-            assert content["total_lines"] == 10
-            assert "Line 1" in content["text"]
+        assert result.tool_call_id == "call_1"
+        content = result.content
+        assert content["path"] == "MEMORY.md"
+        assert content["from_line"] == 1
+        assert content["to_line"] == 10
+        assert content["total_chunks"] == 1
+        assert "Line 1" in content["text"]
 
     @pytest.mark.asyncio
     async def test_get_with_range(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_file = Path(tmpdir) / "MEMORY.md"
-            test_content = "\n".join([f"Line {i}" for i in range(1, 101)])
-            test_file.write_text(test_content)
+        manager = MockMemoryManager()
+        manager._store.get_chunks_by_location.return_value = [
+            MockChunk(start_line=10, end_line=14, text="Line 10\nLine 11\nLine 12\nLine 13\nLine 14"),
+        ]
+        tool = MemoryGetTool(_make_provider(manager))
+        call = ToolCall(
+            id="call_1",
+            name="memory_get",
+            arguments={"path": "MEMORY.md", "from_line": 10, "lines": 5},
+        )
 
-            manager = MockMemoryManager(workspace_dir=tmpdir)
-            tool = MemoryGetTool(_make_provider(manager))
-            call = ToolCall(
-                id="call_1",
-                name="memory_get",
-                arguments={"path": "MEMORY.md", "from_line": 10, "lines": 5},
-            )
+        result = await tool.execute(call, TEST_CONTEXT)
 
-            result = await tool.execute(call, TEST_CONTEXT)
-
-            content = result.content
-            assert content["from_line"] == 10
-            assert content["to_line"] == 14
-            assert "Line 10" in content["text"]
-            assert "Line 14" in content["text"]
-            assert "Line 15" not in content["text"]
+        content = result.content
+        assert content["from_line"] == 10
+        assert content["to_line"] == 14
+        assert "Line 10" in content["text"]
+        assert "Line 14" in content["text"]
+        manager._store.get_chunks_by_location.assert_called_once()
+        call_kw = manager._store.get_chunks_by_location.call_args[1]
+        assert call_kw["from_line"] == 10
+        assert call_kw["limit"] == 5
 
     @pytest.mark.asyncio
     async def test_get_empty_path(self) -> None:
@@ -258,58 +265,56 @@ class TestMemoryGetTool:
 
     @pytest.mark.asyncio
     async def test_get_file_not_found(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = MockMemoryManager(workspace_dir=tmpdir)
-            tool = MemoryGetTool(_make_provider(manager))
-            call = ToolCall(
-                id="call_1", name="memory_get", arguments={"path": "nonexistent.md"}
-            )
+        manager = MockMemoryManager()
+        manager._store.get_chunks_by_location.return_value = []
+        tool = MemoryGetTool(_make_provider(manager))
+        call = ToolCall(
+            id="call_1", name="memory_get", arguments={"path": "nonexistent.md"}
+        )
 
-            result = await tool.execute(call, TEST_CONTEXT)
+        result = await tool.execute(call, TEST_CONTEXT)
 
-            assert "error" in result.content
-            assert "File not found" in result.content["error"]
+        assert "error" in result.content
+        assert "No chunks found" in result.content["error"] or "not found" in result.content["error"].lower()
 
     @pytest.mark.asyncio
     async def test_get_limits_lines(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_file = Path(tmpdir) / "MEMORY.md"
-            test_content = "\n".join([f"Line {i}" for i in range(1, 501)])
-            test_file.write_text(test_content)
+        manager = MockMemoryManager()
+        manager._store.get_chunks_by_location.return_value = [
+            MockChunk(start_line=1, end_line=50, text="chunk one"),
+            MockChunk(start_line=51, end_line=100, text="chunk two"),
+        ]
+        tool = MemoryGetTool(_make_provider(manager))
+        call = ToolCall(
+            id="call_1",
+            name="memory_get",
+            arguments={"path": "MEMORY.md", "lines": 500},
+        )
 
-            manager = MockMemoryManager(workspace_dir=tmpdir)
-            tool = MemoryGetTool(_make_provider(manager))
-            call = ToolCall(
-                id="call_1",
-                name="memory_get",
-                arguments={"path": "MEMORY.md", "lines": 500},
-            )
+        result = await tool.execute(call, TEST_CONTEXT)
 
-            result = await tool.execute(call, TEST_CONTEXT)
-
-            content = result.content
-            assert content["to_line"] <= 200
+        content = result.content
+        assert content["to_line"] <= 200 or content["total_chunks"] <= 200
+        call_kw = manager._store.get_chunks_by_location.call_args[1]
+        assert call_kw["limit"] == 200
 
     @pytest.mark.asyncio
     async def test_get_nested_path(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            subdir = Path(tmpdir) / "memory"
-            subdir.mkdir()
-            test_file = subdir / "project.md"
-            test_file.write_text("Project memory content")
+        manager = MockMemoryManager()
+        manager._store.get_chunks_by_location.return_value = [
+            MockChunk(start_line=1, end_line=5, text="Project memory content"),
+        ]
+        tool = MemoryGetTool(_make_provider(manager))
+        call = ToolCall(
+            id="call_1",
+            name="memory_get",
+            arguments={"path": "memory/project.md"},
+        )
 
-            manager = MockMemoryManager(workspace_dir=tmpdir)
-            tool = MemoryGetTool(_make_provider(manager))
-            call = ToolCall(
-                id="call_1",
-                name="memory_get",
-                arguments={"path": "memory/project.md"},
-            )
+        result = await tool.execute(call, TEST_CONTEXT)
 
-            result = await tool.execute(call, TEST_CONTEXT)
-
-            assert "error" not in result.content or result.content.get("error") is None
-            assert "Project memory content" in result.content["text"]
+        assert "error" not in result.content or result.content.get("error") is None
+        assert "Project memory content" in result.content["text"]
 
 
 class TestCreateMemoryTools:
@@ -317,10 +322,11 @@ class TestCreateMemoryTools:
         provider = _make_provider(MockMemoryManager())
         tools = create_memory_tools(provider)
 
-        assert len(tools) == 2
+        assert len(tools) == 3
         names = [t.name for t in tools]
         assert "memory_search" in names
         assert "memory_get" in names
+        assert "memory_write" in names
 
     def test_tools_share_provider(self) -> None:
         provider = _make_provider(MockMemoryManager())
@@ -328,6 +334,8 @@ class TestCreateMemoryTools:
 
         search_tool = next(t for t in tools if t.name == "memory_search")
         get_tool = next(t for t in tools if t.name == "memory_get")
+        write_tool = next(t for t in tools if t.name == "memory_write")
 
         assert search_tool._provider is provider
         assert get_tool._provider is provider
+        assert write_tool._provider is provider
