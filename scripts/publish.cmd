@@ -3,7 +3,9 @@ REM publish.cmd — Build and upload ark-agentic (core + CLI only) on Windows (c
 
 setlocal enabledelayedexpansion
 
-set REPO_ROOT=%~dp0..
+pushd "%~dp0.."
+set REPO_ROOT=%CD%
+popd
 set DIST_DIR=%REPO_ROOT%\dist
 
 REM Internal PyPI endpoint
@@ -35,8 +37,8 @@ set FRONTEND_DIR=%REPO_ROOT%\src\ark_agentic\studio\frontend
 if exist "%FRONTEND_DIR%\package.json" (
   echo [Building] Studio frontend...
   cd /d "%FRONTEND_DIR%"
-  npm ci --ignore-scripts || goto :error
-  npm run build || goto :error
+  call npm ci --ignore-scripts || goto :error
+  call npm run build || goto :error
   cd /d "%REPO_ROOT%"
   echo [Done] Studio frontend built
 )
