@@ -47,6 +47,7 @@ class SessionManager:
         session = SessionEntry.create(
             model=model, provider=provider, state=state or {}
         )
+        session.user_id = user_id
         self._sessions[session.session_id] = session
 
         await self._transcript_manager.ensure_header(session.session_id, user_id)
@@ -141,6 +142,7 @@ class SessionManager:
         store_entry = self._session_store.get(user_id, session_id)
         session = SessionEntry(
             session_id=session_id,
+            user_id=user_id,
             created_at=(
                 datetime.fromisoformat(header.timestamp)
                 if header and header.timestamp
@@ -162,7 +164,9 @@ class SessionManager:
 
     async def load_session(self, session_id: str, user_id: str) -> SessionEntry | None:
         if session_id in self._sessions:
-            return self._sessions[session_id]
+            entry = self._sessions[session_id]
+            entry.user_id = user_id
+            return entry
 
         if not self._transcript_manager.session_exists(session_id, user_id):
             return None
@@ -173,6 +177,7 @@ class SessionManager:
 
         session = SessionEntry(
             session_id=session_id,
+            user_id=user_id,
             created_at=(
                 datetime.fromisoformat(header.timestamp)
                 if header and header.timestamp

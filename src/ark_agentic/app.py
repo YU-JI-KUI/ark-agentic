@@ -63,15 +63,17 @@ async def lifespan(app: FastAPI):
         enable_memory=_env_flag("ENABLE_MEMORY"),
     ))
 
+    api_deps.init_registry(_registry)
+
     if os.getenv("ENABLE_STUDIO", "").lower() == "true":
         try:
-            from ark_agentic.agents.meta_builder import create_meta_builder_from_env
-            _registry.register("meta_builder", create_meta_builder_from_env())
-            logger.info("MetaBuilder Agent registered")
+            from ark_agentic.studio import setup_studio
+            setup_studio(app, registry=_registry)
+            logger.info("Studio mounted at /studio")
+        except ImportError:
+            logger.warning("ENABLE_STUDIO=true but studio module not found, skipping")
         except Exception as e:
-            logger.warning("MetaBuilder Agent failed to initialize, skipping: %s", e)
-
-    api_deps.init_registry(_registry)
+            logger.exception("ENABLE_STUDIO=true but studio failed to load: %s", e)
 
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
@@ -142,18 +144,6 @@ async def health_check():
 async def get_securities_mock_mode():
     """返回服务级默认 mock 状态（来自 SECURITIES_SERVICE_MOCK 环境变量，只读）"""
     return {"mock": get_mock_mode()}
-
-
-# ---- 条件挂载 Studio ----
-if os.getenv("ENABLE_STUDIO", "").lower() == "true":
-    try:
-        from ark_agentic.studio import setup_studio
-        setup_studio(app)
-        logger.info("Studio mounted at /studio")
-    except ImportError:
-        logger.warning("ENABLE_STUDIO=true but studio module not found, skipping")
-    except Exception as e:
-        logger.exception("ENABLE_STUDIO=true but studio failed to load: %s", e)
 
 
 def main() -> None:

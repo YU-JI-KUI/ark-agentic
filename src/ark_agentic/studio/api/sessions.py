@@ -26,6 +26,7 @@ router = APIRouter()
 
 class SessionItem(BaseModel):
     session_id: str
+    user_id: str = ""
     message_count: int
     state: dict[str, Any] = Field(default_factory=dict)
 
@@ -95,6 +96,7 @@ async def list_agent_sessions(
         sessions=[
             SessionItem(
                 session_id=s.session_id,
+                user_id=s.user_id,
                 message_count=len(s.messages),
                 state=s.state,
             )

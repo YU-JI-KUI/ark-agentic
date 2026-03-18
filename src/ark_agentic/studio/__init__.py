@@ -9,18 +9,22 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+if TYPE_CHECKING:
+    from ark_agentic.core.registry import AgentRegistry
 
 logger = logging.getLogger(__name__)
 
 _FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
 
 
-def setup_studio(app: FastAPI) -> None:
-    """挂载 Studio 路由和前端静态文件到 FastAPI app。"""
+def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
+    """挂载 Studio 路由、前端静态文件、并可选自动注册 MetaBuilder Agent。"""
 
     from .api import agents as agents_api
     from .api import skills as skills_api
@@ -34,6 +38,14 @@ def setup_studio(app: FastAPI) -> None:
     app.include_router(tools_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(sessions_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(memory_api.router, prefix="/api/studio", tags=["studio"])
+
+    if registry is not None and "meta_builder" not in registry.list_ids():
+        try:
+            from ark_agentic.agents.meta_builder import create_meta_builder_from_env
+            registry.register("meta_builder", create_meta_builder_from_env())
+            logger.info("MetaBuilder agent auto-registered by Studio")
+        except Exception as e:
+            logger.warning("MetaBuilder init failed, Studio chat unavailable: %s", e)
 
     # 挂载前端静态资源（如果 build 产物存在）
     if _FRONTEND_DIST.is_dir():

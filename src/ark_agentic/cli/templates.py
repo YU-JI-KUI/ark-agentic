@@ -314,7 +314,7 @@ async def lifespan(app: FastAPI):
 
     if os.getenv("ENABLE_STUDIO", "false").lower() == "true":
         from ark_agentic.studio import setup_studio
-        setup_studio(app)
+        setup_studio(app, registry=_registry)
         logger.info("Ark-Agentic Studio enabled at /studio")
 
     logger.info("{project_name} API started")

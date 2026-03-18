@@ -52,6 +52,9 @@ exclude = [
     "src/ark_agentic/studio/frontend/src",
 ]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/ark_agentic/studio/frontend/dist" = "ark_agentic/studio/frontend/dist"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

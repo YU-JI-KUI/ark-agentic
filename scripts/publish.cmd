@@ -30,7 +30,18 @@ for /f "usebackq delims=" %%v in (`python -c "import tomllib, pathlib; d = tomll
 )
 echo [Version] %VERSION%
 
-REM Build ark-agentic (core + CLI only, agents/app/static excluded via pyproject)
+REM Build Studio frontend (dist/ force-included in wheel via pyproject.toml)
+set FRONTEND_DIR=%REPO_ROOT%\src\ark_agentic\studio\frontend
+if exist "%FRONTEND_DIR%\package.json" (
+  echo [Building] Studio frontend...
+  cd /d "%FRONTEND_DIR%"
+  npm ci --ignore-scripts || goto :error
+  npm run build || goto :error
+  cd /d "%REPO_ROOT%"
+  echo [Done] Studio frontend built
+)
+
+REM Build ark-agentic wheel
 echo [Building] ark-agentic...
 cd /d "%REPO_ROOT%"
 uv build --out-dir "%DIST_DIR%" || goto :error
