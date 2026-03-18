@@ -43,6 +43,7 @@ from ark_agentic.api import chat as chat_api
 from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
 from ark_agentic.agents.securities.tools.service_client import get_mock_mode
+from ark_agentic.studio import setup_studio_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -64,16 +65,6 @@ async def lifespan(app: FastAPI):
     ))
 
     api_deps.init_registry(_registry)
-
-    if os.getenv("ENABLE_STUDIO", "").lower() == "true":
-        try:
-            from ark_agentic.studio import setup_studio
-            setup_studio(app, registry=_registry)
-            logger.info("Studio mounted at /studio")
-        except ImportError:
-            logger.warning("ENABLE_STUDIO=true but studio module not found, skipping")
-        except Exception as e:
-            logger.exception("ENABLE_STUDIO=true but studio failed to load: %s", e)
 
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
@@ -106,6 +97,7 @@ app.add_middleware(
 
 # ---- 挂载路由 ----
 app.include_router(chat_api.router)
+setup_studio_from_env(app, registry=_registry)
 
 # ---- 静态文件 & 测试 UI ----
 _STATIC_DIR = Path(__file__).parent / "static"

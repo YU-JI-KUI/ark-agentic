@@ -164,10 +164,10 @@ def _cmd_init(args: argparse.Namespace) -> None:
     # tests
     _write(tests_dir / "__init__.py", "")
 
-    print(f"✅ 项目 '{project_name}' 已创建")
+    print(f"[OK] 项目 '{project_name}' 已创建")
     if include_studio:
         print()
-        print("📦 Studio 模式已启用:")
+        print("[Studio] Studio 模式已启用:")
         print(f"   app.py 生成: src/{package_name}/app.py")
         print(f"   agent.json 生成: src/{package_name}/agents/default/agent.json")
         print()
@@ -227,7 +227,7 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
     _write(agents_dir / "tools" / "__init__.py", TOOL_TEMPLATE.format(**fmt))
     _touch(agents_dir / "skills" / ".gitkeep")
 
-    print(f"✅ 智能体 '{agent_name}' 已添加到 src/{package_name}/agents/{agent_name_snake}/")
+    print(f"[OK] 智能体 '{agent_name}' 已添加到 src/{package_name}/agents/{agent_name_snake}/")
 
 
 # ── version ──────────────────────────────────────────────────────────

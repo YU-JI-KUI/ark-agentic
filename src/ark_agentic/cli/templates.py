@@ -299,6 +299,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.api import chat as chat_api
 from ark_agentic.api import deps as api_deps
+from ark_agentic.studio import setup_studio_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -311,12 +312,6 @@ async def lifespan(app: FastAPI):
     runner = create_{agent_name_snake}_agent()
     _registry.register("{agent_name_snake}", runner)
     api_deps.init_registry(_registry)
-
-    if os.getenv("ENABLE_STUDIO", "false").lower() == "true":
-        from ark_agentic.studio import setup_studio
-        setup_studio(app, registry=_registry)
-        logger.info("Ark-Agentic Studio enabled at /studio")
-
     logger.info("{project_name} API started")
     yield
     logger.info("{project_name} API shutting down")
@@ -338,6 +333,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_api.router)
+setup_studio_from_env(app, registry=_registry)
 
 
 @app.get("/health")

@@ -8,6 +8,7 @@ Ark-Agentic Studio — 可选管理控制台
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -45,7 +46,7 @@ def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
             registry.register("meta_builder", create_meta_builder_from_env())
             logger.info("MetaBuilder agent auto-registered by Studio")
         except Exception as e:
-            logger.warning("MetaBuilder init failed, Studio chat unavailable: %s", e)
+            logger.warning("MetaBuilder init failed, Studio chat unavailable: %s", e, exc_info=True)
 
     # 挂载前端静态资源（如果 build 产物存在）
     if _FRONTEND_DIST.is_dir():
@@ -78,3 +79,21 @@ def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
             "Run 'npm run build' in studio/frontend/ to generate it.",
             _FRONTEND_DIST,
         )
+
+
+def setup_studio_from_env(app: FastAPI, registry: AgentRegistry | None = None) -> bool:
+    """Conditionally mount Studio based on ENABLE_STUDIO env var.
+
+    Designed to be called at module level (outside lifespan) so routes are
+    registered before the ASGI server starts accepting requests.
+    Returns True if Studio was mounted.
+    """
+    if os.getenv("ENABLE_STUDIO", "").lower() != "true":
+        return False
+    try:
+        setup_studio(app, registry=registry)
+    except ImportError:
+        logger.warning("ENABLE_STUDIO=true but studio module not found, skipping")
+    except Exception:
+        logger.exception("ENABLE_STUDIO=true but studio failed to load")
+    return True
