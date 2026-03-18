@@ -258,17 +258,16 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
 
           </div>
 
-          {/* ================= 垂直：监控/审计层（规划中） ================= */}
-          <div className="w-20 lg:w-24 shrink-0 flex flex-col border-l-4 border-dashed border-slate-400 bg-slate-100 rounded-r-lg py-3 px-2">
-            <div className="text-slate-500 font-bold text-xs text-center mb-1 tracking-widest">
+          {/* ================= 垂直：监控/审计层（已实施，深色表严谨） ================= */}
+          <div className="w-20 lg:w-24 shrink-0 flex flex-col border-l-4 border-slate-500 bg-slate-700 rounded-r-lg py-3 px-2">
+            <div className="text-slate-200 font-bold text-xs text-center mb-2 tracking-widest">
               <EditableText text="监控/审计" />
             </div>
-            <div className="text-slate-400 text-[9px] text-center mb-2">✦ 规划中</div>
             <div className="flex flex-col gap-2 flex-1 justify-center">
-              <BaseBlock title="操作监控" className="w-full text-[10px] py-1.5" bgClass="bg-slate-200/60" borderClass="border border-dashed border-slate-400" textClass="text-slate-500" />
-              <BaseBlock title="Trace" className="w-full text-[10px] py-1.5" bgClass="bg-slate-200/60" borderClass="border border-dashed border-slate-400" textClass="text-slate-500" />
-              <BaseBlock title="审计日志" className="w-full text-[10px] py-1.5" bgClass="bg-slate-200/60" borderClass="border border-dashed border-slate-400" textClass="text-slate-500" />
-              <BaseBlock title="运维监控" className="w-full text-[10px] py-1.5" bgClass="bg-slate-200/60" borderClass="border border-dashed border-slate-400" textClass="text-slate-500" />
+              <BaseBlock title="操作监控" className="w-full text-[10px] py-1.5" bgClass="bg-slate-600" borderClass="border border-slate-500" textClass="text-slate-200" />
+              <BaseBlock title="Trace" className="w-full text-[10px] py-1.5" bgClass="bg-slate-600" borderClass="border border-slate-500" textClass="text-slate-200" />
+              <BaseBlock title="审计日志" className="w-full text-[10px] py-1.5" bgClass="bg-slate-600" borderClass="border border-slate-500" textClass="text-slate-200" />
+              <BaseBlock title="运维监控" className="w-full text-[10px] py-1.5" bgClass="bg-slate-600" borderClass="border border-slate-500" textClass="text-slate-200" />
             </div>
           </div>
 
