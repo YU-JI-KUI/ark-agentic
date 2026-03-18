@@ -2596,7 +2596,7 @@
       }
 
       function renderHoldingsListCard(template) {
-        const ac = template.assetClass || '';
+        const ac = template.asset_class || '';
         const title = (template.data && template.data.title) || '';
 
         const holdings = (template.data && template.data.holdings) || [];
@@ -2606,19 +2606,19 @@
         const isFund = ac === 'Fund';
         let summaryHtml = '';
 
-        const hasSummary = summary && (summary.totalMarketValue !== undefined || summary.totalProfit !== undefined);
+        const hasSummary = summary && (summary.total_market_value !== undefined || summary.total_profit !== undefined);
         if ((isETF || isFund) && hasSummary) {
-          const totalProfit = toNum(summary.totalProfit);
+          const totalProfit = toNum(summary.total_profit);
           const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
           const profitSign = totalProfit >= 0 ? '+' : '';
-          const profitRate = toNum(summary.totalProfitRate);
+          const profitRate = toNum(summary.total_profit_rate);
           const mktValLabel = isETF ? 'ETF市值' : '基金市值';
 
           summaryHtml = `
             <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
               <div style="text-align:center;flex:1;">
                 <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">${mktValLabel}</div>
-                <div class="tc-value">￥${formatNumber(summary.totalMarketValue)}</div>
+                <div class="tc-value">￥${formatNumber(summary.total_market_value)}</div>
               </div>
               <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
                 <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">今日收益</div>
@@ -2695,28 +2695,28 @@
           <div class="template-card-body">
             <div class="tc-metric">
               <span class="tc-label">现金余额</span>
-              <span class="tc-value">￥${formatNumber(data.cashBalance)}</span>
+              <span class="tc-value">￥${formatNumber(data.cash_balance)}</span>
             </div>
             <div class="tc-metric">
               <span class="tc-label">可用资金</span>
-              <span class="tc-value">￥${formatNumber(data.cashAvailable)}</span>
+              <span class="tc-value">￥${formatNumber(data.cash_available)}</span>
             </div>
             <div class="tc-metric">
               <span class="tc-label">冻结资金</span>
-              <span class="tc-value">￥${formatNumber(data.frozenFundsTotal)}</span>
+              <span class="tc-value">￥${formatNumber(data.frozen_funds_total)}</span>
             </div>
-            ${data.todayProfit ? `
+            ${data.today_profit ? `
               <div class="tc-metric">
                 <span class="tc-label">今日收益</span>
-                <span class="tc-value ${toNum(data.todayProfit) >= 0 ? 'profit' : 'loss'}">
-                  ${toNum(data.todayProfit) >= 0 ? '+' : ''}￥${formatNumber(Math.abs(toNum(data.todayProfit)))}
+                <span class="tc-value ${toNum(data.today_profit) >= 0 ? 'profit' : 'loss'}">
+                  ${toNum(data.today_profit) >= 0 ? '+' : ''}￥${formatNumber(Math.abs(toNum(data.today_profit)))}
                 </span>
               </div>
             ` : ''}
-            ${data.fundName ? `
+            ${data.fund_name ? `
               <div class="tc-metric">
                 <span class="tc-label">理财名称</span>
-                <span class="tc-value">${escHtml(data.fundName)} (${escHtml(data.fundCode || '')})</span>
+                <span class="tc-value">${escHtml(data.fund_name)} (${escHtml(data.fund_code || '')})</span>
               </div>
             ` : ''}
           </div>
@@ -2725,15 +2725,15 @@
 
       function renderSecurityDetailCard(data) {
         const holding = data.holding || {};
-        const market = data.marketInfo || {};
+        const market = data.market_info || {};
         const pr = toNum(holding.profit_rate);
         const profitClass = pr >= 0 ? 'profit' : 'loss';
         const profitSign = pr >= 0 ? '+' : '';
 
         return `
           <div class="template-card-header">
-            <div class="tc-title">${escHtml(data.securityName || data.securityCode || '标的详情')}</div>
-            <div class="tc-badge">${escHtml(data.securityType || data.market || '')}</div>
+            <div class="tc-title">${escHtml(data.security_name || data.security_code || '标的详情')}</div>
+            <div class="tc-badge">${escHtml(data.security_type || data.market || '')}</div>
           </div>
           <div class="template-card-body">
             ${market.current_price ? `

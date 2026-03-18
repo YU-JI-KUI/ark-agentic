@@ -20,7 +20,7 @@ class TemplateRenderer:
         {
           "template": "queryAccountAssetResultTpl",
           "data": {
-            "template": "account_overview_card",
+            "template": "queryAccountAssetResultTpl",
             "title": "资金账号：xxx 的资产信息",
             "account_type": "normal" | "margin",
             "assetData": {
@@ -64,7 +64,7 @@ class TemplateRenderer:
             "data": {
                 "template": "queryAccountAssetResultTpl",
                 "title": data.get("title", ""),
-                "accountType": account_type,
+                "account_type": account_type,
                 "assetData": asset_data,
             },
         }
@@ -89,26 +89,26 @@ class TemplateRenderer:
         if "stock_list" in data:
             # 真实 API 格式
             summary = {
-                "totalMarketValue": data.get("total_market_value") or data.get("hold_market_value"),
-                "totalProfit": data.get("total_profit") or data.get("day_total_profit"),
-                "totalProfitRate": data.get("total_profit_rate") or data.get("day_total_profit_rate"),
+                "total_market_value": data.get("total_market_value") or data.get("hold_market_value"),
+                "total_profit": data.get("total_profit") or data.get("day_total_profit"),
+                "total_profit_rate": data.get("total_profit_rate") or data.get("day_total_profit_rate"),
                 "total": data.get("total"),
             }
 
             # HKSC 特有字段
             if asset_class == "HKSC":
-                summary["availableHkscShare"] = data.get("available_hksc_share")
-                summary["limitHkscShare"] = data.get("limit_hksc_share")
-                summary["totalHkscShare"] = data.get("total_hksc_share")
-                summary["preFrozenAsset"] = data.get("pre_frozen_asset")
+                summary["available_hksc_share"] = data.get("available_hksc_share")
+                summary["limit_hksc_share"] = data.get("limit_hksc_share")
+                summary["total_hksc_share"] = data.get("total_hksc_share")
+                summary["pre_frozen_asset"] = data.get("pre_frozen_asset")
 
             result = {
                 "template": "holdings_list_card",
-                "assetClass": asset_class,
+                "asset_class": asset_class,
                 "data": {
                     "template": "holdings_list_card",
                     "title": data.get("title", ""),
-                    "accountType": data.get("account_type", "normal"),
+                    "account_type": data.get("account_type", "normal"),
                     "holdings": data.get("stock_list", []),
                     "summary": summary,
                 }
@@ -116,18 +116,18 @@ class TemplateRenderer:
 
             # HKSC 预冻结列表
             if asset_class == "HKSC" and data.get("pre_frozen_list"):
-                result["data"]["preFrozenList"] = data.get("pre_frozen_list")
+                result["data"]["pre_frozen_list"] = data.get("pre_frozen_list")
             
             return result
         else:
             # 旧格式
             return {
                 "template": "holdings_list_card",
-                "assetClass": asset_class,
+                "asset_class": asset_class,
                 "data": {
                     "template": "holdings_list_card",
                     "title": data.get("title", ""),
-                    "accountType": data.get("account_type", "normal"),
+                    "account_type": data.get("account_type", "normal"),
                     "holdings": data.get("holdings", []),
                     "summary": data.get("summary", {}),
                 }
@@ -152,19 +152,19 @@ class TemplateRenderer:
             "data": {
                 "template": "cash_assets_card",
                 "title": data.get("title", ""),
-                "accountType": data.get("account_type", "normal"),
+                "account_type": data.get("account_type", "normal"),
                 # 基础字段
-                "cashBalance": data.get("cash_balance"),
-                "cashAvailable": data.get("cash_available"),
-                "drawBalance": data.get("draw_balance"),
-                "todayProfit": data.get("today_profit"),
+                "cash_balance": data.get("cash_balance"),
+                "cash_available": data.get("cash_available"),
+                "draw_balance": data.get("draw_balance"),
+                "today_profit": data.get("today_profit"),
                 # 扩展字段
-                "accuProfit": data.get("accu_profit"),
-                "fundName": data.get("fund_name"),
-                "fundCode": data.get("fund_code"),
-                "frozenFundsTotal": data.get("frozen_funds_total"),
-                "frozenFundsDetail": data.get("frozen_funds_detail"),
-                "inTransitAssetTotal": data.get("in_transit_asset_total"),
+                "accu_profit": data.get("accu_profit"),
+                "fund_name": data.get("fund_name"),
+                "fund_code": data.get("fund_code"),
+                "frozen_funds_total": data.get("frozen_funds_total"),
+                "frozen_funds_detail": data.get("frozen_funds_detail"),
+                "in_transit_asset_total": data.get("in_transit_asset_total"),
             }
         }
     
@@ -176,13 +176,13 @@ class TemplateRenderer:
             "data": {
                 "template": "security_detail_card",
                 "title": data.get("title", ""),
-                "accountType": data.get("account_type", "normal"),
-                "securityCode": data.get("security_code"),
-                "securityName": data.get("security_name"),
-                "securityType": data.get("security_type"),
+                "account_type": data.get("account_type", "normal"),
+                "security_code": data.get("security_code"),
+                "security_name": data.get("security_name"),
+                "security_type": data.get("security_type"),
                 "market": data.get("market"),
                 "holding": data.get("holding", {}),
-                "marketInfo": data.get("market_info", {}),
+                "market_info": data.get("market_info", {}),
             }
         }
     
@@ -210,7 +210,7 @@ class TemplateRenderer:
             "data": {
                 "template": "branch_info_card",
                 "title": data.get("title", "开户营业部信息"),
-                "accountType": data.get("account_type", "normal"),
+                "account_type": data.get("account_type", "normal"),
                 "resData": data.get("branch_info", {}),
             },
         }
@@ -223,12 +223,11 @@ class TemplateRenderer:
             "data": {
                 "template": "profit_summary_card",
                 "title": data.get("title", ""),
-                "accountType": data.get("account_type", "normal"),
-                "todayProfit": data.get("today_profit"),
-                "todayProfitRate": data.get("today_profit_rate"),
-                "totalProfit": data.get("total_profit"),
-                "totalProfitRate": data.get("total_profit_rate"),
-                "topPerformers": data.get("top_performers", []),
+                "account_type": data.get("account_type", "normal"),
+                "today_profit": data.get("today_profit"),
+                "today_profit_rate": data.get("today_profit_rate"),
+                "total_profit": data.get("total_profit"),
+                "total_profit_rate": data.get("total_profit_rate"),
+                "top_performers": data.get("top_performers", []),
             }
         }
-
