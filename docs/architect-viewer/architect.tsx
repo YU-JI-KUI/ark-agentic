@@ -122,9 +122,9 @@ export default function ArchitectureDiagram() {
           <div className="flex-1 flex flex-col">
             
             {/* 0. 业务
-能力层（新增） */}
+价值层（新增） */}
             <LayerRow label="业务
-能力" labelBg="bg-gradient-to-b from-[#EA5504] to-[#d14b03]" compact>
+价值" labelBg="bg-gradient-to-b from-[#EA5504] to-[#d14b03]" compact>
               <div className="flex flex-row gap-1.5 w-full items-stretch py-0.5">
                 <BaseBlock title="千人千面 · 个性化" className="flex-1 text-[11px] py-1.5" bgClass="bg-amber-50" borderClass="border border-amber-300" textClass="text-amber-700 font-medium" />
                 <BaseBlock title="全程陪伴 · 跨会话" className="flex-1 text-[11px] py-1.5" bgClass="bg-amber-50" borderClass="border border-amber-300" textClass="text-amber-700 font-medium" />
