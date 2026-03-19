@@ -43,11 +43,21 @@ const BaseBlock = ({ title, bgClass = "bg-white", textClass = "text-slate-700", 
 );
 
 // === 组合/容器色块组件 ===
-const GroupBlock = ({ title, bgClass = "bg-slate-50/50", borderClass = "border border-slate-200", headerClass = "text-slate-700 font-semibold bg-slate-100/50 border-b border-slate-200", contentClass = "gap-1.5 p-1.5", className = "", children }) => (
+const GroupBlock = ({ title, bgClass = "bg-slate-50/50", borderClass = "border border-slate-200", headerClass = "text-slate-700 font-semibold bg-slate-100/50 border-b border-slate-200", contentClass = "gap-1.5 p-1.5", className = "", inspired = false, children }) => (
   <div className={`flex flex-col shadow-sm rounded-md overflow-hidden ${bgClass} ${borderClass} ${className}`}>
     {title && (
-      <div className={`text-center text-xs p-1.5 ${headerClass}`}>
+      <div className={`relative text-center text-xs p-1.5 ${headerClass}`}>
         <EditableText text={title} />
+        {inspired && (
+          <span className="absolute right-2 bottom-1 flex items-center gap-0.5 text-slate-800 opacity-50">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 3c0 1.5.5 3 2 4H6c-2 0-3 1.5-3 3s1 3 3 3h1c-.5 1-1 2.5-1 4" />
+              <path d="M18 3c0 1.5-.5 3-2 4h2c2 0 3 1.5 3 3s-1 3-3 3h-1c.5 1 1 2.5 1 4" />
+              <path d="M10 21h4" /><path d="M12 3v18" />
+            </svg>
+            <span className="text-[10px] italic font-bold">Inspired by OpenClaw</span>
+          </span>
+        )}
       </div>
     )}
     <div className={`flex-1 flex flex-wrap content-start ${contentClass}`}>
@@ -179,8 +189,8 @@ export default function ArchitectureDiagram() {
                     </div>
                   </GroupBlock>
 
-                  {/* ② 执行与编排 */}
-                  <GroupBlock title="执行与编排" bgClass={highlightGroupBg} borderClass={highlightGroupBorder} headerClass={highlightGroupHeader} contentClass="grid grid-cols-2 gap-2 p-2">
+                  {/* ② 编排与执行与执行与执行 */}
+                  <GroupBlock title="编排与执行" bgClass={highlightGroupBg} borderClass={highlightGroupBorder} headerClass={highlightGroupHeader} contentClass="grid grid-cols-2 gap-2 p-2" inspired>
                     {/* Agent Runtime */}
                     <div className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col">
                       <div className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Agent Runtime" /></div>
@@ -202,7 +212,7 @@ export default function ArchitectureDiagram() {
                   </GroupBlock>
 
                   {/* ③ 状态与记忆 */}
-                  <GroupBlock title="状态与记忆" bgClass={highlightGroupBg} borderClass={highlightGroupBorder} headerClass={highlightGroupHeader} contentClass="flex flex-col gap-2 p-2">
+                  <GroupBlock title="状态与记忆" bgClass={highlightGroupBg} borderClass={highlightGroupBorder} headerClass={highlightGroupHeader} contentClass="flex flex-col gap-2 p-2" inspired>
                     <BaseBlock title="Context Engineering" className="w-full text-[10px]" />
                     <div className="grid grid-cols-3 gap-2 items-stretch">
                       {/* Session — 白底 + 浅灰边框，内部 slate-50 底色区分层次 */}
