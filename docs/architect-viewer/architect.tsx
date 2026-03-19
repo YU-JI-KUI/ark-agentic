@@ -59,7 +59,7 @@ const GroupBlock = ({ title, bgClass = "bg-slate-50/50", borderClass = "border b
 // === 左侧层级行组件 ===
 const LayerRow = ({ label, labelBg = "bg-gradient-to-b from-[#EA5504] to-[#d14b03]", compact = false, children }) => (
   <div className={`flex flex-row mb-2.5 shadow-sm bg-white rounded-lg overflow-hidden border border-slate-200 transition-all hover:border-slate-300 ${compact ? 'items-stretch' : ''}`}>
-    <div className={`w-12 md:w-16 shrink-0 flex items-center justify-center text-white font-bold text-center tracking-wide ${labelBg} ${compact ? 'py-0.5 px-1 text-xs' : 'p-2 text-xs md:text-sm'}`}>
+    <div className={`w-16 md:w-20 shrink-0 flex items-center justify-center text-white font-bold text-center tracking-wide ${labelBg} ${compact ? 'py-0.5 px-1 text-xs leading-tight' : 'p-2 text-xs md:text-sm'}`}>
       <EditableText text={label} />
     </div>
     <div className={`flex-1 flex flex-col bg-slate-50/30 ${compact ? 'gap-1 py-1 px-2' : 'gap-2 p-2'}`}>
@@ -121,6 +121,19 @@ export default function ArchitectureDiagram() {
           {/* ================= 左侧：核心架构主视图 ================= */}
           <div className="flex-1 flex flex-col">
             
+            {/* 0. 业务
+能力层（新增） */}
+            <LayerRow label="业务
+能力" labelBg="bg-gradient-to-b from-[#EA5504] to-[#d14b03]" compact>
+              <div className="flex flex-row gap-1.5 w-full items-stretch py-0.5">
+                <BaseBlock title="千人千面 · 个性化" className="flex-1 text-[11px] py-1.5" bgClass="bg-amber-50" borderClass="border border-amber-300" textClass="text-amber-700 font-medium" />
+                <BaseBlock title="全程陪伴 · 跨会话" className="flex-1 text-[11px] py-1.5" bgClass="bg-amber-50" borderClass="border border-amber-300" textClass="text-amber-700 font-medium" />
+                <BaseBlock title="主动服务触达" className="flex-1 text-[11px] py-1.5" bgClass="bg-sky-50" borderClass="border border-sky-200" textClass="text-sky-800 font-medium" />
+                <BaseBlock title="✦ 自主任务执行" className="flex-1 text-[11px] py-1.5" bgClass="bg-slate-50" borderClass="border border-dashed border-slate-300" textClass="text-slate-400 font-medium" />
+                <BaseBlock title="✦ 主动进化 · 自我增强" className="flex-1 text-[11px] py-1.5" bgClass="bg-slate-50" borderClass="border border-dashed border-slate-300" textClass="text-slate-400 font-medium" />
+              </div>
+            </LayerRow>
+
             {/* 1. 前端层（薄层） */}
             <LayerRow label="前端" compact>
               <div className="flex flex-row gap-1.5 w-full items-stretch py-0.5">
@@ -134,7 +147,7 @@ export default function ArchitectureDiagram() {
             {/* 2. 接入层 */}
             <LayerRow label="接入层" compact>
               <div className="flex flex-row gap-1.5 w-full py-0.5">
-                <BaseBlock title="流式 · SSE" className="flex-1 text-[11px] py-1.5" />
+                <BaseBlock title="流式 · SSE (AGUI & ALONE)" className="flex-1 text-[11px] py-1.5" />
                 <BaseBlock title="非流式 · Restful API" className="flex-1 text-[11px] py-1.5" />
               </div>
             </LayerRow>
@@ -146,31 +159,43 @@ export default function ArchitectureDiagram() {
                 {/* 左侧主体：四部分自上而下 */}
                 <div className="flex-1 flex flex-col gap-2 min-w-0">
 
-                  {/* ① 协议与呈现 */}
-                  <GroupBlock title="协议与呈现" bgClass={highlightGroupBg} borderClass={highlightGroupBorder} headerClass={highlightGroupHeader} contentClass="grid grid-cols-2 gap-2 p-2">
-                    <BaseBlock title="流式 
-Alone | PA AGUI | Simple" className="text-[10px]" />
-                    <BaseBlock title="A2UI 引擎
- Template | Component | 动态" className="text-[10px]" />
+                  {/* ① 输出与呈现 */}
+                  <GroupBlock title="输出与呈现" bgClass={highlightGroupBg} borderClass={highlightGroupBorder} headerClass={highlightGroupHeader} contentClass="grid grid-cols-2 gap-2 p-2">
+                    {/* 思考态 */}
+                    <div className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col">
+                      <div className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="思考态" /></div>
+                      <div className="flex flex-col gap-1 p-1.5 bg-slate-50">
+                        <BaseBlock title="思维链路 · CoT 流式输出 | 步骤分解" className="text-[10px] py-0.5" />
+                        <BaseBlock title="过程追踪 · 工具调用 | 并行任务" className="text-[10px] py-0.5" />
+                      </div>
+                    </div>
+                    {/* 生成态 */}
+                    <div className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col">
+                      <div className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="生成态" /></div>
+                      <div className="flex flex-col gap-1 p-1.5 bg-slate-50">
+                        <BaseBlock title="A2UI · Template | Component | Dynamic" className="text-[10px] py-0.5" />
+                        <BaseBlock title="样式 · Markdown | 表格 | 卡片 | 列表" className="text-[10px] py-0.5" />
+                      </div>
+                    </div>
                   </GroupBlock>
 
                   {/* ② 执行与编排 */}
                   <GroupBlock title="执行与编排" bgClass={highlightGroupBg} borderClass={highlightGroupBorder} headerClass={highlightGroupHeader} contentClass="grid grid-cols-2 gap-2 p-2">
                     {/* Agent Runtime */}
                     <div className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col">
-                      <div className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Agent Runtime" /></div>
+                      <div className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Agent Runtime" /></div>
                       <div className="flex flex-col gap-1 p-1.5 bg-slate-50">
-                        <BaseBlock title="Agent Loop - 思考，规划 -工具调用" className="text-[10px] py-0.5" />
-                        <BaseBlock title="Spawn(子任务) · 并行调度" className="text-[10px] py-0.5" />
+                        <BaseBlock title="Agent Loop  · 思考，规划 -工具调用" className="text-[10px] py-0.5" />
+                        <BaseBlock title="Spawn(子任务) · 复杂任务并行调度" className="text-[10px] py-0.5" />
                         <BaseBlock title="自我反思 · 输出评估与自动修正" className="text-[10px] py-0.5" />
                       </div>
                     </div>
-                    {/* Skill */}
+                    {/* Skill Management */}
                     <div className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col">
-                      <div className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Skill" /></div>
+                      <div className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Skill Management" /></div>
                       <div className="flex flex-col gap-1 p-1.5 bg-slate-50">
-                        <BaseBlock title="模式：Full | Dynamic | Semantic" className="text-[10px] py-0.5" />
-                        <BaseBlock title="生命周期管理 - 注册，匹配，过滤" className="text-[10px] py-0.5" />
+                        <BaseBlock title="加载模式 · Full | Dynamic | Semantic" className="text-[10px] py-0.5" />
+                        <BaseBlock title="生命周期  · 注册，匹配，过滤" className="text-[10px] py-0.5" />
                         <BaseBlock title="✦ 主动学习 · 对话沉淀为新 Skill" className="text-[10px] py-0.5" bgClass="bg-slate-100/80" borderClass="border border-dashed border-slate-400" textClass="text-slate-400" />
                       </div>
                     </div>
@@ -182,7 +207,7 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
                     <div className="grid grid-cols-3 gap-2 items-stretch">
                       {/* Session — 白底 + 浅灰边框，内部 slate-50 底色区分层次 */}
                       <div className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col">
-                        <div className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Session · 短期记忆" /></div>
+                        <div className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Session · 短期记忆" /></div>
                         <div className="flex flex-col gap-1 p-1.5 bg-slate-50">
                           <BaseBlock title="上下文压缩 · Compaction" className="text-[10px] py-0.5" />
                           <BaseBlock title="对话回放 · Replay" className="text-[10px] py-0.5" />
@@ -190,10 +215,10 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
                       </div>
                       {/* Memory — 同样白底灰边，实现层用两列 */}
                       <div className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col">
-                        <div className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Memory · 长期记忆" /></div>
+                        <div className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Memory · 长期记忆" /></div>
                         <div className="flex flex-col gap-1 p-1.5 bg-slate-50">
                           <div className="grid grid-cols-2 gap-1">
-                            <BaseBlock title="OpenClaw" className="text-[10px] py-0.5" />
+                            <BaseBlock title="MD文件IO" className="text-[10px] py-0.5" />
                             <BaseBlock title="Mem0" className="text-[10px] py-0.5" />
                           </div>
                           <BaseBlock title="知识沉淀 · 记忆更新 · 记忆检索" className="text-[10px] py-0.5 w-full" />
@@ -201,7 +226,7 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
                       </div>
                       {/* Agent State — 同样白底灰边 */}
                       <div className="rounded-md border border-slate-200 bg-white overflow-hidden flex flex-col">
-                        <div className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Agent State · 状态快照" /></div>
+                        <div className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-1 border-b border-slate-200 text-center"><EditableText text="Agent State · 状态快照" /></div>
                         <div className="flex flex-col gap-1 p-1.5 bg-slate-50">
                           <BaseBlock title="Shared Context · 工具间数据共享" className="text-[10px] py-0.5" />
                           <BaseBlock title="Scratch Pad · 临时数据擦写" className="text-[10px] py-0.5" />
@@ -215,29 +240,31 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
                     <BaseBlock title="LLM Provider 
  集团 | 寿险 | 证券" className="text-[10px]" />
                     <BaseBlock title="Tool | MCP
- 平台知识库工具" className="text-[10px]" />
+ 平台知识库工具 | 寿险数据 | 养老险数据" className="text-[10px]" />
                   </GroupBlock>
 
                 </div>
 
-                {/* 右侧：元智能体纵栏（靛蓝区分） */}
-                <div className="w-20 lg:w-24 shrink-0 flex flex-col border-l-2 border-indigo-400 bg-indigo-50 rounded-md py-2 px-1.5">
-                  <div className="text-indigo-700 font-bold text-[10px] text-center mb-2 leading-tight">
+                {/* 右侧：元智能体纵栏 */}
+                <div className="w-20 lg:w-24 shrink-0 flex flex-col border-l-2 border-slate-300 bg-slate-50 rounded-md py-2 px-1.5">
+                  <div className="text-slate-500 font-bold text-[10px] text-center mb-2 leading-tight">
                     <EditableText text="元智能体" />
                   </div>
                   <div className="flex flex-col gap-1.5 flex-1 justify-center">
-                    <BaseBlock title="Skill 管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-indigo-300" textClass="text-indigo-700" />
-                    <BaseBlock title="智能体管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-indigo-300" textClass="text-indigo-700" />
-                    <BaseBlock title="工具管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-indigo-300" textClass="text-indigo-700" />
-                    <BaseBlock title="Session 管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-indigo-300" textClass="text-indigo-700" />
+                    <BaseBlock title="Skill 管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-slate-300" textClass="text-slate-600" />
+                    <BaseBlock title="智能体管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-slate-300" textClass="text-slate-600" />
+                    <BaseBlock title="工具管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-slate-300" textClass="text-slate-600" />
+                    <BaseBlock title="Session 管理" className="w-full text-[10px] py-1" bgClass="bg-white" borderClass="border border-slate-300" textClass="text-slate-600" />
                   </div>
                 </div>
 
               </div>
             </LayerRow>
 
-            {/* 4. 基础设施层（模型 + 基础设施，两行） */}
-            <LayerRow label="基础设施">
+            {/* 4. 基础
+设施层（模型 + 基础设施，两行） */}
+            <LayerRow label="基础
+设施">
               <div className="flex flex-col gap-2 w-full">
                 <div className="flex flex-row gap-2 w-full flex-wrap">
                   <BaseBlock title="基座模型 · Qwen-80B
@@ -259,7 +286,7 @@ Alone | PA AGUI | Simple" className="text-[10px]" />
           </div>
 
           {/* ================= 垂直：监控/审计层（已实施，深色表严谨） ================= */}
-          <div className="w-20 lg:w-24 shrink-0 flex flex-col border-l-4 border-slate-500 bg-slate-700 rounded-r-lg py-3 px-2">
+          <div className="hidden w-20 lg:w-24 shrink-0 flex flex-col border-l-4 border-slate-500 bg-slate-700 rounded-r-lg py-3 px-2">
             <div className="text-slate-200 font-bold text-xs text-center mb-2 tracking-widest">
               <EditableText text="监控/审计" />
             </div>
