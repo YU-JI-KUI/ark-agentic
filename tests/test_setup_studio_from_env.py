@@ -1,19 +1,18 @@
 """
-Acceptance tests for setup_studio_from_env() and STUDIO_APP_TEMPLATE changes.
+Acceptance tests for setup_studio_from_env() and API_APP_TEMPLATE Studio integration.
 
 Covers:
   - setup_studio_from_env: env=false skips, env=true delegates to setup_studio
   - setup_studio_from_env: ImportError and generic Exception are handled gracefully
-  - STUDIO_APP_TEMPLATE: no ENABLE_STUDIO conditional in lifespan
-  - STUDIO_APP_TEMPLATE: setup_studio_from_env called at module level
-  - CLI --studio: generated app.py matches new contract
+  - API_APP_TEMPLATE: setup_studio_from_env called at module level, no ENABLE_STUDIO in lifespan
+  - CLI --api: generated app.py has Studio support built-in
+  - CLI add-agent: also generates agent.json
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -21,7 +20,8 @@ from fastapi import FastAPI
 
 # ── setup_studio_from_env: env gate ──────────────────────────────────────────
 
-def test_setup_studio_from_env_disabled_by_default():
+def test_setup_studio_from_env_disabled_by_default(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ENABLE_STUDIO", raising=False)
     from ark_agentic.studio import setup_studio_from_env
     app = FastAPI()
     with patch("ark_agentic.studio.setup_studio") as mock_setup:
@@ -69,7 +69,7 @@ def test_setup_studio_from_env_import_error_is_caught(monkeypatch: pytest.Monkey
     app = FastAPI()
     with patch("ark_agentic.studio.setup_studio", side_effect=ImportError("no module")):
         result = setup_studio_from_env(app)
-    assert result is True  # still returns True (env was set), but didn't crash
+    assert result is True
 
 
 def test_setup_studio_from_env_generic_exception_is_caught(monkeypatch: pytest.MonkeyPatch):
@@ -78,14 +78,14 @@ def test_setup_studio_from_env_generic_exception_is_caught(monkeypatch: pytest.M
     app = FastAPI()
     with patch("ark_agentic.studio.setup_studio", side_effect=RuntimeError("boom")):
         result = setup_studio_from_env(app)
-    assert result is True  # still returns True, exception swallowed with logger.exception
+    assert result is True
 
 
-# ── STUDIO_APP_TEMPLATE contract ─────────────────────────────────────────────
+# ── API_APP_TEMPLATE contract ────────────────────────────────────────────────
 
-def _render_studio_template() -> str:
-    from ark_agentic.cli.templates import STUDIO_APP_TEMPLATE
-    return STUDIO_APP_TEMPLATE.format(
+def _render_api_template() -> str:
+    from ark_agentic.cli.templates import API_APP_TEMPLATE
+    return API_APP_TEMPLATE.format(
         project_name="TestProj",
         package_name="test_proj",
         agent_name="default",
@@ -94,14 +94,13 @@ def _render_studio_template() -> str:
     )
 
 
-def test_studio_template_imports_setup_studio_from_env():
-    rendered = _render_studio_template()
-    assert "setup_studio_from_env" in rendered
+def test_api_template_imports_setup_studio_from_env():
+    rendered = _render_api_template()
+    assert "from ark_agentic.studio import setup_studio_from_env" in rendered
 
 
-def test_studio_template_calls_setup_studio_from_env_at_module_level():
-    """setup_studio_from_env must be called outside the lifespan function."""
-    rendered = _render_studio_template()
+def test_api_template_calls_setup_studio_from_env_at_module_level():
+    rendered = _render_api_template()
     lifespan_end = rendered.index("yield")
     studio_call_pos = rendered.index("setup_studio_from_env(app")
     assert studio_call_pos > lifespan_end, (
@@ -109,10 +108,8 @@ def test_studio_template_calls_setup_studio_from_env_at_module_level():
     )
 
 
-def test_studio_template_no_enable_studio_env_check_in_lifespan():
-    """The lifespan must not contain ENABLE_STUDIO env-check — that's framework concern."""
-    rendered = _render_studio_template()
-    # Isolate lifespan body: between 'async def lifespan' and 'app = FastAPI('
+def test_api_template_no_enable_studio_env_check_in_lifespan():
+    rendered = _render_api_template()
     lifespan_start = rendered.index("async def lifespan")
     app_def_start = rendered.index("app = FastAPI(")
     lifespan_body = rendered[lifespan_start:app_def_start]
@@ -120,23 +117,19 @@ def test_studio_template_no_enable_studio_env_check_in_lifespan():
     assert "setup_studio" not in lifespan_body
 
 
-def test_studio_template_no_setup_studio_direct_import():
-    """Template must use setup_studio_from_env, not the raw setup_studio."""
-    rendered = _render_studio_template()
-    # 'from ark_agentic.studio import setup_studio' must NOT appear (only from_env variant)
-    assert "import setup_studio\n" not in rendered
-    assert "from ark_agentic.studio import setup_studio_from_env" in rendered
+def test_api_template_uvicorn_entry_point():
+    rendered = _render_api_template()
+    assert '"test_proj.app:app"' in rendered
 
 
-# ── CLI --studio generates correct app.py ────────────────────────────────────
+# ── CLI --api generates correct app.py ───────────────────────────────────────
 
-def test_cmd_init_with_studio_creates_app_py_using_setup_studio_from_env(tmp_path: Path):
-    """init --studio generates app.py that uses setup_studio_from_env, not raw ENABLE_STUDIO check."""
+def test_cmd_init_with_api_creates_app_py_with_studio(tmp_path: Path):
+    """init --api generates app.py with setup_studio_from_env built-in."""
     from ark_agentic.cli.main import _cmd_init
     args = type("Args", (), {
         "project_name": "myproj",
-        "api": False,
-        "studio": True,
+        "api": True,
         "memory": False,
         "llm_provider": "openai",
     })()
@@ -150,13 +143,12 @@ def test_cmd_init_with_studio_creates_app_py_using_setup_studio_from_env(tmp_pat
     assert "chat_api" in app_py
 
 
-def test_cmd_init_with_studio_app_py_has_agent_json(tmp_path: Path):
-    """init --studio also creates agent.json for Studio discovery."""
+def test_cmd_init_with_api_has_agent_json(tmp_path: Path):
+    """init --api also creates agent.json for Studio discovery."""
     from ark_agentic.cli.main import _cmd_init
     args = type("Args", (), {
         "project_name": "myproj",
-        "api": False,
-        "studio": True,
+        "api": True,
         "memory": False,
         "llm_provider": "openai",
     })()
@@ -165,3 +157,45 @@ def test_cmd_init_with_studio_app_py_has_agent_json(tmp_path: Path):
 
     agent_json = tmp_path / "myproj" / "src" / "myproj" / "agents" / "default" / "agent.json"
     assert agent_json.is_file(), "agent.json must be created for Studio discovery"
+
+
+def test_cmd_init_without_api_also_has_agent_json(tmp_path: Path):
+    """Even without --api, agent.json is generated (for future Studio use)."""
+    from ark_agentic.cli.main import _cmd_init
+    args = type("Args", (), {
+        "project_name": "myproj",
+        "api": False,
+        "memory": False,
+        "llm_provider": "openai",
+    })()
+    with patch.object(Path, "cwd", return_value=tmp_path):
+        _cmd_init(args)
+
+    agent_json = tmp_path / "myproj" / "src" / "myproj" / "agents" / "default" / "agent.json"
+    assert agent_json.is_file()
+
+
+# ── CLI add-agent generates agent.json ───────────────────────────────────────
+
+def test_cmd_add_agent_generates_agent_json(tmp_path: Path):
+    """add-agent must also generate agent.json for Studio discovery."""
+    from ark_agentic.cli.main import _cmd_init, _cmd_add_agent
+
+    init_args = type("Args", (), {
+        "project_name": "myproj",
+        "api": True,
+        "memory": False,
+        "llm_provider": "openai",
+    })()
+    with patch.object(Path, "cwd", return_value=tmp_path):
+        _cmd_init(init_args)
+
+    add_args = type("Args", (), {"agent_name": "billing"})()
+    proj_root = tmp_path / "myproj"
+    with patch.object(Path, "cwd", return_value=proj_root):
+        _cmd_add_agent(add_args)
+
+    agent_json = proj_root / "src" / "myproj" / "agents" / "billing" / "agent.json"
+    assert agent_json.is_file(), "add-agent must generate agent.json"
+    content = agent_json.read_text(encoding="utf-8")
+    assert '"billing"' in content
