@@ -11,12 +11,12 @@ tags:
 required_tools:
   - customer_info
   - policy_query
-  - render_dynamic_card
+  - render_a2ui
 ---
 
 # 信息查询技能
 
-当用户询问个人信息或保单情况时，调用对应数据工具获取数据，然后通过 `render_dynamic_card` 以卡片展示。
+当用户询问个人信息或保单情况时，调用对应数据工具获取数据，然后通过 `render_a2ui` 以卡片展示。
 
 ## 触发条件
 
@@ -41,13 +41,13 @@ required_tools:
 
 ```
 customer_info(info_type="full", user_id=用户ID)
-→ render_dynamic_card(blocks=..., transforms=...)
+→ render_a2ui(blocks=..., transforms=...)
 ```
 
 ### 完整示例
 
 ```
-render_dynamic_card(
+render_a2ui(
   blocks=[
     {"type": "SummaryHeader", "data": {"title": "$header_title", "value": "$name"}},
     {"type": "KeyValueList", "data": {"rowCount": 9, "rowPrefix": "row"}},
@@ -101,13 +101,13 @@ render_dynamic_card(
 
 ```
 policy_query(user_id=用户ID, query_type="list")
-→ render_dynamic_card(blocks=..., transforms=...)
+→ render_a2ui(blocks=..., transforms=...)
 ```
 
 ### 完整示例（3 张保单 → 3 个 SectionCard）
 
 ```
-render_dynamic_card(
+render_a2ui(
   blocks=[
     {"type": "SummaryHeader", "data": {"title": "$header_title", "value": "$count_text"}},
     {"type": "SectionCard", "data": {"title": "$p1_name", "tag": "$p1_id", "total": "$p1_total", "items": "$p1_items"}},

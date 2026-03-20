@@ -187,7 +187,7 @@ class RuleEngineTool(AgentTool):
                 tool_call.id, f"不支持的操作: {action}"
             )
 
-        # list_options 结果存入 session state，供 render_card(card_type=withdraw_summary) 跨轮次读取
+        # list_options 结果存入 session state，供 render_a2ui(card_type=withdraw_summary) 跨轮次读取
         metadata = {}
         if action == "list_options":
             metadata["state_delta"] = {"_rule_engine_result": result}

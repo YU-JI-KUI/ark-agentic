@@ -207,7 +207,7 @@ class SkillMetadata:
     # 何时使用（简短说明，用于“是否加载该技能”决策）
     when_to_use: str | None = None
 
-    # A2UI 渲染模式约束 (template/dynamic/None=any mode)
+    # A2UI 渲染模式约束 (preset/dynamic/None=any mode)
     a2ui_mode: str | None = None
 
 

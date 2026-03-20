@@ -11,7 +11,7 @@ tags:
 required_tools:
   - customer_info
   - rule_engine
-  - render_card
+  - render_a2ui
 ---
 
 # 保险取款技能
@@ -119,7 +119,7 @@ rule_engine(
 **核心原则：永远只有一个 ⭐ 推荐，加上 1-2 个备选。**
 
 1. **优先 A2UI**：在已有 rule_engine 结果的前提下，**必须先**调用  
-   `render_card(card_type="withdraw_summary", card_args=JSON)`  
+   `render_a2ui(card_type="withdraw_summary", card_args=JSON)`  
    生成取款汇总卡片（总金额、零成本/贷款分块、建议文案、按钮）。card_args 由你填写 advice_text_1、advice_text_2、plan_button_text、plan_action_query；金额由工具从 rule_engine 自动计算。
 2. **再补文字**：卡片发出后，可用 1～2 句话或简短 Markdown 补充「备选一/备选二」或引导确认，**不要**用大段 Markdown 再重复卡片里已有的汇总与建议。
 

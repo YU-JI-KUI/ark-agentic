@@ -86,6 +86,7 @@ def create_securities_agent(
         agent_id="securities",
         enable_eligibility_check=True,
         default_load_mode=SkillLoadMode.dynamic,
+        a2ui_mode="preset",
     )
     skill_loader = SkillLoader(skill_config)
     try:
@@ -100,6 +101,7 @@ def create_securities_agent(
         max_turns=10,
         prompt_config=prompt_config,
         skill_config=skill_config,
+        a2ui_mode="preset",
     )
 
     # 4. 可选：创建 MemoryManager

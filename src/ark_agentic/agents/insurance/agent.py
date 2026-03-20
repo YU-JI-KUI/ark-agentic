@@ -133,6 +133,7 @@ def create_insurance_agent(
         agent_id="insurance",
         enable_eligibility_check=True,
         default_load_mode=SkillLoadMode.full,  # 保险 Agent 默认全量加载（最可靠）
+        a2ui_mode="dynamic",
     )
     skill_loader = SkillLoader(skill_config)
 
@@ -182,6 +183,7 @@ def create_insurance_agent(
             agent_description="专业的保险咨询和业务处理助手，帮助您管理保单和解决保险相关问题。",
         ),
         skill_config=skill_config,
+        a2ui_mode="dynamic",
     )
 
     # 6. 创建 Runner

@@ -74,7 +74,7 @@ class RunnerConfig:
     # 技能配置
     skill_config: SkillConfig = field(default_factory=SkillConfig)
 
-    # A2UI 渲染模式默认值 (template|dynamic)，可通过环境变量 A2UI_MODE 覆盖
+    # A2UI 渲染模式 (preset|dynamic)，可通过环境变量 A2UI_MODE 覆盖
     a2ui_mode: str = field(default_factory=lambda: os.getenv("A2UI_MODE", "dynamic"))
 
 
@@ -334,7 +334,7 @@ class AgentRunner:
 
             state = session.state
             messages = self._build_messages(session_id, state, skill_load_mode=skill_load_mode, a2ui_mode=a2ui_mode)
-            tools = self._build_tools(a2ui_mode=a2ui_mode)
+            tools = self._build_tools()
             logger.info(
                 f"Turn {turns} | messages={len(messages)} tools={len(tools)} "
                 f"model={model_override or self.config.model}"
@@ -569,7 +569,7 @@ class AgentRunner:
         a2ui_mode: str = "dynamic",
     ) -> str:
         """构建系统提示"""
-        tools = self._filter_tools_by_a2ui_mode(self.tool_registry.list_all(), a2ui_mode)
+        tools = self.tool_registry.list_all()
 
         # 将已注册的工具名注入，供 skill 资格检查使用
         skill_context = {**state, "available_tools": {t.name for t in tools}}
@@ -623,16 +623,9 @@ class AgentRunner:
             include_memory_instructions=include_memory,
         )
 
-    def _build_tools(self, a2ui_mode: str = "dynamic") -> list[dict[str, Any]]:
-        """构建工具定义（按 a2ui_mode 过滤互斥的渲染工具）"""
-        tools = self._filter_tools_by_a2ui_mode(self.tool_registry.list_all(), a2ui_mode)
-        return [tool.get_json_schema() for tool in tools]
-
-    @staticmethod
-    def _filter_tools_by_a2ui_mode(tools: list[AgentTool], mode: str) -> list[AgentTool]:
-        """Keep only the render tool matching the current a2ui_mode."""
-        exclude = {"render_dynamic_card"} if mode == "template" else {"render_card"}
-        return [t for t in tools if t.name not in exclude]
+    def _build_tools(self) -> list[dict[str, Any]]:
+        """构建工具定义"""
+        return [tool.get_json_schema() for tool in self.tool_registry.list_all()]
 
     def _get_llm(self, model_override: str | None = None, temperature_override: float | None = None) -> BaseChatModel:
         """获取 LLM 实例，支持 per-call model/temperature 覆盖。"""

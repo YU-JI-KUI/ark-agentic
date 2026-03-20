@@ -67,12 +67,26 @@ def _resolve_action(action: Any) -> Any:
 # Block Registry
 # ---------------------------------------------------------------------------
 
+from .guard import BlockDataError
+
 _BLOCK_REGISTRY: dict[str, Callable[[dict[str, Any], IdGen], list[dict[str, Any]]]] = {}
+_BLOCK_REQUIRED_KEYS: dict[str, list[str]] = {}
 
 
-def _register(name: str):
+def _register(name: str, required_keys: list[str] | None = None):
     def decorator(fn: Callable[[dict[str, Any], IdGen], list[dict[str, Any]]]):
-        _BLOCK_REGISTRY[name] = fn
+        if required_keys:
+            _BLOCK_REQUIRED_KEYS[name] = required_keys
+
+            def wrapper(data: dict[str, Any], id_gen: IdGen) -> list[dict[str, Any]]:
+                missing = [k for k in required_keys if k not in data]
+                if missing:
+                    raise BlockDataError(name, missing)
+                return fn(data, id_gen)
+
+            _BLOCK_REGISTRY[name] = wrapper
+        else:
+            _BLOCK_REGISTRY[name] = fn
         return fn
     return decorator
 
@@ -109,7 +123,7 @@ def _text(id_: str, text: Any, **style: Any) -> dict[str, Any]:
 # Block builders
 # ---------------------------------------------------------------------------
 
-@_register("SummaryHeader")
+@_register("SummaryHeader", required_keys=["title", "value"])
 def build_summary_header(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     """Hero header card: title + highlighted value + subtitle + note."""
     card_id, col_id = g("Card"), g("Column")
@@ -147,7 +161,7 @@ def build_summary_header(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]
     return [card, col, *comps]
 
 
-@_register("SectionCard")
+@_register("SectionCard", required_keys=["title", "total", "items"])
 def build_section_card(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     """Titled section: marker + title + tag + total + divider + KV items list."""
     card_id, col_id = g("Card"), g("Column")
@@ -210,7 +224,7 @@ def build_section_card(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     return [comps[-1]] + comps[:-1]
 
 
-@_register("InfoCard")
+@_register("InfoCard", required_keys=["title", "body"])
 def build_info_card(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     """Simple card with title + body text."""
     card_id, col_id = g("Card"), g("Column")
@@ -233,7 +247,7 @@ def build_info_card(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     ]
 
 
-@_register("AdviceCard")
+@_register("AdviceCard", required_keys=["title"])
 def build_advice_card(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     """Advice block: optional icon + title + list of tip texts."""
     card_id, col_id = g("Card"), g("Column")
@@ -446,7 +460,7 @@ def build_item_list(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     return [comps[-1]] + comps[:-1]
 
 
-@_register("ActionButton")
+@_register("ActionButton", required_keys=["text"])
 def build_action_button(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     """Single CTA button."""
     btn_id = g("Button")
@@ -522,7 +536,7 @@ def build_tag_row(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     return [comps[-1]] + comps[:-1]
 
 
-@_register("ImageBanner")
+@_register("ImageBanner", required_keys=["url"])
 def build_image_banner(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     """Image display."""
     img_id = g("Image")
@@ -536,7 +550,7 @@ def build_image_banner(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     return [_comp(img_id, "Image", props)]
 
 
-@_register("StatusRow")
+@_register("StatusRow", required_keys=["label", "value"])
 def build_status_row(data: dict[str, Any], g: IdGen) -> list[dict[str, Any]]:
     """Status indicator: circle + label + value."""
     row_id = g("Row")

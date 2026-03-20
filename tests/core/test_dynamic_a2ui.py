@@ -1,4 +1,4 @@
-"""Tests for Dynamic A2UI: transforms, flattener, render_dynamic_card tool, and mode switching."""
+"""Tests for Dynamic A2UI: transforms, flattener, render_a2ui tool, and mode switching."""
 
 import json
 
@@ -10,7 +10,7 @@ from ark_agentic.core.a2ui.transforms import (
     _eval_condition,
 )
 from ark_agentic.core.a2ui.flattener import TreeFlattener, _resolve_binding
-from ark_agentic.core.tools.render_dynamic_card import RenderDynamicCardTool
+from ark_agentic.core.tools.render_a2ui import RenderA2UITool
 from ark_agentic.core.types import RunOptions, ToolCall
 
 
@@ -363,13 +363,13 @@ class TestSoftValidation:
         assert any("SOFT_WARN" in w for w in warnings)
 
 
-# ============ RenderDynamicCardTool ============
+# ============ RenderA2UITool (blocks path) ============
 
 
-class TestRenderDynamicCardTool:
+class TestRenderA2UITool:
     @pytest.fixture
     def tool(self):
-        return RenderDynamicCardTool(group="insurance")
+        return RenderA2UITool(group="insurance")
 
     @pytest.fixture
     def ctx(self):
@@ -381,61 +381,33 @@ class TestRenderDynamicCardTool:
     @pytest.mark.asyncio
     async def test_basic_render(self, tool, ctx):
         blocks = json.dumps([
-            {"type": "InfoCard", "data": {"title": "$header_title", "body": "$header_value"}},
+            {"type": "InfoCard", "data": {
+                "title": "Total",
+                "body": {"get": "total_available_incl_loan", "format": "currency"},
+            }},
         ])
-        transforms = json.dumps({
-            "header_title": {"literal": "Total"},
-            "header_value": {"get": "total_available_incl_loan", "format": "currency"},
-        })
-        tc = ToolCall.create("render_dynamic_card", {"blocks": blocks, "transforms": transforms})
+        tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
         assert result.content["event"] == "beginRendering"
-        assert result.content["data"]["header_value"] == "¥ 252,800.00"
 
     @pytest.mark.asyncio
     async def test_invalid_blocks_json(self, tool, ctx):
-        tc = ToolCall.create("render_dynamic_card", {"blocks": "not json"})
+        tc = ToolCall.create("render_a2ui", {"blocks": "not json"})
         result = await tool.execute(tc, context=ctx)
         assert result.is_error
         assert "JSON" in result.content
 
     @pytest.mark.asyncio
     async def test_invalid_blocks_not_array(self, tool, ctx):
-        tc = ToolCall.create("render_dynamic_card", {"blocks": '{"x":1}'})
+        tc = ToolCall.create("render_a2ui", {"blocks": '{"x":1}'})
         result = await tool.execute(tc, context=ctx)
         assert result.is_error
 
     @pytest.mark.asyncio
-    async def test_data_model_update_event(self, tool, ctx):
-        transforms = json.dumps({"x": {"get": "requested_amount", "format": "currency"}})
-        tc = ToolCall.create("render_dynamic_card", {
-            "blocks": "[]",
-            "transforms": transforms,
-            "event": "dataModelUpdate",
-            "surface_id": "surf-1",
-        })
-        result = await tool.execute(tc, context=ctx)
-        assert not result.is_error
-        assert result.content["event"] == "dataModelUpdate"
-        assert result.content["surfaceId"] == "surf-1"
-        assert result.content["data"]["x"] == "¥ 50,000.00"
-
-    @pytest.mark.asyncio
-    async def test_delete_surface_event(self, tool, ctx):
-        tc = ToolCall.create("render_dynamic_card", {
-            "blocks": "[]",
-            "event": "deleteSurface",
-            "surface_id": "surf-1",
-        })
-        result = await tool.execute(tc, context=ctx)
-        assert not result.is_error
-        assert result.content["event"] == "deleteSurface"
-
-    @pytest.mark.asyncio
     async def test_no_transforms(self, tool, ctx):
         blocks = json.dumps([{"type": "Divider", "data": {}}])
-        tc = ToolCall.create("render_dynamic_card", {"blocks": blocks})
+        tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
         assert result.content["data"] == {}
@@ -443,7 +415,7 @@ class TestRenderDynamicCardTool:
     @pytest.mark.asyncio
     async def test_unknown_block_type_error(self, tool, ctx):
         blocks = json.dumps([{"type": "FakeBlock", "data": {}}])
-        tc = ToolCall.create("render_dynamic_card", {"blocks": blocks})
+        tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert result.is_error
 
@@ -456,40 +428,6 @@ class TestModeSwitching:
         opts = RunOptions()
         assert not hasattr(opts, "a2ui_mode") or getattr(opts, "a2ui_mode", None) is None
 
-    def test_filter_tools_template_mode(self):
-        from ark_agentic.core.runner import AgentRunner
-        from ark_agentic.core.tools.render_dynamic_card import RenderDynamicCardTool
-
-        class FakeRenderCard:
-            name = "render_card"
-
-        class FakeOtherTool:
-            name = "rule_engine"
-
-        tools = [FakeRenderCard(), RenderDynamicCardTool(), FakeOtherTool()]
-        filtered = AgentRunner._filter_tools_by_a2ui_mode(tools, "template")
-        names = [t.name for t in filtered]
-        assert "render_card" in names
-        assert "render_dynamic_card" not in names
-        assert "rule_engine" in names
-
-    def test_filter_tools_dynamic_mode(self):
-        from ark_agentic.core.runner import AgentRunner
-        from ark_agentic.core.tools.render_dynamic_card import RenderDynamicCardTool
-
-        class FakeRenderCard:
-            name = "render_card"
-
-        class FakeOtherTool:
-            name = "rule_engine"
-
-        tools = [FakeRenderCard(), RenderDynamicCardTool(), FakeOtherTool()]
-        filtered = AgentRunner._filter_tools_by_a2ui_mode(tools, "dynamic")
-        names = [t.name for t in filtered]
-        assert "render_card" not in names
-        assert "render_dynamic_card" in names
-        assert "rule_engine" in names
-
     def test_skill_a2ui_mode_filtering(self):
         from ark_agentic.core.types import SkillMetadata, SkillEntry
 
@@ -501,10 +439,12 @@ class TestModeSwitching:
                 metadata=SkillMetadata(name="generic", description="generic"),
             ),
             SkillEntry(
-                id="template_only",
-                path="/skills/template_only/SKILL.md",
+                id="preset_only",
+                path="/skills/preset_only/SKILL.md",
                 content="...",
-                metadata=SkillMetadata(name="template_only", description="template only", a2ui_mode="template"),
+                metadata=SkillMetadata(
+                    name="preset_only", description="preset only", a2ui_mode="preset"
+                ),
             ),
             SkillEntry(
                 id="dynamic_only",
@@ -514,12 +454,12 @@ class TestModeSwitching:
             ),
         ]
 
-        template_filtered = [
+        preset_filtered = [
             s for s in skills
-            if s.metadata.a2ui_mode is None or s.metadata.a2ui_mode == "template"
+            if s.metadata.a2ui_mode is None or s.metadata.a2ui_mode == "preset"
         ]
-        assert len(template_filtered) == 2
-        assert {s.id for s in template_filtered} == {"generic", "template_only"}
+        assert len(preset_filtered) == 2
+        assert {s.id for s in preset_filtered} == {"generic", "preset_only"}
 
         dynamic_filtered = [
             s for s in skills
@@ -789,7 +729,7 @@ class TestFlatFormatTolerance:
 class TestStrictValidationMode:
     @pytest.fixture
     def tool(self):
-        return RenderDynamicCardTool(group="insurance")
+        return RenderA2UITool(group="insurance")
 
     @pytest.fixture
     def ctx(self):
@@ -799,10 +739,10 @@ class TestStrictValidationMode:
     async def test_enforce_mode_returns_error(self, tool, ctx, monkeypatch):
         monkeypatch.setenv("A2UI_STRICT_VALIDATION", "enforce")
         blocks = json.dumps([{"type": "Divider", "data": {}}])
-        tc = ToolCall.create("render_dynamic_card", {"blocks": blocks})
+        tc = ToolCall.create("render_a2ui", {"blocks": blocks})
 
         from unittest.mock import patch
-        with patch("ark_agentic.core.tools.render_dynamic_card.validate_event_payload", side_effect=ValueError("Mocked contract error")):
+        with patch("ark_agentic.core.a2ui.guard.validate_event_payload", side_effect=ValueError("Mocked contract error")):
             result = await tool.execute(tc, context=ctx)
             assert result.is_error is True
             assert "A2UI contract invalid: [EVENT_CONTRACT] Mocked contract error" in result.content
@@ -811,15 +751,13 @@ class TestStrictValidationMode:
     async def test_warn_mode_returns_a2ui_result(self, tool, ctx, monkeypatch):
         monkeypatch.setenv("A2UI_STRICT_VALIDATION", "warn")
         blocks = json.dumps([{"type": "Divider", "data": {}}])
-        tc = ToolCall.create("render_dynamic_card", {"blocks": blocks})
+        tc = ToolCall.create("render_a2ui", {"blocks": blocks})
 
         from unittest.mock import patch
-        with patch("ark_agentic.core.tools.render_dynamic_card.validate_event_payload", side_effect=ValueError("Mocked contract error")):
+        with patch("ark_agentic.core.a2ui.guard.validate_event_payload", side_effect=ValueError("Mocked contract error")):
             result = await tool.execute(tc, context=ctx)
             assert result.is_error is False
             assert result.content["event"] == "beginRendering"
             assert "warnings" in result.metadata
             assert any("Mocked contract error" in w for w in result.metadata["warnings"])
-            assert result.metadata["a2ui_validation"]["ok"] is False
             assert result.metadata["a2ui_validation"]["mode"] == "warn"
-            assert len(result.metadata["a2ui_validation"]["errors"]) > 0

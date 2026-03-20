@@ -1,9 +1,9 @@
-"""Tests for core.tools.RenderCardTool and CardExtractor."""
+"""Tests for RenderA2UITool card_type path (insurance template.json + extractors)."""
 
 import pytest
 from pathlib import Path
 
-from ark_agentic.core.tools import RenderCardTool
+from ark_agentic.core.tools.render_a2ui import RenderA2UITool
 from ark_agentic.core.types import ToolCall, ToolResultType
 
 
@@ -52,14 +52,14 @@ def _mock_extractor(context: dict, card_args: dict | None) -> dict:
 
 
 @pytest.fixture
-def tool() -> RenderCardTool:
-    return RenderCardTool(
+def tool() -> RenderA2UITool:
+    return RenderA2UITool(
         template_root=_template_root(),
         extractors={"withdraw_summary": _mock_extractor},
     )
 
 
-def test_render_card_tool_schema_has_card_type_enum(tool: RenderCardTool) -> None:
+def test_render_a2ui_tool_schema_has_card_type_enum(tool: RenderA2UITool) -> None:
     schema = tool.get_json_schema()
     params = schema["function"]["parameters"]
     assert "card_type" in params["properties"]
@@ -68,10 +68,10 @@ def test_render_card_tool_schema_has_card_type_enum(tool: RenderCardTool) -> Non
 
 
 @pytest.mark.asyncio
-async def test_render_card_tool_execute_success(tool: RenderCardTool) -> None:
+async def test_render_a2ui_tool_execute_success(tool: RenderA2UITool) -> None:
     tc = ToolCall(
         id="tc1",
-        name="render_card",
+        name="render_a2ui",
         arguments={
             "card_type": "withdraw_summary",
             "card_args": '{"advice_text_1":"建议1","advice_text_2":"建议2"}',
@@ -89,8 +89,8 @@ async def test_render_card_tool_execute_success(tool: RenderCardTool) -> None:
 
 
 @pytest.mark.asyncio
-async def test_render_card_tool_execute_invalid_card_type_returns_error(tool: RenderCardTool) -> None:
-    tc = ToolCall(id="tc2", name="render_card", arguments={"card_type": "unknown_type"})
+async def test_render_a2ui_tool_execute_invalid_card_type_returns_error(tool: RenderA2UITool) -> None:
+    tc = ToolCall(id="tc2", name="render_a2ui", arguments={"card_type": "unknown_type"})
     result = await tool.execute(tc, {})
 
     assert result.is_error
@@ -99,10 +99,10 @@ async def test_render_card_tool_execute_invalid_card_type_returns_error(tool: Re
 
 
 @pytest.mark.asyncio
-async def test_render_card_tool_execute_invalid_card_args_json_returns_error(tool: RenderCardTool) -> None:
+async def test_render_a2ui_tool_execute_invalid_card_args_json_returns_error(tool: RenderA2UITool) -> None:
     tc = ToolCall(
         id="tc3",
-        name="render_card",
+        name="render_a2ui",
         arguments={"card_type": "withdraw_summary", "card_args": "{invalid}"},
     )
     result = await tool.execute(tc, {"session_id": "s1"})
@@ -112,15 +112,15 @@ async def test_render_card_tool_execute_invalid_card_args_json_returns_error(too
 
 
 @pytest.mark.asyncio
-async def test_render_card_tool_execute_extractor_raises_returns_error() -> None:
+async def test_render_a2ui_tool_execute_extractor_raises_returns_error() -> None:
     def failing_extractor(_ctx: dict, _args: dict | None) -> dict:
         raise ValueError("no data")
 
-    t = RenderCardTool(
+    t = RenderA2UITool(
         template_root=_template_root(),
         extractors={"withdraw_summary": failing_extractor},
     )
-    tc = ToolCall(id="tc4", name="render_card", arguments={"card_type": "withdraw_summary"})
+    tc = ToolCall(id="tc4", name="render_a2ui", arguments={"card_type": "withdraw_summary"})
     result = await t.execute(tc, {"session_id": "s1"})
 
     assert result.is_error
@@ -128,8 +128,8 @@ async def test_render_card_tool_execute_extractor_raises_returns_error() -> None
 
 
 @pytest.mark.asyncio
-async def test_render_card_tool_execute_empty_card_args_ok(tool: RenderCardTool) -> None:
-    tc = ToolCall(id="tc5", name="render_card", arguments={"card_type": "withdraw_summary"})
+async def test_render_a2ui_tool_execute_empty_card_args_ok(tool: RenderA2UITool) -> None:
+    tc = ToolCall(id="tc5", name="render_a2ui", arguments={"card_type": "withdraw_summary"})
     result = await tool.execute(tc, {"session_id": "s1"})
 
     assert not result.is_error

@@ -11,7 +11,7 @@ tags:
 required_tools:
   - customer_info
   - rule_engine
-  - render_dynamic_card
+  - render_a2ui
 ---
 
 # 保险取款技能
@@ -43,7 +43,7 @@ required_tools:
 
 ```
 rule_engine(action="list_options", user_id=用户ID)
-→ render_dynamic_card(blocks=..., transforms=...)
+→ render_a2ui(blocks=..., transforms=...)
 ```
 
 ### 卡片结构
@@ -60,7 +60,7 @@ rule_engine(action="list_options", user_id=用户ID)
 以下示例基于 3 张保单。LLM 必须根据 `options` 数组中各字段的实际值决定哪些 SectionCard 需要生成。
 
 ```
-render_dynamic_card(
+render_a2ui(
   blocks=[
     {"type": "SummaryHeader", "data": {"title": "$header_title", "value": "$header_value", "subtitle": "$header_sub", "note": "$requested_note"}},
     {"type": "SectionCard", "data": {"title": "$zero_title", "tag": "$zero_tag", "total": "$zero_total", "items": "$zero_items"}},
@@ -162,7 +162,7 @@ render_dynamic_card(
 ```
 customer_info(info_type="identity", user_id=用户ID)
 → rule_engine(action="list_options", user_id=用户ID, amount=金额)
-→ render_dynamic_card(blocks=..., transforms=...)
+→ render_a2ui(blocks=..., transforms=...)
 ```
 
 ### 渠道优先级（从高到低）
@@ -183,7 +183,7 @@ customer_info(info_type="identity", user_id=用户ID)
 ### 完整示例（2 个方案）
 
 ```
-render_dynamic_card(
+render_a2ui(
   blocks=[
     {"type": "SummaryHeader", "data": {"title": "$header_title", "value": "$requested_display", "subtitle": "$header_sub"}},
     {"type": "SectionCard", "data": {"title": "$plan1_title", "tag": "$plan1_tag", "total": "$plan1_total", "items": "$plan1_items"}},
@@ -252,7 +252,7 @@ render_dynamic_card(
 
 | 用户说 | 类型 | 处理 |
 |-------|------|------|
-| "多取一点，总共8万" | A 改总额 | `rule_engine(list_options, amount=新金额)` → render_dynamic_card |
+| "多取一点，总共8万" | A 改总额 | `rule_engine(list_options, amount=新金额)` → render_a2ui |
 | "不要贷款" / "不退保" | B 排除渠道 | `rule_engine(list_options, amount=原金额)` → 在 blocks 中排除对应 SectionCard |
 | "只用不影响保障的" | B 排除渠道 | 只保留 zero_cost SectionCard |
 | "POL002 少取点" | C 调单项 | `rule_engine(calculate_detail, policy=..., option_type=..., amount=新金额)` |

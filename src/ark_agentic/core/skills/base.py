@@ -37,7 +37,7 @@ class SkillConfig:
     # Agent 级别默认加载模式
     default_load_mode: SkillLoadMode = SkillLoadMode.full
 
-    # A2UI rendering mode: "dynamic" or "template"
+    # A2UI rendering mode: "dynamic" or "preset"
     a2ui_mode: str = field(default_factory=lambda: os.getenv("A2UI_MODE", "dynamic"))
 
 

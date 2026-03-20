@@ -13,13 +13,13 @@
 ### withdraw_money
 
 - **触发**：取款意图 + **已**明确金额（或由 clarify_need 交接）。
-- **职责**：customer_info → rule_engine(list_options) → **render_card(withdraw_summary)** 作为主呈现 → 可选文字/备选 → 引导确认。
+- **职责**：customer_info → rule_engine(list_options) → **`render_a2ui`(card_type=withdraw_summary)** 作为主呈现 → 可选文字/备选 → 引导确认。
 - **不触发**：未明确金额（应先 clarify_need）。
 
 ### rewrite_plan
 
 - **触发**：用户对**已推荐方案**提出修改（改金额/改渠道/改单笔等）。
-- **职责**：判断 A/B/C → 重调 rule_engine 或 calculate_detail → **render_card(withdraw_summary)** 展示调整后汇总（类型 C 若未刷新 list_options 则仅文字）→ 对比/备选/确认。
+- **职责**：判断 A/B/C → 重调 rule_engine 或 calculate_detail → **`render_a2ui`(card_type=withdraw_summary)** 展示调整后汇总（类型 C 若未刷新 list_options 则仅文字）→ 对比/备选/确认。
 - **不触发**：首次取款方案（应由 withdraw_money 处理）。
 
 ## 互斥与顺序

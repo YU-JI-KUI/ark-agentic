@@ -6,6 +6,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 # 添加项目路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
@@ -54,15 +56,16 @@ async def test_mock_loader():
     print("\n✅ Mock 数据加载器测试通过!\n")
 
 
-async def test_service_adapter():
-    """测试服务适配器"""
+async def test_service_adapter(monkeypatch: pytest.MonkeyPatch):
+    """测试服务适配器（mock 由 SECURITIES_SERVICE_MOCK 控制）"""
+    monkeypatch.setenv("SECURITIES_SERVICE_MOCK", "true")
     print("=" * 60)
     print("测试 2: 服务适配器")
     print("=" * 60)
     
     # 测试账户总资产适配器（普通账户）
     print("\n1. 测试账户总资产适配器 (普通账户):")
-    adapter = create_service_adapter("account_overview", mock=True)
+    adapter = create_service_adapter("account_overview")
     data = await adapter.call(account_type="normal", user_id="U001")
     print(f"   ✓ 总资产: {data.get('total_assets')}")
     print(f"   ✓ 现金余额: {data.get('cash_balance')}")
@@ -77,7 +80,7 @@ async def test_service_adapter():
     
     # 测试 ETF 持仓适配器
     print("\n3. 测试 ETF 持仓适配器:")
-    adapter = create_service_adapter("etf_holdings", mock=True)
+    adapter = create_service_adapter("etf_holdings")
     data = await adapter.call(account_type="normal", user_id="U001")
     holdings = data.get('holdings', [])
     print(f"   ✓ 持仓数量: {len(holdings)}")

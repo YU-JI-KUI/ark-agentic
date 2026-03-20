@@ -1,6 +1,6 @@
 ---
 name: 动态UI渲染参考
-description: render_dynamic_card 块类型和 Transform DSL 语法参考。不直接触发，仅供其他技能引用。
+description: render_a2ui 块类型和 Transform DSL 语法参考。不直接触发，仅供其他技能引用。
 version: "5.0.0"
 invocation_policy: always
 group: insurance
@@ -9,12 +9,12 @@ tags:
   - dynamic
   - rendering
 required_tools:
-  - render_dynamic_card
+  - render_a2ui
 ---
 
 # 动态 UI 渲染参考
 
-本技能是 `render_dynamic_card` 工具的**语法参考**。具体场景请参考：
+本技能是 `render_a2ui` 工具的**语法参考**。具体场景请参考：
 - 个人信息 / 保单列表 → `view_info` 技能
 - 取款总览 / 具体方案 / 方案调整 → `withdraw_money` 技能
 

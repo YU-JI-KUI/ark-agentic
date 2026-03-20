@@ -15,7 +15,7 @@ from ark_agentic.core.a2ui.blocks import (
     PAGE_BG,
 )
 from ark_agentic.core.a2ui.composer import BlockComposer
-from ark_agentic.core.tools.render_dynamic_card import RenderDynamicCardTool
+from ark_agentic.core.tools.render_a2ui import RenderA2UITool
 from ark_agentic.core.types import ToolCall
 
 
@@ -234,26 +234,19 @@ class TestBlockComposer:
 # ============ Tool Integration ============
 
 
-class TestRenderDynamicCardTool:
+class TestRenderA2UITool:
     @pytest.fixture
     def tool(self):
-        return RenderDynamicCardTool()
+        return RenderA2UITool()
 
     @pytest.mark.asyncio
     async def test_basic_blocks(self, tool):
         blocks = [
-            {"type": "InfoCard", "data": {"title": "$title", "body": "$body"}},
+            {"type": "InfoCard", "data": {"title": "Test", "body": "Body text"}},
         ]
-        transforms = {
-            "title": {"literal": "Test"},
-            "body": {"literal": "Body text"},
-        }
         tc = ToolCall.create(
-            "render_dynamic_card",
-            {
-                "blocks": json.dumps(blocks),
-                "transforms": json.dumps(transforms),
-            },
+            "render_a2ui",
+            {"blocks": json.dumps(blocks)},
         )
         result = await tool.execute(tc, context={})
         assert not result.is_error
@@ -263,78 +256,55 @@ class TestRenderDynamicCardTool:
 
     @pytest.mark.asyncio
     async def test_invalid_blocks_json(self, tool):
-        tc = ToolCall.create("render_dynamic_card", {"blocks": "not-json"})
+        tc = ToolCall.create("render_a2ui", {"blocks": "not-json"})
         result = await tool.execute(tc, context={})
         assert result.is_error
 
     @pytest.mark.asyncio
     async def test_blocks_not_array(self, tool):
-        tc = ToolCall.create("render_dynamic_card", {"blocks": '{"x":1}'})
+        tc = ToolCall.create("render_a2ui", {"blocks": '{"x":1}'})
         result = await tool.execute(tc, context={})
         assert result.is_error
 
     @pytest.mark.asyncio
     async def test_unknown_block_type(self, tool):
         tc = ToolCall.create(
-            "render_dynamic_card",
+            "render_a2ui",
             {"blocks": json.dumps([{"type": "FakeBlock", "data": {}}])},
         )
         result = await tool.execute(tc, context={})
         assert result.is_error
 
     @pytest.mark.asyncio
-    async def test_data_model_update(self, tool):
-        tc = ToolCall.create(
-            "render_dynamic_card",
-            {
-                "blocks": "[]",
-                "event": "dataModelUpdate",
-                "surface_id": "s1",
-            },
-        )
-        result = await tool.execute(tc, context={})
-        assert not result.is_error
-        assert result.content["event"] == "dataModelUpdate"
-
-    @pytest.mark.asyncio
-    async def test_delete_surface(self, tool):
-        tc = ToolCall.create(
-            "render_dynamic_card",
-            {"blocks": "[]", "event": "deleteSurface", "surface_id": "s1"},
-        )
-        result = await tool.execute(tc, context={})
-        assert not result.is_error
-        assert result.content["event"] == "deleteSurface"
-
-    @pytest.mark.asyncio
-    async def test_transforms_from_context(self, tool):
-        blocks = [{"type": "InfoCard", "data": {"title": "$t", "body": "$b"}}]
-        transforms = {
-            "t": {"get": "total_available_incl_loan", "format": "currency"},
-            "b": {"literal": "ok"},
-        }
+    async def test_inline_transforms_from_context(self, tool):
+        blocks = [{"type": "InfoCard", "data": {
+            "title": {"get": "total_available_incl_loan", "format": "currency"},
+            "body": "ok",
+        }}]
         ctx = {
             "_rule_engine_result": {"total_available_incl_loan": 12345},
         }
         tc = ToolCall.create(
-            "render_dynamic_card",
-            {
-                "blocks": json.dumps(blocks),
-                "transforms": json.dumps(transforms),
-            },
+            "render_a2ui",
+            {"blocks": json.dumps(blocks)},
         )
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
-        assert "12,345" in str(result.content["data"].get("t", ""))
+        text_comps = [
+            c for c in result.content["components"]
+            if "Text" in c.get("component", {})
+        ]
+        titles = [c["component"]["Text"]["text"] for c in text_comps
+                  if c["component"]["Text"].get("text", {}).get("literalString") == "¥ 12,345.00"]
+        assert len(titles) == 1
 
     @pytest.mark.asyncio
     async def test_policy_query_data_via_state_delta(self, tool):
         """policy_query results stored in _policy_query_result are merged at top level."""
-        blocks = [{"type": "InfoCard", "data": {"title": "$t", "body": "$b"}}]
-        transforms = {
-            "t": {"get": "total_count"},
-            "b": {"literal": "ok"},
-        }
+        blocks = [{"type": "InfoCard", "data": {
+            "title": {"get": "total_count"},
+            "body": "ok",
+        }}]
         ctx = {
             "_policy_query_result": {
                 "policyAssertList": [{"policy_id": "P1"}],
@@ -342,21 +312,25 @@ class TestRenderDynamicCardTool:
             },
         }
         tc = ToolCall.create(
-            "render_dynamic_card",
-            {"blocks": json.dumps(blocks), "transforms": json.dumps(transforms)},
+            "render_a2ui",
+            {"blocks": json.dumps(blocks)},
         )
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
-        assert result.content["data"]["t"] == 3
+        text_comps = [
+            c for c in result.content["components"]
+            if "Text" in c.get("component", {})
+            and c["component"]["Text"].get("text", {}).get("literalString") == 3
+        ]
+        assert len(text_comps) == 1
 
     @pytest.mark.asyncio
     async def test_customer_info_data_via_state_delta(self, tool):
         """customer_info results stored in _customer_info_result are merged at top level."""
-        blocks = [{"type": "InfoCard", "data": {"title": "$t", "body": "$b"}}]
-        transforms = {
-            "t": {"get": "identity.name"},
-            "b": {"get": "contact.phone"},
-        }
+        blocks = [{"type": "InfoCard", "data": {
+            "title": {"get": "identity.name"},
+            "body": {"get": "contact.phone"},
+        }}]
         ctx = {
             "_customer_info_result": {
                 "identity": {"name": "张明"},
@@ -364,22 +338,27 @@ class TestRenderDynamicCardTool:
             },
         }
         tc = ToolCall.create(
-            "render_dynamic_card",
-            {"blocks": json.dumps(blocks), "transforms": json.dumps(transforms)},
+            "render_a2ui",
+            {"blocks": json.dumps(blocks)},
         )
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
-        assert result.content["data"]["t"] == "张明"
-        assert result.content["data"]["b"] == "138****5678"
+        text_comps = [
+            c for c in result.content["components"]
+            if "Text" in c.get("component", {})
+        ]
+        literals = [c["component"]["Text"]["text"].get("literalString") for c in text_comps
+                    if isinstance(c["component"]["Text"].get("text"), dict)]
+        assert "张明" in literals
+        assert "138****5678" in literals
 
     @pytest.mark.asyncio
     async def test_same_turn_tool_results_merged_at_top_level(self, tool):
         """Same-turn _tool_results_by_name are merged at top level (no _tool_ prefix)."""
-        blocks = [{"type": "InfoCard", "data": {"title": "$t", "body": "$b"}}]
-        transforms = {
-            "t": {"get": "identity.name"},
-            "b": {"get": "total_count"},
-        }
+        blocks = [{"type": "InfoCard", "data": {
+            "title": {"get": "identity.name"},
+            "body": {"get": "total_count"},
+        }}]
         ctx = {
             "_tool_results_by_name": {
                 "customer_info": {"identity": {"name": "李四"}},
@@ -387,13 +366,19 @@ class TestRenderDynamicCardTool:
             },
         }
         tc = ToolCall.create(
-            "render_dynamic_card",
-            {"blocks": json.dumps(blocks), "transforms": json.dumps(transforms)},
+            "render_a2ui",
+            {"blocks": json.dumps(blocks)},
         )
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
-        assert result.content["data"]["t"] == "李四"
-        assert result.content["data"]["b"] == 5
+        text_comps = [
+            c for c in result.content["components"]
+            if "Text" in c.get("component", {})
+        ]
+        literals = [c["component"]["Text"]["text"].get("literalString") for c in text_comps
+                    if isinstance(c["component"]["Text"].get("text"), dict)]
+        assert "李四" in literals
+        assert 5 in literals
 
 
 class TestKeyValueListRowMode:
@@ -502,7 +487,7 @@ class TestSkillLoaderModeSelection:
             name: SkillA Template
             description: template version
             required_tools:
-              - render_card
+              - render_a2ui
             ---
             Template content
         """))
@@ -511,7 +496,7 @@ class TestSkillLoaderModeSelection:
             name: SkillA Dynamic
             description: dynamic version
             required_tools:
-              - render_dynamic_card
+              - render_a2ui
             ---
             Dynamic content
         """))
@@ -533,7 +518,7 @@ class TestSkillLoaderModeSelection:
             name: SkillC DynOnly
             description: dynamic-only skill
             required_tools:
-              - render_dynamic_card
+              - render_a2ui
             ---
             Dynamic only
         """))
@@ -564,13 +549,13 @@ class TestSkillLoaderModeSelection:
         assert skill_c is not None
         assert skill_c.metadata.name == "SkillC DynOnly"
 
-    def test_template_mode_picks_default_file(self, skill_dir):
+    def test_preset_mode_picks_default_file(self, skill_dir):
         from ark_agentic.core.skills.base import SkillConfig
         from ark_agentic.core.skills.loader import SkillLoader
 
         config = SkillConfig(
             skill_directories=[str(skill_dir)],
-            a2ui_mode="template",
+            a2ui_mode="preset",
         )
         loader = SkillLoader(config)
         skills = loader.load_from_directories()
@@ -582,5 +567,5 @@ class TestSkillLoaderModeSelection:
         skill_b = skills.get("skill_b")
         assert skill_b is not None
 
-        # skill_c has no SKILL.md -> not loaded in template mode
+        # skill_c has no SKILL.md -> not loaded when not in dynamic mode
         assert "skill_c" not in skills
