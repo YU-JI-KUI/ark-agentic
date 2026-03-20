@@ -30,6 +30,7 @@ class MemoryChunk:
     end_line: int
     text: str  # 原文内容
     source: MemorySource = MemorySource.MEMORY
+    user_id: str = ""  # 用户标识（shared DB 分区）
     embedding: list[float] | None = None  # 向量表示
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -118,11 +119,11 @@ class MemoryStatus:
 
     # 向量存储
     vector_enabled: bool = False
-    vector_backend: str = "faiss"
+    vector_backend: str = "sqlite-vec"
 
     # 关键词搜索
     keyword_enabled: bool = False
-    keyword_backend: str = "bm25"
+    keyword_backend: str = "fts5+jieba"
 
     # 缓存
     cache_enabled: bool = False

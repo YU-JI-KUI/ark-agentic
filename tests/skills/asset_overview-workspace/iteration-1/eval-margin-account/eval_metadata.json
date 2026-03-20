@@ -1,0 +1,19 @@
+{
+  "eval_id": 3,
+  "eval_name": "margin-account",
+  "prompt": "我的两融账户现在风险怎么样？担保比率多少？",
+  "assertions": [
+    {
+      "name": "调用 account_overview 工具",
+      "check": "输出中应包含对 account_overview 工具的调用"
+    },
+    {
+      "name": "展示两融指标",
+      "check": "应展示维持担保比率、风险等级等两融账户特殊指标"
+    },
+    {
+      "name": "不提供投资建议",
+      "check": "不应提供任何投资建议或交易建议"
+    }
+  ]
+}

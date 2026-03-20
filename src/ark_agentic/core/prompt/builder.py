@@ -127,6 +127,17 @@ class SystemPromptBuilder:
 
         return self
 
+    def add_user_profile(self, content: str) -> SystemPromptBuilder:
+        """添加用户画像（全局 USER.md 内容）"""
+        if content.strip():
+            section = (
+                "## 用户画像\n\n"
+                "以下是该用户的持久化画像信息，请在整个对话中保持一致的个性化体验：\n\n"
+                + content.strip()
+            )
+            self._sections.append(("user_profile", section))
+        return self
+
     def add_tools(
         self,
         tools: list[AgentTool],
@@ -237,10 +248,10 @@ class SystemPromptBuilder:
         tools: list[AgentTool] | None = None,
         skills: list[SkillEntry] | None = None,
         context: dict[str, Any] | None = None,
-        custom_instructions: str | None = None,
         config: PromptConfig | None = None,
         include_tool_params: bool = False,
         include_memory_instructions: bool = False,
+        user_profile_content: str = "",
     ) -> str:
         """快速构建系统提示
 
@@ -248,10 +259,10 @@ class SystemPromptBuilder:
             tools: 可用工具列表
             skills: 可用技能列表
             context: 上下文信息
-            custom_instructions: 自定义指令
-            config: 提示配置
+            config: 提示配置（含 custom_instructions 等）
             include_tool_params: 是否在工具描述中包含参数信息
             include_memory_instructions: 是否包含 memory 使用指令
+            user_profile_content: 全局用户画像 (USER.md) 内容
 
         Returns:
             构建的系统提示
@@ -261,46 +272,56 @@ class SystemPromptBuilder:
         builder.add_identity()
         builder.add_runtime_info()
 
-        if tools:
-            builder.add_tools(tools, include_params=include_tool_params)
+        if user_profile_content:
+            builder.add_user_profile(user_profile_content)
         if include_memory_instructions:
             builder.add_memory_instructions()
+        if tools:
+            builder.add_tools(tools, include_params=include_tool_params)
         if skills:
             builder.add_skills(skills)
         if context:
             builder.add_context(context)
         if effective_config.thinking_tag_instructions:
             builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
-        if custom_instructions:
-            builder.add_custom_instructions(custom_instructions)
+        builder.add_custom_instructions()
+        if include_memory_instructions:
+            builder.add_section(
+                "memory_reminder",
+                "记忆提醒：用户对你回复风格的批评（如「太啰嗦」「太正式」）是偏好表达，必须先调用 memory_write 保存再回复。",
+            )
 
         return builder.build()
 
 
 # ============ Memory 提示模板 ============
-# 参考: openclaw-main/src/agents/system-prompt.ts - MEMORY_INSTRUCTIONS
 
 MEMORY_INSTRUCTIONS = """
-## 记忆检索与持久化
+## 记忆系统
 
-### 读取记忆
-在回答任何关于先前工作、决策、日期、人员、偏好或上下文的问题之前：
+你拥有跨对话的长期记忆能力。通过 memory_search 检索记忆，通过 memory_write 保存记忆。
 
-1. **先搜索**：使用相关查询运行 `memory_search`，在 MEMORY.md 和 memory/*.md 文件中查找相关信息
-2. **获取详情**：使用 `memory_get` 仅提取你需要的特定行
-3. **保持上下文精简**：不要检索整个文件；只请求必要的内容
-4. **引用来源**：使用记忆中的信息时，引用文件和行号
+### 保存规则（最高优先级）
 
-### 写入记忆
-当对话中出现重要信息时，将其持久化以供未来参考：
+**每轮回复前，必须判断用户消息是否满足以下任一条件；满足则先调用 memory_write，再回复：**
+1. 用户表达了偏好或身份（无论直接还是间接）
+2. 用户对你的行为提出批评或要求调整——批评 = 偏好的反面表达
+3. 用户的表达与上方「用户画像」矛盾
 
-1. **保存关键决策**：使用 `memory_set` 记录用户选择、偏好和重要结果
-2. **保存行动项**：记录任何后续任务或待办事项
-3. **使用描述性章节**：传递 `section` 参数来组织内容（例如，"## 用户偏好"）
-4. **写入适当的文件**：使用 MEMORY.md 存储一般笔记，或使用 memory/*.md 存储特定主题
+不保存：纯业务查询、寒暄、临时计算
 
-示例工作流：
-- 用户询问之前的决策 → 使用主题调用 `memory_search`
-- 在 MEMORY.md#L42-50 找到相关结果 → 调用 `memory_get` 获取这些行
-- 用户做出新决策 → 调用 `memory_set` 记录以供未来参考
+**示例：**
+- "好啰嗦，简洁点" → 批评 = 偏好（要简洁）→ memory_write(type=profile)
+- "我是张经理，在平安工作" → 身份信息 → memory_write(type=profile)
+- "以后贷款渠道都不要" → 持久决策 → memory_write(type=agent_memory)
+- "查一下我的保单" → 一次性查询 → 不保存
+
+### 检索（回答前）
+在回答关于历史决策、日期、人员、偏好的问题前，先运行 memory_search。
+使用 memory_get 获取搜索结果的更多上下文，保持请求量小以节省上下文窗口。
+
+### 格式
+内容使用 heading-based markdown：`## 标题\\n内容`
+- type=profile 写画像（按标题自动合并，不会重复）
+- type=agent_memory 写业务记忆（追加）
 """

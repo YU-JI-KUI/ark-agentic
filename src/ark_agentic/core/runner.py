@@ -10,7 +10,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field, replace
-from typing import Any, TYPE_CHECKING, Callable, Awaitable
+from typing import Any, TYPE_CHECKING, Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -80,6 +80,9 @@ class RunnerConfig:
     # A2UI 渲染模式 (preset|dynamic)，可通过环境变量 A2UI_MODE 覆盖
     a2ui_mode: str = field(default_factory=lambda: os.getenv("A2UI_MODE", "dynamic"))
 
+    # 外部历史合并（agent 级开关）
+    accept_external_history: bool = True
+
 
 @dataclass
 class RunResult:
@@ -122,65 +125,86 @@ class AgentRunner:
     def __init__(
         self,
         llm: BaseChatModel,
+        *,
+        session_manager: SessionManager,
         tool_registry: ToolRegistry | None = None,
-        session_manager: SessionManager | None = None,
         skill_loader: SkillLoader | None = None,
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
         context_preprocessor: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
-        self.llm = llm  # LLM following LangChain protocol
+        self.llm = llm
         self.tool_registry = tool_registry or ToolRegistry()
-        self.session_manager = session_manager or SessionManager()
+        self.session_manager = session_manager
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
-        self._memory_manager = memory_manager
         self._context_preprocessor = context_preprocessor
 
-        # 自动注册 memory 工具（如果提供了 memory_manager）
+        self._memory_manager = memory_manager
+        self._flusher = None
+
         if memory_manager is not None:
-            memory_tools = create_memory_tools(memory_manager)
+            from .memory.extractor import MemoryFlusher
+            self._flusher = MemoryFlusher(self._get_llm)
+            memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
             logger.info(f"Registered {len(memory_tools)} memory tools")
 
-        # 自动注册 read_skill 工具（如果提供了 skill_loader）
         if skill_loader is not None:
             from .tools.read_skill import ReadSkillTool
             self.tool_registry.register(ReadSkillTool(skill_loader))
             logger.info("Registered read_skill tool for dynamic skill loading")
 
-        # 技能匹配器
         self.skill_matcher = (
             SkillMatcher(skill_loader) if skill_loader else None
         )
+
+    def _get_memory_for_user(self, user_id: str) -> "MemoryManager | None":
+        """返回共享 MemoryManager（所有用户共用一个实例）。"""
+        return self._memory_manager
+
+    async def warmup(self) -> None:
+        """预加载 embedding 模型并初始化 Memory 系统（供 lifespan 阶段调用）。"""
+        if self._memory_manager is not None:
+            await self._memory_manager.initialize()
+
+    async def close_memory(self) -> None:
+        """释放 Memory 资源（供 lifespan shutdown 调用）。"""
+        if self._memory_manager:
+            await self._memory_manager.close()
 
     async def run(
         self,
         session_id: str,
         user_input: str,
+        user_id: str,
         input_context: dict[str, Any] | None = None,
         *,
         run_options: RunOptions | None = None,
         stream_override: bool | None = None,
         handler: AgentEventHandler | None = None,
+        history: list[dict[str, Any]] | None = None,
+        use_history: bool = True,
     ) -> RunResult:
         """执行智能体
 
         Args:
             session_id: 会话 ID
             user_input: 用户输入
+            user_id: 用户 ID（必须）
             input_context: 每次请求的调用方上下文，合并进 session.state
             run_options: 本次运行选项（model/temperature），优先于 config 默认值
             stream_override: 覆盖 config.enable_streaming
             handler: AgentEventHandler 实例（用于接收流式事件）
+            history: 外部系统聊天历史 [{role, content}]
+            use_history: 请求级开关，False 则忽略 history
 
         Returns:
             执行结果
         """
         input_context = input_context or {}
 
-        # 解析 model / temperature：run_options 优先，其次 config 默认值
         effective_model = (
             (run_options.model if run_options else None)
             or self.config.model
@@ -190,33 +214,36 @@ class AgentRunner:
             if (run_options and run_options.temperature is not None)
             else self.config.temperature
         )
-        # skill_load_mode
         raw = self.config.skill_config.default_load_mode
         resolved_skill_load_mode: str = raw.value
 
         effective_a2ui_mode = self.config.a2ui_mode
 
-        # 惰性初始化 Memory
         if self._memory_manager and not self._memory_manager._initialized:
             await self._memory_manager.initialize()
 
-        # Agent 级别的 context 预处理（如字段解析/注入），在合并前执行
         if self._context_preprocessor:
             input_context = self._context_preprocessor(input_context)
 
-        # 将 input_context 合并到 session.state（前缀感知策略）
         session = self.session_manager.get_session_required(session_id)
         self._merge_input_context(session, input_context)
 
-        # 添加用户消息（input_context 存入消息 metadata 用于审计）
+        # 外部历史合并（在添加当前用户消息之前）
+        if history and self.config.accept_external_history and use_history:
+            from .history_merge import merge_external_history
+
+            ops = merge_external_history(session.messages, history)
+            if ops:
+                self.session_manager.inject_messages(session_id, ops)
+                logger.info(f"Merged {len(ops)} external history message(s)")
+
         user_message = AgentMessage.user(user_input, metadata=input_context)
         self.session_manager.add_message_sync(session_id, user_message)
 
-        # 自动压缩
         if self.config.auto_compact:
-            callback = self._make_pre_compact_callback() if self._memory_manager else None
+            flush_cb = self._make_memory_flush_callback(user_id) if self._flusher else None
             await self.session_manager.auto_compact_if_needed(
-                session_id, pre_compact_callback=callback,
+                session_id, user_id, pre_compact_callback=flush_cb,
             )
 
         use_streaming = stream_override if stream_override is not None else self.config.enable_streaming
@@ -232,12 +259,10 @@ class AgentRunner:
                 handler=handler,
             )
         finally:
-            # 无论成功或失败，同步待写入消息到持久化存储
-            await self.session_manager.sync_pending_messages(session_id)
+            await self.session_manager.sync_pending_messages(session_id, user_id)
 
-        # 移除临时状态键后同步到持久化存储
         session.strip_temp_state()
-        await self.session_manager.sync_session_state(session_id)
+        await self.session_manager.sync_session_state(session_id, user_id)
 
         return result
 
@@ -247,55 +272,52 @@ class AgentRunner:
         for k, v in input_context.items():
             session.state[k] = v
 
-    def _make_pre_compact_callback(self) -> Callable[[str, list[AgentMessage]], Awaitable[None]]:
-        """创建压缩前回调：将即将丢弃的消息摘要写入 MEMORY.md"""
-        memory_mgr = self._memory_manager
+    def _make_memory_flush_callback(
+        self, user_id: str,
+    ) -> Callable:
+        """返回 pre_compact_callback 闭包，在压缩前全量提取记忆。"""
+        from .types import AgentMessage as AM
 
-        async def _flush_to_memory(
-            session_id: str, messages: list[AgentMessage]
-        ) -> None:
-            if not memory_mgr or not memory_mgr._initialized:
+        async def _flush(session_id: str, messages: list[AM]) -> None:
+            if not self._flusher or not self._memory_manager:
                 return
-
-            # 拼接即将被压缩的消息的关键内容（排除 system）
-            parts: list[str] = []
-            for msg in messages:
-                if msg.role == MessageRole.SYSTEM:
-                    continue
-                label = msg.role.value.upper()
-                text = msg.content or ""
-                if msg.tool_calls:
-                    tool_names = ", ".join(tc.name for tc in msg.tool_calls)
-                    text += f" [tools: {tool_names}]"
-                if text.strip():
-                    parts.append(f"{label}: {text[:300]}")
-
-            if not parts:
-                return
-
-            # 写入 MEMORY.md 作为一条压缩快照
-            from pathlib import Path
-            from datetime import datetime
-
-            workspace_dir = Path(memory_mgr.config.workspace_dir)
-            memory_file = workspace_dir / "MEMORY.md"
-            memory_file.parent.mkdir(parents=True, exist_ok=True)
-
-            snapshot = (
-                f"\n\n## Session Snapshot ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n\n"
-                + "\n".join(parts[:20])  # 最多保留 20 条摘要行
-                + "\n"
-            )
-            with open(memory_file, "a", encoding="utf-8") as f:
-                f.write(snapshot)
-
-            # 增量同步索引
             try:
-                await memory_mgr.sync()
-            except Exception as e:
-                logger.warning(f"Memory sync after pre-compact flush failed: {e}")
+                from .paths import get_memory_base_dir
+                from .memory.user_profile import (
+                    load_user_profile, get_profile_path, write_profile,
+                )
+                from pathlib import Path
 
-        return _flush_to_memory
+                base_dir = get_memory_base_dir()
+                current_profile = load_user_profile(base_dir, user_id)
+                agent_name = self.config.prompt_config.agent_name or "assistant"
+                agent_desc = self.config.prompt_config.agent_description or ""
+
+                conversation_text = "\n".join(
+                    f"{m.role.value}: {m.content or ''}" for m in messages if m.content
+                )
+
+                result = await self._flusher.flush(
+                    conversation_text=conversation_text,
+                    current_profile=current_profile,
+                    agent_name=agent_name,
+                    agent_description=agent_desc,
+                )
+
+                if result.has_content:
+                    if result.profile:
+                        write_profile(base_dir, user_id, result.profile)
+                    if result.agent_memory:
+                        ws = Path(self._memory_manager.config.workspace_dir) / user_id
+                        agent_memory_path = ws / "MEMORY.md"
+                        self._flusher._append_agent_memory(result.agent_memory, agent_memory_path)
+                    self._memory_manager.mark_dirty()
+                    logger.info("Pre-compaction memory flush completed for user %s", user_id)
+
+            except Exception as e:
+                logger.warning("Memory flush failed for user %s: %s", user_id, e)
+
+        return _flush
 
     def _get_user_friendly_error_message(self, error: LLMError) -> str:
         if error.reason == LLMErrorReason.AUTH:
@@ -622,7 +644,6 @@ class AgentRunner:
             )
             skills = match_result.matched_skills
 
-        # 如果启用了 memory，添加 memory 使用指令
         include_memory = self._memory_manager is not None
 
         # 技能注入模式
@@ -653,12 +674,24 @@ class AgentRunner:
         # 默认只注入 user: 前缀的状态到提示词，减少噪声
         user_state = {k: v for k, v in state.items() if k.startswith("user:")}
 
+        # 加载全局用户画像 (USER.md)
+        profile_content = ""
+        if include_memory:
+            user_id = state.get("user:id")
+            if user_id:
+                from .memory.user_profile import load_user_profile, truncate_profile
+                from .paths import get_memory_base_dir
+                profile_content = truncate_profile(
+                    load_user_profile(get_memory_base_dir(), str(user_id))
+                )
+
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
             context=user_state,
             config=prompt_config,
             include_memory_instructions=include_memory,
+            user_profile_content=profile_content,
         )
 
     def _build_tools(self) -> list[dict[str, Any]]:
@@ -920,13 +953,14 @@ class AgentRunner:
 
     async def create_session(
         self,
+        user_id: str,
         model: str = "Qwen3-80B-Instruct",
         provider: str = "ark",
         state: dict[str, Any] | None = None,
     ) -> str:
         """创建新会话并返回 ID（异步，支持持久化）"""
         session = await self.session_manager.create_session(
-            model=model, provider=provider, state=state
+            user_id=user_id, model=model, provider=provider, state=state
         )
         return session.session_id
 

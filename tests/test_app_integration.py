@@ -36,10 +36,10 @@ def mock_agent_runner():
         runner.session_manager = MagicMock()
         mock_session = SessionEntry(session_id="test-session", model="mock", provider="mock", state={}, active_skills=[], messages=[])
         
-        async def mock_create_session(*args, **kwargs):
+        async def mock_create_session(user_id, *args, **kwargs):
             return mock_session
             
-        async def mock_load_session(*args, **kwargs):
+        async def mock_load_session(session_id, user_id, *args, **kwargs):
             return mock_session
 
         runner.session_manager.create_session = mock_create_session
@@ -64,6 +64,7 @@ class TestChatRunOptionsIntegration:
         """Test valid run_options passed to API."""
         payload = {
             "message": "hello",
+            "user_id": "test_user",
             "run_options": {
                 "model": "override-model",
                 "temperature": 0.1
@@ -85,6 +86,7 @@ class TestChatRunOptionsIntegration:
         """Test partial run_options (only model)."""
         payload = {
             "message": "hello",
+            "user_id": "test_user",
             "run_options": {
                 "model": "override-model"
             }
@@ -103,6 +105,7 @@ class TestChatRunOptionsIntegration:
         """Test validation error for invalid temperature."""
         payload = {
             "message": "hello",
+            "user_id": "test_user",
             "run_options": {
                 "temperature": 2.5  # Invalid > 2.0
             }
@@ -119,6 +122,7 @@ class TestChatRunOptionsIntegration:
         """Test extra fields are ignored (or rejected depending on config, default ignores)."""
         payload = {
             "message": "hello",
+            "user_id": "test_user",
             "run_options": {
                 "model": "gpt-4",
                 "extra_field": "ignored"

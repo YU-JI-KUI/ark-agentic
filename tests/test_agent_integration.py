@@ -3,6 +3,7 @@ import pytest
 import os
 import json
 import asyncio
+from pathlib import Path
 from typing import Any, List, Dict, AsyncIterator
 
 # Ensure mock environment
@@ -254,18 +255,19 @@ class SmarterMockLLM:
         )
 
 @pytest.mark.asyncio
-async def test_agent_margin_context_e2e():
+async def test_agent_margin_context_e2e(tmp_sessions_dir: Path, monkeypatch):
     import logging
     logging.basicConfig(level=logging.DEBUG)
-    os.environ["SECURITIES_SERVICE_MOCK"] = "true"
+    monkeypatch.setenv("SECURITIES_SERVICE_MOCK", "true")
+    monkeypatch.setenv("SESSIONS_DIR", str(tmp_sessions_dir))
 
     from ark_agentic.agents.securities.agent import create_securities_agent
-    
+
     mock_llm = SmarterMockLLM()
     agent = create_securities_agent(llm=mock_llm)
     
     # Session setup
-    session = await agent.session_manager.create_session()
+    session = await agent.session_manager.create_session("test_user")
     # KEY STEP: Inject "margin" context
     agent.session_manager.update_state(session.session_id, {
         "account_type": "margin",
@@ -276,7 +278,8 @@ async def test_agent_margin_context_e2e():
     print("Starting Agent Run...")
     result = await agent.run(
         session_id=session.session_id,
-        user_input="Show my asset overview"
+        user_input="Show my asset overview",
+        user_id="test_user",
     )
     
     # Assert

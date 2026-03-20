@@ -24,7 +24,7 @@ BASE_CHUNK_RATIO = 0.4
 MIN_CHUNK_RATIO = 0.15
 
 # 默认摘要回退文本
-DEFAULT_SUMMARY_FALLBACK = "No prior history."
+DEFAULT_SUMMARY_FALLBACK = "暂无历史记录。"
 
 
 # ============ Token 估算 ============
@@ -331,7 +331,7 @@ class CompactionConfig:
     """压缩配置"""
 
     # 上下文窗口大小（token）
-    context_window: int = 32000
+    context_window: int = 128000
 
     # 保留给输出的 token 数
     output_reserve: int = 4000

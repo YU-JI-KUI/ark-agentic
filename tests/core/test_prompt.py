@@ -308,9 +308,9 @@ class TestQuickBuild:
         assert "value" in prompt
 
     def test_quick_build_with_custom_instructions(self) -> None:
-        """Test quick build with custom instructions."""
+        """Test quick build with custom instructions from config."""
         prompt = SystemPromptBuilder.quick_build(
-            custom_instructions="Follow these rules."
+            config=PromptConfig(custom_instructions="Follow these rules.")
         )
         assert "Follow these rules." in prompt
 

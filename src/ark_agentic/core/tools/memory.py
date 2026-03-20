@@ -1,16 +1,16 @@
 """
 Memory 工具
 
-提供 memory_search 和 memory_get 工具供 Agent 调用。
-
-参考: openclaw-main/src/agents/tools/memory-tool.ts
+提供 memory_search、memory_get、memory_write 工具供 Agent 调用。
+- memory_search / memory_get: 检索和读取记忆
+- memory_write: Agent 主动写入记忆（profile heading-upsert + agent_memory append）
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 
 from .base import AgentTool, ToolParameter, read_string_param, read_int_param, read_float_param
 from ..types import AgentToolResult
@@ -21,54 +21,65 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+MemoryProvider = Callable[[str], "MemoryManager | None"]
+
+
+def _resolve_memory(provider: MemoryProvider, context: dict[str, Any] | None) -> "MemoryManager":
+    user_id = (context or {}).get("user:id")
+    if not user_id:
+        raise ValueError("user:id is required in context for memory operations")
+    mgr = provider(str(user_id))
+    if mgr is None:
+        raise ValueError("Memory system not available")
+    return mgr
+
+
+def _get_user_id(context: dict[str, Any] | None) -> str:
+    user_id = (context or {}).get("user:id")
+    if not user_id:
+        raise ValueError("user:id is required in context for memory operations")
+    return str(user_id)
+
 
 class MemorySearchTool(AgentTool):
-    """Memory 语义搜索工具
-
-    搜索 MEMORY.md 和 memory/*.md 文件中的相关内容。
-    使用混合搜索（向量 + 关键词）获取最相关的记忆片段。
-
-    参考: openclaw-main/src/agents/tools/memory-tool.ts - createMemorySearchTool
-    """
+    """Memory 语义搜索工具"""
 
     name = "memory_search"
     thinking_hint = "正在检索记忆库…"
     description = (
-        "Semantically search MEMORY.md and memory/*.md files. "
-        "Use this tool BEFORE answering questions about prior work, decisions, "
-        "dates, people, preferences, context, or any historical information. "
-        "Returns top matching snippets with file paths and line numbers."
+        "在记忆库中进行语义搜索。"
+        "在回答任何关于历史决策、日期、人员、偏好或上下文的问题之前，先使用此工具检索。"
+        "返回最相关的片段及其文件路径和行号。"
     )
     parameters = [
         ToolParameter(
             name="query",
             type="string",
-            description="Search query - describe what you're looking for",
+            description="搜索查询 - 描述你要查找的内容",
             required=True,
         ),
         ToolParameter(
             name="max_results",
             type="integer",
-            description="Maximum number of results to return (default: 6)",
+            description="最大返回结果数（默认: 6）",
             required=False,
             default=6,
         ),
         ToolParameter(
             name="min_score",
             type="number",
-            description="Minimum relevance score threshold 0-1 (default: 0.35)",
+            description="最低相关性分数阈值 0-1（默认: 0.35）",
             required=False,
             default=0.35,
         ),
     ]
 
-    def __init__(self, memory_manager: MemoryManager) -> None:
-        self._memory = memory_manager
+    def __init__(self, memory_provider: MemoryProvider) -> None:
+        self._provider = memory_provider
 
     async def execute(
         self, tool_call: ToolCall, context: dict[str, Any] | None = None
     ) -> AgentToolResult:
-        """执行记忆搜索"""
         args = tool_call.arguments or {}
         query = read_string_param(args, "query", "")
         max_results = read_int_param(args, "max_results", 6)
@@ -81,17 +92,16 @@ class MemorySearchTool(AgentTool):
             )
 
         try:
-            # 确保 memory manager 已初始化
-            if not self._memory._initialized:
-                await self._memory.initialize()
+            memory = _resolve_memory(self._provider, context)
+            if not memory._initialized:
+                await memory.initialize()
 
-            results = await self._memory.search(
+            results = await memory.search(
                 query=query,
                 max_results=int(max_results),
                 min_score=float(min_score),
             )
 
-            # 格式化结果
             formatted = []
             for r in results:
                 formatted.append({
@@ -123,55 +133,48 @@ class MemorySearchTool(AgentTool):
 
 
 class MemoryGetTool(AgentTool):
-    """Memory 文件读取工具
-
-    读取 memory 文件的指定行范围。配合 memory_search 使用，
-    在搜索到相关片段后获取更多上下文。
-
-    参考: openclaw-main/src/agents/tools/memory-tool.ts - createMemoryGetTool
-    """
+    """Memory DB 读取工具"""
 
     name = "memory_get"
     thinking_hint = "正在读取记忆内容…"
     description = (
-        "Read specific lines from a memory file (MEMORY.md or memory/*.md). "
-        "Use this after memory_search to get more context around a result. "
-        "Keep requests small to preserve context window."
+        "读取记忆中的指定位置内容。"
+        "在 memory_search 之后使用此工具获取结果的更多上下文。"
+        "请保持请求量小以节省上下文窗口。"
     )
     parameters = [
         ToolParameter(
             name="path",
             type="string",
-            description="Relative path to the memory file (e.g., 'MEMORY.md' or 'memory/project.md')",
+            description="记忆文件的相对路径（来自 memory_search 结果）",
             required=True,
         ),
         ToolParameter(
             name="from_line",
             type="integer",
-            description="Starting line number (1-indexed, default: 1)",
+            description="起始行号（从 1 开始，默认: 1）",
             required=False,
             default=1,
         ),
         ToolParameter(
             name="lines",
             type="integer",
-            description="Number of lines to read (default: 50, max: 200)",
+            description="读取行数（默认: 50，最大: 200）",
             required=False,
             default=50,
         ),
     ]
 
-    def __init__(self, memory_manager: MemoryManager) -> None:
-        self._memory = memory_manager
+    def __init__(self, memory_provider: MemoryProvider) -> None:
+        self._provider = memory_provider
 
     async def execute(
         self, tool_call: ToolCall, context: dict[str, Any] | None = None
     ) -> AgentToolResult:
-        """读取 memory 文件"""
         args = tool_call.arguments or {}
-        rel_path = read_string_param(args, "path", "")
-        from_line = read_int_param(args, "from_line", 1)
-        num_lines = read_int_param(args, "lines", 50)
+        rel_path = read_string_param(args, "path", "") or ""
+        from_line = read_int_param(args, "from_line", 1) or 1
+        num_lines = read_int_param(args, "lines", 50) or 50
 
         if not rel_path:
             return AgentToolResult.json_result(
@@ -179,63 +182,52 @@ class MemoryGetTool(AgentTool):
                 data={"error": "Path is required", "path": "", "text": ""},
             )
 
-        # 限制行数
         num_lines = min(int(num_lines), 200)
         from_line = max(1, int(from_line))
 
         try:
-            # 构建完整路径
-            workspace_dir = Path(self._memory.config.workspace_dir)
-            file_path = workspace_dir / rel_path
+            user_id = _get_user_id(context)
+            memory = _resolve_memory(self._provider, context)
+            if not memory._initialized:
+                await memory.initialize()
 
-            # 安全检查：确保在 workspace 内
-            try:
-                file_path = file_path.resolve()
-                workspace_dir = workspace_dir.resolve()
-                if not str(file_path).startswith(str(workspace_dir)):
-                    return AgentToolResult.json_result(
-                        tool_call_id=tool_call.id,
-                        data={
-                            "error": "Path must be within workspace",
-                            "path": rel_path,
-                            "text": "",
-                        },
-                    )
-            except Exception:
-                pass
+            store = memory._store
+            if store is None:
+                return AgentToolResult.json_result(
+                    tool_call_id=tool_call.id,
+                    data={"error": "Memory store not initialized", "path": rel_path, "text": ""},
+                )
 
-            if not file_path.exists():
+            chunks = store.get_chunks_by_location(
+                user_id=user_id, path=rel_path,
+                from_line=from_line, limit=num_lines,
+            )
+
+            if not chunks:
                 return AgentToolResult.json_result(
                     tool_call_id=tool_call.id,
                     data={
-                        "error": f"File not found: {rel_path}",
+                        "error": f"No chunks found for path: {rel_path}",
                         "path": rel_path,
                         "text": "",
                     },
                 )
 
-            # 读取文件
-            content = file_path.read_text(encoding="utf-8")
-            lines = content.split("\n")
-            total_lines = len(lines)
-
-            # 提取指定行范围
-            start_idx = from_line - 1  # 转换为 0-indexed
-            end_idx = min(start_idx + num_lines, total_lines)
-            selected_lines = lines[start_idx:end_idx]
-            text = "\n".join(selected_lines)
+            text = "\n\n".join(c.text for c in chunks)
+            min_line = min(c.start_line for c in chunks)
+            max_line = max(c.end_line for c in chunks)
 
             logger.debug(
-                f"Memory get '{rel_path}': lines {from_line}-{end_idx} of {total_lines}"
+                f"Memory get '{rel_path}': {len(chunks)} chunks, lines {min_line}-{max_line}"
             )
 
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
                 data={
                     "path": rel_path,
-                    "from_line": from_line,
-                    "to_line": end_idx,
-                    "total_lines": total_lines,
+                    "from_line": min_line,
+                    "to_line": max_line,
+                    "total_chunks": len(chunks),
                     "text": text,
                 },
             )
@@ -248,133 +240,97 @@ class MemoryGetTool(AgentTool):
             )
 
 
-class MemorySetTool(AgentTool):
-    """Memory 写入工具
+class MemoryWriteTool(AgentTool):
+    """Memory 写入工具 - Agent 主动保存记忆"""
 
-    将重要信息持久化写入 memory 文件。
-    Agent 可以在对话中主动记录关键决策、用户偏好等，
-    确保 compaction 后这些信息不会丢失。
-
-    参考: openclaw-main/src/agents/tools/memory-tool.ts - memory_set
-    """
-
-    name = "memory_set"
-    thinking_hint = "正在保存关键记忆…"
+    name = "memory_write"
+    thinking_hint = "正在保存记忆…"
     description = (
-        "Write important information to a memory file for long-term persistence. "
-        "Use this to save key decisions, user preferences, action items, "
-        "or any context that should survive conversation compaction. "
-        "Content is appended to the specified memory file."
+        "保存信息到长期记忆。当你判断「这条消息改变了我对用户的认知、下次对话需要记住」时，"
+        "必须调用此工具——无论用户是直接表达偏好，还是通过对你行为的批评间接透露偏好，"
+        "还是做出了持久决策。内容使用 ## 标题 + 描述的 markdown 格式。"
     )
     parameters = [
         ToolParameter(
-            name="path",
+            name="type",
             type="string",
-            description=(
-                "Relative path to the memory file "
-                "(e.g., 'MEMORY.md' or 'memory/decisions.md'). "
-                "File will be created if it doesn't exist."
-            ),
+            description="'profile'(用户画像,按标题合并) 或 'agent_memory'(业务记忆,追加)",
             required=True,
+            enum=["profile", "agent_memory"],
         ),
         ToolParameter(
             name="content",
             type="string",
-            description="Content to append to the memory file (markdown format recommended)",
+            description="heading-based markdown 内容, 如 '## 用户姓名\\n张三'",
             required=True,
-        ),
-        ToolParameter(
-            name="section",
-            type="string",
-            description="Optional section heading to append under (e.g., '## Decisions')",
-            required=False,
         ),
     ]
 
-    def __init__(self, memory_manager: MemoryManager) -> None:
-        self._memory = memory_manager
+    def __init__(self, memory_provider: MemoryProvider) -> None:
+        self._provider = memory_provider
 
     async def execute(
         self, tool_call: ToolCall, context: dict[str, Any] | None = None
     ) -> AgentToolResult:
-        """写入 memory 文件"""
         args = tool_call.arguments or {}
-        rel_path = read_string_param(args, "path", "")
-        content = read_string_param(args, "content", "")
-        section = read_string_param(args, "section")
+        memory_type = read_string_param(args, "type", "") or ""
+        content = read_string_param(args, "content", "") or ""
 
-        if not rel_path:
-            return AgentToolResult.error_result(
-                tool_call.id, "Path is required"
+        if memory_type not in ("profile", "agent_memory"):
+            return AgentToolResult.json_result(
+                tool_call_id=tool_call.id,
+                data={"error": "type must be 'profile' or 'agent_memory'", "saved": False},
             )
-        if not content:
-            return AgentToolResult.error_result(
-                tool_call.id, "Content is required"
+        if not content.strip():
+            return AgentToolResult.json_result(
+                tool_call_id=tool_call.id,
+                data={"error": "content is required", "saved": False},
             )
 
         try:
-            workspace_dir = Path(self._memory.config.workspace_dir)
-            file_path = workspace_dir / rel_path
+            user_id = _get_user_id(context)
+            memory = _resolve_memory(self._provider, context)
 
-            # 安全检查：确保在 workspace 内
-            try:
-                file_path = file_path.resolve()
-                workspace_resolved = workspace_dir.resolve()
-                if not str(file_path).startswith(str(workspace_resolved)):
-                    return AgentToolResult.error_result(
-                        tool_call.id, "Path must be within workspace"
-                    )
-            except Exception:
-                pass
+            from ..paths import get_memory_base_dir
+            base_dir = get_memory_base_dir()
 
-            # 确保目录存在
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # 构建要追加的文本
-            append_text = "\n"
-            if section:
-                append_text += f"\n{section}\n\n"
-            append_text += content + "\n"
-
-            # 追加写入
-            with open(file_path, "a", encoding="utf-8") as f:
-                f.write(append_text)
-
-            logger.info(f"Memory set: appended to {rel_path}")
-
-            # 触发增量同步，使新内容可被 memory_search 检索
-            try:
-                if self._memory._initialized:
-                    await self._memory.sync()
-                    logger.debug(f"Memory index synced after writing to {rel_path}")
-            except Exception as sync_err:
-                logger.warning(f"Memory sync after set failed: {sync_err}")
+            if memory_type == "profile":
+                from ..memory.user_profile import upsert_profile_by_heading, get_profile_path
+                profile_path = get_profile_path(base_dir, user_id)
+                upsert_profile_by_heading(profile_path, content)
+                logger.info("memory_write: profile upserted for user %s", user_id)
+            else:
+                agent_memory_path = Path(memory.config.workspace_dir) / "MEMORY.md"
+                agent_memory_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(agent_memory_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n{content}\n")
+                memory.mark_dirty()
+                logger.info("memory_write: agent_memory appended for user %s", user_id)
 
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
-                data={
-                    "path": rel_path,
-                    "status": "written",
-                    "bytes_written": len(append_text.encode("utf-8")),
-                },
+                data={"saved": True, "type": memory_type},
             )
 
         except Exception as e:
-            logger.exception(f"Memory set error: {e}")
-            return AgentToolResult.error_result(tool_call.id, str(e))
+            logger.exception(f"Memory write error: {e}")
+            return AgentToolResult.json_result(
+                tool_call_id=tool_call.id,
+                data={"error": str(e), "saved": False},
+            )
 
 
-def create_memory_tools(memory_manager: MemoryManager) -> list[AgentTool]:
+def create_memory_tools(memory_provider: MemoryProvider) -> list[AgentTool]:
     """创建 memory 工具集
 
     Args:
-        memory_manager: MemoryManager 实例
+        memory_provider: 根据 user_id 获取对应 MemoryManager 的回调
 
     Returns:
-        [MemorySearchTool, MemoryGetTool, MemorySetTool]
+        [MemorySearchTool, MemoryGetTool, MemoryWriteTool]
     """
     return [
-        MemorySearchTool(memory_manager),
-        MemoryGetTool(memory_manager),
-        MemorySetTool(memory_manager),
+        MemorySearchTool(memory_provider),
+        MemoryGetTool(memory_provider),
+        MemoryWriteTool(memory_provider),
     ]

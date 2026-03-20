@@ -1,24 +1,25 @@
 """
 Memory 管理器
 
-统一管理向量存储、关键词搜索和文档同步。
+统一管理 SQLiteMemoryStore、文档同步和搜索。
+共享实例设计：单个 MemoryManager 实例通过 user_id 分区支持多用户。
 
 参考: openclaw-main/src/memory/manager.ts
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from .chunker import ChunkConfig, MarkdownChunker
-from .embeddings import BGEConfig, BGEEmbedding
-from .hybrid import HybridConfig, HybridSearcher
-from .keyword_search import BM25Config, JiebaBM25Searcher
+from .embeddings import BGEConfig, BGEEmbedding, infer_device
+from .sqlite_store import IndexMeta, SQLiteMemoryStore, SQLiteStoreConfig
 from .types import (
     MemoryChunk,
     MemorySearchResult,
@@ -26,7 +27,6 @@ from .types import (
     MemoryStatus,
     MemorySyncProgress,
 )
-from .vector_store import FAISSConfig, FAISSVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -35,37 +35,19 @@ logger = logging.getLogger(__name__)
 class MemoryConfig:
     """Memory 系统配置"""
 
-    # 工作目录
     workspace_dir: str = ""
+    index_dir: str = ""
 
-    # 索引存储路径
-    index_dir: str = ""  # 空则使用 workspace_dir/.memory
-
-    # Memory 文件路径（相对于 workspace_dir）
     memory_paths: list[str] = field(
         default_factory=lambda: ["MEMORY.md", "memory/"]
     )
 
-    # Embedding 配置
     embedding: BGEConfig = field(default_factory=BGEConfig)
-
-    # 向量存储配置
-    vector: FAISSConfig = field(default_factory=FAISSConfig)
-
-    # 关键词搜索配置
-    keyword: BM25Config = field(default_factory=BM25Config)
-
-    # 混合搜索配置
-    hybrid: HybridConfig = field(default_factory=HybridConfig)
-
-    # 分块配置
+    store: SQLiteStoreConfig = field(default_factory=SQLiteStoreConfig)
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
 
-    # 自动同步
     auto_sync: bool = True
     sync_on_init: bool = True
-
-    # 文件监控
     watch_files: bool = False
 
 
@@ -73,12 +55,17 @@ class MemoryManager:
     """Memory 管理器
 
     提供统一的记忆管理接口，包括：
-    - 文档索引和同步
+    - 文档索引和同步（SQLite 后端）
     - 向量/关键词/混合搜索
     - 持久化存储
     """
 
-    def __init__(self, config: MemoryConfig) -> None:
+    def __init__(
+        self,
+        config: MemoryConfig,
+        *,
+        shared_embedding: BGEEmbedding | None = None,
+    ) -> None:
         self.config = config
         self._workspace_dir = Path(config.workspace_dir)
         self._index_dir = (
@@ -87,110 +74,116 @@ class MemoryManager:
             else self._workspace_dir / ".memory"
         )
 
-        # 组件
+        self._shared_embedding = shared_embedding
         self._embedding: BGEEmbedding | None = None
-        self._vector_store: FAISSVectorStore | None = None
-        self._keyword_searcher: JiebaBM25Searcher | None = None
-        self._hybrid_searcher: HybridSearcher | None = None
+        self._store: SQLiteMemoryStore | None = None
         self._chunker: MarkdownChunker | None = None
 
-        # 状态
         self._initialized = False
+        self._dirty = False
         self._last_sync: datetime | None = None
-        self._file_hashes: dict[str, str] = {}  # path -> content_hash
+        self._syncing: asyncio.Task[None] | None = None
 
     async def initialize(self) -> None:
-        """初始化 Memory 系统"""
         if self._initialized:
             return
 
-        logger.info(f"Initializing Memory system at {self._workspace_dir}")
+        await self._initialize_file_engine()
 
-        # 确保索引目录存在
+        self._initialized = True
+        logger.info("Memory system initialized")
+
+    def mark_dirty(self) -> None:
+        """Mark index as stale so the next ``search()`` triggers a sync."""
+        self._dirty = True
+
+    async def _initialize_file_engine(self) -> None:
+        logger.info("Initializing Memory system at %s", self._workspace_dir)
+
         self._index_dir.mkdir(parents=True, exist_ok=True)
+        self._embedding = self._shared_embedding or BGEEmbedding(self.config.embedding)
 
-        # 初始化 Embedding
-        self._embedding = BGEEmbedding(self.config.embedding)
-
-        # 初始化向量存储
         dimensions = self._embedding.dimensions
         if dimensions == 0:
-            # 需要先加载模型获取维度
             _ = await self._embedding.embed_query("test")
             dimensions = self._embedding.dimensions
 
-        self._vector_store = FAISSVectorStore(dimensions, self.config.vector)
+        db_path = str(self._index_dir / self.config.store.db_name)
+        self._store = SQLiteMemoryStore(db_path, self.config.store, dimensions)
+        self._store._ensure_vector_table(dimensions)
 
-        # 初始化关键词搜索
-        self._keyword_searcher = JiebaBM25Searcher(self.config.keyword)
-
-        # 初始化混合搜索器
-        self._hybrid_searcher = HybridSearcher(
-            self._vector_store,
-            self._keyword_searcher,
-            self._embedding,
-            self.config.hybrid,
-        )
-
-        # 初始化分块器
         self._chunker = MarkdownChunker(self.config.chunk)
 
-        # 尝试加载已有索引
-        await self._load_index()
-
-        # 标记为已初始化（必须在 sync 之前，否则 sync→initialize 无限递归）
-        self._initialized = True
-
-        # 初始同步
         if self.config.sync_on_init:
+            self._initialized = True
             await self.sync()
 
-        logger.info("Memory system initialized")
+    def _build_current_meta(self) -> IndexMeta:
+        return IndexMeta(
+            model=self.config.embedding.model_name,
+            dims=self._embedding.dimensions if self._embedding else 0,
+            chunk_size=self.config.chunk.chunk_size,
+            chunk_overlap=self.config.chunk.chunk_overlap,
+        )
 
-    async def _load_index(self) -> bool:
-        """加载已有索引"""
-        index_path = self._index_dir / "memory_index"
+    def _needs_full_reindex(self, current_meta: IndexMeta) -> bool:
+        stored = self._store.read_meta()
+        if stored is None:
+            return True
+        return (
+            stored.model != current_meta.model
+            or stored.dims != current_meta.dims
+            or stored.chunk_size != current_meta.chunk_size
+            or stored.chunk_overlap != current_meta.chunk_overlap
+        )
 
-        try:
-            if (index_path.with_suffix(".faiss")).exists():
-                self._vector_store.load(str(index_path))
-
-                # 重建关键词索引
-                chunks = self._vector_store.get_all_chunks()
-                self._keyword_searcher.index(chunks)
-
-                logger.info(f"Loaded existing index with {len(chunks)} chunks")
-                return True
-        except Exception as e:
-            logger.warning(f"Failed to load index: {e}")
-
-        return False
+    def _resolve_user_workspace(self, user_id: str) -> Path:
+        """按 user_id 定位文件目录: {workspace_dir}/{user_id}。"""
+        if user_id:
+            return self._workspace_dir / user_id
+        return self._workspace_dir
 
     async def sync(
         self,
         force: bool = False,
         progress_callback: Callable[[MemorySyncProgress], None] | None = None,
+        user_id: str = "",
     ) -> None:
-        """同步索引
-
-        扫描 memory 文件，更新有变化的文档。
-
-        Args:
-            force: 强制完全重建索引
-            progress_callback: 进度回调
-        """
         if not self._initialized and not force:
             await self.initialize()
             return
 
-        logger.info(f"Syncing memory index (force={force})")
+        # Sync mutex
+        if self._syncing is not None:
+            try:
+                await self._syncing
+            except Exception:
+                pass
+            return
 
-        # 收集需要索引的文件
+        self._syncing = asyncio.ensure_future(
+            self._run_sync(force, progress_callback, user_id)
+        )
+        try:
+            await self._syncing
+        finally:
+            self._syncing = None
+
+    async def _run_sync(
+        self,
+        force: bool = False,
+        progress_callback: Callable[[MemorySyncProgress], None] | None = None,
+        user_id: str = "",
+    ) -> None:
+        logger.info("Syncing memory index (force=%s, user_id=%s)", force, user_id)
+
+        user_workspace = self._resolve_user_workspace(user_id)
+        current_meta = self._build_current_meta()
+        need_full = force or self._needs_full_reindex(current_meta)
+
         files_to_index: list[tuple[Path, MemorySource]] = []
-
         for memory_path in self.config.memory_paths:
-            full_path = self._workspace_dir / memory_path
-
+            full_path = user_workspace / memory_path
             if full_path.is_file():
                 files_to_index.append((full_path, MemorySource.MEMORY))
             elif full_path.is_dir():
@@ -201,30 +194,36 @@ class MemoryManager:
         if progress_callback:
             progress_callback(MemorySyncProgress(0, total, "Scanning files"))
 
-        # 检查变化并索引
         new_chunks: list[MemoryChunk] = []
-        changed_files = 0
+        changed_paths: list[str] = []
 
         for i, (file_path, source) in enumerate(files_to_index):
-            # 检查文件是否变化
             try:
                 content = file_path.read_text(encoding="utf-8")
                 content_hash = hashlib.md5(content.encode()).hexdigest()
             except Exception as e:
-                logger.warning(f"Failed to read {file_path}: {e}")
+                logger.warning("Failed to read %s: %s", file_path, e)
                 continue
 
-            rel_path = str(file_path.relative_to(self._workspace_dir))
-            old_hash = self._file_hashes.get(rel_path)
+            rel_path = str(file_path.relative_to(user_workspace))
 
-            if not force and old_hash == content_hash:
-                continue  # 文件未变化
+            if not need_full:
+                old_hash = self._store.get_file_hash(rel_path, user_id)
+                if old_hash == content_hash:
+                    continue
 
-            # 分块
             chunks = self._chunker.chunk_text(content, rel_path, source)
+            for c in chunks:
+                c.user_id = user_id
             new_chunks.extend(chunks)
-            self._file_hashes[rel_path] = content_hash
-            changed_files += 1
+            changed_paths.append(rel_path)
+
+            stat = file_path.stat()
+            self._store.set_file_hash(
+                rel_path, content_hash, source.value,
+                mtime_ms=stat.st_mtime * 1000, size=stat.st_size,
+                user_id=user_id,
+            )
 
             if progress_callback:
                 progress_callback(
@@ -232,50 +231,52 @@ class MemoryManager:
                 )
 
         if not new_chunks:
+            if need_full:
+                self._store.write_meta(current_meta)
             logger.info("No changes detected")
             return
 
-        logger.info(f"Indexing {len(new_chunks)} chunks from {changed_files} files")
+        logger.info("Indexing %d chunks from %d files", len(new_chunks), len(changed_paths))
 
-        # 生成 embeddings
         if progress_callback:
             progress_callback(
                 MemorySyncProgress(0, len(new_chunks), "Generating embeddings")
             )
 
-        texts = [c.text for c in new_chunks]
-        embeddings = await self._embedding.embed_batch(texts)
+        model_name = self.config.embedding.model_name
+        content_hashes = [c.content_hash for c in new_chunks]
+        cached = self._store.get_cached_embeddings(model_name, content_hashes)
 
-        for chunk, embedding in zip(new_chunks, embeddings):
-            chunk.embedding = embedding
+        uncached_indices: list[int] = []
+        for idx, chunk in enumerate(new_chunks):
+            h = chunk.content_hash
+            if h in cached:
+                chunk.embedding = cached[h]
+            else:
+                uncached_indices.append(idx)
 
-        # 如果强制重建，清空旧索引
-        if force:
-            self._vector_store.clear()
-            self._keyword_searcher.clear()
+        if uncached_indices:
+            texts = [new_chunks[i].text for i in uncached_indices]
+            embeddings = await self._embedding.embed_batch(texts)
+            cache_entries: list[tuple[str, list[float]]] = []
+            for j, idx in enumerate(uncached_indices):
+                new_chunks[idx].embedding = embeddings[j]
+                cache_entries.append((new_chunks[idx].content_hash, embeddings[j]))
+            self._store.set_cached_embeddings(model_name, cache_entries)
 
-        # 添加到索引
-        self._vector_store.add(new_chunks)
-        self._keyword_searcher.index(new_chunks)
-
-        # 保存索引
-        await self._save_index()
+        if need_full:
+            self._store.safe_reindex(new_chunks, current_meta, user_id)
+        else:
+            for path in changed_paths:
+                self._store.delete_by_path(path, user_id)
+            self._store.add(new_chunks, user_id)
+            self._store.write_meta(current_meta)
 
         self._last_sync = datetime.now()
         logger.info(
-            f"Sync complete: {len(new_chunks)} chunks, "
-            f"vector={self._vector_store.size}, keyword={self._keyword_searcher.size}"
+            "Sync complete: %d chunks, store size=%d",
+            len(new_chunks), self._store.size,
         )
-
-    async def _save_index(self) -> None:
-        """保存索引"""
-        index_path = self._index_dir / "memory_index"
-
-        try:
-            self._vector_store.save(str(index_path))
-            logger.debug(f"Saved index to {index_path}")
-        except Exception as e:
-            logger.error(f"Failed to save index: {e}")
 
     async def search(
         self,
@@ -283,57 +284,60 @@ class MemoryManager:
         max_results: int = 10,
         min_score: float = 0.0,
         sources: list[MemorySource] | None = None,
-        search_mode: str = "hybrid",  # "hybrid", "vector", "keyword"
+        search_mode: str = "hybrid",
+        user_id: str = "",
     ) -> list[MemorySearchResult]:
-        """搜索记忆
-
-        Args:
-            query: 查询文本
-            max_results: 最大结果数
-            min_score: 最低分数阈值
-            sources: 过滤来源
-            search_mode: 搜索模式
-
-        Returns:
-            搜索结果列表
-        """
         if not self._initialized:
             await self.initialize()
 
-        results = await self._hybrid_searcher.search(
-            query,
-            top_k=max_results,
-            min_score=min_score,
-            vector_only=(search_mode == "vector"),
-            keyword_only=(search_mode == "keyword"),
-        )
+        if self._dirty:
+            await self.sync(user_id=user_id)
+            self._dirty = False
 
-        # 过滤来源
+        query_embedding = await self._embedding.embed_query(query)
+
+        if search_mode == "vector":
+            raw = self._store.vector_search(query_embedding, max_results, user_id)
+            results = [
+                MemorySearchResult.from_chunk(chunk, score, vector_score=score)
+                for chunk, score in raw
+            ]
+        elif search_mode == "keyword":
+            raw = self._store.keyword_search(query, max_results, user_id)
+            results = [
+                MemorySearchResult.from_chunk(chunk, score, keyword_score=score)
+                for chunk, score in raw
+            ]
+        else:
+            results = self._store.hybrid_search(
+                query, query_embedding,
+                top_k=max_results, min_score=min_score, user_id=user_id,
+            )
+
         if sources:
             results = [r for r in results if r.source in sources]
 
         return results[:max_results]
 
     def status(self) -> MemoryStatus:
-        """获取系统状态"""
         source_counts: dict[str, int] = {}
 
-        if self._vector_store:
-            for chunk in self._vector_store.get_all_chunks():
+        if self._store:
+            for chunk in self._store.get_all_chunks():
                 source = chunk.source.value
                 source_counts[source] = source_counts.get(source, 0) + 1
 
         return MemoryStatus(
             workspace_dir=str(self._workspace_dir),
             index_path=str(self._index_dir),
-            total_files=len(self._file_hashes),
-            total_chunks=self._vector_store.chunk_count if self._vector_store else 0,
+            total_files=0,
+            total_chunks=self._store.chunk_count if self._store else 0,
             embedding_model=self.config.embedding.model_name,
             embedding_dims=self._embedding.dimensions if self._embedding else 0,
             vector_enabled=True,
-            vector_backend="faiss",
+            vector_backend="sqlite-vec",
             keyword_enabled=True,
-            keyword_backend="bm25",
+            keyword_backend="fts5+jieba",
             source_counts=source_counts,
             last_sync_at=self._last_sync,
         )
@@ -343,43 +347,32 @@ class MemoryManager:
         content: str,
         path: str,
         source: MemorySource = MemorySource.MEMORY,
+        user_id: str = "",
     ) -> int:
-        """手动添加文档
-
-        Args:
-            content: 文档内容
-            path: 文档路径（标识用）
-            source: 来源类型
-
-        Returns:
-            添加的 chunk 数量
-        """
         if not self._initialized:
             await self.initialize()
 
-        # 分块
         chunks = self._chunker.chunk_text(content, path, source)
         if not chunks:
             return 0
 
-        # 生成 embeddings
+        for c in chunks:
+            c.user_id = user_id
+
         texts = [c.text for c in chunks]
         embeddings = await self._embedding.embed_batch(texts)
 
         for chunk, embedding in zip(chunks, embeddings):
             chunk.embedding = embedding
 
-        # 添加到索引
-        self._vector_store.add(chunks)
-        self._keyword_searcher.index(chunks)
+        self._store.add(chunks, user_id)
 
-        logger.info(f"Added {len(chunks)} chunks from {path}")
+        logger.info("Added %d chunks from %s (user=%s)", len(chunks), path, user_id)
         return len(chunks)
 
     async def close(self) -> None:
-        """关闭管理器"""
-        if self._vector_store:
-            await self._save_index()
+        if self._store:
+            self._store.close()
 
         self._initialized = False
         logger.info("Memory system closed")
@@ -388,15 +381,40 @@ class MemoryManager:
 # ============ 便捷函数 ============
 
 
+def build_memory_manager(memory_dir: str | Path | None = None) -> MemoryManager:
+    """Build a MemoryManager with directory setup and MEMORY.md seed.
+
+    Falls back to a temp directory if memory_dir is None.
+    """
+    import tempfile
+
+    if memory_dir is None:
+        memory_dir = Path(tempfile.gettempdir()) / "ark_memory"
+    memory_dir = Path(memory_dir)
+    memory_dir.mkdir(parents=True, exist_ok=True)
+
+    seed_file = memory_dir / "MEMORY.md"
+    if not seed_file.exists():
+        seed_file.write_text(
+            "# Agent Memory\n\n此文件用于存储跨会话的长期记忆。\n",
+            encoding="utf-8",
+        )
+
+    # index_dir intentionally omitted: MemoryManager defaults to workspace_dir/.memory,
+    # which allows _get_memory_for_user to correctly scope per-user DBs.
+    config = MemoryConfig(workspace_dir=str(memory_dir))
+    logger.info("Memory enabled: workspace=%s", memory_dir)
+    return MemoryManager(config)
+
+
 def create_memory_manager(
     workspace_dir: str,
     embedding_model: str = "",
-    device: str = "cpu",
+    device: str | None = None,
 ) -> MemoryManager:
-    """创建 Memory 管理器"""
     config = MemoryConfig(
         workspace_dir=workspace_dir,
-        embedding=BGEConfig(model_name=embedding_model, device=device),
+        embedding=BGEConfig(model_name=embedding_model, device=device or infer_device()),
     )
     return MemoryManager(config)
 
@@ -406,7 +424,6 @@ async def quick_search(
     query: str,
     max_results: int = 10,
 ) -> list[MemorySearchResult]:
-    """快速搜索（一次性使用）"""
     manager = create_memory_manager(workspace_dir)
     await manager.initialize()
 

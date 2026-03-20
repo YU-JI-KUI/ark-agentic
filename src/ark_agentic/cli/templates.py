@@ -48,7 +48,8 @@ load_dotenv()
 
 async def main():
     agent = create_default_agent()
-    session_id = await agent.create_session()
+    user_id = "default"
+    session_id = await agent.create_session(user_id=user_id)
 
     print("智能体已启动，输入 'quit' 退出")
     while True:
@@ -57,7 +58,7 @@ async def main():
             break
         if not user_input:
             continue
-        result = await agent.run(session_id=session_id, user_input=user_input)
+        result = await agent.run(session_id=session_id, user_input=user_input, user_id=user_id)
         print(f"[助手] {{result.response.content}}")
         print()
 
@@ -73,23 +74,27 @@ if __name__ == "__main__":
 AGENT_MODULE_TEMPLATE = '''\
 """
 {agent_name} 智能体
+
+环境变量:
+    SESSIONS_DIR: 会话持久化基础目录（默认 data/ark_sessions）
+    MEMORY_DIR: Memory 数据基础目录（默认 data/ark_memory）
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ark_agentic import AgentRunner, RunnerConfig, create_chat_model_from_env
 from ark_agentic.core.tools import ToolRegistry
+from ark_agentic.core.paths import prepare_agent_data_dir
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.prompt import PromptConfig
 
 
 def create_{agent_name_snake}_agent(
     llm: BaseChatModel | None = None,
-    sessions_dir: str | Path | None = None,
+    *,
+    enable_memory: bool = False,
 ) -> AgentRunner:
     if llm is None:
         llm = create_chat_model_from_env()
@@ -99,8 +104,7 @@ def create_{agent_name_snake}_agent(
     # tool_registry.register(YourTool())
 
     session_manager = SessionManager(
-        sessions_dir=sessions_dir,
-        enable_persistence=sessions_dir is not None,
+        sessions_dir=prepare_agent_data_dir("{agent_name_snake}"),
     )
 
     runner_config = RunnerConfig(
@@ -182,6 +186,7 @@ from fastapi.staticfiles import StaticFiles
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.api import chat as chat_api
 from ark_agentic.api import deps as api_deps
+from ark_agentic.studio import setup_studio_from_env
 
 from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
 
@@ -195,7 +200,6 @@ async def lifespan(app: FastAPI):
     runner = create_{agent_name_snake}_agent()
     _registry.register("{agent_name_snake}", runner)
     api_deps.init_registry(_registry)
-
     logger.info("{project_name} API started")
     yield
     logger.info("{project_name} API shutting down")
@@ -217,6 +221,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_api.router)
+setup_studio_from_env(app, registry=_registry)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.is_dir():
@@ -243,7 +248,7 @@ def main() -> None:
     port = int(os.getenv("API_PORT", "8080"))
     logger.info(f"Starting {project_name} API on {{host}}:{{port}}")
     uvicorn.run(
-        "{package_name}.api:app",
+        "{package_name}.app:app",
         host=host,
         port=port,
         reload=False,
@@ -260,104 +265,6 @@ PIP_CONF_TEMPLATE = """\
 index-url = http://maven.abc.com.cn/repository/pypi/simple/
 trusted-host = maven.abc.com.cn
 """
-
-# ── Studio templates ──────────────────────────────────────────────────
-
-STUDIO_APP_TEMPLATE = '''\
-"""
-{project_name} API Server (with Ark-Agentic Studio)
-"""
-
-from __future__ import annotations
-
-import asyncio
-import logging
-import os
-from contextlib import asynccontextmanager
-from pathlib import Path
-
-from dotenv import load_dotenv
-load_dotenv()
-
-_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
-logging.basicConfig(
-    level=_log_level,
-    format="%(asctime)s %(levelname)-5s %(name)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    force=True,
-)
-for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
-    logging.getLogger(_lib).setLevel(logging.WARNING)
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from ark_agentic.core.registry import AgentRegistry
-from ark_agentic.api import chat as chat_api
-from ark_agentic.api import deps as api_deps
-
-logger = logging.getLogger(__name__)
-
-_registry = AgentRegistry()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
-    runner = create_{agent_name_snake}_agent()
-    _registry.register("{agent_name_snake}", runner)
-    api_deps.init_registry(_registry)
-
-    if os.getenv("ENABLE_STUDIO", "false").lower() == "true":
-        from ark_agentic.studio import setup_studio
-        setup_studio(app)
-        logger.info("Ark-Agentic Studio enabled at /studio")
-
-    logger.info("{project_name} API started")
-    yield
-    logger.info("{project_name} API shutting down")
-
-
-app = FastAPI(
-    title="{project_name}",
-    description="{project_name} Agent API",
-    version="0.1.0",
-    lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(chat_api.router)
-
-
-@app.get("/health")
-async def health_check():
-    return {{"status": "ok"}}
-
-
-def main() -> None:
-    import uvicorn
-    host = os.getenv("API_HOST", "0.0.0.0")
-    port = int(os.getenv("API_PORT", "8080"))
-    logger.info(f"Starting {project_name} on {{host}}:{{port}}")
-    uvicorn.run(
-        "{package_name}.app:app",
-        host=host,
-        port=port,
-        reload=False,
-        log_level=os.getenv("LOG_LEVEL", "info").lower(),
-    )
-
-
-if __name__ == "__main__":
-    main()
-'''
 
 AGENT_JSON_TEMPLATE = """\
 {{

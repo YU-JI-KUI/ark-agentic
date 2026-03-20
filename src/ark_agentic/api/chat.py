@@ -1,7 +1,5 @@
 """
 Chat API 路由
-
-从 app.py 中提取的 /chat 端点。
 """
 
 from __future__ import annotations
@@ -29,8 +27,9 @@ router = APIRouter()
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
-    x_ark_session_key: str | None = Header(None, alias="x-ark-session-key"),
+    x_ark_session_id: str | None = Header(None, alias="x-ark-session-id"),
     x_ark_user_id: str | None = Header(None, alias="x-ark-user-id"),
+    x_ark_message_id: str | None = Header(None, alias="x-ark-message-id"),
     x_ark_trace_id: str | None = Header(None, alias="x-ark-trace-id"),
 ):
     """Chat 端点，支持流式和非流式响应。
@@ -39,50 +38,63 @@ async def chat(
     """
     agent = get_agent(request.agent_id)
 
-    # 构建 input_context：合并 body 和 headers，使用 ADK 风格前缀
+    # ── resolve user_id (mandatory) ──
+    user_id = request.user_id or x_ark_user_id
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required (body or x-ark-user-id header)")
+
+    # ── resolve message_id (optional, auto-generate) ──
+    message_id = request.message_id or x_ark_message_id or str(uuid.uuid4())
+
+    # ── build input_context ──
     input_context: dict[str, Any] = {}
     if request.context:
         for k, v in request.context.items():
             input_context[f"user:{k}" if ":" not in k else k] = v
-    user_id = request.user_id or x_ark_user_id
-    if user_id:
-        input_context["user:id"] = user_id
+    input_context["user:id"] = user_id
     if x_ark_trace_id:
         input_context["temp:trace_id"] = x_ark_trace_id
     if request.idempotency_key:
         input_context["temp:idempotency_key"] = request.idempotency_key
+    input_context["temp:message_id"] = message_id
 
-    # 解析 session_id：优先 body，其次 header
-    session_id = request.session_id or x_ark_session_key
+    # ── resolve session_id ──
+    session_id = request.session_id or x_ark_session_id
     if not session_id:
-        session_state = {"user:id": user_id} if user_id else {}
-        session = await agent.session_manager.create_session(state=session_state)
+        session_state = {"user:id": user_id}
+        session = await agent.session_manager.create_session(user_id=user_id, state=session_state)
         session_id = session.session_id
         logger.info(f"Created new session: {session_id}")
     else:
         session = agent.session_manager.get_session(session_id)
         if not session:
-            session = await agent.session_manager.load_session(session_id)
+            session = await agent.session_manager.load_session(session_id, user_id)
         if not session:
-            # session 不属于当前 agent（如证券/保险切换场景），为当前 agent 新建 session
             logger.warning(
                 f"Session {session_id} not found in agent {request.agent_id}, "
                 "creating new session (possible agent switch)"
             )
-            session_state = {"user:id": user_id} if user_id else {}
-            session = await agent.session_manager.create_session(state=session_state)
+            session_state = {"user:id": user_id}
+            session = await agent.session_manager.create_session(user_id=user_id, state=session_state)
             session_id = session.session_id
             logger.info(f"Created new session after agent switch: {session_id}")
 
     run_options = request.run_options
+    # ── external history ──
+    raw_history = (
+        [m.model_dump() for m in request.history] if request.history else None
+    )
+
     run_id = str(uuid.uuid4())
     if not request.stream:
-        # 非流式响应
         result = await agent.run(
             session_id=session_id,
             user_input=request.message,
+            user_id=user_id,
             input_context=input_context,
             run_options=run_options,
+            history=raw_history,
+            use_history=request.use_history,
         )
         tool_calls = []
         if result.tool_calls:
@@ -90,6 +102,7 @@ async def chat(
                 tool_calls.append({"name": tc.name, "arguments": tc.arguments})
         return ChatResponse(
             session_id=session_id,
+            message_id=message_id,
             response=result.response.content or "",
             tool_calls=tool_calls,
             turns=result.turns,
@@ -99,7 +112,7 @@ async def chat(
             },
         )
 
-    # ---- 流式响应：使用 StreamEventBus + OutputFormatter ----
+    # ---- 流式响应 ----
     queue: asyncio.Queue[AgentStreamEvent] = asyncio.Queue()
     done_event = asyncio.Event()
     bus = StreamEventBus(run_id=run_id, session_id=session_id, queue=queue)
@@ -115,10 +128,13 @@ async def chat(
             result = await agent.run(
                 session_id=session_id,
                 user_input=request.message,
+                user_id=user_id,
                 input_context=input_context,
                 stream_override=True,
                 run_options=run_options,
                 handler=bus,
+                history=raw_history,
+                use_history=request.use_history,
             )
             tool_calls = []
             if result.tool_calls:

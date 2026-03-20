@@ -14,10 +14,35 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Protocol
 
 from .agui_models import AGUIDataPayload, AGUIEnvelope
 from .events import AgentStreamEvent
+
+
+_CODE_FENCE_RE = re.compile(
+    r"^\s*```(?:json)?\s*\r?\n(.*?)\r?\n\s*```\s*$",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _try_extract_json(text: str) -> Any | None:
+    """Try to parse *text* as JSON, stripping markdown code fences if present.
+
+    Returns the parsed object on success, ``None`` on failure (fail-safe to text).
+    """
+    if not text or not text.strip():
+        return None
+    stripped = text.strip()
+    m = _CODE_FENCE_RE.match(stripped)
+    candidate = m.group(1).strip() if m else stripped
+    if not candidate or candidate[0] not in ("{", "["):
+        return None
+    try:
+        return json.loads(candidate)
+    except (json.JSONDecodeError, ValueError):
+        return None
 
 
 class OutputFormatter(Protocol):
@@ -280,8 +305,14 @@ class EnterpriseAGUIFormatter:
                 dp.ui_data = event.delta or ""
                 dp.turn = event.turn if event.turn is not None else 1
         elif event.type == "run_finished":
-            dp.ui_protocol = "text"
-            dp.ui_data = event.message or ""
+            raw = event.message or ""
+            parsed = _try_extract_json(raw)
+            if parsed is not None:
+                dp.ui_protocol = "json"
+                dp.ui_data = parsed
+            else:
+                dp.ui_protocol = "text"
+                dp.ui_data = raw
         elif event.type == "run_error":
             dp.code = "500"
             dp.ui_protocol = "text"
