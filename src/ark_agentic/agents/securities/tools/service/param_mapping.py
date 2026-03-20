@@ -381,24 +381,57 @@ FUND_HOLDINGS_PARAM_CONFIG: dict[str, tuple] = {
     "channel": ("static", "10014"),  # 固定值 10014
 }
 
+# 用户资产历史收益曲线 API 参数配置
+ASSET_PROFIT_HIST_PARAM_CONFIG: dict[str, tuple] = {
+    "assetGrpType": ("transform", "account_type", lambda x: 2 if x == "margin" else 1),
+    "timeType":    ("context", "time_type"),
+    "beginTime":   ("context", "begin_time"),
+    "endTime":     ("context", "end_time"),
+    "stringParam": ("static", 1),
+    "ruleType":    ("static", 1),
+}
+
+# 用户股票每日收益明细 API 参数配置
+STOCK_DAILY_PROFIT_PARAM_CONFIG: dict[str, tuple] = {
+    "assetGrpType": ("transform", "account_type", lambda x: 2 if x == "margin" else 1),
+    "beginTime":   ("context", "begin_time"),
+    "endTime":     ("context", "end_time"),
+    "month":       ("context", "month"),
+    "stringParam": ("static", 1),
+}
+
+# 用户股票盈亏排行 API 参数配置
+STOCK_PROFIT_RANKING_PARAM_CONFIG: dict[str, tuple] = {
+    "timeType":    ("context", "time_type"),
+    "pftType":     ("context", "pft_type"),
+    "limit":       ("transform", "limit", lambda x: x if x else 10),
+    "stringParam": ("static", 1),
+}
+
 # 服务参数配置注册表
 SERVICE_PARAM_CONFIGS: dict[str, dict[str, tuple]] = {
-    "account_overview": ACCOUNT_OVERVIEW_PARAM_CONFIG,
-    "cash_assets": CASH_ASSETS_PARAM_CONFIG,
-    "etf_holdings": ETF_HOLDINGS_PARAM_CONFIG,
-    "hksc_holdings": HKSC_HOLDINGS_PARAM_CONFIG,
-    "fund_holdings": FUND_HOLDINGS_PARAM_CONFIG,
+    "account_overview":    ACCOUNT_OVERVIEW_PARAM_CONFIG,
+    "cash_assets":         CASH_ASSETS_PARAM_CONFIG,
+    "etf_holdings":        ETF_HOLDINGS_PARAM_CONFIG,
+    "hksc_holdings":       HKSC_HOLDINGS_PARAM_CONFIG,
+    "fund_holdings":       FUND_HOLDINGS_PARAM_CONFIG,
+    "asset_profit_hist":   ASSET_PROFIT_HIST_PARAM_CONFIG,
+    "stock_daily_profit":  STOCK_DAILY_PROFIT_PARAM_CONFIG,
+    "stock_profit_ranking": STOCK_PROFIT_RANKING_PARAM_CONFIG,
 }
 
 # 服务 Header 配置注册表（用于需要特殊 header 的服务）
 SERVICE_HEADER_CONFIGS: dict[str, dict[str, tuple]] = {
-    "account_overview": UNIFIED_HEADER_CONFIG,  # 账户总览使用 validatedata
-    "cash_assets": UNIFIED_HEADER_CONFIG,  # 现金资产使用 validatedata
-    "fund_holdings": UNIFIED_HEADER_CONFIG,  # 基金持仓使用 validatedata
-    "security_detail": UNIFIED_HEADER_CONFIG,  # 标的详情使用 validatedata
-    "etf_holdings": ETF_HOLDINGS_HEADER_CONFIG,  # ETF 使用 validatedata
-    "hksc_holdings": HKSC_HOLDINGS_HEADER_CONFIG,  # HKSC 使用 validatedata
-    "branch_info": UNIFIED_HEADER_CONFIG,  # 开户营业部查询使用 validatedata
+    "account_overview":    UNIFIED_HEADER_CONFIG,
+    "cash_assets":         UNIFIED_HEADER_CONFIG,
+    "fund_holdings":       UNIFIED_HEADER_CONFIG,
+    "security_detail":     UNIFIED_HEADER_CONFIG,
+    "etf_holdings":        ETF_HOLDINGS_HEADER_CONFIG,
+    "hksc_holdings":       HKSC_HOLDINGS_HEADER_CONFIG,
+    "branch_info":         UNIFIED_HEADER_CONFIG,
+    "asset_profit_hist":   UNIFIED_HEADER_CONFIG,
+    "stock_daily_profit":  UNIFIED_HEADER_CONFIG,
+    "stock_profit_ranking": UNIFIED_HEADER_CONFIG,
 }
 
 # validatedata 必需字段列表

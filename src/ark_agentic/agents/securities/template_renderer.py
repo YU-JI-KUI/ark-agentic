@@ -216,6 +216,108 @@ class TemplateRenderer:
         }
 
     @staticmethod
+    def render_asset_profit_hist_card(data: dict[str, Any]) -> dict[str, Any]:
+        """渲染资产历史收益曲线卡片
+
+        输出格式：
+        {
+          "template": "assetProfitHistTpl",
+          "data": {
+            "template": "assetProfitHistTpl",
+            "title": "...",
+            "account_type": "normal" | "margin",
+            "total_profit": "3182.50",
+            "total_profit_rate": "0.0318",
+            "asset": ["100000.00", ...],         # 期初→期末资产序列
+            "asset_total": ["500000.00", ...]    # 两融专属：期初→期末总资产序列
+          }
+        }
+        """
+        result: dict[str, Any] = {
+            "template": "assetProfitHistTpl",
+            "data": {
+                "template": "assetProfitHistTpl",
+                "title": data.get("title", ""),
+                "account_type": data.get("account_type", "normal"),
+                "total_profit": data.get("total_profit"),
+                "total_profit_rate": data.get("total_profit_rate"),
+                "asset": data.get("asset", []),
+            },
+        }
+        # 两融账户特有字段
+        if data.get("asset_total"):
+            result["data"]["asset_total"] = data["asset_total"]
+        return result
+
+    @staticmethod
+    def render_stock_profit_ranking_card(data: dict[str, Any]) -> dict[str, Any]:
+        """渲染股票盈亏排行卡片
+
+        输出格式：
+        {
+          "template": "stockProfitRankingTpl",
+          "data": {
+            "template": "stockProfitRankingTpl",
+            "title": "...",
+            "profit_count": "4",
+            "profit_amount": "13682.50",
+            "loss_count": "6",
+            "loss_amount": "-8934.20",
+            "stock_list": [
+              {"name": "宁德时代", "profit": "4820.30",
+               "profit_rate": "0.0921", "profit_ratio": "0.3523"},
+              ...
+            ]
+          }
+        }
+        """
+        return {
+            "template": "stockProfitRankingTpl",
+            "data": {
+                "template": "stockProfitRankingTpl",
+                "title": data.get("title", ""),
+                "profit_count": data.get("profit_count"),
+                "profit_amount": data.get("profit_amount"),
+                "loss_count": data.get("loss_count"),
+                "loss_amount": data.get("loss_amount"),
+                "stock_list": data.get("stock_list", []),
+            },
+        }
+
+    @staticmethod
+    def render_stock_daily_profit_calendar_card(data: dict[str, Any]) -> dict[str, Any]:
+        """渲染股票每日收益日历卡片
+
+        输出格式：
+        {
+          "template": "stockDailyProfitCalendarTpl",
+          "data": {
+            "template": "stockDailyProfitCalendarTpl",
+            "title": "...",
+            "account_type": "normal" | "margin",
+            "total_profit": "-856.30",
+            "total_profit_rate": "-0.0086",
+            "trading_dates":     ["20260303", "20260304", ...],
+            "daily_profit":      ["-310.20", "448.90", "休市", ...],
+            "daily_profit_rate": ["-0.0031", "0.0045", "休市", ...],
+          }
+        }
+        """
+        return {
+            "template": "stockDailyProfitCalendarTpl",
+            "data": {
+                "template": "stockDailyProfitCalendarTpl",
+                "title": data.get("title", ""),
+                "account_type": data.get("account_type", "normal"),
+                "total_profit": data.get("total_profit"),
+                "total_profit_rate": data.get("total_profit_rate"),
+                "trading_dates": data.get("trading_dates", []),
+                "daily_profit": data.get("daily_profit", []),
+                "daily_profit_rate": data.get("daily_profit_rate", []),
+            },
+        }
+
+    @staticmethod
     def render_profit_summary_card(data: dict[str, Any]) -> dict[str, Any]:
         """渲染收益汇总卡片"""
         return {

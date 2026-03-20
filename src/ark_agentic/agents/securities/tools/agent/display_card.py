@@ -3,7 +3,7 @@
 显式触发前端数据卡片渲染。从当前轮次的数据工具结果中读取数据，
 调用 TemplateRenderer 生成卡片模板并通过 metadata.template 传递给 SSE 管道。
 
-对于 account_overview，使用字段提取工具从真实 API 格式中提取显示字段。
+数据工具的 service 层已完成字段提取，此处直接使用已标准化的数据渲染卡片。
 """
 
 from __future__ import annotations
@@ -15,14 +15,6 @@ from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall, ToolResultType
 
 from ...template_renderer import TemplateRenderer
-from ..service.field_extraction import (
-    extract_account_overview,
-    extract_branch_info,
-    extract_cash_assets,
-    extract_etf_holdings,
-    extract_fund_holdings,
-    extract_hksc_holdings,
-)
 
 
 def _get_context_value(
@@ -50,13 +42,18 @@ def _mask_account(account: str | None) -> str:
 
 # 数据工具名 → TemplateRenderer 调用方式
 _RENDER_MAP: dict[str, str] = {
-    "etf_holdings": "holdings_list",
-    "hksc_holdings": "holdings_list",
-    "fund_holdings": "holdings_list",
-    "account_overview": "account_overview",
-    "cash_assets": "cash_assets",
-    "security_detail": "security_detail",
-    "branch_info": "branch_info",
+    "etf_holdings":             "holdings_list",
+    "hksc_holdings":            "holdings_list",
+    "fund_holdings":            "holdings_list",
+    "account_overview":         "account_overview",
+    "cash_assets":              "cash_assets",
+    "security_detail":          "security_detail",
+    "branch_info":              "branch_info",
+    "asset_profit_hist_period":    "asset_profit_hist",
+    "asset_profit_hist_range":     "asset_profit_hist",
+    "stock_profit_ranking":        "stock_profit_ranking",
+    "stock_daily_profit_range":    "stock_daily_profit_calendar",
+    "stock_daily_profit_month":    "stock_daily_profit_calendar",
 }
 
 _ASSET_CLASS_MAP: dict[str, Literal["ETF", "HKSC", "Fund", "Cash"]] = {
@@ -87,7 +84,9 @@ class DisplayCardTool(AgentTool):
             description=(
                 "数据来源工具名，即之前调用的数据工具名称。"
                 "可选值：etf_holdings, hksc_holdings, fund_holdings, "
-                "account_overview, cash_assets, security_detail, branch_info"
+                "account_overview, cash_assets, security_detail, branch_info, "
+                "asset_profit_hist_period, asset_profit_hist_range, stock_profit_ranking, "
+                "stock_daily_profit_range, stock_daily_profit_month"
             ),
             required=True,
         ),
@@ -141,44 +140,40 @@ class DisplayCardTool(AgentTool):
 
         if render_type == "holdings_list":
             asset_class = _ASSET_CLASS_MAP[source_tool]
-
             _HOLDINGS_TITLE: dict[str, str] = {
                 "etf_holdings": f"资金账号：{masked}的ETF资产信息",
                 "hksc_holdings": f"资金账号：{masked}的港股通资产信息",
                 "fund_holdings": f"资金账号：{masked}的基金资产信息",
             }
-
-            if source_tool == "etf_holdings":
-                extracted_data = extract_etf_holdings(data)
-            elif source_tool == "hksc_holdings":
-                extracted_data = extract_hksc_holdings(data)
-            elif source_tool == "fund_holdings":
-                extracted_data = extract_fund_holdings(data)
-            else:
-                extracted_data = data
-            extracted_data["title"] = _HOLDINGS_TITLE.get(source_tool, "")
-            extracted_data["account_type"] = account_type
-            template = TemplateRenderer.render_holdings_list_card(
-                asset_class, extracted_data
-            )
+            data["title"] = _HOLDINGS_TITLE.get(source_tool, "")
+            data["account_type"] = account_type
+            template = TemplateRenderer.render_holdings_list_card(asset_class, data)
         elif render_type == "account_overview":
-            extracted_data = extract_account_overview(data)
-            extracted_data["title"] = f"资金账号：{masked}的资产信息"
-            extracted_data["account_type"] = account_type
-            template = TemplateRenderer.render_account_overview_card(extracted_data)
+            data["title"] = f"资金账号：{masked}的资产信息"
+            data["account_type"] = account_type
+            template = TemplateRenderer.render_account_overview_card(data)
         elif render_type == "cash_assets":
-            extracted_data = extract_cash_assets(data)
-            extracted_data["title"] = f"资金账号：{masked}的现金资产信息"
-            extracted_data["account_type"] = account_type
-            template = TemplateRenderer.render_cash_assets_card(extracted_data)
+            data["title"] = f"资金账号：{masked}的现金资产信息"
+            data["account_type"] = account_type
+            template = TemplateRenderer.render_cash_assets_card(data)
         elif render_type == "security_detail":
             data["account_type"] = account_type
             template = TemplateRenderer.render_security_detail_card(data)
         elif render_type == "branch_info":
-            extracted_data = extract_branch_info(data)
-            extracted_data["title"] = f"资金账号：{masked}的开户营业部信息"
-            extracted_data["account_type"] = account_type
-            template = TemplateRenderer.render_branch_info_card(extracted_data)
+            data["title"] = f"资金账号：{masked}的开户营业部信息"
+            data["account_type"] = account_type
+            template = TemplateRenderer.render_branch_info_card(data)
+        elif render_type == "asset_profit_hist":
+            data["title"] = f"资金账号：{masked}的资产历史收益曲线"
+            data["account_type"] = account_type
+            template = TemplateRenderer.render_asset_profit_hist_card(data)
+        elif render_type == "stock_profit_ranking":
+            data["title"] = f"资金账号：{masked}的股票盈亏排行"
+            template = TemplateRenderer.render_stock_profit_ranking_card(data)
+        elif render_type == "stock_daily_profit_calendar":
+            data["title"] = f"资金账号：{masked}的股票每日收益"
+            data["account_type"] = account_type
+            template = TemplateRenderer.render_stock_daily_profit_calendar_card(data)
         else:
             return AgentToolResult.error_result(
                 tool_call_id=tool_call.id,

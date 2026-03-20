@@ -6,10 +6,10 @@ from typing import Any
 
 from ..base import (
     BaseServiceAdapter,
-    ServiceConfig,
-    ServiceError,
+    check_api_response,
     require_context_fields,
 )
+from ..field_extraction import extract_etf_holdings
 
 
 class ETFHoldingsAdapter(BaseServiceAdapter):
@@ -53,7 +53,5 @@ class ETFHoldingsAdapter(BaseServiceAdapter):
         raw_data: dict[str, Any],
         account_type: str,
     ) -> dict[str, Any]:
-        if raw_data.get("status") != 1:
-            error_msg = raw_data.get("msg") or "Unknown API error"
-            raise ServiceError(f"API returned error: {error_msg}")
-        return raw_data
+        check_api_response(raw_data)
+        return extract_etf_holdings(raw_data)

@@ -7,10 +7,10 @@ from typing import Any
 
 from ..base import (
     BaseServiceAdapter,
-    ServiceConfig,
     ServiceError,
     require_context_fields,
 )
+from ..field_extraction import extract_fund_holdings
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class FundHoldingsAdapter(BaseServiceAdapter):
 
         try:
             schema = FundHoldingsSchema.from_raw_data(data)
-            return schema.model_dump()
+            return extract_fund_holdings(schema.model_dump())
         except ValidationError as e:
             logger.error(f"Fund holdings data validation failed: {e}")
             raise ServiceError(f"Invalid fund data: {e}")

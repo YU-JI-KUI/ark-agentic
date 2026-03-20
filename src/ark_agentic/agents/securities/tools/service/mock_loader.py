@@ -123,7 +123,12 @@ class MockServiceAdapter(BaseServiceAdapter):
     ) -> dict[str, Any]:
         """从文件加载 Mock 数据"""
         scenario = "default"
-        if self.service_name in ("account_overview", "cash_assets"):
+        if self.service_name in (
+            "account_overview",
+            "cash_assets",
+            "asset_profit_hist",
+            "stock_daily_profit",
+        ):
             scenario = "margin_user" if account_type == "margin" else "normal_user"
 
         raw_data = self._loader.load(
@@ -140,22 +145,28 @@ class MockServiceAdapter(BaseServiceAdapter):
         """标准化响应（根据服务类型调用对应适配器）"""
         from .adapters import (
             AccountOverviewAdapter,
+            AssetProfitHistAdapter,
+            BranchInfoAdapter,
             CashAssetsAdapter,
             ETFHoldingsAdapter,
             FundHoldingsAdapter,
             HKSCHoldingsAdapter,
             SecurityDetailAdapter,
-            BranchInfoAdapter,
+            StockDailyProfitAdapter,
+            StockProfitRankingAdapter,
         )
 
         adapter_map = {
-            "account_overview": AccountOverviewAdapter,
-            "etf_holdings": ETFHoldingsAdapter,
-            "hksc_holdings": HKSCHoldingsAdapter,
-            "fund_holdings": FundHoldingsAdapter,
-            "cash_assets": CashAssetsAdapter,
-            "security_detail": SecurityDetailAdapter,
-            "branch_info": BranchInfoAdapter,
+            "account_overview":    AccountOverviewAdapter,
+            "asset_profit_hist":   AssetProfitHistAdapter,
+            "branch_info":         BranchInfoAdapter,
+            "cash_assets":         CashAssetsAdapter,
+            "etf_holdings":        ETFHoldingsAdapter,
+            "fund_holdings":       FundHoldingsAdapter,
+            "hksc_holdings":       HKSCHoldingsAdapter,
+            "security_detail":     SecurityDetailAdapter,
+            "stock_daily_profit":  StockDailyProfitAdapter,
+            "stock_profit_ranking": StockProfitRankingAdapter,
         }
 
         adapter_class = adapter_map.get(self.service_name)

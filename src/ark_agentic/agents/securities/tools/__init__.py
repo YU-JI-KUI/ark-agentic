@@ -2,6 +2,8 @@
 
 from .agent import (
     AccountOverviewTool,
+    AssetProfitHistPeriodTool,
+    AssetProfitHistRangeTool,
     BranchInfoTool,
     CashAssetsTool,
     DisplayCardTool,
@@ -9,11 +11,16 @@ from .agent import (
     FundHoldingsTool,
     HKSCHoldingsTool,
     SecurityDetailTool,
+    StockDailyProfitMonthTool,
+    StockDailyProfitRangeTool,
+    StockProfitRankingTool,
     create_securities_tools,
 )
 
 __all__ = [
     "AccountOverviewTool",
+    "AssetProfitHistPeriodTool",
+    "AssetProfitHistRangeTool",
     "BranchInfoTool",
     "CashAssetsTool",
     "DisplayCardTool",
@@ -21,5 +28,8 @@ __all__ = [
     "FundHoldingsTool",
     "HKSCHoldingsTool",
     "SecurityDetailTool",
+    "StockDailyProfitMonthTool",
+    "StockDailyProfitRangeTool",
+    "StockProfitRankingTool",
     "create_securities_tools",
 ]
