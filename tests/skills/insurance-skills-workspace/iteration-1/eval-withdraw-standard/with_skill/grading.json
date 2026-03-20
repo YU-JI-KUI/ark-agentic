@@ -1,0 +1,43 @@
+{
+  "expectations": [
+    {
+      "text": "输出文字中明确提到 render_card 或 withdraw_plan 卡片的调用",
+      "passed": true,
+      "evidence": "tool_plan.txt Step 4: render_card(card_type='withdraw_plan', card_args={...})"
+    },
+    {
+      "text": "展示给用户的最终文字不超过 30 字（不含 card_args JSON）",
+      "passed": true,
+      "evidence": "output.txt = '请问您倾向哪个方案？两个方案的保障对孩子均继续有效。' = 26 字"
+    },
+    {
+      "text": "最终文字中没有 Markdown 列表（无以 '- ' 或 '* ' 开头的行）",
+      "passed": true,
+      "evidence": "output.txt 仅含一行纯文字，无任何列表符号"
+    },
+    {
+      "text": "最终文字中没有重复卡片内容（不包含金额数字、保单名称、费用信息）",
+      "passed": true,
+      "evidence": "output.txt 不含金额、保单名称或费用数字，仅含确认引导"
+    },
+    {
+      "text": "推荐方案优先选用生存金或红利等零成本渠道",
+      "passed": true,
+      "evidence": "tool_plan.txt '⭐ 推荐方案组合：POL002 生存金 12,000 + 红利 5,200 + 部分领取 32,800'（零成本渠道优先使用）"
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": { "Read": 1, "Write": 2 },
+    "total_tool_calls": 3,
+    "total_steps": 4,
+    "errors_encountered": 0,
+    "output_chars": 52,
+    "transcript_chars": 2800
+  }
+}

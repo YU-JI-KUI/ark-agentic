@@ -1,0 +1,12 @@
+{
+  "metadata": {
+    "skill_name": "asset_overview",
+    "skill_path": "/Users/dongwei/code/ark-agentic/src/ark_agentic/agents/securities/skills/asset_overview/SKILL.md",
+    "eval_type": "static"
+  },
+  "summary": {
+    "total_passed": 31,
+    "total_failed": 0,
+    "pass_rate": 1.0
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "expectations": [
+    {
+      "text": "正确判断为类型 A（调整总金额）",
+      "passed": true,
+      "evidence": "tool_plan.txt: '类型：A（调整总金额）'，理由：'用户原话总共要8万，明确给出新目标金额'"
+    },
+    {
+      "text": "输出中提到 render_card 或汇总卡片的调用",
+      "passed": true,
+      "evidence": "tool_plan.txt Step 3: 'render_card(card_type=\"withdraw_summary\", card_args=<见下>)'"
+    },
+    {
+      "text": "展示给用户的最终文字不超过 30 字",
+      "passed": true,
+      "evidence": "output.txt = '比原方案多取 30,000 元，手续费 628 元，是否确认？' = 22 字"
+    },
+    {
+      "text": "最终文字中没有 Markdown 列表",
+      "passed": true,
+      "evidence": "output.txt 仅一行纯文字，无任何列表或表格"
+    },
+    {
+      "text": "最终文字中不重复方案详情（无金额罗列、无渠道枚举）",
+      "passed": true,
+      "evidence": "output.txt 仅包含差值（30,000 元）和手续费（628 元）两个对比数据，非逐项罗列"
+    },
+    {
+      "text": "新方案目标金额为 80,000 元而非原来的 50,000 元",
+      "passed": true,
+      "evidence": "tool_plan.txt card_args: 'target_amount: 80000'，推荐方案 total_amount: 80000"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": { "Read": 1, "Write": 2 },
+    "total_tool_calls": 3,
+    "total_steps": 3,
+    "errors_encountered": 0,
+    "output_chars": 44,
+    "transcript_chars": 2600
+  }
+}

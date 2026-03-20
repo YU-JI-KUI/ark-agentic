@@ -106,6 +106,7 @@ class RuleEngineTool(AgentTool):
         "list_options 根据 user_id 自动获取保单数据，返回每张保单的四个可用金额和费率；"
         "calculate_detail 对单张保单的某个取款渠道做详细费用计算。"
     )
+    thinking_hint = "正在计算取款方案…"
     group = "insurance"
 
     parameters = [

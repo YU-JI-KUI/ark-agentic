@@ -39,7 +39,18 @@ print(d['project']['version'])
 ")
 echo "==> Version: $VERSION"
 
-# 1) Build ark-agentic (core + CLI only, agents/app/static excluded via pyproject)
+# 1) Build Studio frontend (dist/ force-included in wheel via pyproject.toml)
+FRONTEND_DIR="$REPO_ROOT/src/ark_agentic/studio/frontend"
+if [ -f "$FRONTEND_DIR/package.json" ]; then
+  echo "==> Building Studio frontend..."
+  cd "$FRONTEND_DIR"
+  npm ci --ignore-scripts
+  npm run build
+  cd "$REPO_ROOT"
+  echo "==> Studio frontend built"
+fi
+
+# 2) Build ark-agentic wheel
 echo "==> Building ark-agentic..."
 cd "$REPO_ROOT"
 uv build --out-dir "$DIST_DIR"

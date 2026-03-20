@@ -13,15 +13,14 @@
         "Column": {
           "width": 100,
           "backgroundColor": "#F5F5F5",
-          "padding": 2,
+          "padding": [16, 32, 16, 16],
           "gap": 16,
           "children": {
             "explicitList": [
               "header-card",
               "card-zero-cost",
               "card-loan",
-              "card-advice",
-              "btn-get-plan"
+              "card-partial-surrender"
             ]
           }
         }
@@ -36,9 +35,7 @@
           "borderRadius": "middle",
           "padding": 20,
           "children": {
-            "explicitList": [
-              "header-col"
-            ]
+            "explicitList": ["header-col"]
           }
         }
       }
@@ -48,7 +45,6 @@
       "component": {
         "Column": {
           "alignment": "center",
-          "distribution": "center",
           "gap": 8,
           "children": {
             "explicitList": [
@@ -62,24 +58,10 @@
       }
     },
     {
-      "id": "header-requested",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "requested_amount_display"
-          },
-          "color": "#666666",
-          "fontSize": "12px"
-        }
-      }
-    },
-    {
       "id": "header-title",
       "component": {
         "Text": {
-          "text": {
-            "path": "header_title"
-          },
+          "text": { "path": "header_title", "literalString": "目前可领取的总金额(含贷款)" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -90,9 +72,7 @@
       "id": "header-value",
       "component": {
         "Text": {
-          "text": {
-            "path": "header_value"
-          },
+          "text": { "path": "header_value", "literalString": "—" },
           "color": "#FF6600",
           "fontSize": "24px",
           "bold": true
@@ -103,26 +83,34 @@
       "id": "header-sub",
       "component": {
         "Text": {
-          "text": {
-            "path": "header_sub"
-          },
+          "text": { "path": "header_sub", "literalString": "" },
           "color": "#999999",
           "fontSize": "12px"
         }
       }
     },
     {
+      "id": "header-requested",
+      "component": {
+        "Text": {
+          "text": { "path": "requested_amount_display", "literalString": "—" },
+          "color": "#666666",
+          "fontSize": "12px"
+        }
+      }
+    },
+
+    {
       "id": "card-zero-cost",
       "component": {
         "Card": {
+          "hide": { "path": "zero_cost_hide" },
           "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
           "children": {
-            "explicitList": [
-              "cz-col"
-            ]
+            "explicitList": ["cz-col"]
           }
         }
       }
@@ -137,8 +125,7 @@
               "cz-title-row",
               "cz-total",
               "cz-divider",
-              "cz-item-1",
-              "cz-item-2"
+              "cz-items-list"
             ]
           }
         }
@@ -151,11 +138,7 @@
           "alignment": "middle",
           "gap": 8,
           "children": {
-            "explicitList": [
-              "cz-line",
-              "cz-title",
-              "cz-tag"
-            ]
+            "explicitList": ["cz-line", "cz-title", "cz-tag"]
           }
         }
       }
@@ -163,13 +146,11 @@
     {
       "id": "cz-line",
       "component": {
-        "Text": {
-          "text": {
-            "path": "section_marker"
-          },
-          "color": "#FF6600",
-          "fontSize": "16px",
-          "bold": true
+        "Line": {
+          "backgroundColor": "#FF6600",
+          "minWidth": "3px",
+          "minHeight": "16px",
+          "borderRadius": "small"
         }
       }
     },
@@ -177,9 +158,7 @@
       "id": "cz-title",
       "component": {
         "Text": {
-          "text": {
-            "path": "zero_cost_title"
-          },
+          "text": { "path": "zero_cost_title", "literalString": "零成本领取" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -189,12 +168,10 @@
     {
       "id": "cz-tag",
       "component": {
-        "Text": {
-          "text": {
-            "path": "zero_cost_tag"
-          },
-          "color": "#999999",
-          "fontSize": "12px"
+        "Tag": {
+          "text": { "path": "zero_cost_tag", "literalString": "不影响保障" },
+          "color": "#6cb585",
+          "size": "small"
         }
       }
     },
@@ -202,9 +179,7 @@
       "id": "cz-total",
       "component": {
         "Text": {
-          "text": {
-            "path": "zero_cost_total"
-          },
+          "text": { "path": "zero_cost_total", "literalString": "合计：—" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -214,102 +189,75 @@
     {
       "id": "cz-divider",
       "component": {
-        "Divider": {
-          "borderColor": "#F5F5F5",
-          "hairline": true
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "cz-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "cz-item-tpl",
+          "dataSource": { "path": "zero_cost_items" },
+          "emptyChild": "cz-empty-text"
         }
       }
     },
     {
-      "id": "cz-item-1",
+      "id": "cz-empty-text",
+      "component": {
+        "Text": {
+          "text": { "literalString": "暂无可领取项" },
+          "usageHint": "tips",
+          "size": "small"
+        }
+      }
+    },
+    {
+      "id": "cz-item-tpl",
       "component": {
         "Row": {
-          "width": 98,
+          "width": 100,
           "distribution": "spaceBetween",
           "children": {
-            "explicitList": [
-              "cz-i1-l",
-              "cz-i1-r"
-            ]
+            "explicitList": ["cz-item-label", "cz-item-value"]
           }
         }
       }
     },
     {
-      "id": "cz-i1-l",
+      "id": "cz-item-label",
       "component": {
         "Text": {
-          "text": {
-            "path": "zero_cost_item_1_label"
-          },
+          "text": { "path": "label" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "cz-i1-r",
+      "id": "cz-item-value",
       "component": {
         "Text": {
-          "text": {
-            "path": "zero_cost_item_1_value"
-          },
+          "text": { "path": "value" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
-    {
-      "id": "cz-item-2",
-      "component": {
-        "Row": {
-          "width": 98,
-          "distribution": "spaceBetween",
-          "children": {
-            "explicitList": [
-              "cz-i2-l",
-              "cz-i2-r"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": "cz-i2-l",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "zero_cost_item_2_label"
-          },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "cz-i2-r",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "zero_cost_item_2_value"
-          },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
+
     {
       "id": "card-loan",
       "component": {
         "Card": {
+          "hide": { "path": "loan_hide" },
           "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
           "children": {
-            "explicitList": [
-              "cl-col"
-            ]
+            "explicitList": ["cl-col"]
           }
         }
       }
@@ -324,8 +272,7 @@
               "cl-title-row",
               "cl-total",
               "cl-divider",
-              "cl-item-1",
-              "cl-item-2"
+              "cl-items-list"
             ]
           }
         }
@@ -338,11 +285,7 @@
           "alignment": "middle",
           "gap": 8,
           "children": {
-            "explicitList": [
-              "cl-line",
-              "cl-title",
-              "cl-tag"
-            ]
+            "explicitList": ["cl-line", "cl-title", "cl-tag"]
           }
         }
       }
@@ -350,13 +293,11 @@
     {
       "id": "cl-line",
       "component": {
-        "Text": {
-          "text": {
-            "path": "section_marker"
-          },
-          "color": "#FF6600",
-          "fontSize": "16px",
-          "bold": true
+        "Line": {
+          "backgroundColor": "#FF6600",
+          "minWidth": "3px",
+          "minHeight": "16px",
+          "borderRadius": "small"
         }
       }
     },
@@ -364,9 +305,7 @@
       "id": "cl-title",
       "component": {
         "Text": {
-          "text": {
-            "path": "loan_title"
-          },
+          "text": { "path": "loan_title", "literalString": "保单贷款" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -376,12 +315,10 @@
     {
       "id": "cl-tag",
       "component": {
-        "Text": {
-          "text": {
-            "path": "loan_tag"
-          },
-          "color": "#999999",
-          "fontSize": "12px"
+        "Tag": {
+          "text": { "path": "loan_tag", "literalString": "需支付利息" },
+          "color": "#FF8800",
+          "size": "small"
         }
       }
     },
@@ -389,9 +326,7 @@
       "id": "cl-total",
       "component": {
         "Text": {
-          "text": {
-            "path": "loan_total"
-          },
+          "text": { "path": "loan_total", "literalString": "合计可贷：—" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -401,154 +336,123 @@
     {
       "id": "cl-divider",
       "component": {
-        "Divider": {
-          "borderColor": "#F5F5F5",
-          "hairline": true
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "cl-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "cl-item-tpl",
+          "dataSource": { "path": "loan_items" },
+          "emptyChild": "cl-empty-text"
         }
       }
     },
     {
-      "id": "cl-item-1",
+      "id": "cl-empty-text",
+      "component": {
+        "Text": {
+          "text": { "literalString": "暂无可贷项" },
+          "usageHint": "tips",
+          "size": "small"
+        }
+      }
+    },
+    {
+      "id": "cl-item-tpl",
       "component": {
         "Row": {
-          "width": 98,
+          "width": 100,
           "distribution": "spaceBetween",
           "children": {
-            "explicitList": [
-              "cl-i1-l",
-              "cl-i1-r"
-            ]
+            "explicitList": ["cl-item-label", "cl-item-value"]
           }
         }
       }
     },
     {
-      "id": "cl-i1-l",
+      "id": "cl-item-label",
       "component": {
         "Text": {
-          "text": {
-            "path": "loan_item_1_label"
-          },
+          "text": { "path": "label" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
     {
-      "id": "cl-i1-r",
+      "id": "cl-item-value",
       "component": {
         "Text": {
-          "text": {
-            "path": "loan_item_1_value"
-          },
+          "text": { "path": "value" },
           "color": "#333333",
           "fontSize": "14px"
         }
       }
     },
+
     {
-      "id": "cl-item-2",
-      "component": {
-        "Row": {
-          "width": 98,
-          "distribution": "spaceBetween",
-          "children": {
-            "explicitList": [
-              "cl-i2-l",
-              "cl-i2-r"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "id": "cl-i2-l",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "loan_item_2_label"
-          },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "cl-i2-r",
-      "component": {
-        "Text": {
-          "text": {
-            "path": "loan_item_2_value"
-          },
-          "color": "#333333",
-          "fontSize": "14px"
-        }
-      }
-    },
-    {
-      "id": "card-advice",
+      "id": "card-partial-surrender",
       "component": {
         "Card": {
+          "hide": { "path": "partial_surrender_hide" },
           "width": 100,
           "backgroundColor": "#FFFFFF",
           "borderRadius": "middle",
           "padding": 16,
           "children": {
-            "explicitList": [
-              "ca-col"
-            ]
+            "explicitList": ["cp-col"]
           }
         }
       }
     },
     {
-      "id": "ca-col",
+      "id": "cp-col",
       "component": {
         "Column": {
-          "gap": 8,
+          "gap": 12,
           "children": {
             "explicitList": [
-              "ca-title-row",
-              "ca-t1",
-              "ca-t2"
+              "cp-title-row",
+              "cp-total",
+              "cp-divider",
+              "cp-items-list"
             ]
           }
         }
       }
     },
     {
-      "id": "ca-title-row",
+      "id": "cp-title-row",
       "component": {
         "Row": {
           "alignment": "middle",
           "gap": 8,
           "children": {
-            "explicitList": [
-              "ca-icon",
-              "ca-title"
-            ]
+            "explicitList": ["cp-line", "cp-title", "cp-tag"]
           }
         }
       }
     },
     {
-      "id": "ca-icon",
+      "id": "cp-line",
       "component": {
-        "Text": {
-          "text": {
-            "path": "advice_icon"
-          },
-          "fontSize": "16px"
+        "Line": {
+          "backgroundColor": "#CC6600",
+          "minWidth": "3px",
+          "minHeight": "16px",
+          "borderRadius": "small"
         }
       }
     },
     {
-      "id": "ca-title",
+      "id": "cp-title",
       "component": {
         "Text": {
-          "text": {
-            "path": "advice_title"
-          },
+          "text": { "path": "partial_surrender_title", "literalString": "部分领取/退保" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -556,44 +460,83 @@
       }
     },
     {
-      "id": "ca-t1",
+      "id": "cp-tag",
       "component": {
-        "Text": {
-          "text": {
-            "path": "advice_text_1"
-          },
-          "color": "#999999",
-          "fontSize": "14px"
+        "Tag": {
+          "text": { "path": "partial_surrender_tag", "literalString": "保障有损失，不建议" },
+          "color": "#CC6600",
+          "size": "small"
         }
       }
     },
     {
-      "id": "ca-t2",
+      "id": "cp-total",
       "component": {
         "Text": {
-          "text": {
-            "path": "advice_text_2"
-          },
+          "text": { "path": "partial_surrender_total", "literalString": "合计：—" },
           "color": "#999999",
-          "fontSize": "14px"
+          "fontSize": "16px",
+          "bold": true
         }
       }
     },
     {
-      "id": "btn-get-plan",
+      "id": "cp-divider",
       "component": {
-        "Button": {
-          "type": "primary",
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "cp-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "cp-item-tpl",
+          "dataSource": { "path": "partial_surrender_items" },
+          "emptyChild": "cp-empty-text"
+        }
+      }
+    },
+    {
+      "id": "cp-empty-text",
+      "component": {
+        "Text": {
+          "text": { "literalString": "暂无退保金项" },
+          "usageHint": "tips",
+          "size": "small"
+        }
+      }
+    },
+    {
+      "id": "cp-item-tpl",
+      "component": {
+        "Row": {
           "width": 100,
-          "text": {
-            "path": "plan_button_text"
-          },
-          "action": {
-            "name": "query",
-            "args": {
-              "path": "plan_action_args"
-            }
+          "distribution": "spaceBetween",
+          "children": {
+            "explicitList": ["cp-item-label", "cp-item-value"]
           }
+        }
+      }
+    },
+    {
+      "id": "cp-item-label",
+      "component": {
+        "Text": {
+          "text": { "path": "label" },
+          "color": "#333333",
+          "fontSize": "14px"
+        }
+      }
+    },
+    {
+      "id": "cp-item-value",
+      "component": {
+        "Text": {
+          "text": { "path": "value" },
+          "color": "#333333",
+          "fontSize": "14px"
         }
       }
     }

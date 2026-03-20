@@ -1,0 +1,35 @@
+{
+  "skill_name": "方案改写",
+  "evals": [
+    {
+      "id": 3,
+      "name": "rewrite-type-b",
+      "prompt": "背景：用户 U001 之前已看到推荐方案（生存金 12,000 + 红利 5,200 + 部分领取 32,800 = 5万，POL002）。\n\n用户现在说：「不要贷款，能不能换一个不影响保障的方案？」\n\n重新调用 rule_engine list_options（原金额 50000）返回：\n{\n  \"requested_amount\": 50000,\n  \"total_available_excl_loan\": 219200,\n  \"total_available_incl_loan\": 252800,\n  \"combination_hint\": null,\n  \"options\": [\n    {\n      \"policy_id\": \"POL002\",\n      \"product_name\": \"金瑞人生年金险\",\n      \"product_type\": \"annuity\",\n      \"policy_year\": 5,\n      \"available_amount\": 177200,\n      \"survival_fund_amt\": 12000,\n      \"bonus_amt\": 5200,\n      \"loan_amt\": 0,\n      \"refund_amt\": 160000,\n      \"refund_fee_rate\": 0.01,\n      \"loan_interest_rate\": null,\n      \"processing_time\": \"1-3个工作日\"\n    },\n    {\n      \"policy_id\": \"POL001\",\n      \"product_name\": \"安心守护终身寿险\",\n      \"product_type\": \"whole_life\",\n      \"policy_year\": 8,\n      \"available_amount\": 75600,\n      \"survival_fund_amt\": 0,\n      \"bonus_amt\": 0,\n      \"loan_amt\": 42000,\n      \"refund_amt\": 33600,\n      \"refund_fee_rate\": 0,\n      \"loan_interest_rate\": 0.05,\n      \"processing_time\": \"1-3个工作日\"\n    }\n  ]\n}\n\n请按照 rewrite_plan 技能的指令，给出你作为保险智能助手的完整回复。包括：\n1. 判断调整类型（A/B/C）及理由\n2. 你会调用哪些工具（按顺序列出）以及 render_card 的 card_args\n3. 最终展示给用户的文字内容（保存到 output.txt）",
+      "expected_output": "判断为类型 B（改方向）。调用 render_card(withdraw_summary)，过滤掉贷款渠道，推荐只用生存金+红利+部分领取的方案。最终文字 ≤25字，仅一句对比或确认。",
+      "files": [],
+      "assertions": [
+        "正确判断为类型 B（改方向/排除渠道）",
+        "输出中提到 render_card 或汇总卡片的调用",
+        "展示给用户的最终文字不超过 30 字",
+        "最终文字中没有 Markdown 列表",
+        "最终文字中不重复卡片内容（无金额数字罗列、无保单明细）",
+        "方案中不包含贷款渠道（符合用户要求）"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "rewrite-type-a",
+      "prompt": "背景：用户 U001 之前已看到推荐方案（5万，POL002 生存金+红利+部分领取）。\n\n用户现在说：「能不能多取一点，总共要 8 万？」\n\n重新调用 rule_engine list_options（新金额 80000）返回：\n{\n  \"requested_amount\": 80000,\n  \"total_available_excl_loan\": 219200,\n  \"total_available_incl_loan\": 252800,\n  \"combination_hint\": null,\n  \"options\": [\n    {\n      \"policy_id\": \"POL002\",\n      \"product_name\": \"金瑞人生年金险\",\n      \"product_type\": \"annuity\",\n      \"policy_year\": 5,\n      \"available_amount\": 177200,\n      \"survival_fund_amt\": 12000,\n      \"bonus_amt\": 5200,\n      \"loan_amt\": 0,\n      \"refund_amt\": 160000,\n      \"refund_fee_rate\": 0.01,\n      \"loan_interest_rate\": null,\n      \"processing_time\": \"1-3个工作日\"\n    },\n    {\n      \"policy_id\": \"POL001\",\n      \"product_name\": \"安心守护终身寿险\",\n      \"product_type\": \"whole_life\",\n      \"policy_year\": 8,\n      \"available_amount\": 75600,\n      \"survival_fund_amt\": 0,\n      \"bonus_amt\": 0,\n      \"loan_amt\": 42000,\n      \"refund_amt\": 33600,\n      \"refund_fee_rate\": 0,\n      \"loan_interest_rate\": 0.05,\n      \"processing_time\": \"1-3个工作日\"\n    }\n  ]\n}\n\n请按照 rewrite_plan 技能的指令，给出你作为保险智能助手的完整回复。包括：\n1. 判断调整类型（A/B/C）及理由\n2. 你会调用哪些工具（按顺序列出）以及 render_card 的 card_args\n3. 最终展示给用户的文字内容（保存到 output.txt）",
+      "expected_output": "判断为类型 A（调总金额）。调用 render_card(withdraw_summary)，基于新 8 万目标重新组装方案，推荐一个 ⭐ 方案。最终文字 ≤25字，一句对比（如「比之前多 3 万，是否确认？」）。",
+      "files": [],
+      "assertions": [
+        "正确判断为类型 A（调整总金额）",
+        "输出中提到 render_card 或汇总卡片的调用",
+        "展示给用户的最终文字不超过 30 字",
+        "最终文字中没有 Markdown 列表",
+        "最终文字中不重复方案详情（无金额罗列、无渠道枚举）",
+        "新方案目标金额为 80,000 元而非原来的 50,000 元"
+      ]
+    }
+  ]
+}

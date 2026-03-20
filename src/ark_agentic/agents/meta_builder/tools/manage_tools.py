@@ -186,6 +186,7 @@ class ManageToolsTool(AgentTool):
     """管理 Tool。create/update/delete 必须用户确认后传入 confirmation='我确认变更'。"""
 
     name = "manage_tools"
+    thinking_hint = "正在管理工具配置…"
     description = (
         "[Tool 域] 管理原生工具。"
         " list/read: 无需确认。"

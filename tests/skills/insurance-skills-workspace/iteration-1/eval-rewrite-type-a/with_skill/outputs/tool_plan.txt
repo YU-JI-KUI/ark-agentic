@@ -1,0 +1,155 @@
+## ① 调整类型判断
+
+类型：A（调整总金额）
+
+理由：
+- 用户原话"总共要8万"，明确给出新的目标总金额（80,000）
+- 未限定保单、未排除任何渠道类型
+- 符合类型A典型表述："总共要X万"
+- 对比类型B（渠道限制）、类型C（单项微调），本次无任何此类信号
+
+---
+
+## ② 工具调用序列
+
+1. rule_engine(action="list_options", user_id="U001", amount=80000)
+   → 已完成，结果由外部提供（见场景数据）
+
+2. [基于返回数据组装推荐方案]
+   - POL002 可用渠道：生存金 12,000 + 红利 5,200 + 部分领取上限 160,000（1%手续费）
+   - POL001 可用渠道：保单贷款 42,000（5%年利率）；退保 33,600（whole_life → 退保，保障终止，优先级最低）
+   - ⭐ 主推：POL002 单保单满足（12,000 + 5,200 + 62,800 = 80,000），手续费 = 62,800 × 1% = 628 元
+   - 备选：POL002（12,000 + 5,200 + 25,800）+ POL001 贷款（42,000）= 80,000，手续费 = 258 元，但附带贷款利息
+
+3. render_card(card_type="withdraw_summary", card_args=<见下>)
+
+---
+
+## ③ render_card 完整 card_args JSON
+
+```json
+{
+  "user_id": "U001",
+  "target_amount": 80000,
+  "prev_amount": 50000,
+  "recommendations": [
+    {
+      "rank": 1,
+      "label": "推荐",
+      "tag": "⭐",
+      "policies": [
+        {
+          "policy_id": "POL002",
+          "product_name": "金瑞人生年金险",
+          "product_type": "annuity",
+          "policy_year": 5,
+          "items": [
+            {
+              "type": "survival_fund",
+              "label": "生存金",
+              "amount": 12000,
+              "fee": 0,
+              "fee_rate": 0,
+              "impact": "不影响保障"
+            },
+            {
+              "type": "bonus",
+              "label": "红利",
+              "amount": 5200,
+              "fee": 0,
+              "fee_rate": 0,
+              "impact": "不影响保障"
+            },
+            {
+              "type": "partial_withdrawal",
+              "label": "部分领取",
+              "amount": 62800,
+              "fee": 628,
+              "fee_rate": 0.01,
+              "impact": "不影响主险保障"
+            }
+          ],
+          "subtotal": 80000,
+          "subtotal_fee": 628
+        }
+      ],
+      "total_amount": 80000,
+      "total_fee": 628,
+      "processing_time": "1-3个工作日",
+      "highlights": ["单保单满足，操作简便", "不影响主险保障", "一次性手续费 628 元"]
+    },
+    {
+      "rank": 2,
+      "label": "备选",
+      "tag": null,
+      "policies": [
+        {
+          "policy_id": "POL002",
+          "product_name": "金瑞人生年金险",
+          "product_type": "annuity",
+          "policy_year": 5,
+          "items": [
+            {
+              "type": "survival_fund",
+              "label": "生存金",
+              "amount": 12000,
+              "fee": 0,
+              "fee_rate": 0,
+              "impact": "不影响保障"
+            },
+            {
+              "type": "bonus",
+              "label": "红利",
+              "amount": 5200,
+              "fee": 0,
+              "fee_rate": 0,
+              "impact": "不影响保障"
+            },
+            {
+              "type": "partial_withdrawal",
+              "label": "部分领取",
+              "amount": 25800,
+              "fee": 258,
+              "fee_rate": 0.01,
+              "impact": "不影响主险保障"
+            }
+          ],
+          "subtotal": 43000,
+          "subtotal_fee": 258
+        },
+        {
+          "policy_id": "POL001",
+          "product_name": "安心守护终身寿险",
+          "product_type": "whole_life",
+          "policy_year": 8,
+          "items": [
+            {
+              "type": "policy_loan",
+              "label": "保单贷款",
+              "amount": 42000,
+              "fee": 0,
+              "loan_interest_rate": 0.05,
+              "note": "年利率 5%，按日计息，需还款",
+              "impact": "不影响保障"
+            }
+          ],
+          "subtotal": 42000,
+          "subtotal_fee": 0
+        }
+      ],
+      "total_amount": 80000,
+      "total_fee": 258,
+      "processing_time": "1-3个工作日",
+      "highlights": ["手续费更低（258 元）", "含贷款 42,000 元需后续还款", "年利率 5%"]
+    }
+  ],
+  "comparison": {
+    "prev_amount": 50000,
+    "new_amount": 80000,
+    "amount_diff": 30000,
+    "prev_fee": 330,
+    "new_fee": 628,
+    "fee_diff": 298
+  }
+}
+```

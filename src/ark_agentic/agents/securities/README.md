@@ -9,8 +9,8 @@
 ```bash
 # LLM 配置（必选其一）
 LLM_PROVIDER=pa                    # pa / deepseek / openai / mock
-PA_MODEL=PA-SX-80B                 # PA 模型（PA-JT-80B / PA-SX-80B / PA-SX-235B）
-DEEPSEEK_API_KEY=sk-xxx            # DeepSeek 模式时需要
+MODEL_NAME=PA-SX-80B               # PA 模型（PA-JT-80B / PA-SX-80B / PA-SX-235B）
+API_KEY=sk-xxx                     # OpenAI 兼容模式时需要
 
 # 证券服务配置
 SECURITIES_SERVICE_MOCK=true       # 启用 Mock 模式（开发/测试用）
@@ -174,7 +174,7 @@ data: <AGUIEnvelope JSON>
 | `tool_call_start` | `json` | `{"think": "正在调用 xxx", "think_status": 1}` | 工具调用开始 |
 | `tool_call_result` | `json` | `{"think": "xxx 调用完成", "think_status": 0}` | 工具调用完成 |
 | `text_message_content` | `text` | delta 字符串（打字机效果） | 文本片段，`data.turn` 标识 ReAct 轮次 |
-| `text_message_content` | `A2UI` | 模板卡片对象（含 `template_type`） | JSON 卡片组件 |
+| `text_message_content` | `A2UI` | 模板卡片对象（含 `template`） | JSON 卡片组件 |
 | `run_finished` | `text` | 完整回答字符串 | Run 完成 |
 | `run_error` | `text` | 错误信息字符串 | 运行失败 |
 
@@ -220,7 +220,7 @@ data: <AGUIEnvelope JSON>
 
 #### text_message_content（A2UI 卡片）
 
-前端收到 `ui_protocol == "A2UI"` 时，根据 `ui_data.template_type` 渲染对应的卡片组件。
+前端收到 `ui_protocol == "A2UI"` 时，根据 `ui_data.template` 渲染对应的卡片组件。
 
 ```json
 {
@@ -229,7 +229,7 @@ data: <AGUIEnvelope JSON>
     "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
     "ui_protocol": "A2UI",
     "ui_data": {
-      "template_type": "account_overview_card",
+      "template": "account_overview_card",
       "data": {
         "total_assets": "1000000.00",
         "cash_balance": "500000.00",
@@ -272,13 +272,13 @@ data: <AGUIEnvelope JSON>
 
 ## 模板卡片类型
 
-前端收到 `response.ui.component` 事件后，根据 `template_type` 渲染对应的卡片组件。
+前端收到 `response.ui.component` 事件后，根据 `template` 渲染对应的卡片组件。
 
 ### account_overview_card（账户总览卡片）
 
 ```json
 {
-  "template_type": "account_overview_card",
+  "template": "account_overview_card",
   "data": {
     "total_assets": "1000000.00",
     "cash_balance": "500000.00",
@@ -313,7 +313,7 @@ data: <AGUIEnvelope JSON>
 
 ```json
 {
-  "template_type": "cash_assets_card",
+  "template": "cash_assets_card",
   "data": {
     "cash_balance": "500000.00",
     "cash_available": "450000.00",
@@ -350,7 +350,7 @@ data: <AGUIEnvelope JSON>
 
 ```json
 {
-  "template_type": "holdings_list_card",
+  "template": "holdings_list_card",
   "asset_class": "ETF",
   "data": {
     "holdings": [
@@ -430,7 +430,7 @@ data: <AGUIEnvelope JSON>
 
 ```json
 {
-  "template_type": "security_detail_card",
+  "template": "security_detail_card",
   "data": {
     "security_code": "510300",
     "security_name": "沪深300ETF",
@@ -552,7 +552,7 @@ function handleSSEEvent(eventType, d) {
 
 // 渲染模板卡片（ui_data 即卡片对象）
 function renderTemplateCard(template) {
-  switch (template.template_type) {
+  switch (template.template) {
     case 'account_overview_card':
       renderAccountOverview(template.data);
       break;
@@ -654,7 +654,7 @@ agents/securities/
 │                                    │                                 │
 │                                    ▼                                 │
 │  6. 模板渲染                     template_renderer.render_xxx_card() │
-│     display_card 返回 ──────────► {template_type, data}             │
+│     display_card 返回 ──────────► {template, data}             │
 │                                    │                                 │
 │                                    ▼                                 │
 │  7. SSE 推送                     text_message_content (A2UI) 事件   │

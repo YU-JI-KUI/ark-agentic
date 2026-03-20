@@ -21,6 +21,7 @@ class SetStateDemoTool(AgentTool):
     """
 
     name = "demo_set_state"
+    thinking_hint = "正在更新演示状态…"
     description = (
         "Write a key-value pair into the session state. "
         "Use this to store data (e.g. user preference, selected option) for later use in the same session. "
@@ -70,6 +71,7 @@ class GetStateDemoTool(AgentTool):
     """
 
     name = "demo_get_state"
+    thinking_hint = "正在读取演示状态…"
     description = (
         "Read a value from the session state by key. "
         "Use this to retrieve data previously stored with demo_set_state (e.g. selected_plan, user_preference). "

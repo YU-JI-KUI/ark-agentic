@@ -19,6 +19,8 @@ data/*
 # Claude
 CLAUDE.md
 
+node_modules/
+
 # Sessions
 data/ark_securities
 data/ark_sessions
@@ -31,11 +33,12 @@ CLAUDE.md
 .continue/
 .tasks/
 
+# OpenCode - keep config
+!.opencode/
+
 # Sessions
 data/ark_securities
 data/ark_sessions
-data/ark_sessions
-
 docs/plans
 node_modules/
 models/

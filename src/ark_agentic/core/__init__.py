@@ -4,7 +4,7 @@ Public API surface — 外部项目应仅使用此模块及子模块 __all__ 中
 
 子模块:
     core.tools   — AgentTool, ToolRegistry 等
-    core.memory  — MemoryManager, FAISSVectorStore 等
+    core.memory  — MemoryManager, SQLiteMemoryStore 等
     core.skills  — SkillLoader, SkillMatcher 等
     core.stream  — StreamAssembler, StreamEventBus 等
     core.prompt  — SystemPromptBuilder, PromptConfig
@@ -46,6 +46,7 @@ from .llm import (
     PAModel,
     PAModelConfig,
     create_chat_model,
+    create_chat_model_from_env,
     LLMError,
     LLMErrorReason,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "PAModel",
     "PAModelConfig",
     "create_chat_model",
+    "create_chat_model_from_env",
     "LLMError",
     "LLMErrorReason",
 ]

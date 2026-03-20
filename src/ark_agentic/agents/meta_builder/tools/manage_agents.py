@@ -109,6 +109,7 @@ class ManageAgentsTool(AgentTool):
     """管理 Agent：列出、创建或删除。create/delete 必须用户确认后传入 confirmation='我确认变更'。"""
 
     name = "manage_agents"
+    thinking_hint = "正在管理智能体配置…"
     description = (
         "[Agent 域] 管理 Agent。"
         " list: 无需参数。"

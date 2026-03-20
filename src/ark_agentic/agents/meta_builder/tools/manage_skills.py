@@ -173,6 +173,7 @@ class ManageSkillsTool(AgentTool):
     """管理 Skill。create/update/delete 必须用户确认后传入 confirmation='我确认变更'。"""
 
     name = "manage_skills"
+    thinking_hint = "正在管理技能配置…"
     description = (
         "[Skill 域] 管理技能。"
         " list/read: 无需确认。"

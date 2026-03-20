@@ -1349,6 +1349,319 @@
         }
       }
 
+      // ---- A2UI standard renderer (protocol v1.0) ----
+      // Handles event === 'beginRendering' payloads from the backend.
+      // No legacy fallback — old answerDict format is not supported.
+
+      function renderA2UIComponent(component) {
+        if (!component || component.event !== 'beginRendering') {
+          const pre = document.createElement('pre');
+          pre.className = 'a2ui-fallback';
+          pre.textContent = JSON.stringify(component, null, 2);
+          return pre;
+        }
+        try {
+          return renderA2UIStandard(component);
+        } catch (err) {
+          console.error('[A2UI] render error:', err);
+          const pre = document.createElement('pre');
+          pre.className = 'a2ui-fallback';
+          pre.textContent = JSON.stringify(component, null, 2);
+          return pre;
+        }
+      }
+
+      function renderA2UIStandard(payload) {
+        const compMap = new Map();
+        (payload.components || []).forEach(function(c) {
+          compMap.set(c.id, c.component);
+        });
+        const data = payload.data || {};
+
+        // localData: item-level scope from List; shadows global data for path bindings
+        function resolveValue(binding, localData) {
+          if (!binding) return '';
+          if (binding.path !== undefined) {
+            if (localData && localData[binding.path] !== undefined) return String(localData[binding.path]);
+            const v = data[binding.path];
+            return v !== undefined ? String(v) : '';
+          }
+          if (binding.literalString !== undefined) {
+            return typeof binding.literalString === 'string'
+              ? binding.literalString
+              : JSON.stringify(binding.literalString);
+          }
+          return '';
+        }
+
+        // Raw boolean lookup for hide property (must not String-coerce)
+        function resolveRaw(binding, localData) {
+          if (!binding || typeof binding !== 'object') return binding;
+          if (binding.path !== undefined) {
+            if (localData && localData[binding.path] !== undefined) return localData[binding.path];
+            return data[binding.path];
+          }
+          if (binding.literalString !== undefined) return binding.literalString;
+          return undefined;
+        }
+
+        function applyBoxProps(el, props) {
+          if (props.width !== undefined)
+            el.style.width = typeof props.width === 'number' ? props.width + '%' : props.width;
+          if (props.padding !== undefined) {
+            if (Array.isArray(props.padding)) {
+              // A2UI standard: [top, bottom, left, right] → CSS: top right bottom left
+              var p = props.padding;
+              el.style.padding = p[0]+'px '+(p[3]||0)+'px '+(p[1]||0)+'px '+(p[2]||0)+'px';
+            } else {
+              el.style.padding = typeof props.padding === 'number' ? props.padding + 'px' : props.padding;
+            }
+          }
+          if (props.margin !== undefined) {
+            if (Array.isArray(props.margin)) {
+              var m = props.margin;
+              el.style.margin = m[0]+'px '+(m[3]||0)+'px '+(m[1]||0)+'px '+(m[2]||0)+'px';
+            } else {
+              el.style.margin = typeof props.margin === 'number' ? props.margin + 'px' : props.margin;
+            }
+          }
+          if (props.backgroundColor) el.style.backgroundColor = props.backgroundColor;
+          if (props.borderRadius) {
+            const rMap = { small: '4px', middle: '8px', big: '12px' };
+            el.style.borderRadius = rMap[props.borderRadius] || props.borderRadius;
+          }
+          if (props.flex !== undefined) el.style.flex = String(props.flex);
+        }
+
+        function renderChildren(props, localData) {
+          const frag = document.createDocumentFragment();
+          ((props.children && props.children.explicitList) || []).forEach(function(childId) {
+            const childEl = renderNode(childId, localData);
+            if (childEl) frag.appendChild(childEl);
+          });
+          return frag;
+        }
+
+        function renderNode(compId, localData) {
+          const compDef = compMap.get(compId);
+          if (!compDef) return null;
+
+          const type = Object.keys(compDef)[0];
+          const props = compDef[type] || {};
+
+          // A2UI standard 2.1.1: hide common property
+          if (props.hide !== undefined) {
+            const hideVal = resolveRaw(props.hide, localData);
+            if (hideVal === true || hideVal === 'true') return null;
+          }
+
+          switch (type) {
+            case 'Column': {
+              const el = document.createElement('div');
+              el.style.display = 'flex';
+              el.style.flexDirection = 'column';
+              if (props.gap) el.style.gap = typeof props.gap === 'number' ? props.gap + 'px' : props.gap;
+              if (props.alignment) {
+                // A2UI standard 2.2.2: left / center / right
+                const aMap = { left: 'flex-start', center: 'center', right: 'flex-end' };
+                el.style.alignItems = aMap[props.alignment] || props.alignment;
+              }
+              applyBoxProps(el, props);
+              el.appendChild(renderChildren(props, localData));
+              return el;
+            }
+
+            case 'Row': {
+              const el = document.createElement('div');
+              el.style.display = 'flex';
+              el.style.flexDirection = 'row';
+              el.style.alignItems = 'center';
+              if (props.gap) el.style.gap = typeof props.gap === 'number' ? props.gap + 'px' : props.gap;
+              if (props.distribution) {
+                const dMap = { spaceBetween: 'space-between', spaceAround: 'space-around', center: 'center', start: 'flex-start', end: 'flex-end' };
+                el.style.justifyContent = dMap[props.distribution] || props.distribution;
+              }
+              if (props.alignment) {
+                // A2UI standard 2.2.1: top / middle / bottom
+                const aMap = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
+                el.style.alignItems = aMap[props.alignment] || props.alignment;
+              }
+              applyBoxProps(el, props);
+              el.appendChild(renderChildren(props, localData));
+              return el;
+            }
+
+            case 'Card': {
+              const el = document.createElement('div');
+              el.style.display = 'flex';
+              el.style.flexDirection = 'column';
+              el.style.boxShadow = '0 1px 6px rgba(0,0,0,.08)';
+              if (!props.backgroundColor) el.style.backgroundColor = '#FFFFFF';
+              if (!props.borderRadius) el.style.borderRadius = '8px';
+              if (props.gap) el.style.gap = typeof props.gap === 'number' ? props.gap + 'px' : props.gap;
+              applyBoxProps(el, props);
+              el.appendChild(renderChildren(props, localData));
+              return el;
+            }
+
+            case 'Text': {
+              const el = document.createElement('div');
+              el.textContent = resolveValue(props.text, localData);
+              if (props.color) el.style.color = props.color;
+              if (props.fontSize) el.style.fontSize = props.fontSize;
+              if (props.bold) el.style.fontWeight = 'bold';
+              if (props.italic) el.style.fontStyle = 'italic';
+              if (props.underline) el.style.textDecoration = 'underline';
+              el.style.lineHeight = '1.6';
+              applyBoxProps(el, props);
+              return el;
+            }
+
+            case 'Button': {
+              const el = document.createElement('button');
+              el.className = 'a2ui-btn';
+              const btnType = resolveValue(props.type, localData) || props.type || '';
+              if (btnType === 'primary') {
+                el.style.background = 'var(--orange)';
+                el.style.color = '#fff';
+                el.style.border = 'none';
+              }
+              if (props.width) el.style.width = typeof props.width === 'number' ? props.width + '%' : props.width;
+              el.textContent = resolveValue(props.text, localData);
+              if (props.action) {
+                // Merge localData over global data so item-level paths resolve in actions
+                const ctx = localData ? Object.assign({}, data, localData) : data;
+                el.addEventListener('click', function() { handleA2UIAction(props.action, ctx); });
+              }
+              return el;
+            }
+
+            case 'Divider': {
+              const el = document.createElement('hr');
+              el.style.border = 'none';
+              el.style.borderTop = '1px solid ' + (props.borderColor || '#E5E5E5');
+              el.style.margin = '4px 0';
+              return el;
+            }
+
+            // A2UI standard 2.4.8: Line component (decorative bar)
+            case 'Line': {
+              const el = document.createElement('div');
+              el.style.backgroundColor = props.backgroundColor || '#E0E0E0';
+              if (props.minWidth) el.style.minWidth = typeof props.minWidth === 'number' ? props.minWidth + 'px' : props.minWidth;
+              if (props.minHeight) el.style.minHeight = typeof props.minHeight === 'number' ? props.minHeight + 'px' : props.minHeight;
+              if (props.borderRadius) {
+                const rMap = { small: '4px', middle: '8px', big: '12px' };
+                el.style.borderRadius = rMap[props.borderRadius] || (typeof props.borderRadius === 'number' ? props.borderRadius + 'px' : props.borderRadius);
+              }
+              el.style.flexShrink = '0';
+              return el;
+            }
+
+            case 'Tag': {
+              const el = document.createElement('span');
+              el.textContent = resolveValue(props.text, localData);
+              el.style.display = 'inline-block';
+              el.style.padding = '2px 8px';
+              el.style.borderRadius = '10px';
+              el.style.fontSize = '12px';
+              if (props.color) el.style.color = props.color;
+              if (props.backgroundColor) {
+                el.style.backgroundColor = props.backgroundColor;
+              } else {
+                el.style.backgroundColor = '#FFF3E0';
+                el.style.color = '#FF6600';
+              }
+              return el;
+            }
+
+            case 'RichText': {
+              const el = document.createElement('div');
+              el.innerHTML = md(resolveValue(props.text, localData));
+              if (props.fontSize) el.style.fontSize = props.fontSize;
+              if (props.color) el.style.color = props.color;
+              return el;
+            }
+
+            // A2UI standard 2.3.2: List component
+            case 'List': {
+              const el = document.createElement('div');
+              el.style.display = 'flex';
+              el.style.flexDirection = (props.direction === 'horizontal') ? 'row' : 'column';
+              if (props.gap) el.style.gap = typeof props.gap === 'number' ? props.gap + 'px' : props.gap;
+              if (props.alignment) {
+                const aMap = { start: 'flex-start', center: 'center', end: 'flex-end' };
+                el.style.alignItems = aMap[props.alignment] || props.alignment;
+              }
+              applyBoxProps(el, props);
+
+              var items = [];
+              if (props.dataSource) {
+                if (props.dataSource.path !== undefined) {
+                  var raw = (localData && localData[props.dataSource.path] !== undefined)
+                    ? localData[props.dataSource.path] : data[props.dataSource.path];
+                  items = Array.isArray(raw) ? raw : [];
+                } else if (props.dataSource.literalString !== undefined) {
+                  items = Array.isArray(props.dataSource.literalString) ? props.dataSource.literalString : [];
+                }
+              }
+
+              if (items.length === 0 && props.emptyChild) {
+                var emptyEl = renderNode(props.emptyChild, localData);
+                if (emptyEl) el.appendChild(emptyEl);
+              } else {
+                items.forEach(function(item, idx) {
+                  // Object items used directly as localData; primitives wrapped so child can bind '$item'
+                  var itemData = (typeof item === 'object' && item !== null)
+                    ? item : { '$item': item, '$index': idx };
+                  var childEl = renderNode(props.child, itemData);
+                  if (childEl) el.appendChild(childEl);
+                });
+              }
+              return el;
+            }
+
+            default: {
+              const el = document.createElement('div');
+              el.style.cssText = 'font-size:11px;color:#999;padding:2px 0';
+              el.textContent = '[unknown component: ' + type + ']';
+              return el;
+            }
+          }
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.style.width = '100%';
+        const root = renderNode(payload.rootComponentId, null);
+        if (root) wrapper.appendChild(root);
+        return wrapper;
+      }
+
+      function handleA2UIAction(action, data) {
+        if (!action) return;
+        const name = action.name;
+        const argsBinding = action.args;
+        let args = {};
+        if (argsBinding && argsBinding.literalString !== undefined) {
+          args = argsBinding.literalString;
+        } else if (argsBinding && argsBinding.path !== undefined) {
+          args = data[argsBinding.path] || {};
+        }
+
+        if (name === 'query') {
+          const query = typeof args === 'object'
+            ? (args.queryMsg ?? args.message ?? '')
+            : String(args);
+          if (query) {
+            $input.value = query;
+            $sendBtn.click();
+          }
+        } else if (name === 'openLink') {
+          const url = typeof args === 'object' ? (args.url || '') : String(args);
+          if (url) window.open(url, '_blank', 'noopener');
+        }
+      }
+
       // ---- DOM helpers ----
       function appendUserMessage(text) {
         const div = document.createElement('div');
@@ -1372,8 +1685,8 @@
           '</div>' +
           '<div class="thinking-content"></div>' +
           '</div>' +
-          '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>' +
           '<div class="a2ui-container hidden"></div>' +
+          '<div class="msg-bubble answer-bubble hidden typing-cursor"></div>' +
           '<div class="msg-meta hidden"></div>';
         const header = div.querySelector('.thinking-header');
         const card = div.querySelector('.thinking-card');

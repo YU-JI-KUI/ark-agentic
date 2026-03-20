@@ -16,56 +16,55 @@ from pydantic import BaseModel, Field, field_validator
 
 # ============ 账户总资产 ============
 
+class RzrqAssetsInfoSchema(BaseModel):
+    """两融资产信息（原始 API 结构）"""
+
+    netWorth: str | None = Field(None, description="净资产")
+    totalLiabilities: str | None = Field(None, description="总负债")
+    mainRatio: str | None = Field(None, description="维持担保比例")
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+
 class AccountOverviewSchema(BaseModel):
     """账户总资产标准模型
-    
-    从 field_extraction.extract_account_overview() 提取后的数据创建。
+
+    对齐 queryAccountAssetResultTpl 数据格式：
+    extract_account_overview() → template_renderer → 此 Schema
     """
-    
-    # 基础字段
-    total_assets: str = Field(..., description="总资产")
-    cash_balance: str = Field(..., description="现金余额")
-    stock_market_value: str = Field(..., description="股票市值")
-    today_profit: str = Field(..., description="今日收益")
-    
-    # 扩展字段
-    fund_market_value: str | None = Field(None, description="基金市值")
-    today_return_rate: str | None = Field(None, description="今日收益率")
-    account_type: str | None = Field(None, description="账户类型")
-    
-    # 两融账户专属字段（可选）
-    net_assets: str | None = Field(None, description="净资产")
-    total_liabilities: str | None = Field(None, description="总负债")
-    maintenance_margin_ratio: str | None = Field(None, description="维持担保比例")
-    
-    model_config = {"populate_by_name": True}
+
+    # 顶层元数据
+    title: str = Field(default="", description="卡片标题（含脱敏账号）")
+    account_type: str = Field(default="normal", description="账户类型 normal|margin")
+
+    # 嵌套资产数据（保留原始 API 字段名）
+    total_assets: str = Field(..., alias="totalAssetVal", description="总资产")
+    positions: str | None = Field(None, description="仓位比例")
+    prudent_positions: str | None = Field(None, alias="prudentPositions", description="稳健仓位")
+
+    # 子对象
+    mkt_assets_info: dict[str, Any] = Field(default_factory=dict, alias="mktAssetsInfo")
+    fund_mkt_assets_info: dict[str, Any] = Field(default_factory=dict, alias="fundMktAssetsInfo")
+    cash_gain_assets_info: dict[str, Any] = Field(default_factory=dict, alias="cashGainAssetsInfo")
+    rzrq_assets_info: RzrqAssetsInfoSchema | None = Field(None, alias="rzrqAssetsInfo")
+
+    model_config = {"populate_by_name": True, "extra": "allow"}
 
     @classmethod
-    def from_api_response(cls, data: dict, account_type: str = "normal") -> AccountOverviewSchema:
-        """从 API 响应创建（通过字段提取后的数据）
-        
-        用于从 field_extraction.extract_account_overview() 提取后的数据创建。
-        字段已经是标准化的名称。
-        
-        Args:
-            data: 从 extract_account_overview() 返回的标准化数据
-            account_type: 账户类型 ("normal" 或 "margin")
-        
-        Returns:
-            AccountOverviewSchema 实例
-        """
+    def from_template_data(cls, data: dict) -> AccountOverviewSchema:
+        """从 template_renderer.render_account_overview_card() 的 data 字段创建"""
+        ad = data.get("assetData", {})
+        rzrq_raw = ad.get("rzrqAssetsInfo")
         return cls(
-            total_assets=data.get("total_assets", "0"),
-            cash_balance=data.get("cash_balance", "0"),
-            stock_market_value=data.get("stock_market_value", "0"),
-            today_profit=data.get("today_profit", "0"),
-            fund_market_value=data.get("fund_market_value"),
-            today_return_rate=data.get("today_return_rate"),
-            account_type=data.get("account_type"),
-            # 两融账户字段
-            net_assets=data.get("net_assets"),
-            total_liabilities=data.get("total_liabilities"),
-            maintenance_margin_ratio=data.get("maintenance_margin_ratio"),
+            title=data.get("title", ""),
+            account_type=data.get("account_type", "normal"),
+            totalAssetVal=ad.get("totalAssetVal", "0.00"),
+            positions=ad.get("positions"),
+            prudentPositions=ad.get("prudentPositions"),
+            mktAssetsInfo=ad.get("mktAssetsInfo", {}),
+            fundMktAssetsInfo=ad.get("fundMktAssetsInfo", {}),
+            cashGainAssetsInfo=ad.get("cashGainAssetsInfo", {}),
+            rzrqAssetsInfo=RzrqAssetsInfoSchema(**rzrq_raw) if rzrq_raw else None,
         )
 
 

@@ -1,0 +1,48 @@
+{
+  "expectations": [
+    {
+      "text": "正确判断为类型 B（改方向/排除渠道）",
+      "passed": true,
+      "evidence": "通用助手正确识别了'不要贷款'+'不影响保障'的渠道约束，逻辑方向正确"
+    },
+    {
+      "text": "输出中提到 render_card 或汇总卡片的调用",
+      "passed": false,
+      "evidence": "output.txt 无任何卡片渲染，直接展示 Markdown 表格和段落"
+    },
+    {
+      "text": "展示给用户的最终文字不超过 30 字",
+      "passed": false,
+      "evidence": "output.txt 共 33 行，包含表格、多个方案段落"
+    },
+    {
+      "text": "最终文字中没有 Markdown 列表",
+      "passed": false,
+      "evidence": "output.txt 包含 '|' 表格和 '**方案 A/B:**' 标题段落"
+    },
+    {
+      "text": "最终文字中不重复卡片内容（无金额数字罗列、无保单明细）",
+      "passed": false,
+      "evidence": "output.txt 详细列出各渠道金额（12,000、5,200、32,800 等）和保单名称"
+    },
+    {
+      "text": "方案中不包含贷款渠道（符合用户要求）",
+      "passed": true,
+      "evidence": "output.txt 所提供的两个方案均未推荐贷款，符合用户约束"
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 4,
+    "total": 6,
+    "pass_rate": 0.33
+  },
+  "execution_metrics": {
+    "tool_calls": { "Write": 2 },
+    "total_tool_calls": 2,
+    "total_steps": 2,
+    "errors_encountered": 0,
+    "output_chars": 960,
+    "transcript_chars": 1300
+  }
+}

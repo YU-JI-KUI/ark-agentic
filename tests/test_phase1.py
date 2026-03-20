@@ -63,9 +63,9 @@ async def test_service_adapter(monkeypatch: pytest.MonkeyPatch):
     print("测试 2: 服务适配器")
     print("=" * 60)
     
-    # 测试账户总资产适配器（普通账户）
+    # 测试账户总资产适配器（普通账户，mock 通过 context 指定）
     print("\n1. 测试账户总资产适配器 (普通账户):")
-    adapter = create_service_adapter("account_overview")
+    adapter = create_service_adapter("account_overview", context={"mock_mode": True})
     data = await adapter.call(account_type="normal", user_id="U001")
     print(f"   ✓ 总资产: {data.get('total_assets')}")
     print(f"   ✓ 现金余额: {data.get('cash_balance')}")
@@ -80,7 +80,7 @@ async def test_service_adapter(monkeypatch: pytest.MonkeyPatch):
     
     # 测试 ETF 持仓适配器
     print("\n3. 测试 ETF 持仓适配器:")
-    adapter = create_service_adapter("etf_holdings")
+    adapter = create_service_adapter("etf_holdings", context={"mock_mode": True})
     data = await adapter.call(account_type="normal", user_id="U001")
     holdings = data.get('holdings', [])
     print(f"   ✓ 持仓数量: {len(holdings)}")

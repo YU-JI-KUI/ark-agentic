@@ -1443,8 +1443,8 @@
           case 'response.ui.component': {
             const comp = event.ui_component;
             if (comp) {
-              // 检查是否包含 template_type 属性，如果是则调用 renderTemplateCard
-              if (comp.template_type !== undefined) {
+              // 检查是否包含 template 属性，如果是则调用 renderTemplateCard
+              if (comp.template !== undefined) {
                 renderTemplateCard(comp, msgEl);
               } else if (a2uiContainer) {
                 // 否则使用原有的 A2UI 组件渲染逻辑
@@ -1846,7 +1846,7 @@
       function renderGenericCard(template) {
         return `
           <div class="template-card-header">
-            <div class="tc-title">${escHtml(template.template_type || '数据卡片')}</div>
+            <div class="tc-title">${escHtml(template.template || '数据卡片')}</div>
           </div>
           <div class="template-card-body">
             <pre style="font-size:12px;overflow-x:auto;">${escHtml(JSON.stringify(template.data, null, 2))}</pre>
@@ -1858,7 +1858,7 @@
         const cardDiv = document.createElement('div');
         cardDiv.className = 'template-card';
 
-        switch (template.template_type) {
+        switch (template.template) {
           case 'account_overview_card':
             cardDiv.innerHTML = renderAccountOverviewCard(template.data);
             break;

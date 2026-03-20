@@ -1,0 +1,33 @@
+{
+  "skill_name": "保险取款",
+  "evals": [
+    {
+      "id": 1,
+      "name": "withdraw-standard",
+      "prompt": "用户 U001 说：「我想取 5 万」。\n\ncustomer_info 返回：{ age: 42, gender: 'male', children: true, purpose: 'education' }\n\nrule_engine list_options 返回：\n{\n  \"requested_amount\": 50000,\n  \"total_available_excl_loan\": 219200,\n  \"total_available_incl_loan\": 252800,\n  \"combination_hint\": null,\n  \"options\": [\n    {\n      \"policy_id\": \"POL002\",\n      \"product_name\": \"金瑞人生年金险\",\n      \"product_type\": \"annuity\",\n      \"policy_year\": 5,\n      \"available_amount\": 177200,\n      \"survival_fund_amt\": 12000,\n      \"bonus_amt\": 5200,\n      \"loan_amt\": 0,\n      \"refund_amt\": 160000,\n      \"refund_fee_rate\": 0.01,\n      \"loan_interest_rate\": null,\n      \"processing_time\": \"1-3个工作日\"\n    },\n    {\n      \"policy_id\": \"POL001\",\n      \"product_name\": \"安心守护终身寿险\",\n      \"product_type\": \"whole_life\",\n      \"policy_year\": 8,\n      \"available_amount\": 75600,\n      \"survival_fund_amt\": 0,\n      \"bonus_amt\": 0,\n      \"loan_amt\": 42000,\n      \"refund_amt\": 33600,\n      \"refund_fee_rate\": 0,\n      \"loan_interest_rate\": 0.05,\n      \"processing_time\": \"1-3个工作日\"\n    }\n  ]\n}\n\n请按照 withdraw_money 技能的指令，给出你作为保险智能助手的完整回复。包括：\n1. 你会调用哪些工具（按顺序列出），以及 render_card 的 card_args 参数值\n2. 最终展示给用户的文字内容（这是最关键的，必须保存到 output.txt）",
+      "expected_output": "调用 render_card(card_type='withdraw_plan')，card_args 包含 rec 和 alt 两个方案。最终用户可见的文字极简（≤25字），仅为一句确认引导，无任何列表或段落描述。",
+      "files": [],
+      "assertions": [
+        "输出文字中明确提到 render_card 或 withdraw_plan 卡片的调用",
+        "展示给用户的最终文字不超过 30 字（不含 card_args JSON）",
+        "最终文字中没有 Markdown 列表（无以 '- ' 或 '* ' 开头的行）",
+        "最终文字中没有重复卡片内容（不包含金额数字、保单名称、费用信息）",
+        "推荐方案优先选用生存金或红利等零成本渠道"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "withdraw-exceed",
+      "prompt": "用户 U001 说：「我想取 30 万」。\n\ncustomer_info 返回：{ age: 35, gender: 'female', children: false, purpose: 'investment' }\n\nrule_engine list_options 返回：\n{\n  \"requested_amount\": 300000,\n  \"total_available_excl_loan\": 219200,\n  \"total_available_incl_loan\": 252800,\n  \"combination_hint\": \"insufficient\",\n  \"options\": [\n    {\n      \"policy_id\": \"POL002\",\n      \"product_name\": \"金瑞人生年金险\",\n      \"product_type\": \"annuity\",\n      \"policy_year\": 5,\n      \"available_amount\": 177200,\n      \"survival_fund_amt\": 12000,\n      \"bonus_amt\": 5200,\n      \"loan_amt\": 0,\n      \"refund_amt\": 160000,\n      \"refund_fee_rate\": 0.01,\n      \"loan_interest_rate\": null,\n      \"processing_time\": \"1-3个工作日\"\n    },\n    {\n      \"policy_id\": \"POL001\",\n      \"product_name\": \"安心守护终身寿险\",\n      \"product_type\": \"whole_life\",\n      \"policy_year\": 8,\n      \"available_amount\": 75600,\n      \"survival_fund_amt\": 0,\n      \"bonus_amt\": 0,\n      \"loan_amt\": 42000,\n      \"refund_amt\": 33600,\n      \"refund_fee_rate\": 0,\n      \"loan_interest_rate\": 0.05,\n      \"processing_time\": \"1-3个工作日\"\n    }\n  ]\n}\n\n请按照 withdraw_money 技能的指令，给出你作为保险智能助手的完整回复。包括：\n1. 你会调用哪些工具（按顺序列出）\n2. 最终展示给用户的文字内容（保存到 output.txt）",
+      "expected_output": "告知最多可取 252,800 元（含贷款），给出最大可取方案，说明无法满足 30 万需求，文字简洁不超过 2 句。",
+      "files": [],
+      "assertions": [
+        "最终文字中提到最大可用金额（25万或252,800）",
+        "最终文字不超过 50 字",
+        "最终文字中没有 Markdown 列表",
+        "最终文字说明无法完全满足 30 万需求",
+        "没有自行编造超出规则引擎数据的金额"
+      ]
+    }
+  ]
+}

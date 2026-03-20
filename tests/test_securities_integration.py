@@ -17,13 +17,13 @@ async def test_securities_agent_integration():
     
     # 设置 Mock 模式
     os.environ["SECURITIES_SERVICE_MOCK"] = "true"
-    os.environ["LLM_PROVIDER"] = "deepseek"
-    os.environ["DEEPSEEK_API_KEY"] = "test_key"
+    os.environ["LLM_PROVIDER"] = "openai"
+    os.environ["API_KEY"] = "test_key"
     
     try:
         # 1. 测试导入
         print("\n1. 测试导入...")
-        from ark_agentic.agents.securities.api import create_securities_agent_from_env
+        from ark_agentic.agents.securities import create_securities_agent
         print("   ✓ 导入成功")
         
         # 2. 测试工具创建

@@ -48,6 +48,10 @@ class AgentEventHandler(Protocol):
         """工具调用完成。"""
         ...
 
+    def on_thinking_delta(self, delta: str, turn: int = 1) -> None:
+        """思考过程文本增量（<think> 标签内容）。turn 为 ReAct 轮次（1-based）。"""
+        ...
+
     def on_ui_component(self, component: dict[str, Any]) -> None:
         """A2UI 组件描述。"""
         ...
@@ -89,6 +93,8 @@ class StreamEventBus:
         self._active_step: str | None = None
         self._text_started: bool = False
         self._text_message_id: str | None = None
+        self._thinking_started: bool = False
+        self._thinking_message_id: str | None = None
 
     def _next_seq(self) -> int:
         self._seq += 1
@@ -117,6 +123,13 @@ class StreamEventBus:
             self._text_started = False
             self._text_message_id = None
 
+    def _close_thinking_message(self) -> None:
+        """关闭当前活跃思考消息（发送 thinking_message_end）。"""
+        if self._thinking_started:
+            self._emit(type="thinking_message_end", message_id=self._thinking_message_id)
+            self._thinking_started = False
+            self._thinking_message_id = None
+
     def _ensure_text_started(self) -> None:
         """确保文本消息已开始。"""
         if not self._text_started:
@@ -132,6 +145,20 @@ class StreamEventBus:
         self._close_active_step()
         self._active_step = text
         self._emit(type="step_started", step_name=text)
+
+    def on_thinking_delta(self, delta: str, turn: int = 1) -> None:
+        if not delta:
+            return
+        if not self._thinking_started:
+            self._thinking_message_id = str(uuid.uuid4())
+            self._emit(type="thinking_message_start", message_id=self._thinking_message_id)
+            self._thinking_started = True
+        self._emit(
+            type="thinking_message_content",
+            delta=delta,
+            message_id=self._thinking_message_id,
+            turn=turn,
+        )
 
     def on_content_delta(self, delta: str, turn: int = 1) -> None:
         if not delta:
@@ -189,7 +216,8 @@ class StreamEventBus:
         turns: int = 0,
         usage: dict[str, int] | None = None,
     ) -> None:
-        """发送 run_finished 事件。自动关闭活跃的 step 和 text_message。"""
+        """发送 run_finished 事件。自动关闭活跃的 step、text_message 和 thinking_message。"""
+        self._close_thinking_message()
         self._close_text_message()
         self._close_active_step()
         self._emit(
@@ -201,7 +229,8 @@ class StreamEventBus:
         )
 
     def emit_failed(self, error_message: str) -> None:
-        """发送 run_error 事件。自动关闭活跃的 step 和 text_message。"""
+        """发送 run_error 事件。自动关闭活跃的 step、text_message 和 thinking_message。"""
+        self._close_thinking_message()
         self._close_text_message()
         self._close_active_step()
         self._emit(type="run_error", error_message=error_message)

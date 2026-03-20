@@ -1,0 +1,19 @@
+{
+  "eval_id": 1,
+  "eval_name": "simple-view",
+  "prompt": "查看我的账户资产",
+  "assertions": [
+    {
+      "name": "调用 account_overview 工具",
+      "check": "输出中应包含对 account_overview 工具的调用"
+    },
+    {
+      "name": "调用 display_card 展示",
+      "check": "输出中应包含对 display_card 工具的调用"
+    },
+    {
+      "name": "简短确认回复",
+      "check": "回复应简短确认，不应输出详细数值或原始 JSON"
+    }
+  ]
+}

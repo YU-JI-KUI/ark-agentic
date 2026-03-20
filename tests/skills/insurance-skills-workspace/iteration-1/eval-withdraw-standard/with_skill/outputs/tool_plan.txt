@@ -1,0 +1,82 @@
+## 工具调用序列
+
+### Step 1: customer_info
+customer_info(
+  info_type="identity",
+  user_id=<user_id>
+)
+→ 结果: { "age": 42, "gender": "male", "children": true, "purpose": "education" }
+
+### Step 2: rule_engine
+rule_engine(
+  action="list_options",
+  user_id=<user_id>,
+  amount=50000
+)
+→ 结果: 见题目中的 JSON（POL002 年金险 + POL001 终身寿险）
+
+### Step 3: 方案组装逻辑（推导过程）
+
+目标金额：50,000 元
+用途：education → 优先零成本渠道
+
+【渠道分析】
+POL002 金瑞人生年金险（annuity）:
+  - survival_fund_amt: 12,000（零成本）
+  - bonus_amt: 5,200（零成本）
+  - refund_amt: 160,000（部分领取，非 whole_life，手续费 1%）
+  - loan_amt: 0（无贷款）
+
+POL001 安心守护终身寿险（whole_life）:
+  - survival_fund_amt: 0
+  - bonus_amt: 0
+  - refund_amt: 33,600（退保，whole_life，保障终止）
+  - loan_amt: 42,000（贷款，年利率 5%）
+
+【⭐ 推荐方案组合】（零成本优先 + 部分领取补足）
+  POL002 生存金 12,000 + 红利 5,200 + 部分领取 32,800 = 50,000 元
+  手续费：32,800 × 1% = 328 元（仅对部分领取收取）
+  Impact：年金保额略降，生存保障继续有效
+
+【备选方案组合】（保单贷款 + 零成本，保障完整）
+  POL002 生存金 12,000 + 红利 5,200（零成本）
+  POL001 贷款 32,800（≤ max 42,000，年利率 5%，约 1,640 元/年）
+  合计 = 50,000 元，无手续费，两张保单保障均完整保留
+
+（排除退保：whole_life 退保会终止 POL001 所有保障，且 33,600 不足 50,000；不到万不得已不用）
+
+### Step 4: render_card
+render_card(
+  card_type="withdraw_plan",
+  card_args={
+    "page_title": "为您推荐的取款方案",
+    "rec_policy_id": "POL002",
+    "rec_option_type": "partial_refund",
+    "rec_amount": 50000,
+    "rec_title": "★ 推荐：生存金 + 红利 + 部分领取",
+    "rec_policy": "金瑞人生年金险|POL002",
+    "rec_time": "1-3个工作日",
+    "rec_cost": "约328元（生存金12,000+红利5,200免费；仅32,800元部分领取收1%手续费）",
+    "rec_impact": "年金保额略有降低，生存保障继续有效",
+    "rec_reason": "先领免费生存金12,000元+红利5,200元，余下32,800元部分领取补足，综合成本最低，适合教育用途",
+    "rec_button_text": "办理此方案",
+    "rec_query_msg": "我想办理金瑞人生年金险的生存金+红利+部分领取方案",
+    "alt_policy_id": "POL001",
+    "alt_option_type": "loan",
+    "alt_amount": 50000,
+    "alt_title": "备选：保单贷款 + 零成本组合",
+    "alt_policy": "安心守护终身寿险|POL001",
+    "alt_time": "1-3个工作日",
+    "alt_cost": "年利率5%（贷款32,800元，约1,640元/年）",
+    "alt_impact": "两张保单保障均完整保留；逾期未还可致POL001中止",
+    "alt_reason": "POL001贷款32,800+POL002生存金12,000+红利5,200=50,000，无手续费，全部保障不受影响，适合有还款计划者",
+    "alt_button_text": "办理保单贷款",
+    "alt_query_msg": "我想办理安心守护终身寿险的保单贷款"
+  }
+)
+
+### 用户画像微调依据
+- age=42 → 无特殊调整
+- children=true → 确认引导提及"孩子的保障继续有效"
+- purpose=education → 优先零成本（已体现在推荐方案选择上）
+- 确认引导字数：≤25字（硬约束）

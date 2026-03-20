@@ -14,10 +14,35 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Protocol
 
 from .agui_models import AGUIDataPayload, AGUIEnvelope
 from .events import AgentStreamEvent
+
+
+_CODE_FENCE_RE = re.compile(
+    r"^\s*```(?:json)?\s*\r?\n(.*?)\r?\n\s*```\s*$",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _try_extract_json(text: str) -> Any | None:
+    """Try to parse *text* as JSON, stripping markdown code fences if present.
+
+    Returns the parsed object on success, ``None`` on failure (fail-safe to text).
+    """
+    if not text or not text.strip():
+        return None
+    stripped = text.strip()
+    m = _CODE_FENCE_RE.match(stripped)
+    candidate = m.group(1).strip() if m else stripped
+    if not candidate or candidate[0] not in ("{", "["):
+        return None
+    try:
+        return json.loads(candidate)
+    except (json.JSONDecodeError, ValueError):
+        return None
 
 
 class OutputFormatter(Protocol):
@@ -131,13 +156,47 @@ class EnterpriseAGUIFormatter:
     """将 AG-UI 事件包装为企业 AGUI 信封格式（AGUIEnvelope）。
 
     source_bu_type / app_type 在构造时注入。
+
+    内部状态：
+    - _reasoning_active: 管理 reasoning_start 和 reasoning_end 的自动闭合。
+    - _current_step: 记录最近一次 step_started 的名称，供 thinking_message_content 引用。
     """
+
+    _SKIP_ENTERPRISE: frozenset[str] = frozenset({
+        "tool_call_start",
+        "tool_call_args",
+        "tool_call_end",
+        "tool_call_result",
+        "step_finished",
+    })
 
     def __init__(self, source_bu_type: str = "", app_type: str = "") -> None:
         self._source_bu_type = source_bu_type
         self._app_type = app_type
+        self._reasoning_active = False
+        self._current_step: str = ""
 
-    def format(self, event: AgentStreamEvent) -> str:
+    def format(self, event: AgentStreamEvent) -> str | None:
+        # 1. 拦截并处理 reasoning 相关事件
+        if event.type in self._SKIP_ENTERPRISE:
+            return None
+
+        reasoning_events = {
+            "thinking_message_start",
+            "thinking_message_content",
+            "thinking_message_end",
+            "step_started",
+        }
+
+        if event.type in reasoning_events:
+            return self._handle_reasoning_event(event)
+
+        # 2. 处理非 reasoning 事件时，如果 reasoning 处于活跃状态，则自动关闭
+        prefix = ""
+        if self._reasoning_active and event.type in ("text_message_start", "run_finished", "run_error"):
+            prefix = self._emit_reasoning_end(event)
+
+        # 3. 正常格式化当前事件
         data_payload = self._build_data(event)
         envelope = AGUIEnvelope(
             id=event.seq,
@@ -147,7 +206,81 @@ class EnterpriseAGUIFormatter:
             data=data_payload,
         )
         payload = envelope.model_dump_json(exclude_none=True)
-        return f"event: {event.type}\ndata: {payload}\n\n"
+        return f"{prefix}event: {event.type}\ndata: {payload}\n\n"
+
+    def _handle_reasoning_event(self, event: AgentStreamEvent) -> str | None:
+        """统一将各种中间态事件映射为 reasoning_message_content。"""
+        result = ""
+
+        # 显式关闭
+        if event.type == "thinking_message_end":
+            return self._emit_reasoning_end(event)
+
+        # 确保 reasoning 状态已开启
+        if not self._reasoning_active:
+            self._reasoning_active = True
+            start_payload = AGUIDataPayload(
+                message_id=event.message_id,
+                conversation_id=event.session_id,
+                ui_protocol="text",
+                ui_data="",
+            )
+            start_env = AGUIEnvelope(
+                id=event.seq,
+                event="reasoning_start",
+                source_bu_type=self._source_bu_type,
+                app_type=self._app_type,
+                data=start_payload,
+            )
+            result += f"event: reasoning_start\ndata: {start_env.model_dump_json(exclude_none=True)}\n\n"
+
+        # 显式开启（已在上面处理状态，这里直接返回）
+        if event.type == "thinking_message_start":
+            return result if result else None
+
+        # 构建 reasoning_message_content（结构化 JSON）
+        if event.type == "step_started":
+            self._current_step = event.step_name or ""
+
+        dp = AGUIDataPayload(
+            message_id=event.message_id,
+            conversation_id=event.session_id,
+            ui_protocol="json",
+            ui_data={
+                "think": self._current_step,
+                "content": [event.delta or ""] if event.type == "thinking_message_content" else [""],
+            },
+        )
+
+        content_env = AGUIEnvelope(
+            id=event.seq,
+            event="reasoning_message_content",
+            source_bu_type=self._source_bu_type,
+            app_type=self._app_type,
+            data=dp,
+        )
+        result += f"event: reasoning_message_content\ndata: {content_env.model_dump_json(exclude_none=True)}\n\n"
+        return result
+
+    def _emit_reasoning_end(self, event: AgentStreamEvent) -> str:
+        """生成 reasoning_end 事件并重置状态。"""
+        if not self._reasoning_active:
+            return ""
+        self._reasoning_active = False
+        dp = AGUIDataPayload(
+            message_id=event.message_id,
+            conversation_id=event.session_id,
+            ui_protocol="text",
+            ui_data="",
+        )
+        env = AGUIEnvelope(
+            id=event.seq,
+            event="reasoning_end",
+            source_bu_type=self._source_bu_type,
+            app_type=self._app_type,
+            data=dp,
+        )
+        return f"event: reasoning_end\ndata: {env.model_dump_json(exclude_none=True)}\n\n"
 
     def _build_data(self, event: AgentStreamEvent) -> AGUIDataPayload:
         """根据事件类型填充 ui_protocol 和 ui_data。
@@ -171,20 +304,17 @@ class EnterpriseAGUIFormatter:
                 dp.ui_protocol = "text"
                 dp.ui_data = event.delta or ""
                 dp.turn = event.turn if event.turn is not None else 1
-        elif event.type in ("step_started", "step_finished"):
-            dp.ui_protocol = "json"
-            status = 1 if event.type == "step_started" else 0
-            dp.ui_data = {"think": event.step_name, "think_status": status}
-        elif event.type in ("tool_call_start", "tool_call_args", "tool_call_end"):
-            dp.ui_protocol = "json"
-            dp.ui_data = {"think": f"正在调用 {event.tool_name}", "think_status": 1}
-        elif event.type == "tool_call_result":
-            dp.ui_protocol = "json"
-            dp.ui_data = {"think": f"{event.tool_name} 调用完成", "think_status": 0}
         elif event.type == "run_finished":
-            dp.ui_protocol = "text"
-            dp.ui_data = event.message or ""
+            raw = event.message or ""
+            parsed = _try_extract_json(raw)
+            if parsed is not None:
+                dp.ui_protocol = "json"
+                dp.ui_data = parsed
+            else:
+                dp.ui_protocol = "text"
+                dp.ui_data = raw
         elif event.type == "run_error":
+            dp.code = "500"
             dp.ui_protocol = "text"
             dp.ui_data = event.error_message or ""
         else:

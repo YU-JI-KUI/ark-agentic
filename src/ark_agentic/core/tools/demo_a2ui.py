@@ -22,6 +22,7 @@ class DemoA2UITool(AgentTool):
 
     name = "demo_a2ui_card"
     description = "生成一个示例 A2UI 卡片组件，用于演示丰富的前端渲染能力"
+    thinking_hint = "正在生成演示卡片…"
     parameters = [
         ToolParameter(
             name="card_title",

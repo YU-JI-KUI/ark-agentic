@@ -1,0 +1,43 @@
+{
+  "expectations": [
+    {
+      "text": "最终文字中提到最大可用金额（25万或252,800）",
+      "passed": true,
+      "evidence": "output.txt 提到 '25.28 万元' 和 '两张保单合计最多可取：25.28 万元'"
+    },
+    {
+      "text": "最终文字不超过 50 字",
+      "passed": false,
+      "evidence": "output.txt 共 30+ 行，包含完整保单明细和三个处理选项"
+    },
+    {
+      "text": "最终文字中没有 Markdown 列表",
+      "passed": false,
+      "evidence": "output.txt 包含 '- ' 列表和 '1. 2. 3.' 编号列表"
+    },
+    {
+      "text": "最终文字说明无法完全满足 30 万需求",
+      "passed": true,
+      "evidence": "'仍有约 4.72 万元缺口'，表明无法满足需求"
+    },
+    {
+      "text": "没有自行编造超出规则引擎数据的金额",
+      "passed": true,
+      "evidence": "金额均来自 rule_engine 返回数据"
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 2,
+    "total": 5,
+    "pass_rate": 0.6
+  },
+  "execution_metrics": {
+    "tool_calls": { "Write": 2 },
+    "total_tool_calls": 2,
+    "total_steps": 2,
+    "errors_encountered": 0,
+    "output_chars": 720,
+    "transcript_chars": 1100
+  }
+}

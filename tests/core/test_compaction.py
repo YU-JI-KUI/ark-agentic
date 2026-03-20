@@ -154,7 +154,7 @@ class TestCompactionConfig:
     def test_default_values(self) -> None:
         """Test default configuration."""
         config = CompactionConfig()
-        assert config.context_window == 32000
+        assert config.context_window == 128000
         assert config.output_reserve == 4000
         assert config.system_reserve == 2000
         assert config.preserve_recent == 4
@@ -269,20 +269,21 @@ class TestHelperFunctions:
 
 
 @pytest.mark.skipif(
-    not os.getenv("DEEPSEEK_API_KEY"),
-    reason="DEEPSEEK_API_KEY not set, skipping LLM integration tests"
+    not os.getenv("API_KEY"),
+    reason="API_KEY not set, skipping LLM integration tests"
 )
 class TestLLMSummarizerIntegration:
     """Integration tests for LLMSummarizer with real LLM."""
 
     @pytest.mark.asyncio
     async def test_llm_summarizer_basic(self) -> None:
-        """Test LLMSummarizer with real DeepSeek model."""
+        """Test LLMSummarizer with real OpenAI-compatible model."""
         from ark_agentic.core.llm import create_chat_model
 
         llm = create_chat_model(
-            model="deepseek-chat",
-            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            model=os.getenv("MODEL_NAME", "gpt-4o"),
+            api_key=os.getenv("API_KEY"),
+            base_url=os.getenv("LLM_BASE_URL"),
             temperature=0.3,
             max_tokens=500,
         )
@@ -314,8 +315,9 @@ class TestLLMSummarizerIntegration:
         from ark_agentic.core.llm import create_chat_model
 
         llm = create_chat_model(
-            model="deepseek-chat",
-            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            model=os.getenv("MODEL_NAME", "gpt-4o"),
+            api_key=os.getenv("API_KEY"),
+            base_url=os.getenv("LLM_BASE_URL"),
             temperature=0.3,
         )
         summarizer = LLMSummarizer(llm)
@@ -339,8 +341,9 @@ class TestLLMSummarizerIntegration:
         from ark_agentic.core.llm import create_chat_model
 
         llm = create_chat_model(
-            model="deepseek-chat",
-            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            model=os.getenv("MODEL_NAME", "gpt-4o"),
+            api_key=os.getenv("API_KEY"),
+            base_url=os.getenv("LLM_BASE_URL"),
             temperature=0.3,
         )
         summarizer = LLMSummarizer(llm)
@@ -359,8 +362,8 @@ class TestLLMSummarizerIntegration:
 
 
 @pytest.mark.skipif(
-    not os.getenv("DEEPSEEK_API_KEY"),
-    reason="DEEPSEEK_API_KEY not set, skipping LLM integration tests"
+    not os.getenv("API_KEY"),
+    reason="API_KEY not set, skipping LLM integration tests"
 )
 class TestContextCompactorIntegration:
     """Integration tests for ContextCompactor with real LLM."""
@@ -371,8 +374,9 @@ class TestContextCompactorIntegration:
         from ark_agentic.core.llm import create_chat_model
 
         llm = create_chat_model(
-            model="deepseek-chat",
-            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            model=os.getenv("MODEL_NAME", "gpt-4o"),
+            api_key=os.getenv("API_KEY"),
+            base_url=os.getenv("LLM_BASE_URL"),
             temperature=0.3,
         )
         summarizer = LLMSummarizer(llm)
