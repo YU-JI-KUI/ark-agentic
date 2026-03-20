@@ -30,8 +30,9 @@ class DummyMessage:
 
 
 class DummySession:
-    def __init__(self, sid, msgs=None, state=None):
+    def __init__(self, sid, msgs=None, state=None, user_id=""):
         self.session_id = sid
+        self.user_id = user_id
         self.messages = msgs or []
         self.state = state or {}
 
@@ -105,8 +106,8 @@ def setup_registry():
     registry = AgentRegistry()
     runner = DummyAgentRunner(
         [
-            DummySession("sid1", [DummyMessage("user", "hi"), DummyMessage("assistant", "hello")], {"foo": "bar"}),
-            DummySession("sid2", [], {}),
+            DummySession("sid1", [DummyMessage("user", "hi"), DummyMessage("assistant", "hello")], {"foo": "bar"}, user_id="u1"),
+            DummySession("sid2", [], {}, user_id="u2"),
         ],
         transcript_files={"sid1": VALID_JSONL_SID1},
     )
@@ -123,8 +124,10 @@ def test_list_sessions_success():
     data = response.json()
     assert len(data["sessions"]) == 2
     assert data["sessions"][0]["session_id"] == "sid1"
+    assert data["sessions"][0]["user_id"] == "u1"
     assert data["sessions"][0]["message_count"] == 2
     assert data["sessions"][0]["state"] == {"foo": "bar"}
+    assert data["sessions"][1]["user_id"] == "u2"
 
 
 def test_list_sessions_agent_not_found():

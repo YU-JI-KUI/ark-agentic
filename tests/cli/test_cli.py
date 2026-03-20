@@ -151,11 +151,10 @@ def test_pyproject_template_placeholders():
 # ── _cmd_init ────────────────────────────────────────────────────────────
 
 def test_cmd_init_creates_project_structure(tmp_path: Path):
-    """init creates project dir, pyproject.toml, main.py, agent, .env-sample."""
+    """init creates project dir, pyproject.toml, main.py, agent, .env-sample, agent.json."""
     args = type("Args", (), {
         "project_name": "proj",
         "api": False,
-        "studio": False,
         "memory": False,
         "llm_provider": "openai",
     })()
@@ -168,27 +167,28 @@ def test_cmd_init_creates_project_structure(tmp_path: Path):
     pkg = root / "src" / "proj"
     assert (pkg / "main.py").is_file()
     assert (pkg / "agents" / "default" / "agent.py").is_file()
+    assert (pkg / "agents" / "default" / "agent.json").is_file(), "agent.json must always be generated"
     main_py = (pkg / "main.py").read_text(encoding="utf-8")
     assert "create_default_agent" in main_py
     agent_py = (pkg / "agents" / "default" / "agent.py").read_text(encoding="utf-8")
     assert "create_chat_model_from_env" in agent_py
 
 
-def test_cmd_init_with_api_creates_api_py(tmp_path: Path):
-    """init --api creates api.py using registry + chat router."""
+def test_cmd_init_with_api_creates_app_py(tmp_path: Path):
+    """init --api creates app.py with Studio support built-in."""
     args = type("Args", (), {
         "project_name": "proj",
         "api": True,
-        "studio": False,
         "memory": False,
         "llm_provider": "openai",
     })()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
-    api_py = (tmp_path / "proj" / "src" / "proj" / "api.py").read_text(encoding="utf-8")
-    assert "AgentRegistry" in api_py
-    assert "chat_api.router" in api_py
-    assert "class ChatRequest" not in api_py
+    app_py = (tmp_path / "proj" / "src" / "proj" / "app.py").read_text(encoding="utf-8")
+    assert "AgentRegistry" in app_py
+    assert "chat_api.router" in app_py
+    assert "setup_studio_from_env" in app_py
+    assert "class ChatRequest" not in app_py
 
 
 def test_cmd_init_when_dir_exists_exits_with_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
@@ -197,7 +197,6 @@ def test_cmd_init_when_dir_exists_exits_with_error(tmp_path: Path, capsys: pytes
     args = type("Args", (), {
         "project_name": "existing",
         "api": False,
-        "studio": False,
         "memory": False,
         "llm_provider": "openai",
     })()

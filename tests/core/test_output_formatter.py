@@ -10,6 +10,7 @@ from ark_agentic.core.stream.output_formatter import (
     BareAGUIFormatter,
     EnterpriseAGUIFormatter,
     LegacyInternalFormatter,
+    _try_extract_json,
     create_formatter,
 )
 
@@ -163,12 +164,12 @@ class TestEnterpriseAGUIFormatter:
         assert etype1 == "reasoning_start"
         assert data1["data"]["ui_protocol"] == "text"
         
-        # Check reasoning_message_content
+        # Check reasoning_message_content (structured JSON)
         etype2, data2 = _parse_sse(events[1] + "\n\n")
         assert etype2 == "reasoning_message_content"
         dp = data2["data"]
-        assert dp["ui_protocol"] == "text"
-        assert dp["ui_data"] == "\n查询中\n"
+        assert dp["ui_protocol"] == "json"
+        assert dp["ui_data"] == {"think": "查询中", "content": [""]}
 
     def test_text_content_ui_protocol_text(self) -> None:
         f = EnterpriseAGUIFormatter()
@@ -219,7 +220,7 @@ class TestEnterpriseAGUIFormatter:
         etype2, data2 = _parse_sse(events[1] + "\n\n")
         assert etype1 == "reasoning_start"
         assert etype2 == "reasoning_message_content"
-        assert data2["data"]["ui_data"] == "分析中"
+        assert data2["data"]["ui_data"] == {"think": "", "content": ["分析中"]}
 
     def test_thinking_message_end_emits_reasoning_end(self) -> None:
         """thinking_message_end → reasoning_end when reasoning was active."""
@@ -231,39 +232,27 @@ class TestEnterpriseAGUIFormatter:
         assert etype == "reasoning_end"
         assert data["event"] == "reasoning_end"
 
-    def test_step_finished_maps_to_reasoning_message_content(self) -> None:
-        """step_finished → reasoning_message_content with '完成' suffix."""
+    def test_step_finished_skipped(self) -> None:
+        """step_finished is in _SKIP_ENTERPRISE, not emitted."""
         f = EnterpriseAGUIFormatter()
         ev = _event(type="step_finished", step_name="查询")
         result = f.format(ev)
-        events = [e for e in result.split("\n\n") if e.strip()]
-        _, data = _parse_sse(events[-1] + "\n\n")
-        assert data["event"] == "reasoning_message_content"
-        assert "查询" in data["data"]["ui_data"]
-        assert "完成" in data["data"]["ui_data"]
+        assert result is None
 
-    def test_tool_call_start_maps_to_reasoning_message_content(self) -> None:
-        """tool_call_start → reasoning_start + reasoning_message_content."""
+    def test_tool_call_start_skipped(self) -> None:
+        """tool_call_start is in _SKIP_ENTERPRISE, not emitted."""
         f = EnterpriseAGUIFormatter()
         ev = _event(type="tool_call_start", tool_name="policy_query")
         result = f.format(ev)
-        events = [e for e in result.split("\n\n") if e.strip()]
-        assert len(events) == 2
-        _, data = _parse_sse(events[1] + "\n\n")
-        assert data["event"] == "reasoning_message_content"
-        assert "policy_query" in data["data"]["ui_data"]
+        assert result is None
 
-    def test_tool_call_result_maps_to_reasoning_message_content(self) -> None:
-        """tool_call_result → reasoning_message_content."""
+    def test_tool_call_result_skipped(self) -> None:
+        """tool_call_result is in _SKIP_ENTERPRISE, not emitted."""
         f = EnterpriseAGUIFormatter()
         f.format(_event(type="step_started", step_name="x"))
         ev = _event(type="tool_call_result", tool_name="policy_query", tool_result="ok")
         result = f.format(ev)
-        events = [e for e in result.split("\n\n") if e.strip()]
-        _, data = _parse_sse(events[-1] + "\n\n")
-        assert data["event"] == "reasoning_message_content"
-        assert "policy_query" in data["data"]["ui_data"]
-        assert "完成" in data["data"]["ui_data"]
+        assert result is None
 
     def test_run_finished_emits_reasoning_end_when_active(self) -> None:
         """run_finished emits reasoning_end prefix when reasoning was active."""
@@ -342,6 +331,112 @@ class TestAloneFormatter:
         f = AloneFormatter()
         ev = _event(type="custom")
         assert f.format(ev) is None
+
+
+class TestTryExtractJson:
+    def test_plain_json_object(self) -> None:
+        assert _try_extract_json('{"key": "value"}') == {"key": "value"}
+
+    def test_plain_json_array(self) -> None:
+        assert _try_extract_json("[1, 2, 3]") == [1, 2, 3]
+
+    def test_code_fence_json(self) -> None:
+        text = '```json\n{"key": "value"}\n```'
+        assert _try_extract_json(text) == {"key": "value"}
+
+    def test_code_fence_no_language_tag(self) -> None:
+        text = '```\n{"items": [1]}\n```'
+        assert _try_extract_json(text) == {"items": [1]}
+
+    def test_code_fence_uppercase_json(self) -> None:
+        text = '```JSON\n{"upper": true}\n```'
+        assert _try_extract_json(text) == {"upper": True}
+
+    def test_code_fence_crlf(self) -> None:
+        text = '```json\r\n{"crlf": 1}\r\n```'
+        assert _try_extract_json(text) == {"crlf": 1}
+
+    def test_surrounding_whitespace(self) -> None:
+        assert _try_extract_json('  \n {"a": 1} \n ') == {"a": 1}
+
+    def test_mixed_text_returns_none(self) -> None:
+        assert _try_extract_json('Here is: {"key": "value"}') is None
+
+    def test_invalid_json_returns_none(self) -> None:
+        assert _try_extract_json("{invalid json") is None
+
+    def test_empty_string_returns_none(self) -> None:
+        assert _try_extract_json("") is None
+
+    def test_none_returns_none(self) -> None:
+        # type: ignore[arg-type] — intentional None input for robustness
+        assert _try_extract_json(None) is None  # type: ignore[arg-type]
+
+    def test_plain_text_returns_none(self) -> None:
+        assert _try_extract_json("Hello, world!") is None
+
+    def test_nested_json(self) -> None:
+        text = '{"a": {"b": [1, 2, {"c": true}]}}'
+        result = _try_extract_json(text)
+        assert result == {"a": {"b": [1, 2, {"c": True}]}}
+
+
+class TestEnterpriseRunFinishedJsonDetection:
+    def test_run_finished_plain_text(self) -> None:
+        f = EnterpriseAGUIFormatter()
+        ev = _event(type="run_finished", message="这是一段普通文本回复")
+        result = f.format(ev)
+        _, data = _parse_sse(result)
+        dp = data["data"]
+        assert dp["ui_protocol"] == "text"
+        assert dp["ui_data"] == "这是一段普通文本回复"
+
+    def test_run_finished_json_object(self) -> None:
+        f = EnterpriseAGUIFormatter()
+        ev = _event(type="run_finished", message='{"result": "ok", "count": 3}')
+        result = f.format(ev)
+        _, data = _parse_sse(result)
+        dp = data["data"]
+        assert dp["ui_protocol"] == "json"
+        assert dp["ui_data"] == {"result": "ok", "count": 3}
+
+    def test_run_finished_code_fenced_json(self) -> None:
+        f = EnterpriseAGUIFormatter()
+        msg = '```json\n{"fenced": true}\n```'
+        ev = _event(type="run_finished", message=msg)
+        result = f.format(ev)
+        _, data = _parse_sse(result)
+        dp = data["data"]
+        assert dp["ui_protocol"] == "json"
+        assert dp["ui_data"] == {"fenced": True}
+
+    def test_run_finished_json_array(self) -> None:
+        f = EnterpriseAGUIFormatter()
+        ev = _event(type="run_finished", message='[{"id": 1}, {"id": 2}]')
+        result = f.format(ev)
+        _, data = _parse_sse(result)
+        dp = data["data"]
+        assert dp["ui_protocol"] == "json"
+        assert dp["ui_data"] == [{"id": 1}, {"id": 2}]
+
+    def test_run_finished_empty_message(self) -> None:
+        f = EnterpriseAGUIFormatter()
+        ev = _event(type="run_finished", message="")
+        result = f.format(ev)
+        _, data = _parse_sse(result)
+        dp = data["data"]
+        assert dp["ui_protocol"] == "text"
+        assert dp["ui_data"] == ""
+
+    def test_streaming_text_content_unaffected(self) -> None:
+        """Streaming deltas must remain ui_protocol=text even if content looks like JSON."""
+        f = EnterpriseAGUIFormatter()
+        ev = _event(type="text_message_content", delta='{"key":')
+        result = f.format(ev)
+        _, data = _parse_sse(result)
+        dp = data["data"]
+        assert dp["ui_protocol"] == "text"
+        assert dp["ui_data"] == '{"key":'
 
 
 class TestCreateFormatter:

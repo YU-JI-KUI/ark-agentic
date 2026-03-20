@@ -65,7 +65,7 @@ class TestRunnerConfigurationPrecedence:
         runner.session_manager.sync_session_state = AsyncMock()
         
         # Prevent lazy init from failing
-        runner._memory_base_manager = None 
+        runner._memory_manager = None 
         
         return runner
 

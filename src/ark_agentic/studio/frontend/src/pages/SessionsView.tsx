@@ -83,11 +83,11 @@ export default function SessionsView({ agentId }: Props) {
             .finally(() => setLoading(false))
     }, [agentId])
 
-    const loadDetail = useCallback(async (sid: string) => {
+    const loadDetail = useCallback(async (s: SessionItem) => {
         setDetailLoading(true)
         setDetail(null)
         try {
-            const d = await api.getSessionDetail(agentId, sid)
+            const d = await api.getSessionDetail(agentId, s.session_id, s.user_id)
             setDetail(d)
         } catch {
             setDetail(null)
@@ -96,12 +96,12 @@ export default function SessionsView({ agentId }: Props) {
         }
     }, [agentId])
 
-    const loadRaw = useCallback(async (sid: string) => {
+    const loadRaw = useCallback(async (s: SessionItem) => {
         setRawLoading(true)
         setRaw(null)
         setRawEdit(false)
         try {
-            const text = await api.getSessionRaw(agentId, sid)
+            const text = await api.getSessionRaw(agentId, s.session_id, s.user_id)
             setRaw(text)
             setRawDraft(text)
         } catch {
@@ -113,15 +113,15 @@ export default function SessionsView({ agentId }: Props) {
 
     useEffect(() => {
         if (!selected) return
-        if (tab === 'conversation') loadDetail(selected.session_id)
-        else loadRaw(selected.session_id)
+        if (tab === 'conversation') loadDetail(selected)
+        else loadRaw(selected)
     }, [selected?.session_id, tab, loadDetail, loadRaw])
 
     const handleSaveRaw = async () => {
         if (!selected) return
         setSaveStatus('saving')
         try {
-            await api.putSessionRaw(agentId, selected.session_id, rawDraft)
+            await api.putSessionRaw(agentId, selected.session_id, selected.user_id, rawDraft)
             setRaw(rawDraft)
             setRawEdit(false)
             setSaveStatus('ok')
@@ -153,7 +153,7 @@ export default function SessionsView({ agentId }: Props) {
                                 onClick={() => setSelected(s)}
                             >
                                 <div className="list-item-title" style={{ fontFamily: 'monospace' }}>{s.session_id.substring(0, 16)}...</div>
-                                <div className="list-item-desc">Messages: {s.message_count}</div>
+                                <div className="list-item-desc">{s.user_id && `${s.user_id} · `}Messages: {s.message_count}</div>
                             </div>
                         ))
                     )}

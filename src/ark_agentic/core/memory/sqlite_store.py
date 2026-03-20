@@ -93,24 +93,17 @@ def _embedding_to_blob(embedding: list[float]) -> bytes:
     return struct.pack(f"{len(embedding)}f", *embedding)
 
 
-def _get_sqlite_module():
-    """stdlib sqlite3 first (if load_extension works), then sqlean, then stdlib without extensions."""
+def _get_sqlite_module() -> Any:
+    """Use stdlib sqlite3; if load_extension is unavailable, sqlite-vec is disabled (cosine fallback)."""
     import sqlite3 as stdlib
-
     try:
         conn = stdlib.connect(":memory:")
         conn.enable_load_extension(True)
         conn.close()
         return stdlib
-    except Exception:
-        pass
-    try:
-        import sqlean  # type: ignore[import-untyped]
-
-        return sqlean
-    except ImportError:
+    except Exception:  # Probe; some builds raise AttributeError or OperationalError
         logger.info(
-            "sqlite3 extension loading unavailable and sqlean not installed; "
+            "sqlite3 extension loading unavailable; "
             "sqlite-vec will be disabled (cosine fallback active)"
         )
         return stdlib
@@ -206,15 +199,18 @@ class SQLiteMemoryStore:
                 value TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS files (
-                path TEXT PRIMARY KEY,
+                path TEXT NOT NULL,
+                user_id TEXT NOT NULL DEFAULT '',
                 source TEXT NOT NULL DEFAULT 'memory',
                 hash TEXT NOT NULL,
                 mtime_ms REAL,
-                size INTEGER
+                size INTEGER,
+                PRIMARY KEY (path, user_id)
             );
             CREATE TABLE IF NOT EXISTS chunks (
                 id TEXT PRIMARY KEY,
                 path TEXT NOT NULL,
+                user_id TEXT NOT NULL DEFAULT '',
                 source TEXT NOT NULL DEFAULT 'memory',
                 start_line INTEGER NOT NULL,
                 end_line INTEGER NOT NULL,
@@ -233,6 +229,7 @@ class SQLiteMemoryStore:
             );
             CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path);
             CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source);
+            CREATE INDEX IF NOT EXISTS idx_chunks_user ON chunks(user_id);
             """
         )
         try:
@@ -244,7 +241,9 @@ class SQLiteMemoryStore:
             logger.warning("FTS5 unavailable: %s", e)
 
         self._ensure_column("files", "source", "TEXT NOT NULL DEFAULT 'memory'")
+        self._ensure_column("files", "user_id", "TEXT NOT NULL DEFAULT ''")
         self._ensure_column("chunks", "source", "TEXT NOT NULL DEFAULT 'memory'")
+        self._ensure_column("chunks", "user_id", "TEXT NOT NULL DEFAULT ''")
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
         rows = self._conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -319,19 +318,21 @@ class SQLiteMemoryStore:
 
     # ---- CRUD ----
 
-    def add(self, chunks: list[MemoryChunk]) -> None:
+    def add(self, chunks: list[MemoryChunk], user_id: str = "") -> None:
         if not chunks:
             return
         self._conn.execute("BEGIN")
         try:
             for chunk in chunks:
+                uid = chunk.user_id or user_id
                 self._conn.execute(
                     "INSERT OR REPLACE INTO chunks "
-                    "(id, path, source, start_line, end_line, hash, text, embedding, updated_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,datetime('now'))",
+                    "(id, path, user_id, source, start_line, end_line, hash, text, embedding, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))",
                     (
                         chunk.id,
                         chunk.path,
+                        uid,
                         chunk.source.value,
                         chunk.start_line,
                         chunk.end_line,
@@ -366,11 +367,11 @@ class SQLiteMemoryStore:
                 pass
             raise
 
-    def delete_by_path(self, path: str) -> None:
+    def delete_by_path(self, path: str, user_id: str = "") -> None:
         ids = [
             r[0] if isinstance(r, (list, tuple)) else r["id"]
             for r in self._conn.execute(
-                "SELECT id FROM chunks WHERE path = ?", (path,)
+                "SELECT id FROM chunks WHERE path = ? AND user_id = ?", (path, user_id)
             ).fetchall()
         ]
         if not ids:
@@ -418,9 +419,27 @@ class SQLiteMemoryStore:
             return None
         return self._row_to_chunk(row)
 
-    def get_all_chunks(self) -> list[MemoryChunk]:
+    def get_all_chunks(self, user_id: str | None = None) -> list[MemoryChunk]:
+        if user_id is not None:
+            rows = self._conn.execute(
+                "SELECT id, path, source, start_line, end_line, hash, text, embedding "
+                "FROM chunks WHERE user_id = ?", (user_id,)
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT id, path, source, start_line, end_line, hash, text, embedding FROM chunks"
+            ).fetchall()
+        return [self._row_to_chunk(r) for r in rows]
+
+    def get_chunks_by_location(
+        self, user_id: str, path: str, from_line: int = 1, limit: int = 50,
+    ) -> list[MemoryChunk]:
+        """按文件路径和行号范围获取 chunks（供 memory_get 使用）。"""
         rows = self._conn.execute(
-            "SELECT id, path, source, start_line, end_line, hash, text, embedding FROM chunks"
+            "SELECT id, path, source, start_line, end_line, hash, text, embedding "
+            "FROM chunks WHERE user_id = ? AND path = ? AND start_line >= ? "
+            "ORDER BY start_line ASC LIMIT ?",
+            (user_id, path, from_line, limit),
         ).fetchall()
         return [self._row_to_chunk(r) for r in rows]
 
@@ -442,20 +461,21 @@ class SQLiteMemoryStore:
             start_line=row["start_line"],
             end_line=row["end_line"],
             text=row["text"],
+            user_id=row["user_id"] if "user_id" in row.keys() else "",
             embedding=_embedding_from_json(row["embedding"]),
         )
 
     # ---- Vector search ----
 
     def vector_search(
-        self, query_embedding: list[float], top_k: int = 10
+        self, query_embedding: list[float], top_k: int = 10, user_id: str = "",
     ) -> list[tuple[MemoryChunk, float]]:
         if self._vec_available:
-            return self._vec_table_search(query_embedding, top_k)
-        return self._fallback_cosine_search(query_embedding, top_k)
+            return self._vec_table_search(query_embedding, top_k, user_id)
+        return self._fallback_cosine_search(query_embedding, top_k, user_id)
 
     def _vec_table_search(
-        self, query_embedding: list[float], top_k: int
+        self, query_embedding: list[float], top_k: int, user_id: str = "",
     ) -> list[tuple[MemoryChunk, float]]:
         blob = _embedding_to_blob(query_embedding)
         try:
@@ -464,12 +484,13 @@ class SQLiteMemoryStore:
                 "c.hash, c.text, c.embedding, "
                 "vec_distance_cosine(v.embedding, ?) AS dist "
                 "FROM chunks_vec v JOIN chunks c ON c.id = v.id "
+                "WHERE c.user_id = ? "
                 "ORDER BY dist ASC LIMIT ?",
-                (blob, top_k),
+                (blob, user_id, top_k),
             ).fetchall()
         except Exception as e:
             logger.warning("vec search failed, falling back to cosine: %s", e)
-            return self._fallback_cosine_search(query_embedding, top_k)
+            return self._fallback_cosine_search(query_embedding, top_k, user_id)
 
         results: list[tuple[MemoryChunk, float]] = []
         for r in rows:
@@ -480,13 +501,14 @@ class SQLiteMemoryStore:
         return results
 
     def _fallback_cosine_search(
-        self, query_embedding: list[float], top_k: int
+        self, query_embedding: list[float], top_k: int, user_id: str = "",
     ) -> list[tuple[MemoryChunk, float]]:
         import numpy as np
 
         rows = self._conn.execute(
             "SELECT id, path, source, start_line, end_line, hash, text, embedding "
-            "FROM chunks WHERE embedding IS NOT NULL"
+            "FROM chunks WHERE embedding IS NOT NULL AND user_id = ?",
+            (user_id,),
         ).fetchall()
         if not rows:
             return []
@@ -516,7 +538,7 @@ class SQLiteMemoryStore:
     # ---- Keyword search ----
 
     def keyword_search(
-        self, query: str, top_k: int = 10
+        self, query: str, top_k: int = 10, user_id: str = "",
     ) -> list[tuple[MemoryChunk, float]]:
         fts_query = self._build_fts_query(query)
         if fts_query is None:
@@ -526,8 +548,8 @@ class SQLiteMemoryStore:
                 "SELECT f.id, c.path, c.source, c.start_line, c.end_line, "
                 "c.hash, c.text, c.embedding, bm25(chunks_fts) AS rank "
                 "FROM chunks_fts f JOIN chunks c ON c.id = f.id "
-                "WHERE chunks_fts MATCH ? ORDER BY rank ASC LIMIT ?",
-                (fts_query, top_k),
+                "WHERE chunks_fts MATCH ? AND c.user_id = ? ORDER BY rank ASC LIMIT ?",
+                (fts_query, user_id, top_k),
             ).fetchall()
         except Exception:
             logger.warning("FTS5 query failed for: %r", query, exc_info=True)
@@ -549,12 +571,13 @@ class SQLiteMemoryStore:
         query_embedding: list[float],
         top_k: int = 10,
         min_score: float | None = None,
+        user_id: str = "",
     ) -> list[MemorySearchResult]:
         cfg = self._config
         min_s = min_score if min_score is not None else cfg.min_score
 
-        vector_results = self.vector_search(query_embedding, cfg.vector_top_k)
-        keyword_results = self.keyword_search(query, cfg.keyword_top_k)
+        vector_results = self.vector_search(query_embedding, cfg.vector_top_k, user_id)
+        keyword_results = self.keyword_search(query, cfg.keyword_top_k, user_id)
 
         merged: dict[str, dict[str, Any]] = {}
         for chunk, score in vector_results:
@@ -587,9 +610,9 @@ class SQLiteMemoryStore:
 
     # ---- File tracking ----
 
-    def get_file_hash(self, path: str) -> str | None:
+    def get_file_hash(self, path: str, user_id: str = "") -> str | None:
         row = self._conn.execute(
-            "SELECT hash FROM files WHERE path = ?", (path,)
+            "SELECT hash FROM files WHERE path = ? AND user_id = ?", (path, user_id)
         ).fetchone()
         if row is None:
             return None
@@ -597,12 +620,12 @@ class SQLiteMemoryStore:
 
     def set_file_hash(
         self, path: str, hash_val: str, source: str = "memory",
-        mtime_ms: float = 0.0, size: int = 0,
+        mtime_ms: float = 0.0, size: int = 0, user_id: str = "",
     ) -> None:
         self._conn.execute(
-            "INSERT OR REPLACE INTO files (path, source, hash, mtime_ms, size) "
-            "VALUES (?,?,?,?,?)",
-            (path, source, hash_val, mtime_ms, size),
+            "INSERT OR REPLACE INTO files (path, user_id, source, hash, mtime_ms, size) "
+            "VALUES (?,?,?,?,?,?)",
+            (path, user_id, source, hash_val, mtime_ms, size),
         )
         self._conn.commit()
 
@@ -674,7 +697,7 @@ class SQLiteMemoryStore:
 
     # ---- Atomic reindex ----
 
-    def safe_reindex(self, chunks: list[MemoryChunk], meta: IndexMeta) -> None:
+    def safe_reindex(self, chunks: list[MemoryChunk], meta: IndexMeta, user_id: str = "") -> None:
         temp_path = f"{self._db_path}.tmp-{uuid4().hex[:8]}"
         temp_store = SQLiteMemoryStore(temp_path, self._config, self._dimensions)
         try:

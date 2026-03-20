@@ -26,7 +26,18 @@ $Version = python -c "import tomllib, pathlib; d = tomllib.loads(pathlib.Path(r'
 $Version = $Version.Trim()
 Write-Host "[Version] $Version"
 
-# Build ark-agentic (core + CLI only, agents/app/static excluded via pyproject)
+# Build Studio frontend (dist/ force-included in wheel via pyproject.toml)
+$FrontendDir = Join-Path $RepoRoot "src/ark_agentic/studio/frontend"
+if (Test-Path (Join-Path $FrontendDir "package.json")) {
+    Write-Host "[Building] Studio frontend..."
+    Set-Location $FrontendDir
+    npm ci --ignore-scripts
+    npm run build
+    Set-Location $RepoRoot
+    Write-Host "[Done] Studio frontend built"
+}
+
+# Build ark-agentic wheel
 Write-Host "[Building] ark-agentic..."
 Set-Location $RepoRoot
 uv build --out-dir $DistDir

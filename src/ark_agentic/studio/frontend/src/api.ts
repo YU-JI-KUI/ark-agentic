@@ -110,6 +110,7 @@ export interface ToolMeta {
 
 export interface SessionItem {
     session_id: string
+    user_id: string
     message_count: number
     state: Record<string, unknown>
 }
@@ -203,11 +204,11 @@ export const api = {
     listSessions: (agentId: string) =>
         fetchJSON<{ sessions: SessionItem[] }>(`${API_BASE}/agents/${agentId}/sessions`).then(r => r.sessions),
 
-    getSessionDetail: (agentId: string, sessionId: string) =>
-        fetchJSON<SessionDetail>(`${API_BASE}/agents/${agentId}/sessions/${sessionId}`),
+    getSessionDetail: (agentId: string, sessionId: string, userId: string) =>
+        fetchJSON<SessionDetail>(`${API_BASE}/agents/${agentId}/sessions/${sessionId}?user_id=${encodeURIComponent(userId)}`),
 
-    getSessionRaw: async (agentId: string, sessionId: string): Promise<string> => {
-        const res = await fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw`)
+    getSessionRaw: async (agentId: string, sessionId: string, userId: string): Promise<string> => {
+        const res = await fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw?user_id=${encodeURIComponent(userId)}`)
         if (!res.ok) {
             const t = await res.text()
             throw new Error(`API Error ${res.status}: ${t}`)
@@ -215,8 +216,8 @@ export const api = {
         return res.text()
     },
 
-    putSessionRaw: (agentId: string, sessionId: string, body: string) =>
-        fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw`, {
+    putSessionRaw: (agentId: string, sessionId: string, userId: string, body: string) =>
+        fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw?user_id=${encodeURIComponent(userId)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'text/plain' },
             body,

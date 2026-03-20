@@ -24,7 +24,7 @@ BASE_CHUNK_RATIO = 0.4
 MIN_CHUNK_RATIO = 0.15
 
 # 默认摘要回退文本
-DEFAULT_SUMMARY_FALLBACK = "No prior history."
+DEFAULT_SUMMARY_FALLBACK = "暂无历史记录。"
 
 
 # ============ Token 估算 ============

@@ -30,6 +30,7 @@ class MemoryChunk:
     end_line: int
     text: str  # 原文内容
     source: MemorySource = MemorySource.MEMORY
+    user_id: str = ""  # 用户标识（shared DB 分区）
     embedding: list[float] | None = None  # 向量表示
     metadata: dict[str, Any] = field(default_factory=dict)
 

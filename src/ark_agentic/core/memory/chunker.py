@@ -29,7 +29,7 @@ class ChunkConfig:
     # 重叠大小（字符数）
     chunk_overlap: int = 50
     # 最小块大小
-    min_chunk_size: int = 50
+    min_chunk_size: int = 10
 
     # Markdown 分块策略
     split_by_heading: bool = True  # 按标题分割
@@ -46,6 +46,19 @@ def generate_chunk_id(path: str, start_line: int, content: str) -> str:
     return f"{path}:{start_line}:{content_hash}"
 
 
+def strip_frontmatter(text: str) -> str:
+    """剥离 YAML frontmatter（---...---），返回 body 部分。"""
+    if not text.startswith("---"):
+        return text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return text
+    rest = text[end + 4:]
+    if rest.startswith("\n"):
+        rest = rest[1:]
+    return rest
+
+
 class MarkdownChunker:
     """Markdown 文档分块器"""
 
@@ -59,6 +72,7 @@ class MarkdownChunker:
         source: MemorySource = MemorySource.MEMORY,
     ) -> list[MemoryChunk]:
         """分块文本"""
+        text = strip_frontmatter(text)
         if not text.strip():
             return []
 

@@ -26,7 +26,6 @@ from .templates import (
     MAIN_MODULE_TEMPLATE,
     PIP_CONF_TEMPLATE,
     PYPROJECT_TEMPLATE,
-    STUDIO_APP_TEMPLATE,
     TOOL_TEMPLATE,
 )
 
@@ -85,8 +84,7 @@ def _render_env_sample(llm_provider: str, package_name: str = "") -> str:
 def _cmd_init(args: argparse.Namespace) -> None:
     project_name: str = args.project_name
     package_name = _to_package_name(project_name)
-    include_api: bool = args.api or args.studio  # --studio implies --api
-    include_studio: bool = args.studio
+    include_api: bool = args.api
     include_memory: bool = args.memory
     llm_provider: str = args.llm_provider
 
@@ -116,37 +114,21 @@ def _cmd_init(args: argparse.Namespace) -> None:
         ark_dep=ark_dep,
     )
 
-    # pyproject.toml
     _write(root / "pyproject.toml", PYPROJECT_TEMPLATE.format(**fmt))
-
-    # pip.conf
     _write(root / "pip.conf", PIP_CONF_TEMPLATE)
-
-    # .env-sample
     _write(root / ".env-sample", _render_env_sample(llm_provider, package_name))
-
-    # src/<pkg>/__init__.py
     _write(src / "__init__.py", f'"""{project_name}"""\n')
-
-    # src/<pkg>/main.py
     _write(src / "main.py", MAIN_MODULE_TEMPLATE.format(**fmt))
-
-    # src/<pkg>/agents/__init__.py
     _write(src / "agents" / "__init__.py", "")
 
-    # default agent
     _write(default_agent / "__init__.py", AGENT_INIT_TEMPLATE.format(**fmt))
     _write(default_agent / "agent.py", AGENT_MODULE_TEMPLATE.format(**fmt))
     _write(default_agent / "tools" / "__init__.py", TOOL_TEMPLATE.format(**fmt))
     _touch(default_agent / "skills" / ".gitkeep")
+    _write(default_agent / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
 
-    # optional: API server
     if include_api:
-        if include_studio:
-            # Studio-aware app: uses ark-agentic registry pattern from app.py
-            _write(src / "app.py", STUDIO_APP_TEMPLATE.format(**fmt))
-        else:
-            _write(src / "api.py", API_APP_TEMPLATE.format(**fmt))
+        _write(src / "app.py", API_APP_TEMPLATE.format(**fmt))
         static_dest = src / "static"
         static_dest.mkdir(parents=True, exist_ok=True)
         try:
@@ -157,28 +139,16 @@ def _cmd_init(args: argparse.Namespace) -> None:
         except Exception:
             pass
 
-    # agent.json for Studio discovery
-    if include_studio:
-        _write(default_agent / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
-
-    # tests
     _write(tests_dir / "__init__.py", "")
 
-    print(f"✅ 项目 '{project_name}' 已创建")
-    if include_studio:
-        print()
-        print("📦 Studio 模式已启用:")
-        print(f"   app.py 生成: src/{package_name}/app.py")
-        print(f"   agent.json 生成: src/{package_name}/agents/default/agent.json")
-        print()
+    print(f"[OK] 项目 '{project_name}' 已创建")
     print()
     print("后续步骤:")
     print(f"  cd {project_name}")
     print("  uv pip install -e '.[server]'")
-    if include_studio:
-        print(f"  设置环境变量: ENABLE_STUDIO=true 和 AGENTS_ROOT=./src/{package_name}/agents")
+    if include_api:
         print(f"  uv run python -m {package_name}.app")
-        print("  访问 http://localhost:8080/studio 查看控制台")
+        print("  # 启用 Studio: 设置 ENABLE_STUDIO=true")
     else:
         print(f"  python -m {package_name}.main")
 
@@ -226,8 +196,9 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
     _write(agents_dir / "agent.py", AGENT_MODULE_TEMPLATE.format(**fmt))
     _write(agents_dir / "tools" / "__init__.py", TOOL_TEMPLATE.format(**fmt))
     _touch(agents_dir / "skills" / ".gitkeep")
+    _write(agents_dir / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
 
-    print(f"✅ 智能体 '{agent_name}' 已添加到 src/{package_name}/agents/{agent_name_snake}/")
+    print(f"[OK] 智能体 '{agent_name}' 已添加到 src/{package_name}/agents/{agent_name_snake}/")
 
 
 # ── version ──────────────────────────────────────────────────────────
@@ -248,8 +219,7 @@ def main() -> None:
     # init
     p_init = sub.add_parser("init", help="初始化新的智能体项目")
     p_init.add_argument("project_name", help="项目名称")
-    p_init.add_argument("--api", action="store_true", help="包含 FastAPI 服务模板")
-    p_init.add_argument("--studio", action="store_true", help="包含 Ark-Agentic Studio 管控台（自动启用 --api）")
+    p_init.add_argument("--api", action="store_true", help="包含 FastAPI 服务模板（含 Studio 支持）")
     p_init.add_argument("--memory", action="store_true", help="包含记忆系统配置")
     p_init.add_argument(
         "--llm-provider",
