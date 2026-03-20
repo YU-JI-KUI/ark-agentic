@@ -6,6 +6,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 # 添加项目路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
@@ -54,8 +56,9 @@ async def test_mock_loader():
     print("\n✅ Mock 数据加载器测试通过!\n")
 
 
-async def test_service_adapter():
-    """测试服务适配器"""
+async def test_service_adapter(monkeypatch: pytest.MonkeyPatch):
+    """测试服务适配器（mock 由 SECURITIES_SERVICE_MOCK 控制）"""
+    monkeypatch.setenv("SECURITIES_SERVICE_MOCK", "true")
     print("=" * 60)
     print("测试 2: 服务适配器")
     print("=" * 60)

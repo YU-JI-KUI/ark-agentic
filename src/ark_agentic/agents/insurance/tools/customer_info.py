@@ -89,4 +89,5 @@ class CustomerInfoTool(AgentTool):
             logger.error(f"customer_info API error: {exc}")
             return AgentToolResult.error_result(tool_call.id, str(exc))
 
-        return AgentToolResult.json_result(tool_call.id, result)
+        metadata = {"state_delta": {"_customer_info_result": result}}
+        return AgentToolResult.json_result(tool_call.id, result, metadata=metadata)

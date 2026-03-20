@@ -936,6 +936,7 @@
 
   </div><!-- /app -->
 
+  <script src="/static/a2ui-renderer.js"></script>
   <script>
     (function () {
       'use strict';
@@ -1282,7 +1283,27 @@
                 const comp = event.ui_component;
                 if (comp && a2uiContainer) {
                   a2uiContainer.classList.remove('hidden');
-                  a2uiContainer.appendChild(renderA2UIComponent(comp));
+                  try {
+                    A2UIRenderer.render(a2uiContainer, comp, {
+                      onAction: function(name, args) {
+                        if (name === 'query') {
+                          var query = typeof args === 'object' ? (args.queryMsg || '') : String(args);
+                          if (query) { $input.value = query; sendMessage(); }
+                        } else if (name === 'openLink') {
+                          var url = typeof args === 'object' ? (args.url || '') : String(args);
+                          if (url) window.open(url, '_blank', 'noopener');
+                        } else {
+                          console.log('[A2UI action]', name, args);
+                        }
+                      }
+                    });
+                  } catch (err) {
+                    console.error('[A2UI] render error:', err);
+                    var pre = document.createElement('pre');
+                    pre.className = 'a2ui-fallback';
+                    pre.textContent = JSON.stringify(comp, null, 2);
+                    a2uiContainer.appendChild(pre);
+                  }
                   scrollToBottom();
                 }
                 break;

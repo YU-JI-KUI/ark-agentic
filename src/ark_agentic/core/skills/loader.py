@@ -60,20 +60,30 @@ class SkillLoader:
         return self._skills
 
     def _load_directory(self, directory: Path, priority: int) -> None:
-        """加载单个目录下的所有技能"""
-        # 遍历子目录，每个子目录是一个技能
+        """加载单个目录下的所有技能
+
+        File-based mode selection:
+        - a2ui_mode=dynamic + SKILL_DYNAMIC_UI.md exists -> load that
+        - otherwise -> load SKILL.md
+        - neither exists -> skip
+        """
         for item in directory.iterdir():
             if not item.is_dir():
                 continue
 
-            skill_file = item / "SKILL.md"
-            if not skill_file.exists():
+            dynamic_file = item / "SKILL_DYNAMIC_UI.md"
+            default_file = item / "SKILL.md"
+
+            if self.config.a2ui_mode == "dynamic" and dynamic_file.exists():
+                skill_file = dynamic_file
+            elif default_file.exists():
+                skill_file = default_file
+            else:
                 continue
 
             try:
                 skill = self._load_skill_file(skill_file, item.name, priority)
                 if skill:
-                    # 如果已存在同 ID 的技能，检查优先级
                     existing = self._skills.get(skill.id)
                     if existing is None or priority < existing.source_priority:
                         self._skills[skill.id] = skill
@@ -124,7 +134,7 @@ class SkillLoader:
             logger.warning(f"Failed to parse frontmatter: {e}")
             frontmatter = {}
 
-        body = content[match.end() :]
+        body = content[match.end():]
         return frontmatter, body
 
     def _build_metadata(
@@ -150,6 +160,7 @@ class SkillLoader:
             required_tools=frontmatter.get("required_tools"),
             group=frontmatter.get("group"),
             tags=frontmatter.get("tags", []),
+            a2ui_mode=frontmatter.get("a2ui_mode"),
         )
 
     def get_skill(self, skill_id: str) -> SkillEntry | None:

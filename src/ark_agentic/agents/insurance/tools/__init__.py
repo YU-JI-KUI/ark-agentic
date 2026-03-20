@@ -7,12 +7,12 @@
 - PolicyQueryTool: 保单查询（列表、详情、现金价值、可取款额度）
 - RuleEngineTool: 规则引擎（计算取款方案、比较方案）
 - CustomerInfoTool: 客户信息（身份、联系方式、受益人、交易历史）
-- RenderCardTool: 通用 A2UI 渲染卡片（card_type=withdraw_summary 等）
+- RenderA2UITool: 统一 A2UI 渲染（blocks 动态组合 / card_type 模板加载）
 """
 
 from pathlib import Path
 
-from ark_agentic.core.tools import RenderCardTool
+from ark_agentic.core.tools import RenderA2UITool
 
 from ..a2ui.extractors import withdraw_summary_extractor, withdraw_plan_extractor, policy_detail_extractor
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
@@ -28,8 +28,8 @@ _CARD_EXTRACTORS = {
 }
 
 
-def _create_render_card_tool() -> RenderCardTool:
-    return RenderCardTool(
+def _create_render_a2ui_tool() -> RenderA2UITool:
+    return RenderA2UITool(
         template_root=_A2UI_TEMPLATE_ROOT,
         extractors=_CARD_EXTRACTORS,
         group="insurance",
@@ -43,7 +43,7 @@ __all__ = [
     "PolicyQueryTool",
     "RuleEngineTool",
     "CustomerInfoTool",
-    "RenderCardTool",
+    "RenderA2UITool",
     "create_insurance_tools",
     "create_insurance_tools_minimal",
 ]
@@ -52,18 +52,13 @@ __all__ = [
 def create_insurance_tools(
     data_client: DataServiceClient | None = None,
 ) -> list:
-    """创建保险工具集合（完整版）
-
-    Args:
-        data_client: 可选的 DataServiceClient 实例。
-                     不传则使用全局单例（从环境变量读取配置）。
-    """
+    """创建保险工具集合（完整版）"""
     client = data_client or get_data_service_client()
     return [
         PolicyQueryTool(client=client),
         RuleEngineTool(client=client),
         CustomerInfoTool(client=client),
-        _create_render_card_tool(),
+        _create_render_a2ui_tool(),
     ]
 
 
@@ -75,5 +70,5 @@ def create_insurance_tools_minimal(
     return [
         PolicyQueryTool(client=client),
         RuleEngineTool(client=client),
-        _create_render_card_tool(),
+        _create_render_a2ui_tool(),
     ]

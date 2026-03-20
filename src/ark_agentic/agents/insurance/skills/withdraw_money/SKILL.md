@@ -11,7 +11,7 @@ tags:
 required_tools:
   - customer_info
   - rule_engine
-  - render_card
+  - render_a2ui
 ---
 
 # 保险取款技能

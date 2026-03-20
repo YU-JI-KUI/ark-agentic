@@ -88,4 +88,5 @@ class PolicyQueryTool(AgentTool):
             logger.error(f"policy_query API error: {exc}")
             return AgentToolResult.error_result(tool_call.id, str(exc))
 
-        return AgentToolResult.json_result(tool_call.id, result)
+        metadata = {"state_delta": {"_policy_query_result": result}}
+        return AgentToolResult.json_result(tool_call.id, result, metadata=metadata)

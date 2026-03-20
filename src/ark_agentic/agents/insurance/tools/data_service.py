@@ -282,6 +282,7 @@ class MockDataServiceClient:
                         "payment_years": 20,
                         "paid_years": 5,
                         "sum_insured": 500000,
+                        "account_value": 0,
                         "bounusAmt": 0,
                         "loanAmt": 33600,
                         "survivalFundAmt": 0,

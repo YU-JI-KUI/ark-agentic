@@ -207,6 +207,9 @@ class SkillMetadata:
     # 何时使用（简短说明，用于“是否加载该技能”决策）
     when_to_use: str | None = None
 
+    # A2UI 渲染模式约束 (preset/dynamic/None=any mode)
+    a2ui_mode: str | None = None
+
 
 @dataclass
 class SkillEntry:
@@ -251,6 +254,7 @@ class RunOptions(_PydanticBaseModel):
     用于 API 层按请求覆盖模型和温度。
     技能加载模式由 SkillConfig.default_load_mode 在 Agent 级别配置,
     不在单次请求中指定。
+    A2UI 渲染模式由 RunnerConfig.a2ui_mode (环境变量 A2UI_MODE) 在 Agent 级别配置。
     """
 
     model: str | None = _Field(None, description="模型名称覆盖")
