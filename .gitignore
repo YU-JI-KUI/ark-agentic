@@ -34,3 +34,8 @@ CLAUDE.md
 # Sessions
 data/ark_securities
 data/ark_sessions
+data/ark_sessions
+
+docs/plans
+node_modules/
+models/
