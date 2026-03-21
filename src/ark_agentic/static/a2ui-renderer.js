@@ -331,10 +331,8 @@
 
     el.textContent = resolveValue(props.text, ctx.scopeData, ctx.data);
 
-    if (props.width !== undefined)
-      el.style.width = typeof props.width === 'number' ? props.width + '%' : props.width;
-
     attachButtonBehavior(el, props, ctx);
+    applyCommonProps(el, props, ctx.data);
     return el;
   }
 
@@ -565,7 +563,13 @@
       if (emptyEl) el.appendChild(emptyEl);
     } else {
       arr.forEach(function (item) {
-        var itemCtx = makeCtx(ctx.surface, { item: item }, ctx.onAction);
+        // Preset templates bind as path:"label"; dynamic blocks bind as path:"item.label".
+        // Merge both: spread item's own keys + keep item.* prefix for backwards compat.
+        var rowScope =
+          item !== null && typeof item === 'object' && !Array.isArray(item)
+            ? Object.assign({}, item, { item: item })
+            : { item: item };
+        var itemCtx = makeCtx(ctx.surface, rowScope, ctx.onAction);
         var childEl = renderNode(props.child, itemCtx);
         if (childEl) el.appendChild(childEl);
       });

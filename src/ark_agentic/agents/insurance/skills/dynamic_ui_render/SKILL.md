@@ -1,7 +1,7 @@
 ---
 name: 动态UI渲染参考
 description: render_a2ui 块类型和 Transform DSL 语法参考。不直接触发，仅供其他技能引用。
-version: "5.0.0"
+version: "6.0.0"
 invocation_policy: always
 group: insurance
 tags:
@@ -27,7 +27,6 @@ required_tools:
 | `InfoCard` | `title, body` | 简单信息卡片 |
 | `AdviceCard` | `icon?, title, texts[]` | 建议/提示卡片 |
 | `KeyValueList` | `items` 或 `rowCount + rowPrefix` | 独立 label:value 列表 |
-| ~~`DataTable`~~ | ~~`columns[], data`~~ | ~~表格~~ **已废弃，用 SectionCard 堆叠替代** |
 | `ItemList` | `items, titleField, tagField?, valueField, subtitleField?` | 项目列表 |
 | `ActionButton` | `text, action, variant?` | 主操作按钮 |
 | `ButtonGroup` | `buttons[]` | 多按钮行 |
@@ -45,13 +44,17 @@ required_tools:
 
 ### 数据绑定
 
-- `"$field_name"` → 引用 transforms 计算出的字段
-- 纯字符串 → 静态值
+block data 的值可以是：
+
+- **纯字符串/数字** → 直接使用（静态值）
+- **Transform spec 对象** → 运行时由 BlockComposer 求值
+
+Transform spec 直接写在 block data 的值位置，不需要单独的 `transforms` 参数。
 
 ### Action 格式
 
 ```json
-{"name": "query", "args": "$action_args"}
+{"name": "query", "args": {"queryMsg": "用户点击后发送的文本"}}
 ```
 
 ## Transform DSL
@@ -80,9 +83,15 @@ Where 条件：`{"field": "> 0"}`，`{"or": [{...}, {...}]}`
 
 ```
 blocks=[
-  {"type": "SummaryHeader", "data": {"title": "$title", "value": "$summary"}},
-  {"type": "SectionCard", "data": {"title": "$r1_name", "tag": "$r1_id", "total": "$r1_total", "items": "$r1_items"}},
-  {"type": "SectionCard", "data": {"title": "$r2_name", "tag": "$r2_id", "total": "$r2_total", "items": "$r2_items"}}
+  {"type": "SummaryHeader", "data": {"title": {"literal": "总览"}, "value": {"get": "total", "format": "currency"}}},
+  {"type": "SectionCard", "data": {"title": {"get": "records[0].name"}, "tag": {"get": "records[0].id"}, "total": {"get": "records[0].amount", "format": "currency"}, "items": [
+    {"label": "明细A", "value": {"get": "records[0].detail_a", "format": "currency"}},
+    {"label": "明细B", "value": {"get": "records[0].detail_b", "format": "currency"}}
+  ]}},
+  {"type": "SectionCard", "data": {"title": {"get": "records[1].name"}, "tag": {"get": "records[1].id"}, "total": {"get": "records[1].amount", "format": "currency"}, "items": [
+    {"label": "明细A", "value": {"get": "records[1].detail_a", "format": "currency"}},
+    {"label": "明细B", "value": {"get": "records[1].detail_b", "format": "currency"}}
+  ]}}
 ]
 ```
 
@@ -94,16 +103,35 @@ blocks=[
 
 ```
 blocks=[
-  {"type": "SummaryHeader", "data": {"title": "$goal", "value": "$amount"}},
-  {"type": "SectionCard", "data": {"title": "$plan1_title", "tag": "$plan1_tag", "total": "$plan1_total", "items": "$plan1_items"}},
-  {"type": "ActionButton", "data": {"text": "$plan1_btn", "action": {"name": "query", "args": "$plan1_action"}}},
-  {"type": "SectionCard", "data": {"title": "$plan2_title", "tag": "$plan2_tag", "total": "$plan2_total", "items": "$plan2_items"}},
-  {"type": "ActionButton", "data": {"text": "$plan2_btn", "action": {"name": "query", "args": "$plan2_action"}}},
-  {"type": "AdviceCard", "data": {"icon": "💡", "title": "$advice", "texts": ["$tip1"]}}
+  {"type": "SummaryHeader", "data": {"title": {"literal": "本次取款目标"}, "value": {"get": "requested_amount", "format": "currency"}}},
+  {"type": "SectionCard", "data": {"title": {"literal": "方案一 ⭐ 推荐"}, "tag": {"literal": "零成本"}, "total": {"literal": "方案总额"}, "items": [
+    {"label": "POL002 金瑞人生 · 生存金", "value": {"get": "options[0].survival_fund_amt", "format": "currency"}},
+    {"label": "POL002 金瑞人生 · 红利", "value": {"get": "options[0].bonus_amt", "format": "currency"}}
+  ]}},
+  {"type": "ActionButton", "data": {"text": {"literal": "一键领取 (方案一)"}, "action": {"name": "query", "args": {"queryMsg": "确认方案一"}}}},
+  {"type": "AdviceCard", "data": {"icon": "💡", "title": {"literal": "建议"}, "texts": [{"literal": "• 推荐方案一，零成本不影响保障。"}]}}
 ]
 ```
 
 **关键**：每个方案是紧邻的 `SectionCard` + `ActionButton` 对。方案数由 LLM 根据业务逻辑决定（通常 2-3 个）。
+
+### items 数组规则
+
+当 items 数组内的值包含 transform spec（如 `{"get": ...}`），数组必须是**裸数组**，不能用 `{"literal": [...]}` 包裹：
+
+```python
+# 错误 — literal 内的 transform spec 不会被解析
+"items": {"literal": [
+  {"label": "生存金", "value": {"get": "amt", "format": "currency"}}
+]}
+
+# 正确 — 裸数组，composer 递归解析每个值
+"items": [
+  {"label": "生存金", "value": {"get": "amt", "format": "currency"}}
+]
+```
+
+纯静态数组（值中无 transform spec）可以用 `{"literal": [...]}`。
 
 ## 数字安全规则
 
@@ -118,6 +146,5 @@ blocks=[
 
 **正确示例** ✓
 ```json
-{"type": "SummaryHeader", "data": {"value": "$total_value"}}
-// transforms: {"total_value": {"get": "total_available_incl_loan", "format": "currency"}}
+{"type": "SummaryHeader", "data": {"value": {"get": "total_available_incl_loan", "format": "currency"}}}
 ```

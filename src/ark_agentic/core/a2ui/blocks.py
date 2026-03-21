@@ -10,7 +10,10 @@ Design tokens are extracted from the canonical sample:
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Design tokens  (single source of truth for all block styles)
@@ -39,6 +42,9 @@ KV_ROW_WIDTH = 98
 IdGen = Callable[[str], str]
 
 
+_TRANSFORM_OPS = frozenset({"get", "sum", "count", "concat", "select", "switch", "literal"})
+
+
 def resolve_binding(value: Any) -> Any:
     """Expand $field shorthand to standard A2UI binding format."""
     if isinstance(value, str) and value.startswith("$"):
@@ -50,6 +56,9 @@ def resolve_binding(value: Any) -> Any:
     if isinstance(value, (bool, int, float, list)):
         return {"literalString": value}
     if isinstance(value, dict):
+        if _TRANSFORM_OPS & value.keys():
+            logger.warning("Unresolved transform spec in resolve_binding: %s", value)
+            return {"literalString": "[数据计算失败]"}
         return {"literalString": value}
     return value
 

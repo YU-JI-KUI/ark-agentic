@@ -47,6 +47,7 @@ class RenderA2UITool(AgentTool):
     """
 
     name = "render_a2ui"
+    thinking_hint = "正在生成内容卡片..."
     description = (
         "渲染 A2UI 卡片。"
         "blocks 模式：传入块描述数组动态组合；"

@@ -174,6 +174,8 @@ def _eval_condition(item: dict[str, Any], where: dict[str, str]) -> bool:
 
 def _filter_array(data: dict[str, Any], array_path: str, where: dict[str, str] | None) -> list[dict[str, Any]]:
     arr = _resolve_path(data, array_path)
+    if isinstance(arr, dict):
+        arr = [arr]
     if not isinstance(arr, list):
         raise TransformError(f"'{array_path}' 不是数组", operator="filter", field=array_path)
     if where is None:
