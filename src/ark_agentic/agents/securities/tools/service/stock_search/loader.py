@@ -1,8 +1,8 @@
 """StockLoader：加载股票列表并提供分红信息
 
 加载优先级（股票基础数据）：
-  1. 外部 CSV 路径（可配置）
-  2. 项目 data/stocks/a_shares_seed.csv（内置种子）
+  1. 环境变量 STOCKS_CSV_PATH（显式指定）
+  2. agents/securities/mock_data/stocks/a_shares_seed.csv（内置种子，随包发布）
 
 分红信息获取策略：
   - SECURITIES_SERVICE_MOCK=true  → 从内置 Mock 字典返回
@@ -20,8 +20,13 @@ from typing import Any
 from .index import StockIndex
 from .models import DividendInfo
 
-# ── 内置种子文件路径 ──────────────────────────────────────────────
-_SEED_FILE = Path(__file__).parent.parent.parent.parent.parent.parent.parent.parent / "data" / "stocks" / "a_shares_seed.csv"
+# ── 内置种子：stock_search/ → service/ → tools/ → securities/ ──
+_SEED_FILE = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "mock_data"
+    / "stocks"
+    / "a_shares_seed.csv"
+)
 
 # ── Mock 分红数据（部分典型高股息股票） ────────────────────────────
 _MOCK_DIVIDEND: dict[str, dict[str, str]] = {

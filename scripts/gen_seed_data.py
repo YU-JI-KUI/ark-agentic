@@ -1130,8 +1130,16 @@ for s in stocks:
         seen.add(s[0])
         unique_stocks.append(s)
 
-os.makedirs("data/stocks", exist_ok=True)
-output_path = "data/stocks/a_shares_seed.csv"
+output_path = os.path.join(
+    "src",
+    "ark_agentic",
+    "agents",
+    "securities",
+    "mock_data",
+    "stocks",
+    "a_shares_seed.csv",
+)
+os.makedirs(os.path.dirname(output_path), exist_ok=True)
 with open(output_path, "w", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
     writer.writerow(["code", "name", "exchange"])

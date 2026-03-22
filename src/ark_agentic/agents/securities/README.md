@@ -727,7 +727,7 @@ uv add rapidfuzz pypinyin
 
 ### 数据来源
 
-- **股票基础信息**：内置种子数据 `data/stocks/a_shares_seed.csv`（覆盖沪深北三市主要个股）
+- **股票基础信息**：内置种子数据 `mock_data/stocks/a_shares_seed.csv`（相对 `agents/securities/`，覆盖沪深北三市主要个股）
 - **自定义数据**：设置环境变量 `STOCKS_CSV_PATH=/path/to/stocks.csv` 可替换为完整 A 股列表
 - **分红信息**：Mock 模式（`SECURITIES_SERVICE_MOCK=true`）返回内置数据；生产模式返回 `null`，由外部服务补充
 
