@@ -1,14 +1,14 @@
-"""Tests for insurance a2ui extractors (withdraw_summary, withdraw_plan, policy_detail) and A2UI template compliance."""
+"""Tests for template_extractors (+ withdraw_a2ui_utils via those paths) and A2UI template compliance."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from ark_agentic.agents.insurance.a2ui.extractors import (
-    withdraw_summary_extractor,
-    withdraw_plan_extractor,
+from ark_agentic.agents.insurance.a2ui.template_extractors import (
     policy_detail_extractor,
+    withdraw_plan_extractor,
+    withdraw_summary_extractor,
 )
 
 
@@ -937,7 +937,7 @@ async def test_insurance_render_a2ui_all_three_types_render_successfully(
     """RenderA2UITool with real insurance extractors + templates for all 3 card_types."""
     from pathlib import Path
 
-    from ark_agentic.agents.insurance.a2ui.extractors import (
+    from ark_agentic.agents.insurance.a2ui.template_extractors import (
         policy_detail_extractor,
         withdraw_plan_extractor,
         withdraw_summary_extractor,

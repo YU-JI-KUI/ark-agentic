@@ -172,9 +172,11 @@ class TestExtractAccountOverview:
         assert result["total_assets"] == "333678978.13"
         assert result["cash_balance"] == "100815068.13"
         assert result["stock_market_value"] == "233663910.00"
-        assert result["net_assets"] == "332733488.56"
-        assert result["total_liabilities"] == "945497.57"
-        assert result["maintenance_margin_ratio"] == "35291.35"
+        rzrq = result.get("rzrq_assets_info")
+        assert isinstance(rzrq, dict)
+        assert rzrq.get("netWorth") == "332733488.56"
+        assert rzrq.get("totalLiabilities") == "945497.57"
+        assert rzrq.get("mainRatio") == "35291.35"
 
     def test_extract_with_null_nested_object(self):
         """Test extraction when nested object is null."""
@@ -210,7 +212,7 @@ class TestFieldMappingConfiguration:
         """Test field mapping paths are correct."""
         assert ACCOUNT_OVERVIEW_FIELD_MAPPING["total_assets"] == "results.rmb.totalAssetVal"
         assert ACCOUNT_OVERVIEW_FIELD_MAPPING["cash_balance"] == "results.rmb.cashGainAssetsInfo.cashBalance"
-        assert ACCOUNT_OVERVIEW_FIELD_MAPPING["net_assets"] == "results.rmb.rzrqAssetsInfo.netWorth"
+        assert ACCOUNT_OVERVIEW_FIELD_MAPPING["rzrq_assets_info"] == "results.rmb.rzrqAssetsInfo"
 
     def test_service_field_mappings_registered(self):
         """Test that service field mappings are registered."""

@@ -38,9 +38,8 @@ async def test_account_overview_context_injection():
     # 使用字段提取工具提取显示字段
     extracted = extract_account_overview(data)
     
-    # 普通账户不应该有两融特有字段
-    assert extracted.get("net_assets") is None
-    assert extracted.get("maintenance_margin_ratio") is None
+    # 普通账户不应带出 rzrq 块（空则不出现在 extract 结果中）
+    assert "rzrq_assets_info" not in extracted
     
     # 2. Test Margin Account (扁平 context)
     tool_call = ToolCall(id="test_margin", name="account_overview", arguments={})
@@ -59,14 +58,15 @@ async def test_account_overview_context_injection():
     # 使用字段提取工具提取显示字段
     extracted_margin = extract_account_overview(data_margin)
     
-    # 两融账户应该有特有字段
-    assert extracted_margin.get("net_assets") is not None
-    assert extracted_margin.get("total_liabilities") is not None
-    assert extracted_margin.get("maintenance_margin_ratio") is not None
-    
-    print(f"Net Assets: {extracted_margin.get('net_assets')}")
-    print(f"Total Liabilities: {extracted_margin.get('total_liabilities')}")
-    print(f"Maintenance Margin Ratio: {extracted_margin.get('maintenance_margin_ratio')}")
+    rzrq = extracted_margin.get("rzrq_assets_info")
+    assert isinstance(rzrq, dict)
+    assert rzrq.get("netWorth")
+    assert rzrq.get("totalLiabilities")
+    assert rzrq.get("mainRatio")
+
+    print(f"rzrq netWorth: {rzrq.get('netWorth')}")
+    print(f"rzrq totalLiabilities: {rzrq.get('totalLiabilities')}")
+    print(f"rzrq mainRatio: {rzrq.get('mainRatio')}")
 
 
 
@@ -90,10 +90,10 @@ async def test_account_overview_prefixed_context_injection():
     # 使用字段提取工具提取显示字段
     extracted = extract_account_overview(data)
 
-    # 两融账户应具备特有字段；若未正确读取 user:account_type 会退化为普通账户
-    assert extracted.get("net_assets") is not None
-    assert extracted.get("total_liabilities") is not None
-    assert extracted.get("maintenance_margin_ratio") is not None
+    rzrq = extracted.get("rzrq_assets_info")
+    assert isinstance(rzrq, dict), "若未正确读取 user:account_type 会退化为普通账户，rzrq 缺失"
+    assert rzrq.get("netWorth")
+    assert rzrq.get("totalLiabilities")
 
 
 if __name__ == "__main__":

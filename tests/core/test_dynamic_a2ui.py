@@ -369,7 +369,14 @@ class TestSoftValidation:
 class TestRenderA2UITool:
     @pytest.fixture
     def tool(self):
-        return RenderA2UITool(group="insurance")
+        from ark_agentic.agents.insurance.a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
+        return RenderA2UITool(
+            agent_blocks=INSURANCE_BLOCKS,
+            agent_components=INSURANCE_COMPONENTS,
+            root_gap=16,
+            root_padding=[16, 32, 16, 16],
+            group="insurance",
+        )
 
     @pytest.fixture
     def ctx(self):
@@ -381,10 +388,12 @@ class TestRenderA2UITool:
     @pytest.mark.asyncio
     async def test_basic_render(self, tool, ctx):
         blocks = json.dumps([
-            {"type": "InfoCard", "data": {
-                "title": "Total",
-                "body": {"get": "total_available_incl_loan", "format": "currency"},
-            }},
+            {"type": "Card", "data": {"children": [
+                {"type": "KVRow", "data": {
+                    "label": "Total",
+                    "value": {"get": "total_available_incl_loan", "format": "currency"},
+                }},
+            ]}},
         ])
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
@@ -410,7 +419,6 @@ class TestRenderA2UITool:
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
-        assert result.content["data"] == {}
 
     @pytest.mark.asyncio
     async def test_unknown_block_type_error(self, tool, ctx):
@@ -729,7 +737,12 @@ class TestFlatFormatTolerance:
 class TestStrictValidationMode:
     @pytest.fixture
     def tool(self):
-        return RenderA2UITool(group="insurance")
+        from ark_agentic.agents.insurance.a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
+        return RenderA2UITool(
+            agent_blocks=INSURANCE_BLOCKS,
+            agent_components=INSURANCE_COMPONENTS,
+            group="insurance",
+        )
 
     @pytest.fixture
     def ctx(self):

@@ -34,9 +34,9 @@ def test_template_renderer():
         "update_time": "2026-02-16 15:00:00",
     }
     template = TemplateRenderer.render_account_overview_card(data)
-    assert template["template_type"] == "account_overview_card"
-    assert template["data"]["total_assets"] == "1250000.50"
-    print(f"   ✓ template_type={template['template_type']}")
+    assert template["template"] == "queryAccountAssetResultTpl"
+    assert template["data"]["assetData"]["totalAssetVal"] == "1250000.50"
+    print(f"   ✓ template={template['template']}")
 
     # 测试 2: holdings_list_card
     print("\n2. 测试 holdings_list_card...")
@@ -45,24 +45,24 @@ def test_template_renderer():
         "summary": {"total_value": "48000"},
     }
     template = TemplateRenderer.render_holdings_list_card("ETF", data)
-    assert template["template_type"] == "holdings_list_card"
-    assert template["asset_class"] == "ETF"
+    assert template["template"] == "holdings_list_card"
+    assert template["assetClass"] == "ETF"
     assert len(template["data"]["holdings"]) == 1
-    print(f"   ✓ template_type={template['template_type']}, asset_class={template['asset_class']}")
+    print(f"   ✓ template={template['template']}, assetClass={template['assetClass']}")
 
     # 测试 3: cash_assets_card
     print("\n3. 测试 cash_assets_card...")
     data = {"available_cash": "50000", "frozen_cash": "0", "total_cash": "50000"}
     template = TemplateRenderer.render_cash_assets_card(data)
-    assert template["template_type"] == "cash_assets_card"
-    print(f"   ✓ template_type={template['template_type']}")
+    assert template["template"] == "cash_assets_card"
+    print(f"   ✓ template={template['template']}")
 
     # 测试 4: security_detail_card
     print("\n4. 测试 security_detail_card...")
     data = {"security_code": "510300", "security_name": "沪深300ETF"}
     template = TemplateRenderer.render_security_detail_card(data)
-    assert template["template_type"] == "security_detail_card"
-    print(f"   ✓ template_type={template['template_type']}")
+    assert template["template"] == "security_detail_card"
+    print(f"   ✓ template={template['template']}")
 
     print("\n" + "=" * 60)
     print("✅ TemplateRenderer 测试通过！")
@@ -80,8 +80,8 @@ def test_tool_result_carries_template():
 
     # 模拟工具返回（与 etf_holdings.py 等工具的实际行为一致）
     template = {
-        "template_type": "holdings_list_card",
-        "asset_class": "ETF",
+        "template": "holdings_list_card",
+        "assetClass": "ETF",
         "data": {"holdings": [], "summary": {}},
     }
     result = AgentToolResult.json_result(
@@ -92,13 +92,13 @@ def test_tool_result_carries_template():
 
     # 验证 metadata 中包含 template
     assert "template" in result.metadata
-    assert result.metadata["template"]["template_type"] == "holdings_list_card"
-    print("   ✓ metadata.template 存在且 template_type 正确")
+    assert result.metadata["template"]["template"] == "holdings_list_card"
+    print("   ✓ metadata.template 存在且 template 键正确")
 
     # 验证模板提取逻辑（与 app.py run_agent() 中的逻辑一致）
     extracted = result.metadata.get("template") if result.metadata else None
     assert extracted is not None
-    assert isinstance(extracted, dict) and "template_type" in extracted
+    assert isinstance(extracted, dict) and "template" in extracted
     print("   ✓ 模板提取逻辑验证通过")
 
     print("\n" + "=" * 60)
@@ -116,8 +116,8 @@ def test_sse_event_model():
     from ark_agentic.api.models import SSEEvent
 
     template = {
-        "template_type": "account_overview_card",
-        "data": {"total_assets": 1000000.00},
+        "template": "queryAccountAssetResultTpl",
+        "data": {"assetData": {"totalAssetVal": "1000000.00"}},
     }
     event = SSEEvent(
         type="response.template",
@@ -131,9 +131,9 @@ def test_sse_event_model():
     serialized = event.model_dump_json(exclude_none=True)
     parsed = json.loads(serialized)
     assert parsed["type"] == "response.template"
-    assert parsed["template"]["template_type"] == "account_overview_card"
+    assert parsed["template"]["template"] == "queryAccountAssetResultTpl"
     print(f"   ✓ SSE event type={parsed['type']}")
-    print(f"   ✓ template_type={parsed['template']['template_type']}")
+    print(f"   ✓ template={parsed['template']['template']}")
 
     print("\n" + "=" * 60)
     print("✅ SSE 事件模型测试通过！")
@@ -176,12 +176,12 @@ def test_display_card_tool():
     assert not result.is_error, f"DisplayCardTool 返回了错误: {result.content}"
     assert result.result_type == ToolResultType.A2UI
     template = result.content
-    assert template["template_type"] == "holdings_list_card"
-    assert template["asset_class"] == "ETF"
+    assert template["template"] == "holdings_list_card"
+    assert template["assetClass"] == "ETF"
     # stock_list 被 render_holdings_list_card 转换为 holdings
     assert len(template["data"]["holdings"]) == 1
     print("   ✓ 成功从 context 读取 etf_holdings 结果")
-    print(f"   ✓ template_type={template['template_type']}, asset_class={template['asset_class']}")
+    print(f"   ✓ template={template['template']}, assetClass={template['assetClass']}")
 
     # 测试未找到数据的情况：display_card 返回错误，要求先调用数据工具
     tc_bad = ToolCall.create(name="display_card", arguments={"source_tool": "hksc_holdings"})

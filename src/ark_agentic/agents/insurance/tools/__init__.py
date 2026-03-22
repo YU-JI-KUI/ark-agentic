@@ -14,7 +14,12 @@ from pathlib import Path
 
 from ark_agentic.core.tools import RenderA2UITool
 
-from ..a2ui.extractors import withdraw_summary_extractor, withdraw_plan_extractor, policy_detail_extractor
+from ..a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
+from ..a2ui.template_extractors import (
+    policy_detail_extractor,
+    withdraw_plan_extractor,
+    withdraw_summary_extractor,
+)
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
@@ -32,6 +37,10 @@ def _create_render_a2ui_tool() -> RenderA2UITool:
     return RenderA2UITool(
         template_root=_A2UI_TEMPLATE_ROOT,
         extractors=_CARD_EXTRACTORS,
+        agent_blocks=INSURANCE_BLOCKS,
+        agent_components=INSURANCE_COMPONENTS,
+        root_gap=16,
+        root_padding=[16, 32, 16, 16],
         group="insurance",
     )
 

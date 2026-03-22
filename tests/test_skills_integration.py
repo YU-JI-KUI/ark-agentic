@@ -47,8 +47,8 @@ async def test_account_overview_data_and_card():
     # 卡片工具返回 A2UI 模板
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "account_overview_card"
-    assert "data" in template
+    assert template["template"] == "queryAccountAssetResultTpl"
+    assert "assetData" in template["data"]
 
 
 @pytest.mark.asyncio
@@ -74,8 +74,8 @@ async def test_etf_holdings_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "holdings_list_card"
-    assert template["asset_class"] == "ETF"
+    assert template["template"] == "holdings_list_card"
+    assert template["assetClass"] == "ETF"
 
 
 @pytest.mark.asyncio
@@ -101,8 +101,8 @@ async def test_hksc_holdings_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "holdings_list_card"
-    assert template["asset_class"] == "HKSC"
+    assert template["template"] == "holdings_list_card"
+    assert template["assetClass"] == "HKSC"
 
 
 @pytest.mark.asyncio
@@ -128,8 +128,8 @@ async def test_fund_holdings_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "holdings_list_card"
-    assert template["asset_class"] == "Fund"
+    assert template["template"] == "holdings_list_card"
+    assert template["assetClass"] == "Fund"
 
 
 @pytest.mark.asyncio
@@ -155,8 +155,8 @@ async def test_cash_assets_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "cash_assets_card"
-    assert "cash_balance" in template["data"]
+    assert template["template"] == "cash_assets_card"
+    assert "cashBalance" in template["data"]
 
 
 @pytest.mark.asyncio
@@ -182,5 +182,5 @@ async def test_security_detail_data_and_card():
 
     assert card_result.result_type == ToolResultType.A2UI
     template = card_result.content
-    assert template["template_type"] == "security_detail_card"
-    assert template["data"]["security_code"] == "510300"
+    assert template["template"] == "security_detail_card"
+    assert template["data"]["securityCode"] == "510300"

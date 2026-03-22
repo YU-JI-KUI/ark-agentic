@@ -2,40 +2,72 @@
 Memory System - 端到端测试
 ========================================
 
-包含三个测试场景，使用 pytest-asyncio 运行：
-  1. test_phase1_react_loop_memory: React Loop 主动记忆
-     - LLM 自己决定调用 memory_set
-  2. test_phase2_compact_flush: 上下文压缩记忆写入
-     - 强制触发 compact -> MEMORY.md 自动追加 Session Snapshot
-  3. test_phase3_cross_session_recall: 跨会话记忆生效
-     - 新会话里验证 memory_search 能找回历史
+本模块在默认全量 pytest 中**不加载** SentenceTransformer/BGE：通过 autouse fixture
+stub `BGEEmbedding.embed_query` / `embed_batch`，避免首次拉模型导致套件「卡死」数分钟。
 
-运行命令（须在仓库根目录执行，确保 ark_agentic 可导入）:
-    uv run pytest tests/test_memory_e2e.py -v -s
+（历史上 `MemoryManager.initialize` + `sync` + `memory_search` 会触发 BGE 全量加载。）
+
+运行:
+    uv run pytest tests/test_memory_e2e.py -v
 """
 
-import asyncio
+from __future__ import annotations
+
 import logging
 import shutil
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
-from dotenv import load_dotenv
 
-# 确保加载根目录的 .env 文件
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-
-from ark_agentic.core.compaction import CompactionConfig, LLMSummarizer
-from ark_agentic.core.llm import create_chat_model_from_env
+from ark_agentic.core.compaction import CompactionConfig, SimpleSummarizer
+from ark_agentic.core.memory.embeddings import BGE_MODEL_DIMS, DEFAULT_BGE_MODEL
+from ark_agentic.core.memory.extractor import FlushResult, MemoryFlusher
 from ark_agentic.core.memory.manager import MemoryConfig, MemoryManager
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.tools.registry import ToolRegistry
+from ark_agentic.core.types import AgentMessage, ToolCall
 
 logger = logging.getLogger(__name__)
+
+
+def _stub_chat_model() -> MagicMock:
+    """Runner 仅需可 bind_tools/model_copy；本文件用例均 monkeypatch _call_llm。"""
+    llm = MagicMock(name="StubChatModel")
+    llm.bind_tools = MagicMock(side_effect=lambda *a, **k: llm)
+    llm.model_copy = MagicMock(side_effect=lambda update=None: llm)
+    llm.ainvoke = AsyncMock(return_value=MagicMock(content="stub"))
+    return llm
+
+
+@pytest.fixture(autouse=True)
+def _stub_bge_for_memory_e2e(monkeypatch: pytest.MonkeyPatch) -> None:
+    """禁止在本文件任何用例中加载真实 BGE（全量套件卡顿主因）。"""
+
+    def _dims(self: object) -> int:
+        cfg = getattr(self, "config", None)
+        name = getattr(cfg, "model_name", "") or DEFAULT_BGE_MODEL
+        return int(BGE_MODEL_DIMS.get(name, 768) or 768)
+
+    async def embed_query(self: object, text: str) -> list[float]:
+        return [0.01] * _dims(self)
+
+    async def embed_batch(self: object, texts: list[str]) -> list[list[float]]:
+        d = _dims(self)
+        return [[0.02] * d for _ in texts]
+
+    monkeypatch.setattr(
+        "ark_agentic.core.memory.embeddings.BGEEmbedding.embed_query",
+        embed_query,
+    )
+    monkeypatch.setattr(
+        "ark_agentic.core.memory.embeddings.BGEEmbedding.embed_batch",
+        embed_batch,
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -68,21 +100,19 @@ async def base_agent(memory_dir: Path, base_sessions_dir: Path):
     提供一个干净解耦的 AgentRunner，不加载任何特定领域（如Insurance）的 Skills 和 Tools。
     仅具备原生的 Memory Tools。
     """
-    llm = create_chat_model_from_env()
+    llm = _stub_chat_model()
 
-    # 1. 独立构建 Memory Manager（index_dir 省略，默认 workspace_dir/.memory）
-    memory_config = MemoryConfig(workspace_dir=str(memory_dir))
+    # sync_on_init=False：避免在 init 阶段对大 MEMORY.md 做 embed_batch（即使用例会 stub BGE，仍省 jieba/IO）
+    memory_config = MemoryConfig(workspace_dir=str(memory_dir), sync_on_init=False)
     memory_manager = MemoryManager(memory_config)
 
-    # 2. 独立构建 Session Manager
-    summarizer = LLMSummarizer(llm)
     session_manager = SessionManager(
         compaction_config=CompactionConfig(
             context_window=128000,
             preserve_recent=4,
         ),
         sessions_dir=base_sessions_dir,
-        summarizer=summarizer,
+        summarizer=SimpleSummarizer(),
     )
 
     # 3. Runner 配置（最小引导 prompt）
@@ -156,7 +186,10 @@ async def test_phase1_react_loop_memory(base_agent: AgentRunner, memory_dir: Pat
 
 @pytest.mark.asyncio
 async def test_phase2_compact_flush(
-    base_agent: AgentRunner, memory_dir: Path, base_sessions_dir: Path
+    base_agent: AgentRunner,
+    memory_dir: Path,
+    base_sessions_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """
     Phase 2: 测试上下文压缩触发后，_flush_to_memory 将会话摘要写入 MEMORY.md 的行为。
@@ -167,12 +200,36 @@ async def test_phase2_compact_flush(
         context_window=200,
         preserve_recent=2,
     )
-    summarizer = base_agent.session_manager._compactor.summarizer
     base_agent.session_manager = SessionManager(
         compaction_config=tiny_compaction_config,
         sessions_dir=str(base_sessions_dir),
-        summarizer=summarizer,
+        summarizer=SimpleSummarizer(),
     )
+
+    async def fake_flush(
+        self: MemoryFlusher,
+        conversation_text: str,
+        current_profile: str,
+        agent_name: str,
+        agent_description: str,
+    ) -> FlushResult:
+        return FlushResult(
+            agent_memory="## Session Snapshot\n\n用户咨询了理赔与车险相关问题。\n",
+        )
+
+    monkeypatch.setattr(MemoryFlusher, "flush", fake_flush)
+
+    async def fake_call_llm(
+        self: AgentRunner,
+        messages: list,
+        tools: list,
+        *,
+        model_override: str | None = None,
+        temperature_override: float | None = None,
+    ) -> AgentMessage:
+        return AgentMessage.assistant(content="简要回复：理赔请咨询承保方。")
+
+    monkeypatch.setattr(AgentRunner, "_call_llm", fake_call_llm)
 
     user_id = "compacttest"
     session_id = await base_agent.create_session(
@@ -207,7 +264,11 @@ async def test_phase2_compact_flush(
 
 
 @pytest.mark.asyncio
-async def test_phase3_cross_session_recall(base_agent: AgentRunner, memory_dir: Path):
+async def test_phase3_cross_session_recall(
+    base_agent: AgentRunner,
+    memory_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """
     Phase 3: 跨会话记忆检索，模拟内存提前有历史，新会话中让Agent自发检索
     """
@@ -228,17 +289,37 @@ async def test_phase3_cross_session_recall(base_agent: AgentRunner, memory_dir: 
 - 已选择取款方案A（部分退保）
 """
     mem_file.write_text(preset_content, encoding="utf-8")
+
+    base_agent.config.auto_compact = False
+
+    llm_round: dict[str, int] = {"n": 0}
+
+    async def fake_call_llm(
+        self: AgentRunner,
+        messages: list,
+        tools: list,
+        *,
+        model_override: str | None = None,
+        temperature_override: float | None = None,
+    ) -> AgentMessage:
+        llm_round["n"] += 1
+        if llm_round["n"] == 1:
+            return AgentMessage.assistant(
+                content="",
+                tool_calls=[
+                    ToolCall.create(name="memory_search", arguments={"query": "保单"}),
+                ],
+            )
+        return AgentMessage.assistant(
+            content="李四您好，您关心的保单 PL-2024-999999 是万能险。",
+        )
+
+    monkeypatch.setattr(AgentRunner, "_call_llm", fake_call_llm)
     
     session_id = await base_agent.create_session(
         user_id=user_id,
         state={"user:id": user_id},
     )
-    
-    # 等待索引初始化完毕 (防止查询过快)
-    memory_mgr = base_agent._get_memory_for_user(user_id)
-    if memory_mgr:
-        if not memory_mgr._initialized:
-            await memory_mgr.initialize()
 
     # Turn
     turn = "你还记得我吗？上次我好像聊过一个保单的事情，你能帮我回忆一下吗？"

@@ -1,8 +1,7 @@
 """
-保险 A2UI 卡片数据提取器
+card_type + template.json 专用：扁平 dict 提取器与方案生成。
 
-每个卡片类型一个提取函数：从 context 确定性计算业务数据，从 card_args 仅读取约定文案字段（字符串），
-返回扁平 dict 供 core.a2ui.render_from_template 合并。
+渠道/分配公共逻辑见 withdraw_a2ui_utils。
 """
 
 from __future__ import annotations
@@ -11,38 +10,43 @@ import json
 import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from ark_agentic.agents.insurance.tools.rule_engine import (
     LOAN_INTEREST_RATE as _LOAN_INTEREST_RATE,
-    PROCESSING_TIME as _PROCESSING_TIME,
 )
 
-# option_type → (费用文案, 保障影响文案)
-_OPTION_META: dict[str, tuple[str, str]] = {
-    "survival_fund": ("无", "不影响保障"),
-    "bonus": ("无", "不影响保障"),
-    "partial_withdrawal": ("按保单年度收费", "现金价值减少，保额同步下降"),
-    "surrender": ("无", "所有保障终止，退保后无法恢复"),
-    "policy_loan": (
-        f"年利率{int(_LOAN_INTEREST_RATE * 100)}%, 按日计息",
-        "不影响保障（未按时还款可能导致保单中止）",
-    ),
-}
+from .withdraw_a2ui_utils import (
+    _ALL_CHANNELS,
+    _VALID_CHANNELS,
+    _allocate_to_target,
+    _allocs_to_plan_parts,
+    _channel_available,
+    _fmt,
+    _resolve_channel_filters,
+)
 
-# option_type → 操作名称（用于按钮文案和 queryMsg）
-_OPTION_NAMES: dict[str, str] = {
-    "survival_fund": "生存金领取",
-    "bonus": "红利领取",
+logger = logging.getLogger(__name__)
+
+_CHANNEL_DISPLAY_NAMES: dict[str, str] = {
+    "survival_fund": "生存金",
+    "bonus": "红利",
+    "policy_loan": "贷款",
     "partial_withdrawal": "部分领取",
     "surrender": "退保",
-    "policy_loan": "保单贷款",
 }
 
+_CAT_CHANNELS: dict[str, tuple[str, ...]] = {
+    "zero_cost": ("survival_fund", "bonus"),
+    "loan": ("policy_loan",),
+    "risk": ("partial_withdrawal", "surrender"),
+}
 
-def _fmt(amount: float) -> str:
-    return f"¥ {amount:,.2f}"
+_CAT_META: dict[str, tuple[str, str, str]] = {
+    "zero_cost": ("零成本领取", "(不影响保障)", "零成本、无风险，不影响您的保障"),
+    "loan": ("保单贷款", "(需支付利息)", "保障不受影响，适合短期周转"),
+    "risk": ("部分领取/退保", "(保障有损失，不建议)", "可能导致保障减少或终止"),
+}
 
+_CAT_PRIORITY = ("zero_cost", "loan", "risk")
 
 
 def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]:
@@ -172,131 +176,8 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
     }
 
 
-_ALL_CHANNELS = ("survival_fund", "bonus", "partial_withdrawal", "policy_loan", "surrender")
-
-_CHANNEL_DISPLAY_NAMES: dict[str, str] = {
-    "survival_fund": "生存金",
-    "bonus": "红利",
-    "policy_loan": "贷款",
-    "partial_withdrawal": "部分领取",
-    "surrender": "退保",
-}
-
-
-def _resolve_channel_filters(args: dict[str, Any]) -> frozenset[str]:
-    """Normalize include_channels / exclude_channels into a frozenset of excluded channel IDs."""
-    include_chs = set(args.get("include_channels") or [])
-    exclude_chs = set(args.get("exclude_channels") or [])
-    if include_chs:
-        exclude_chs = set(_ALL_CHANNELS) - include_chs
-    return frozenset(exclude_chs)
-
-_CAT_CHANNELS: dict[str, tuple[str, ...]] = {
-    "zero_cost": ("survival_fund", "bonus"),
-    "loan": ("policy_loan",),
-    "risk": ("partial_withdrawal", "surrender"),
-}
-
-_CAT_META: dict[str, tuple[str, str, str]] = {
-    "zero_cost": ("零成本领取", "(不影响保障)", "零成本、无风险，不影响您的保障"),
-    "loan": ("保单贷款", "(需支付利息)", "保障不受影响，适合短期周转"),
-    "risk": ("部分领取/退保", "(保障有损失，不建议)", "可能导致保障减少或终止"),
-}
-
-_BTN_TEXT: dict[str, str] = {
-    "survival_fund": "领取生存金",
-    "bonus": "领取红利",
-    "policy_loan": "办理保单贷款",
-    "partial_withdrawal": "办理部分领取",
-    "surrender": "办理退保",
-}
-
-_CHANNEL_LABELS: dict[str, str] = {
-    "survival_fund": "生存金",
-    "bonus": "红利",
-    "policy_loan": "保单贷款",
-    "partial_withdrawal": "部分领取",
-    "surrender": "退保",
-}
-
-
-def _channel_available(opt: dict[str, Any], channel: str) -> float:
-    """读取单张保单某渠道的可用金额。"""
-    if channel == "survival_fund":
-        return float(opt.get("survival_fund_amt") or 0)
-    if channel == "bonus":
-        return float(opt.get("bonus_amt") or 0)
-    if channel == "policy_loan":
-        return float(opt.get("loan_amt") or 0)
-    is_whole_life = opt.get("product_type") == "whole_life"
-    if channel == "partial_withdrawal":
-        return 0.0 if is_whole_life else float(opt.get("refund_amt") or 0)
-    if channel == "surrender":
-        return float(opt.get("refund_amt") or 0) if is_whole_life else 0.0
-    return 0.0
-
-
 def _category_total(options: list[dict[str, Any]], channels: tuple[str, ...]) -> float:
     return sum(_channel_available(o, ch) for o in options for ch in channels)
-
-
-def _allocate_to_target(
-    options: list[dict[str, Any]], target: float, channels: tuple[str, ...] | list[str],
-) -> list[tuple[str, str, float]]:
-    """按优先级将 target 分配到指定渠道，返回 [(policy_id, channel, allocated_amt)]。"""
-    remaining = target
-    result: list[tuple[str, str, float]] = []
-    for ch in channels:
-        if remaining <= 0:
-            break
-        for opt in options:
-            if remaining <= 0:
-                break
-            avail = _channel_available(opt, ch)
-            if avail <= 0:
-                continue
-            take = min(remaining, avail)
-            result.append((opt.get("policy_id", ""), ch, take))
-            remaining -= take
-    return result
-
-
-def _build_query_msg(action_name: str, entries: list[tuple[str, float]]) -> str:
-    """生成 queryMsg，格式：'办理生存金领取，POL001，12000.00，POL002，5200.00'"""
-    if not entries:
-        return f"办理{action_name}"
-    parts = [f"办理{action_name}"]
-    for pid, amt in entries:
-        parts.extend([pid, f"{amt:.2f}"])
-    return "，".join(parts)
-
-
-def _allocs_to_plan_parts(
-    allocs: list[tuple[str, str, float]],
-) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
-    """将分配结果转换为 (policies_display, buttons)。"""
-    policies: list[dict[str, str]] = []
-    by_channel: dict[str, list[tuple[str, float]]] = {}
-    for pid, ch, amt in allocs:
-        label = _CHANNEL_LABELS.get(ch, ch)
-        policies.append({"label": f"{pid} {label}", "value": _fmt(amt)})
-        by_channel.setdefault(ch, []).append((pid, amt))
-
-    buttons: list[dict[str, Any]] = []
-    for ch in _ALL_CHANNELS:
-        entries = by_channel.get(ch)
-        if not entries:
-            continue
-        buttons.append({
-            "text": _BTN_TEXT.get(ch, ch),
-            "action": {"queryMsg": _build_query_msg(_OPTION_NAMES.get(ch, ch), entries)},
-        })
-    return policies, buttons
-
-
-_CAT_PRIORITY = ("zero_cost", "loan", "risk")
-
-_VALID_CHANNELS: frozenset[str] = frozenset(_ALL_CHANNELS)
 
 
 def _plans_from_spec(
@@ -335,8 +216,6 @@ def _plans_from_spec(
         allocs = _allocate_to_target(filtered, target, channels)
         actual_total = sum(a for _, _, a in allocs)
 
-        # Auto-fill: if preferred channels can't meet target, extend with remaining
-        # channels (in _ALL_CHANNELS priority order), respecting exclude_channels.
         if actual_total < target and target > 0:
             channels_set = set(channels)
             fill_channels = [

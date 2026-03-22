@@ -133,78 +133,94 @@ async def test_neither_blocks_nor_card_type_error(full_tool, ctx):
     assert result.is_error
 
 
-# ---- blocks path ----
+# ---- blocks path (agent blocks) ----
+
+
+@pytest.fixture
+def agent_tool() -> RenderA2UITool:
+    """Tool with insurance agent blocks and components."""
+    from ark_agentic.agents.insurance.a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
+    return RenderA2UITool(
+        template_root=_template_root(),
+        extractors={"withdraw_summary": _mock_extractor},
+        agent_blocks=INSURANCE_BLOCKS,
+        agent_components=INSURANCE_COMPONENTS,
+        root_gap=16,
+        root_padding=[16, 32, 16, 16],
+        group="insurance",
+    )
 
 
 @pytest.mark.asyncio
-async def test_blocks_basic_render(full_tool, ctx):
+async def test_blocks_basic_render(agent_tool, ctx):
     blocks = json.dumps([
-        {"type": "InfoCard", "data": {
-            "title": "Total",
-            "body": {"get": "total_available_incl_loan", "format": "currency"},
-        }},
+        {"type": "Card", "data": {"children": [
+            {"type": "SectionHeader", "data": {"title": "Test"}},
+            {"type": "KVRow", "data": {
+                "label": "Total",
+                "value": {"get": "total_available_incl_loan", "format": "currency"},
+            }},
+        ]}},
     ])
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
-    result = await full_tool.execute(tc, context=ctx)
+    result = await agent_tool.execute(tc, context=ctx)
     assert not result.is_error
     assert result.content["event"] == "beginRendering"
-    # Inline transform resolved: body becomes "¥ 252,800.00" (literalString binding)
-    body_comps = [
+    text_comps = [
         c for c in result.content["components"]
         if "Text" in c.get("component", {})
         and c["component"]["Text"].get("text", {}).get("literalString") == "¥ 252,800.00"
     ]
-    assert len(body_comps) == 1
+    assert len(text_comps) == 1
 
 
 @pytest.mark.asyncio
-async def test_blocks_invalid_json(full_tool, ctx):
+async def test_blocks_invalid_json(agent_tool, ctx):
     tc = ToolCall.create("render_a2ui", {"blocks": "not json"})
-    result = await full_tool.execute(tc, context=ctx)
+    result = await agent_tool.execute(tc, context=ctx)
     assert result.is_error
     assert "JSON" in result.content
 
 
 @pytest.mark.asyncio
-async def test_blocks_not_array(full_tool, ctx):
+async def test_blocks_not_array(agent_tool, ctx):
     tc = ToolCall.create("render_a2ui", {"blocks": '{"x":1}'})
-    result = await full_tool.execute(tc, context=ctx)
+    result = await agent_tool.execute(tc, context=ctx)
     assert result.is_error
 
 
 @pytest.mark.asyncio
-async def test_blocks_no_transforms(full_tool, ctx):
+async def test_blocks_divider(agent_tool, ctx):
     blocks = json.dumps([{"type": "Divider", "data": {}}])
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
-    result = await full_tool.execute(tc, context=ctx)
+    result = await agent_tool.execute(tc, context=ctx)
     assert not result.is_error
-    assert result.content["data"] == {}
 
 
 @pytest.mark.asyncio
-async def test_blocks_unknown_type_error(full_tool, ctx):
+async def test_blocks_unknown_type_error(agent_tool, ctx):
     blocks = json.dumps([{"type": "FakeBlock", "data": {}}])
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
-    result = await full_tool.execute(tc, context=ctx)
+    result = await agent_tool.execute(tc, context=ctx)
     assert result.is_error
 
 
 @pytest.mark.asyncio
-async def test_blocks_with_surface_id(full_tool, ctx, monkeypatch):
+async def test_blocks_with_surface_id(agent_tool, ctx, monkeypatch):
     monkeypatch.setenv("A2UI_STRICT_VALIDATION", "warn")
     blocks = json.dumps([{"type": "Divider", "data": {}}])
     tc = ToolCall.create("render_a2ui", {"blocks": blocks, "surface_id": "surf-1"})
-    result = await full_tool.execute(tc, context=ctx)
+    result = await agent_tool.execute(tc, context=ctx)
     assert not result.is_error
     assert result.content["event"] == "surfaceUpdate"
     assert result.content["surfaceId"] == "surf-1"
 
 
 @pytest.mark.asyncio
-async def test_blocks_without_surface_id(full_tool, ctx):
+async def test_blocks_without_surface_id(agent_tool, ctx):
     blocks = json.dumps([{"type": "Divider", "data": {}}])
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
-    result = await full_tool.execute(tc, context=ctx)
+    result = await agent_tool.execute(tc, context=ctx)
     assert not result.is_error
     assert result.content["event"] == "beginRendering"
 
@@ -279,7 +295,7 @@ async def test_card_type_empty_args_ok(full_tool):
 
 
 @pytest.mark.asyncio
-async def test_enforce_mode_returns_error(full_tool, ctx, monkeypatch):
+async def test_enforce_mode_returns_error(agent_tool, ctx, monkeypatch):
     monkeypatch.setenv("A2UI_STRICT_VALIDATION", "enforce")
     blocks = json.dumps([{"type": "Divider", "data": {}}])
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
@@ -289,13 +305,13 @@ async def test_enforce_mode_returns_error(full_tool, ctx, monkeypatch):
         "ark_agentic.core.a2ui.guard.validate_event_payload",
         side_effect=ValueError("Mocked contract error"),
     ):
-        result = await full_tool.execute(tc, context=ctx)
+        result = await agent_tool.execute(tc, context=ctx)
         assert result.is_error
         assert "Mocked contract error" in result.content
 
 
 @pytest.mark.asyncio
-async def test_warn_mode_returns_a2ui(full_tool, ctx, monkeypatch):
+async def test_warn_mode_returns_a2ui(agent_tool, ctx, monkeypatch):
     monkeypatch.setenv("A2UI_STRICT_VALIDATION", "warn")
     blocks = json.dumps([{"type": "Divider", "data": {}}])
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
@@ -305,7 +321,7 @@ async def test_warn_mode_returns_a2ui(full_tool, ctx, monkeypatch):
         "ark_agentic.core.a2ui.guard.validate_event_payload",
         side_effect=ValueError("Mocked contract error"),
     ):
-        result = await full_tool.execute(tc, context=ctx)
+        result = await agent_tool.execute(tc, context=ctx)
         assert not result.is_error
         assert result.content["event"] == "beginRendering"
         assert "warnings" in result.metadata
