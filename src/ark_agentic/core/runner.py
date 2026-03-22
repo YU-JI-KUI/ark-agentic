@@ -322,6 +322,8 @@ class AgentRunner:
     def _get_user_friendly_error_message(self, error: LLMError) -> str:
         if error.reason == LLMErrorReason.AUTH:
             return "抱歉，模型认证失败，请检查 API 配置。如需帮助，请联系技术支持。"
+        elif error.reason == LLMErrorReason.QUOTA:
+            return "抱歉，当前 API 账户余额不足，服务暂时不可用，请联系技术支持充值后重试。"
         elif error.reason == LLMErrorReason.RATE_LIMIT:
             return "抱歉，当前请求较多，请稍后再试。"
         elif error.reason == LLMErrorReason.TIMEOUT:
@@ -408,6 +410,9 @@ class AgentRunner:
                     "retryable": e.retryable,
                 }
                 self.session_manager.add_message_sync(session_id, error_response)
+                # 将错误文案作为流式内容推送，确保前端 answerBubble 能正常渲染
+                if handler:
+                    handler.on_content_delta(user_message, turns)
                 return RunResult(
                     response=error_response,
                     turns=turns,

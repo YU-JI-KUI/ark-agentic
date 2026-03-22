@@ -165,7 +165,7 @@ def test_display_card_tool():
     }
 
     # 创建 DisplayCardTool 并执行
-    from ark_agentic.agents.securities.tools.display_card import DisplayCardTool
+    from ark_agentic.agents.securities.tools.agent.display_card import DisplayCardTool
 
     tool = DisplayCardTool()
     tc = ToolCall.create(name="display_card", arguments={"source_tool": "etf_holdings"})

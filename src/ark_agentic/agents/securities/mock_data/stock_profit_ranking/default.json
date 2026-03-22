@@ -1,0 +1,73 @@
+{
+    "status": 1,
+    "msg": "success",
+    "errmsg": "success",
+    "results": {
+        "pftCnt": "4",
+        "pftAmt": "13682.50",
+        "lossCnt": "6",
+        "lossAmt": "-8934.20",
+        "stockList": [
+            {
+                "stockName": "宁德时代",
+                "profit": "4820.30",
+                "profitRate": "0.0921",
+                "pftRatio": "0.3523"
+            },
+            {
+                "stockName": "比亚迪",
+                "profit": "3341.80",
+                "profitRate": "0.0612",
+                "pftRatio": "0.2443"
+            },
+            {
+                "stockName": "贵州茅台",
+                "profit": "3120.90",
+                "profitRate": "0.0387",
+                "pftRatio": "0.2282"
+            },
+            {
+                "stockName": "中国平安",
+                "profit": "2399.50",
+                "profitRate": "0.0298",
+                "pftRatio": "0.1754"
+            },
+            {
+                "stockName": "招商银行",
+                "profit": "-1280.40",
+                "profitRate": "-0.0234",
+                "pftRatio": "-0.1434"
+            },
+            {
+                "stockName": "万科A",
+                "profit": "-1643.80",
+                "profitRate": "-0.0412",
+                "pftRatio": "-0.1839"
+            },
+            {
+                "stockName": "中国建筑",
+                "profit": "-1892.30",
+                "profitRate": "-0.0523",
+                "pftRatio": "-0.2118"
+            },
+            {
+                "stockName": "中国铝业",
+                "profit": "-2134.60",
+                "profitRate": "-0.0671",
+                "pftRatio": "-0.2389"
+            },
+            {
+                "stockName": "海特高新",
+                "profit": "-983.10",
+                "profitRate": "-0.0189",
+                "pftRatio": "-0.1100"
+            },
+            {
+                "stockName": "东方财富",
+                "profit": "-1000.00",
+                "profitRate": "-0.0201",
+                "pftRatio": "-0.1119"
+            }
+        ]
+    }
+}

@@ -46,6 +46,7 @@ def create_securities_agent(
     """
     if llm is None:
         from ark_agentic.core.llm import create_chat_model_from_env
+
         llm = create_chat_model_from_env()
 
     sessions_dir = prepare_agent_data_dir("securities")
@@ -59,6 +60,7 @@ def create_securities_agent(
         tool_registry.register(tool)
 
     from ark_agentic.core.compaction import LLMSummarizer
+
     summarizer = LLMSummarizer(llm)
     session_manager = SessionManager(
         sessions_dir=sessions_dir,
@@ -93,9 +95,11 @@ def create_securities_agent(
         a2ui_mode="preset",
     )
 
-    memory_manager = build_memory_manager(memory_dir) if memory_dir is not None else None
+    memory_manager = (
+        build_memory_manager(memory_dir) if memory_dir is not None else None
+    )
 
-    from .tools.param_mapping import enrich_securities_context
+    from .tools.service.param_mapping import enrich_securities_context
 
     return AgentRunner(
         llm=llm,

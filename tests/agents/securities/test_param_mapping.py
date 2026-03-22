@@ -3,7 +3,7 @@
 import os
 import pytest
 
-from ark_agentic.agents.securities.tools.param_mapping import (
+from ark_agentic.agents.securities.tools.service.param_mapping import (
     build_api_request,
     build_api_headers_with_validatedata,
     build_validatedata,
@@ -26,13 +26,7 @@ class TestGetByPath:
 
     def test_get_nested_path(self):
         """Test getting a nested path."""
-        data = {
-            "user": {
-                "profile": {
-                    "name": "John"
-                }
-            }
-        }
+        data = {"user": {"profile": {"name": "John"}}}
         assert _get_by_path(data, "user.profile.name") == "John"
 
     def test_get_missing_path(self):
@@ -79,9 +73,9 @@ class TestBuildApiRequest:
             "account_type": "normal",
             "user_id": "U001",
         }
-        
+
         request = build_api_request(ACCOUNT_OVERVIEW_PARAM_CONFIG, context)
-        
+
         assert request["channel"] == "native"
         assert request["appName"] == "AYLCAPP"
         assert request["tokenId"] == "test_token_123"
@@ -95,9 +89,9 @@ class TestBuildApiRequest:
             "account_type": "margin",
             "user_id": "U001",
         }
-        
+
         request = build_api_request(ACCOUNT_OVERVIEW_PARAM_CONFIG, context)
-        
+
         assert request["channel"] == "native"
         assert request["appName"] == "AYLCAPP"
         assert request["tokenId"] == "test_token_456"
@@ -108,9 +102,9 @@ class TestBuildApiRequest:
         context = {
             "token_id": "test_token_123",
         }
-        
+
         request = build_api_request(ACCOUNT_OVERVIEW_PARAM_CONFIG, context)
-        
+
         assert request["tokenId"] == "test_token_123"
         # When account_type is None, transform(None) returns None, so body.accountType won't be set
         assert request.get("body", {}).get("accountType") is None
@@ -121,10 +115,10 @@ class TestBuildApiRequest:
             "channel": ("static", "native"),
             "appName": ("static", "AYLCAPP"),
         }
-        
+
         context = {}
         request = build_api_request(config, context)
-        
+
         assert request["channel"] == "native"
         assert request["appName"] == "AYLCAPP"
 
@@ -133,22 +127,26 @@ class TestBuildApiRequest:
         config = {
             "tokenId": ("context", "token_id"),
         }
-        
+
         context = {"token_id": "my_token"}
         request = build_api_request(config, context)
-        
+
         assert request["tokenId"] == "my_token"
 
     def test_build_request_transform_values(self):
         """Test that transform values are correctly applied (flat context)."""
         config = {
-            "accountType": ("transform", "type", lambda x: "2" if x == "margin" else "1"),
+            "accountType": (
+                "transform",
+                "type",
+                lambda x: "2" if x == "margin" else "1",
+            ),
         }
-        
+
         context_normal = {"type": "normal"}
         request_normal = build_api_request(config, context_normal)
         assert request_normal["accountType"] == "1"
-        
+
         context_margin = {"type": "margin"}
         request_margin = build_api_request(config, context_margin)
         assert request_margin["accountType"] == "2"
