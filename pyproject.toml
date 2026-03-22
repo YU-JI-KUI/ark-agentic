@@ -22,6 +22,7 @@ dev = [
     "ark-agentic[server]",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-timeout>=2.3.0",
 ]
 pa-jt = [
     "pycryptodome>=3.20.0",
@@ -63,6 +64,11 @@ exclude = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# 防止单个用例死循环/阻塞 IO 拖死「全量测试」；真慢用例应拆 integration 或 mock
+timeout = 180
+markers = [
+    "slow: 故意慢的集成测试；快速门禁可加 -m \"not slow\"",
+]
 
 [tool.pyright]
 extraPaths = ["src"]
