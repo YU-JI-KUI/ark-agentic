@@ -580,20 +580,46 @@ agents/securities/
 ├── api.py                # 环境变量加载 & 工厂函数
 ├── schemas.py            # Pydantic 数据模型（str 精度）
 ├── template_renderer.py  # JSON 卡片渲染器
+├── stock_search/         # 股票信息检索模块
+│   ├── models.py         # StockEntity, DividendInfo, StockSearchResult
+│   ├── index.py          # StockIndex（内存索引，含拼音/首字母预处理）
+│   ├── matcher.py        # MultiPathMatcher（三路匹配 + 综合打分）
+│   └── loader.py         # StockLoader（CSV 加载 + Mock 分红）
 ├── tools/
 │   ├── __init__.py       # 工具注册
-│   ├── service_client.py # 服务适配器层（Adapter + Mock + 工厂）
-│   ├── mock_loader.py    # 文件驱动 Mock 数据加载
-│   ├── param_mapping.py  # API 参数映射工具
-│   ├── field_extraction.py # API 响应字段提取工具
-│   ├── display_card.py   # 卡片渲染工具（字段提取 + 模板渲染）
-│   ├── account_overview.py
-│   ├── branch_info.py    # 开户营业部查询
-│   ├── cash_assets.py
-│   ├── etf_holdings.py
-│   ├── hksc_holdings.py
-│   ├── fund_holdings.py
-│   └── security_detail.py
+│   ├── service/          # 服务层（适配器 + 基础设施）
+│   │   ├── base.py           # BaseServiceAdapter、ServiceConfig、公共工具
+│   │   ├── mock_mode.py      # Mock 模式判断
+│   │   ├── mock_loader.py    # 文件驱动 Mock 数据加载
+│   │   ├── param_mapping.py  # API 参数映射
+│   │   ├── field_extraction.py # API 响应字段提取
+│   │   ├── stock_search.py   # StockSearchService（本地股票检索服务）
+│   │   └── adapters/         # PA 服务适配器（HTTP + validatedata 认证）
+│   │       ├── account_overview.py
+│   │       ├── branch_info.py
+│   │       ├── cash_assets.py
+│   │       ├── etf_holdings.py
+│   │       ├── fund_holdings.py
+│   │       ├── hksc_holdings.py
+│   │       ├── security_detail.py
+│   │       ├── stock_daily_profit.py
+│   │       └── stock_profit_ranking.py
+│   └── agent/            # AgentTool 层（LLM 可调用工具）
+│       ├── __init__.py       # 工具注册 & create_securities_tools()
+│       ├── account_overview.py
+│       ├── branch_info.py
+│       ├── cash_assets.py
+│       ├── display_card.py
+│       ├── etf_holdings.py
+│       ├── fund_holdings.py
+│       ├── hksc_holdings.py
+│       ├── security_detail.py
+│       ├── security_info_search.py  # SecurityInfoSearchTool → StockSearchService
+│       ├── stock_daily_profit_month.py
+│       ├── stock_daily_profit_range.py
+│       ├── asset_profit_hist_period.py
+│       ├── asset_profit_hist_range.py
+│       └── stock_profit_ranking.py
 ├── mock_data/            # Mock 数据文件（JSON，真实 API 格式）
 │   ├── account_overview/
 │   ├── branch_info/
@@ -618,10 +644,92 @@ agents/securities/
 | `hksc_holdings` | 查询港股通持仓 | `account_type?` |
 | `fund_holdings` | 查询基金理财持仓 | `account_type?` |
 | `security_detail` | 查询具体标的详情 | `security_code`, `account_type?` |
+| `security_info_search` | 查询 A 股基本信息（含模糊匹配） | `query`, `include_dividend?` |
 | `branch_info` | 查询开户营业部信息 | 无（从 context 自动获取） |
 | `display_card` | 渲染数据卡片 | `source_tool` |
 
 > **注意：** `account_type` 由系统自动从 Session Context 注入，LLM 无需显式传递。
+
+---
+
+## 股票信息查询（SecurityInfoSearchTool）
+
+### 功能
+
+通过 6 位股票代码或股票名称查询 A 股基本信息，支持：
+- **精确代码匹配**：输入 `600519` 直接返回贵州茅台
+- **中文名称模糊匹配**：输入 `茅台` 或 `贵州茅台` 均可匹配
+- **拼音/首字母匹配**：输入 `maotai` 或 `gzmt` 可匹配（处理 ASR 识别偏差）
+- **错别字纠错**：输入 `宁德实代` → 自动识别为 `宁德时代`
+
+### 入参
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `query` | string | 是 | 6 位代码或名称/拼音，如 `600519`、`贵州茅台`、`maotai` |
+| `include_dividend` | boolean | 否 | 是否返回分红信息，默认 `true` |
+
+### 出参
+
+```json
+{
+  "matched": true,
+  "confidence": "exact",
+  "score": 1.0,
+  "stock": {
+    "code": "600519",
+    "name": "贵州茅台",
+    "exchange": "SH",
+    "full_code": "600519.SH",
+    "pinyin": "guizhoumaotai",
+    "initials": "gzmt"
+  },
+  "dividend_info": {
+    "dividend_per_share": "19.11",
+    "dividend_yield": "1.2%",
+    "ex_dividend_date": "2024-07-16",
+    "frequency": "年度",
+    "last_year_total": "19.11"
+  },
+  "candidates": [],
+  "raw_query": "600519"
+}
+```
+
+**confidence 取值：**
+
+| 值 | 触发条件 | 说明 |
+|----|---------|------|
+| `exact` | score ≥ 0.95 | 高置信度唯一匹配，直接返回 |
+| `high` | 0.80 ≤ score < 0.95 | 较高置信度，返回最佳匹配 |
+| `ambiguous` | 0.60 ≤ score < 0.80 | 存在歧义，`candidates` 返回 Top 3 供确认 |
+| `none` | score < 0.60 | 未找到匹配 |
+
+**交易所推断规则：**
+
+| 代码前缀 | 交易所 | 说明 |
+|---------|--------|------|
+| `6xxxxx` | SH | 沪市主板、科创板（688xxx） |
+| `0xxxxx` / `3xxxxx` | SZ | 深市主板 / 创业板 |
+| `8xxxxx` / `4xxxxx` | BJ | 北交所 |
+
+### 依赖
+
+`security_info_search` 依赖 `[stock-search]` 可选包组：
+
+```bash
+uv add 'ark-agentic[stock-search]'
+# 或单独安装
+uv add rapidfuzz pypinyin
+```
+
+缺少依赖时降级为精确匹配（仅支持代码精确查找和名称完全匹配）。
+
+### 数据来源
+
+- **股票基础信息**：内置种子数据 `data/stocks/a_shares_seed.csv`（覆盖沪深北三市主要个股）
+- **自定义数据**：设置环境变量 `STOCKS_CSV_PATH=/path/to/stocks.csv` 可替换为完整 A 股列表
+- **分红信息**：Mock 模式（`SECURITIES_SERVICE_MOCK=true`）返回内置数据；生产模式返回 `null`，由外部服务补充
 
 ## 数据流程
 
@@ -787,6 +895,9 @@ display_data = extract_account_overview(api_response)
 ```bash
 # 运行参数映射和字段提取单元测试
 uv run pytest tests/agents/securities/ -v
+
+# 运行股票信息查询相关测试（需要 stock-search 依赖）
+uv run pytest tests/agents/securities/test_security_info_search.py -v
 
 # 运行集成测试
 SECURITIES_SERVICE_MOCK=true uv run pytest tests/test_context_injection.py tests/test_skills_integration.py -v

@@ -15,6 +15,7 @@ from .base import (
 )
 from .mock_loader import MockServiceAdapter, get_mock_loader
 from .mock_mode import get_mock_mode, get_mock_mode_for_context
+from .stock_search_service import StockSearchService
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ __all__ = [
     "MockServiceAdapter",
     "ADAPTER_REGISTRY",
     "create_service_adapter",
+    "StockSearchService",
 ]
 
 

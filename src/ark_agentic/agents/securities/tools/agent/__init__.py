@@ -10,6 +10,7 @@ from .etf_holdings import ETFHoldingsTool
 from .fund_holdings import FundHoldingsTool
 from .hksc_holdings import HKSCHoldingsTool
 from .security_detail import SecurityDetailTool
+from .security_info_search import SecurityInfoSearchTool
 from .stock_daily_profit_month import StockDailyProfitMonthTool
 from .stock_daily_profit_range import StockDailyProfitRangeTool
 from .stock_profit_ranking import StockProfitRankingTool
@@ -25,6 +26,7 @@ __all__ = [
     "FundHoldingsTool",
     "HKSCHoldingsTool",
     "SecurityDetailTool",
+    "SecurityInfoSearchTool",
     "StockDailyProfitMonthTool",
     "StockDailyProfitRangeTool",
     "StockProfitRankingTool",
@@ -45,6 +47,7 @@ def create_securities_tools() -> list:
         FundHoldingsTool(),
         HKSCHoldingsTool(),
         SecurityDetailTool(),
+        SecurityInfoSearchTool(),
         StockDailyProfitMonthTool(),
         StockDailyProfitRangeTool(),
         StockProfitRankingTool(),
