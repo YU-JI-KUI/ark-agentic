@@ -119,22 +119,30 @@ def build_withdraw_summary_header(
     else:
         requested_display = ""
 
-    total_incl_loan = float(raw_data.get("total_available_incl_loan") or total)
+    has_loan_section = "loan" in sections
+    loan_total = (
+        sum(_channel_available(opt, "policy_loan") for opt in options)
+        if has_loan_section else 0.0
+    )
+    total_excl_loan = total - loan_total
 
     card_id, col_id = g("card"), g("column")
-    title_id, value_id, sub_id = g("text"), g("text"), g("text")
+    title_id, value_id = g("text"), g("text")
 
-    col_children = [title_id, value_id, sub_id]
+    col_children = [title_id, value_id]
     comps: list[dict[str, Any]] = []
 
-    comps.append(_text(title_id, "目前可领取的总金额(含贷款)",
+    header_title = "目前可领取的总金额(含贷款)" if has_loan_section else "目前可领取的总金额"
+    comps.append(_text(title_id, header_title,
                        color=TITLE_COLOR, fontSize="16px", bold=True))
-    comps.append(_text(value_id, _fmt(total_incl_loan),
+    comps.append(_text(value_id, _fmt(total),
                        color=ACCENT, fontSize="24px", bold=True))
 
-    total_excl = float(raw_data.get("total_available_excl_loan") or 0)
-    sub_text = f"不含贷款可领金额：{_fmt(total_excl)}" if total_excl else ""
-    comps.append(_text(sub_id, sub_text, color=HINT_COLOR, fontSize="12px"))
+    if has_loan_section and total > 0:
+        sub_id = g("text")
+        col_children.append(sub_id)
+        comps.append(_text(sub_id, f"不含贷款可领金额：{_fmt(total_excl_loan)}",
+                           color=HINT_COLOR, fontSize="12px"))
 
     if requested_display:
         req_id = g("text")

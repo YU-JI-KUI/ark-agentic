@@ -124,7 +124,22 @@ customer_info(info_type="identity", user_id=用户ID)
 → render_a2ui(blocks=...)
 ```
 
-### 完整示例
+### 方案生成策略
+
+1. 先用 `rule_engine` 结果判断各类别渠道合计能否满足目标金额
+2. 如果零成本渠道（survival_fund + bonus）足够 → 推荐方案只用零成本
+3. 如果零成本不够 → **推荐方案必须组合多类别渠道以满足目标金额**
+4. 可选方案二/三展示单类别渠道的最大可取额（作为参考对比）
+5. 每个 PlanCard 的 `target` 应设为该方案实际能达到的金额
+
+### 渠道优先级（从高到低）
+
+1. **生存金 + 红利** → 零成本，不影响保障
+2. **部分领取**（非 whole_life 的 refund_amt）→ 低成本
+3. **保单贷款** → 年利率 5%，保障不受影响
+4. **退保**（whole_life 的 refund_amt）→ 保障终止，最后手段
+
+### 示例 1：单类别足够（零成本 >= 目标金额）
 
 ```json
 [
@@ -147,16 +162,31 @@ customer_info(info_type="identity", user_id=用户ID)
 ]
 ```
 
-### 渠道优先级（从高到低）
+### 示例 2：需要组合（目标 30000，零成本仅 20000）
 
-1. **生存金 + 红利** → 零成本，不影响保障
-2. **部分领取**（非 whole_life 的 refund_amt）→ 低成本
-3. **保单贷款** → 年利率 5%，保障不受影响
-4. **退保**（whole_life 的 refund_amt）→ 保障终止，最后手段
+推荐方案应组合渠道以满足目标金额；可用单类别方案作为参考对比。
 
-### 金额不足处理
+```json
+[
+  {"type": "WithdrawPlanCard", "data": {
+    "channels": ["survival_fund", "bonus", "policy_loan"],
+    "target": 30000,
+    "title": "★ 推荐: 零成本 + 保单贷款",
+    "tag": "(部分需付利息)",
+    "reason": "优先使用零成本渠道；不足部分用保单贷款补足。"
+  }},
+  {"type": "WithdrawPlanCard", "data": {
+    "channels": ["survival_fund", "bonus"],
+    "target": 20000,
+    "title": "仅零成本（最多 ¥20,000.00）",
+    "tag": "(不影响保障)",
+    "button_variant": "secondary",
+    "reason": "零成本渠道合计 ¥20,000.00，不足目标 ¥30,000.00。"
+  }}
+]
+```
 
-当可用金额不足时，component 自动按最大额度计算。LLM 在文字回复中说明差额。
+注意：组合方案的 `target` 设为用户的完整目标金额，单类别参考方案的 `target` 设为该类别的实际最大可取额。
 
 ---
 
