@@ -34,7 +34,6 @@ async def chat(
 ):
     """Chat 端点，支持流式和非流式响应。
 
-    A2UI 渲染模式由 RunnerConfig.a2ui_mode 控制（环境变量 A2UI_MODE，默认 dynamic）。
     """
     agent = get_agent(request.agent_id)
 

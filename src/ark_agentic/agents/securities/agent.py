@@ -74,7 +74,6 @@ def create_securities_agent(
         agent_id="securities",
         enable_eligibility_check=True,
         default_load_mode=SkillLoadMode.dynamic,
-        a2ui_mode="preset",
     )
     skill_loader = SkillLoader(skill_config)
     try:
@@ -90,7 +89,6 @@ def create_securities_agent(
             agent_description="专业的证券资产查询与分析助手",
         ),
         skill_config=skill_config,
-        a2ui_mode="preset",
     )
 
     memory_manager = build_memory_manager(memory_dir) if memory_dir is not None else None

@@ -77,9 +77,6 @@ class RunnerConfig:
     # 技能配置
     skill_config: SkillConfig = field(default_factory=SkillConfig)
 
-    # A2UI 渲染模式 (preset|dynamic)，可通过环境变量 A2UI_MODE 覆盖
-    a2ui_mode: str = field(default_factory=lambda: os.getenv("A2UI_MODE", "dynamic"))
-
     # 外部历史合并（agent 级开关）
     accept_external_history: bool = True
 
@@ -217,8 +214,6 @@ class AgentRunner:
         raw = self.config.skill_config.default_load_mode
         resolved_skill_load_mode: str = raw.value
 
-        effective_a2ui_mode = self.config.a2ui_mode
-
         if self._memory_manager and not self._memory_manager._initialized:
             await self._memory_manager.initialize()
 
@@ -255,7 +250,6 @@ class AgentRunner:
                 model_override=effective_model,
                 temperature_override=effective_temperature,
                 skill_load_mode=resolved_skill_load_mode,
-                a2ui_mode=effective_a2ui_mode,
                 handler=handler,
             )
         finally:
@@ -345,7 +339,6 @@ class AgentRunner:
         model_override: str | None = None,
         temperature_override: float | None = None,
         skill_load_mode: str = "full",
-        a2ui_mode: str = "dynamic",
         handler: AgentEventHandler | None = None,
     ) -> RunResult:
         """ReAct 循环: LLM → Tool → LLM → ... → Response"""
@@ -364,7 +357,7 @@ class AgentRunner:
             turns += 1
 
             state = session.state
-            messages = self._build_messages(session_id, state, skill_load_mode=skill_load_mode, a2ui_mode=a2ui_mode)
+            messages = self._build_messages(session_id, state, skill_load_mode=skill_load_mode)
             tools = self._build_tools()
             logger.info(
                 f"Turn {turns} | messages={len(messages)} tools={len(tools)} "
@@ -546,7 +539,6 @@ class AgentRunner:
         state: dict[str, Any],
         *,
         skill_load_mode: str = "full",
-        a2ui_mode: str = "dynamic",
     ) -> list[dict[str, Any]]:
         """构建 LLM 消息列表"""
         import json
@@ -557,7 +549,6 @@ class AgentRunner:
         # 系统提示
         system_prompt = self._build_system_prompt(
             state, session_id=session_id, skill_load_mode=skill_load_mode,
-            a2ui_mode=a2ui_mode
         )
         messages.append({"role": "system", "content": system_prompt})
 
@@ -618,7 +609,6 @@ class AgentRunner:
         session_id: str | None = None,
         *,
         skill_load_mode: str = "full",
-        a2ui_mode: str = "dynamic",
     ) -> str:
         """构建系统提示"""
         tools = self.tool_registry.list_all()
