@@ -36,7 +36,7 @@ async def test_securities_agent_integration():
         
         # 3. 测试服务适配器
         print("\n3. 测试服务适配器...")
-        from ark_agentic.agents.securities.tools.service_client import create_service_adapter
+        from ark_agentic.agents.securities.tools.service import create_service_adapter
         adapter = create_service_adapter("account_overview", mock=True)
         data = await adapter.call(account_type="normal", user_id="U001")
         print(f"   ✓ Mock 数据加载成功")

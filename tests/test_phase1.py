@@ -12,8 +12,7 @@ import pytest
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from ark_agentic.agents.securities.tools.mock_loader import get_mock_loader
-from ark_agentic.agents.securities.tools.service_client import create_service_adapter
+from ark_agentic.agents.securities.tools.service import get_mock_loader, create_service_adapter
 
 
 async def test_mock_loader():

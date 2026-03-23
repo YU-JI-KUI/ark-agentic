@@ -827,11 +827,11 @@
     }
 
     .tc-value.profit {
-      color: #34a853;
+      color: #e03030;
     }
 
     .tc-value.loss {
-      color: #ea4335;
+      color: #34a853;
     }
 
     .tc-value.warning {
@@ -948,7 +948,86 @@
     }
 
     /* ============================================================
-   Account overview card — grid layout
+       Stock Daily Profit Calendar Card
+    ============================================================ */
+    .sdp-month { margin-bottom: 16px; }
+    .sdp-month:last-child { margin-bottom: 0; }
+
+    .sdp-month-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      text-align: center;
+      margin-bottom: 6px;
+    }
+
+    .sdp-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+    }
+
+    .sdp-weekday {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 3px 0 4px;
+      font-weight: 500;
+    }
+
+    .sdp-cell {
+      border-radius: 4px;
+      padding: 3px 2px 4px;
+      min-height: 44px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .sdp-cell-empty { /* 补位空格 */ }
+
+    .sdp-cell-rest {
+      background: none;
+    }
+
+    .sdp-cell-closed {
+      background: var(--step-bg);
+    }
+
+    .sdp-cell-profit {
+      background: rgba(224, 48, 48, 0.10);
+    }
+
+    .sdp-cell-loss {
+      background: rgba(52, 168, 83, 0.10);
+    }
+
+    .sdp-day {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.2;
+    }
+
+    .sdp-closed-label {
+      font-size: 9px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .sdp-profit-val {
+      font-size: 9px;
+      font-weight: 600;
+      line-height: 1.2;
+      text-align: center;
+      word-break: break-all;
+    }
+
+    .sdp-cell-profit .sdp-profit-val { color: #e03030; }
+    .sdp-cell-loss   .sdp-profit-val { color: #34a853; }
+
+    /* ============================================================
+       Account overview card — grid layout
    ============================================================ */
     .ao-card {
       background: var(--white);
@@ -2337,6 +2416,13 @@
                   thinkCard.style.display = 'none';
                 }
                 answerBubble.classList.remove('typing-cursor');
+                // 兜底：如果 answerBubble 还是空（例如错误消息未经 text_message_content 推送），
+                // 从 run_finished.message 读取并渲染
+                const finishedMsg = typeof d.ui_data === 'string' ? d.ui_data.trim() : '';
+                if (finishedMsg && !answerBubble.textContent.trim()) {
+                  answerBubble.classList.remove('hidden');
+                  answerBubble.innerHTML = md(finishedMsg);
+                }
                 $statusText.textContent = '';
                 scrollToBottom();
                 break;
@@ -2498,6 +2584,18 @@
             cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderBranchInfoCard(template.data);
             break;
+          case 'assetProfitHistTpl':
+            cardDiv.className = 'template-card';
+            cardDiv.innerHTML = renderAssetProfitHistCard(template.data);
+            break;
+          case 'stockProfitRankingTpl':
+            cardDiv.className = 'template-card';
+            cardDiv.innerHTML = renderStockProfitRankingCard(template.data);
+            break;
+          case 'stockDailyProfitCalendarTpl':
+            cardDiv.className = 'template-card';
+            cardDiv.innerHTML = renderStockDailyProfitCalendarCard(template.data);
+            break;
           default:
             cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderGenericCard(template);
@@ -2596,7 +2694,7 @@
       }
 
       function renderHoldingsListCard(template) {
-        const ac = template.assetClass || '';
+        const ac = template.asset_class || '';
         const title = (template.data && template.data.title) || '';
 
         const holdings = (template.data && template.data.holdings) || [];
@@ -2606,19 +2704,19 @@
         const isFund = ac === 'Fund';
         let summaryHtml = '';
 
-        const hasSummary = summary && (summary.totalMarketValue !== undefined || summary.totalProfit !== undefined);
+        const hasSummary = summary && (summary.total_market_value !== undefined || summary.total_profit !== undefined);
         if ((isETF || isFund) && hasSummary) {
-          const totalProfit = toNum(summary.totalProfit);
+          const totalProfit = toNum(summary.total_profit);
           const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
           const profitSign = totalProfit >= 0 ? '+' : '';
-          const profitRate = toNum(summary.totalProfitRate);
+          const profitRate = toNum(summary.total_profit_rate);
           const mktValLabel = isETF ? 'ETF市值' : '基金市值';
 
           summaryHtml = `
             <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
               <div style="text-align:center;flex:1;">
                 <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">${mktValLabel}</div>
-                <div class="tc-value">￥${formatNumber(summary.totalMarketValue)}</div>
+                <div class="tc-value">￥${formatNumber(summary.total_market_value)}</div>
               </div>
               <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
                 <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">今日收益</div>
@@ -2695,28 +2793,28 @@
           <div class="template-card-body">
             <div class="tc-metric">
               <span class="tc-label">现金余额</span>
-              <span class="tc-value">￥${formatNumber(data.cashBalance)}</span>
+              <span class="tc-value">￥${formatNumber(data.cash_balance)}</span>
             </div>
             <div class="tc-metric">
               <span class="tc-label">可用资金</span>
-              <span class="tc-value">￥${formatNumber(data.cashAvailable)}</span>
+              <span class="tc-value">￥${formatNumber(data.cash_available)}</span>
             </div>
             <div class="tc-metric">
               <span class="tc-label">冻结资金</span>
-              <span class="tc-value">￥${formatNumber(data.frozenFundsTotal)}</span>
+              <span class="tc-value">￥${formatNumber(data.frozen_funds_total)}</span>
             </div>
-            ${data.todayProfit ? `
+            ${data.today_profit ? `
               <div class="tc-metric">
                 <span class="tc-label">今日收益</span>
-                <span class="tc-value ${toNum(data.todayProfit) >= 0 ? 'profit' : 'loss'}">
-                  ${toNum(data.todayProfit) >= 0 ? '+' : ''}￥${formatNumber(Math.abs(toNum(data.todayProfit)))}
+                <span class="tc-value ${toNum(data.today_profit) >= 0 ? 'profit' : 'loss'}">
+                  ${toNum(data.today_profit) >= 0 ? '+' : ''}￥${formatNumber(Math.abs(toNum(data.today_profit)))}
                 </span>
               </div>
             ` : ''}
-            ${data.fundName ? `
+            ${data.fund_name ? `
               <div class="tc-metric">
                 <span class="tc-label">理财名称</span>
-                <span class="tc-value">${escHtml(data.fundName)} (${escHtml(data.fundCode || '')})</span>
+                <span class="tc-value">${escHtml(data.fund_name)} (${escHtml(data.fund_code || '')})</span>
               </div>
             ` : ''}
           </div>
@@ -2725,15 +2823,15 @@
 
       function renderSecurityDetailCard(data) {
         const holding = data.holding || {};
-        const market = data.marketInfo || {};
+        const market = data.market_info || {};
         const pr = toNum(holding.profit_rate);
         const profitClass = pr >= 0 ? 'profit' : 'loss';
         const profitSign = pr >= 0 ? '+' : '';
 
         return `
           <div class="template-card-header">
-            <div class="tc-title">${escHtml(data.securityName || data.securityCode || '标的详情')}</div>
-            <div class="tc-badge">${escHtml(data.securityType || data.market || '')}</div>
+            <div class="tc-title">${escHtml(data.security_name || data.security_code || '标的详情')}</div>
+            <div class="tc-badge">${escHtml(data.security_type || data.market || '')}</div>
           </div>
           <div class="template-card-body">
             ${market.current_price ? `
@@ -2810,6 +2908,249 @@
               您可以前往任意平安证券营业部办理业务，
               <span class="bi-footer-link">点击查询所有营业部 &rsaquo;</span>
             </div>
+          </div>
+        `;
+      }
+
+      function renderAssetProfitHistCard(data) {
+        const title = escHtml(data.title || '资产历史收益曲线');
+        const isMargin = data.account_type === 'margin';
+
+        const totalProfit = toNum(data.total_profit);
+        const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
+        const profitSign = totalProfit >= 0 ? '+' : '';
+        const totalProfitRate = toNum(data.total_profit_rate);
+        const rateDisplay = (totalProfitRate * 100).toFixed(2);
+
+        const asset = data.asset || [];
+        const assetTotal = data.asset_total || [];
+        const startAsset = asset.length > 0 ? asset[0] : null;
+        const endAsset = asset.length > 0 ? asset[asset.length - 1] : null;
+        const startTotal = assetTotal.length > 0 ? assetTotal[0] : null;
+        const endTotal = assetTotal.length > 0 ? assetTotal[assetTotal.length - 1] : null;
+
+        const assetLabel = isMargin ? '净资产' : '总资产';
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${title}</div>
+          </div>
+          <div class="template-card-body">
+            <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--border);">
+              <div style="text-align:center;flex:1;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">累计收益</div>
+                <div class="tc-value ${profitClass}">${profitSign}￥${formatNumber(Math.abs(totalProfit))}</div>
+              </div>
+              <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">累计收益率</div>
+                <div class="tc-value ${profitClass}">${profitSign}${rateDisplay}%</div>
+              </div>
+            </div>
+            ${startAsset != null ? `
+              <div class="tc-metric">
+                <span class="tc-label">期初${assetLabel}</span>
+                <span class="tc-value">￥${formatNumber(startAsset)}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">期末${assetLabel}</span>
+                <span class="tc-value">￥${formatNumber(endAsset)}</span>
+              </div>
+            ` : ''}
+            ${isMargin && startTotal != null ? `
+              <div class="tc-metric">
+                <span class="tc-label">期初总资产</span>
+                <span class="tc-value">￥${formatNumber(startTotal)}</span>
+              </div>
+              <div class="tc-metric">
+                <span class="tc-label">期末总资产</span>
+                <span class="tc-value">￥${formatNumber(endTotal)}</span>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }
+
+      function renderStockProfitRankingCard(data) {
+        const title = escHtml(data.title || '股票盈亏排行');
+        const profitCount = data.profit_count || '0';
+        const profitAmount = toNum(data.profit_amount);
+        const lossCount = data.loss_count || '0';
+        const lossAmount = toNum(data.loss_amount);
+        const stockList = data.stock_list || [];
+
+        const PREVIEW_LIMIT = 3;
+        const visibleList = stockList.slice(0, PREVIEW_LIMIT);
+        const hiddenList  = stockList.slice(PREVIEW_LIMIT);
+
+        const renderItem = (s, idx) => {
+          const profit = toNum(s.profit);
+          const profitClass = profit >= 0 ? 'profit' : 'loss';
+          const profitSign = profit >= 0 ? '+' : '';
+          const profitRate = toNum(s.profit_rate);
+          const profitRatio = toNum(s.profit_ratio);
+          return `
+            <div class="tc-list-item">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:11px;color:var(--text-muted);min-width:18px;">${idx + 1}</span>
+                <span class="tc-item-name">${escHtml(s.name || '')}</span>
+              </div>
+              <div style="text-align:right;">
+                <div class="tc-item-value ${profitClass}">
+                  ${profitSign}￥${formatNumber(Math.abs(profit))}
+                  (${profitSign}${(profitRate * 100).toFixed(2)}%)
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                  占比 ${(profitRatio * 100).toFixed(1)}%
+                </div>
+              </div>
+            </div>
+          `;
+        };
+
+        const visibleHtml = visibleList.map((s, i) => renderItem(s, i)).join('');
+        const hiddenHtml  = hiddenList.map((s, i) => renderItem(s, PREVIEW_LIMIT + i)).join('');
+
+        const uid = 'spr-' + Math.random().toString(36).slice(2, 8);
+        const moreLabel = hiddenList.length > 0
+          ? `查看更多（剩余 ${hiddenList.length} 只）&rsaquo;`
+          : '查看更多 &rsaquo;';
+
+        const hiddenSection = hiddenList.length > 0 ? `
+          <div id="${uid}-more" class="tc-list" style="display:none;">${hiddenHtml}</div>
+        ` : '';
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${title}</div>
+          </div>
+          <div class="template-card-body">
+            <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--border);">
+              <div style="text-align:center;flex:1;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">盈利 ${escHtml(String(profitCount))} 只</div>
+                <div class="tc-value profit">+￥${formatNumber(Math.abs(profitAmount))}</div>
+              </div>
+              <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">亏损 ${escHtml(String(lossCount))} 只</div>
+                <div class="tc-value loss">-￥${formatNumber(Math.abs(lossAmount))}</div>
+              </div>
+            </div>
+            <div class="tc-list">${visibleHtml || '<div style="text-align:center;color:var(--text-muted);padding:16px;">暂无数据</div>'}</div>
+            ${hiddenSection}
+          </div>
+          <div class="ao-footer" style="margin:8px -16px -16px;border-radius:0 0 var(--radius-md) var(--radius-md);"
+               onclick="
+                 var m=document.getElementById('${uid}-more');
+                 var f=this;
+                 if(!m)return;
+                 if(m.style.display==='none'){
+                   m.style.display='flex';
+                   m.style.flexDirection='column';
+                   m.style.gap='8px';
+                   f.textContent='收起 ‹';
+                 } else {
+                   m.style.display='none';
+                   f.innerHTML='${moreLabel}';
+                 }
+               ">${moreLabel}</div>
+        `;
+      }
+
+      function renderStockDailyProfitCalendarCard(data) {
+        const title = escHtml(data.title || '股票每日收益');
+        const totalProfit = toNum(data.total_profit);
+        const totalProfitRate = toNum(data.total_profit_rate);
+        const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
+        const profitSign = totalProfit >= 0 ? '+' : '';
+        const rateDisplay = (totalProfitRate * 100).toFixed(2);
+
+        // 构建 "YYYYMMDD" -> {profit, profitRate} 映射
+        const tradingDates = data.trading_dates || [];
+        const dailyProfit = data.daily_profit || [];
+        const dailyProfitRate = data.daily_profit_rate || [];
+        const profitMap = {};
+        tradingDates.forEach((d, i) => {
+          profitMap[d] = { profit: dailyProfit[i], profitRate: dailyProfitRate[i] };
+        });
+
+        // 按月分组，保持顺序
+        const monthSet = new Set();
+        tradingDates.forEach(d => monthSet.add(d.slice(0, 6)));
+        const months = Array.from(monthSet).sort();
+
+        // 金额紧凑格式：万 / 千 / 百
+        const fmtCell = (val) => {
+          if (val === '休市' || val === undefined || val === null) return '';
+          const n = parseFloat(val);
+          if (isNaN(n)) return '';
+          const abs = Math.abs(n);
+          const sign = n >= 0 ? '+' : '-';
+          if (abs >= 10000) return sign + (abs / 10000).toFixed(1) + '万';
+          if (abs >= 1000)  return sign + Math.round(abs / 100) / 10 + 'k';
+          return sign + Math.round(abs);
+        };
+
+        const WEEKDAYS = ['一','二','三','四','五','六','日'];
+
+        const monthsHtml = months.map(ym => {
+          const year  = parseInt(ym.slice(0, 4), 10);
+          const month = parseInt(ym.slice(4, 6), 10);
+          const daysInMonth = new Date(year, month, 0).getDate();
+          // getDay(): 0=Sun→6, 1=Mon→0 ... 转成周一为0
+          const startOffset = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+
+          let cells = '';
+          for (let i = 0; i < startOffset; i++) {
+            cells += '<div class="sdp-cell sdp-cell-empty"></div>';
+          }
+          for (let day = 1; day <= daysInMonth; day++) {
+            const ds = `${year}${String(month).padStart(2,'0')}${String(day).padStart(2,'0')}`;
+            const entry = profitMap[ds];
+            if (!entry) {
+              // 非交易日（周末 / 节假日）
+              cells += `<div class="sdp-cell sdp-cell-rest"><span class="sdp-day" style="color:var(--text-muted);">${day}</span></div>`;
+            } else if (entry.profit === '休市') {
+              cells += `
+                <div class="sdp-cell sdp-cell-closed">
+                  <span class="sdp-day">${day}</span>
+                  <span class="sdp-closed-label">休市</span>
+                </div>`;
+            } else {
+              const p = parseFloat(entry.profit);
+              const cls = !isNaN(p) && p >= 0 ? 'profit' : 'loss';
+              cells += `
+                <div class="sdp-cell sdp-cell-${cls}">
+                  <span class="sdp-day">${day}</span>
+                  <span class="sdp-profit-val">${fmtCell(entry.profit)}</span>
+                </div>`;
+            }
+          }
+
+          return `
+            <div class="sdp-month">
+              <div class="sdp-month-label">${year}年${month}月</div>
+              <div class="sdp-grid">
+                ${WEEKDAYS.map(w => `<div class="sdp-weekday">${w}</div>`).join('')}
+                ${cells}
+              </div>
+            </div>`;
+        }).join('');
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${title}</div>
+          </div>
+          <div class="template-card-body">
+            <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
+              <div style="text-align:center;flex:1;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">累计收益</div>
+                <div class="tc-value ${profitClass}">${profitSign}￥${formatNumber(Math.abs(totalProfit))}</div>
+              </div>
+              <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">累计收益率</div>
+                <div class="tc-value ${profitClass}">${profitSign}${rateDisplay}%</div>
+              </div>
+            </div>
+            ${monthsHtml || '<div style="text-align:center;color:var(--text-muted);padding:16px;">暂无数据</div>'}
           </div>
         `;
       }

@@ -1,16 +1,27 @@
 """证券工具包"""
 
-from .account_overview import AccountOverviewTool
-from .branch_info import BranchInfoTool
-from .cash_assets import CashAssetsTool
-from .display_card import DisplayCardTool
-from .etf_holdings import ETFHoldingsTool
-from .fund_holdings import FundHoldingsTool
-from .hksc_holdings import HKSCHoldingsTool
-from .security_detail import SecurityDetailTool
+from .agent import (
+    AccountOverviewTool,
+    AssetProfitHistPeriodTool,
+    AssetProfitHistRangeTool,
+    BranchInfoTool,
+    CashAssetsTool,
+    DisplayCardTool,
+    ETFHoldingsTool,
+    FundHoldingsTool,
+    HKSCHoldingsTool,
+    SecurityDetailTool,
+    SecurityInfoSearchTool,
+    StockDailyProfitMonthTool,
+    StockDailyProfitRangeTool,
+    StockProfitRankingTool,
+    create_securities_tools,
+)
 
 __all__ = [
     "AccountOverviewTool",
+    "AssetProfitHistPeriodTool",
+    "AssetProfitHistRangeTool",
     "BranchInfoTool",
     "CashAssetsTool",
     "DisplayCardTool",
@@ -18,19 +29,9 @@ __all__ = [
     "FundHoldingsTool",
     "HKSCHoldingsTool",
     "SecurityDetailTool",
+    "SecurityInfoSearchTool",
+    "StockDailyProfitMonthTool",
+    "StockDailyProfitRangeTool",
+    "StockProfitRankingTool",
     "create_securities_tools",
 ]
-
-
-def create_securities_tools() -> list:
-    """创建所有证券工具"""
-    return [
-        AccountOverviewTool(),
-        BranchInfoTool(),
-        CashAssetsTool(),
-        DisplayCardTool(),
-        ETFHoldingsTool(),
-        FundHoldingsTool(),
-        HKSCHoldingsTool(),
-        SecurityDetailTool(),
-    ]

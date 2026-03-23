@@ -11,6 +11,12 @@ dependencies = [
     "numpy>=2.0.0",
     "langchain-openai>=0.3",
     "langchain-core>=0.3",
+    "akshare>=1.18.43",
+    "pandas>=2.3.3",
+    "rapidfuzz>=3.14.3",
+    "pypinyin>=0.55.0",
+    "fastapi>=0.128.0",
+    "uvicorn>=0.40.0",
 ]
 
 [project.optional-dependencies]
@@ -32,8 +38,12 @@ memory = [
     "jieba>=0.42.1",
     "sentence-transformers>=3.3.0",
 ]
+stock-search = [
+    "rapidfuzz>=3.0.0",
+    "pypinyin>=0.51.0",
+]
 all = [
-    "ark-agentic[dev,pa-jt,memory]",
+    "ark-agentic[dev,pa-jt,memory,stock-search]",
 ]
 
 [project.scripts]
