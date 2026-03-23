@@ -33,6 +33,13 @@ _CARD_EXTRACTORS = {
 }
 
 
+_INSURANCE_STATE_KEYS = (
+    "_rule_engine_result",
+    "_policy_query_result",
+    "_customer_info_result",
+)
+
+
 def _create_render_a2ui_tool() -> RenderA2UITool:
     return RenderA2UITool(
         template_root=_A2UI_TEMPLATE_ROOT,
@@ -42,6 +49,7 @@ def _create_render_a2ui_tool() -> RenderA2UITool:
         root_gap=16,
         root_padding=[16, 32, 16, 16],
         group="insurance",
+        state_keys=_INSURANCE_STATE_KEYS,
     )
 
 

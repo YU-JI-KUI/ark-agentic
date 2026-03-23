@@ -1281,6 +1281,14 @@
 
               case 'response.ui.component': {
                 const comp = event.ui_component;
+                if (comp && comp.relevant === 0) {
+                  thinkCard.style.display = 'none';
+                  answerBubble.textContent = '抱歉，该问题不在我的服务范围内。';
+                  answerBubble.classList.remove('hidden');
+                  answerBubble.classList.remove('typing-cursor');
+                  scrollToBottom();
+                  break;
+                }
                 if (comp && a2uiContainer) {
                   a2uiContainer.classList.remove('hidden');
                   try {

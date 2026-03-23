@@ -15,6 +15,7 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
@@ -105,5 +106,6 @@ def create_insurance_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
+        intake_guard=InsuranceIntakeGuard(llm),
     )
 

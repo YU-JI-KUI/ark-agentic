@@ -313,6 +313,9 @@ class EnterpriseAGUIFormatter:
             else:
                 dp.ui_protocol = "text"
                 dp.ui_data = raw
+        elif event.type == "custom":
+            dp.ui_protocol = "json"
+            dp.ui_data = event.custom_data
         elif event.type == "run_error":
             dp.code = "500"
             dp.ui_protocol = "text"

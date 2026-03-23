@@ -1,7 +1,7 @@
 ---
 name: 信息查询
 description: 查询并展示用户个人信息或保单列表，以 A2UI 卡片呈现。
-version: "4.0.0"
+version: "5.0.0"
 invocation_policy: auto
 group: insurance
 tags:
@@ -29,7 +29,9 @@ required_tools:
 
 ## 回复结构
 
-`[1 句引导语] + A2UI 卡片`
+`[1 句引导语] + render_a2ui 调用 + [1 句引导]`
+
+**禁止**在文字中重复卡片已展示的保单名称、金额、保单号等内容。卡片后仅 1 句引导（≤25字）。
 
 ---
 
@@ -217,3 +219,11 @@ Where 条件：`{"field": "> 0"}`，`{"or": [{...}, {...}]}`
 ```json
 {"type": "KVRow", "data": {"label": "生存金", "value": {"get": "options[0].survival_fund_amt", "format": "currency"}}}
 ```
+
+---
+
+## 输出约束（最高优先级）
+
+1. **必须**：所有信息展示通过调用 `render_a2ui` 工具完成。严禁用 Markdown 表格、列表或纯文本替代。
+2. **禁止**：在文字回复中重复卡片已展示的保单名称、金额、保单号。卡片后仅 1 句引导（≤25字）。
+3. 违反以上任一条等同于任务失败。

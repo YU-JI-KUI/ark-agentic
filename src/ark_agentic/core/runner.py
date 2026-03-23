@@ -37,6 +37,7 @@ from .types import (
 from .validation import validate_response_against_tools
 
 if TYPE_CHECKING:
+    from .guard import IntakeGuard
     from .memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,7 @@ class AgentRunner:
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
         context_preprocessor: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        intake_guard: IntakeGuard | None = None,
     ) -> None:
         self.llm = llm
         self.tool_registry = tool_registry or ToolRegistry()
@@ -136,6 +138,7 @@ class AgentRunner:
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
         self._context_preprocessor = context_preprocessor
+        self._intake_guard = intake_guard
 
         self._memory_manager = memory_manager
         self._flusher = None
@@ -240,6 +243,18 @@ class AgentRunner:
             await self.session_manager.auto_compact_if_needed(
                 session_id, user_id, pre_compact_callback=flush_cb,
             )
+
+        # 准入检查：在进入 ReAct 循环之前判断请求是否在 Agent 受理范围内
+        if self._intake_guard:
+            guard_result = await self._intake_guard.check(user_input, input_context)
+            if not guard_result.accepted:
+                logger.info(f"Intake guard rejected: {guard_result.message}")
+                if handler:
+                    handler.on_custom_event("intake_rejected", {"relevant": 0})
+                response = AgentMessage.assistant(guard_result.message or "")
+                self.session_manager.add_message_sync(session_id, response)
+                await self.session_manager.sync_pending_messages(session_id, user_id)
+                return RunResult(response=response)
 
         use_streaming = stream_override if stream_override is not None else self.config.enable_streaming
 

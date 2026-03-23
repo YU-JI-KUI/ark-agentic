@@ -8,7 +8,36 @@ from ark_agentic.core.a2ui.guard import (
     validate_data_coverage,
     validate_full_payload,
 )
+from ark_agentic.core.a2ui import blocks as a2ui_blocks
 from ark_agentic.core.a2ui.blocks import get_block_builder
+
+
+@pytest.fixture
+def _sample_block_registry():
+    """Core registry is empty until an agent registers; seed minimal builders for BlockDataError tests."""
+    saved_reg = dict(a2ui_blocks._BLOCK_REGISTRY)
+    saved_req = dict(a2ui_blocks._BLOCK_REQUIRED_KEYS)
+    a2ui_blocks._BLOCK_REGISTRY.clear()
+    a2ui_blocks._BLOCK_REQUIRED_KEYS.clear()
+
+    @a2ui_blocks._register("InfoCard", ["title", "body"])
+    def _info_card(_data, g):
+        return [{"id": g("t"), "component": {"Text": {"text": {"literalString": "x"}}}}]
+
+    @a2ui_blocks._register("SummaryHeader", ["title", "value"])
+    def _summary_header(_data, g):
+        return [{"id": g("t"), "component": {"Text": {}}}]
+
+    @a2ui_blocks._register("Divider")
+    def _divider(_data, g):
+        return [{"id": g("d"), "component": {"Divider": {}}}]
+
+    yield
+
+    a2ui_blocks._BLOCK_REGISTRY.clear()
+    a2ui_blocks._BLOCK_REGISTRY.update(saved_reg)
+    a2ui_blocks._BLOCK_REQUIRED_KEYS.clear()
+    a2ui_blocks._BLOCK_REQUIRED_KEYS.update(saved_req)
 
 
 class TestValidateDataCoverage:
@@ -96,6 +125,7 @@ class TestValidateFullPayload:
         assert any("DATA_COVERAGE" in w for w in result.warnings)
 
 
+@pytest.mark.usefixtures("_sample_block_registry")
 class TestBlockDataError:
     def test_missing_keys_raises(self):
         builder = get_block_builder("InfoCard")

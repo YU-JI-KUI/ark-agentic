@@ -288,6 +288,7 @@ class TestAgentPipeline:
             root_gap=16,
             root_padding=[16, 32, 16, 16],
             group="insurance",
+            state_keys=("_rule_engine_result",),
         )
 
     @pytest.fixture

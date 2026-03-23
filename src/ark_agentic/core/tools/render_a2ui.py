@@ -70,6 +70,7 @@ class RenderA2UITool(AgentTool):
         agent_components: dict[str, Callable] | None = None,
         root_gap: int = 0,
         root_padding: int | list[int] = 2,
+        state_keys: tuple[str, ...] = (),
     ):
         self._template_root = Path(template_root) if template_root else None
         self._extractors: dict[str, CardExtractor] = dict(extractors or {})
@@ -77,6 +78,7 @@ class RenderA2UITool(AgentTool):
         self._agent_components: dict[str, Callable] = dict(agent_components or {})
         self._root_gap = root_gap
         self._root_padding = root_padding
+        self._state_keys = state_keys
 
         card_types = list(self._extractors.keys())
         available_types = (
@@ -163,7 +165,7 @@ class RenderA2UITool(AgentTool):
                 tool_call.id, "blocks 必须是 JSON 数组"
             )
 
-        raw_data = _collect_raw_data(ctx)
+        raw_data = _collect_raw_data(ctx, self._state_keys)
 
         if not self._agent_blocks and not self._agent_components:
             session_id = str(ctx.get("session_id", ""))
@@ -388,20 +390,19 @@ class RenderA2UITool(AgentTool):
         return AgentToolResult.a2ui_result(tool_call.id, payload, metadata=meta)
 
 
-def _collect_raw_data(ctx: dict[str, Any]) -> dict[str, Any]:
+def _collect_raw_data(
+    ctx: dict[str, Any],
+    state_keys: tuple[str, ...] = (),
+) -> dict[str, Any]:
     """Collect raw business data from context.
 
-    Merges all tool results at top level so transforms can use clean paths
+    Merges agent-specific state_delta keys (injected via ``state_keys``)
+    and generic ``_tool_results_by_name`` so transforms can use clean paths
     like ``identity.name`` or ``options[0].product_name``.
     """
     raw: dict[str, Any] = {}
 
-    _STATE_KEYS = (
-        "_rule_engine_result",
-        "_policy_query_result",
-        "_customer_info_result",
-    )
-    for key in _STATE_KEYS:
+    for key in state_keys:
         data = ctx.get(key)
         if data is None:
             continue
