@@ -22,4 +22,9 @@ class GuardResult(BaseModel):
 class IntakeGuard(Protocol):
     """准入检查协议。Runner 依赖此协议，具体实现由各 Agent 注入。"""
 
-    async def check(self, user_input: str, context: dict[str, Any] | None = None) -> GuardResult: ...
+    async def check(
+        self,
+        user_input: str,
+        context: dict[str, Any] | None = None,
+        history: list[dict[str, str]] | None = None,
+    ) -> GuardResult: ...
