@@ -39,6 +39,43 @@ from .withdraw_a2ui_utils import (
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Shared helper: unroll items into explicit Row components (no List/path)
+# ---------------------------------------------------------------------------
+
+def _item_rows(
+    items: list[dict[str, str]],
+    g: IdGen,
+    *,
+    gap: int = 8,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Unroll label/value items into Column > Row > Text(literalString).
+
+    Returns (col_id, components).  All values are inlined as literalString
+    so no ``path`` binding is emitted.
+    """
+    col_id = g("column")
+    row_ids: list[str] = []
+    comps: list[dict[str, Any]] = []
+    for item in items:
+        row_id = g("row")
+        label_id, val_id = g("text"), g("text")
+        comps.append(_text(label_id, item["label"], color=BODY_COLOR, fontSize="14px"))
+        comps.append(_text(val_id, item["value"], color=BODY_COLOR, fontSize="14px"))
+        comps.append(_comp(row_id, "Row", {
+            "width": 100,
+            "distribution": "spaceBetween",
+            "children": {"explicitList": [label_id, val_id]},
+        }))
+        row_ids.append(row_id)
+    comps.append(_comp(col_id, "Column", {
+        "gap": gap,
+        "children": {"explicitList": row_ids},
+    }))
+    return col_id, comps
+
+
 # ---------------------------------------------------------------------------
 # Section presets (from withdraw_summary/template.json)
 # ---------------------------------------------------------------------------
@@ -222,9 +259,6 @@ def build_withdraw_summary_section(
     row_id = g("row")
     line_id, title_id, tag_id = g("line"), g("text"), g("tag")
     total_id, div_id = g("text"), g("divider")
-    list_id = g("list")
-    item_row_id = g("row")
-    item_label_id, item_val_id = g("text"), g("text")
 
     comps: list[dict[str, Any]] = []
 
@@ -253,24 +287,13 @@ def build_withdraw_summary_section(
     # Divider
     comps.append(_comp(div_id, "Divider", {"borderColor": DIVIDER_COLOR, "hairline": True}))
 
-    # Items list
-    comps.append(_text(item_label_id, "$item.label", color=BODY_COLOR, fontSize="14px"))
-    comps.append(_text(item_val_id, "$item.value", color=BODY_COLOR, fontSize="14px"))
-    comps.append(_comp(item_row_id, "Row", {
-        "width": 100,
-        "distribution": "spaceBetween",
-        "children": {"explicitList": [item_label_id, item_val_id]},
-    }))
-    comps.append(_comp(list_id, "List", {
-        "direction": "vertical",
-        "gap": 8,
-        "child": item_row_id,
-        "dataSource": {"literalString": items},
-    }))
+    # Items (unrolled — no List/path binding)
+    items_col_id, item_comps = _item_rows(items, g)
+    comps.extend(item_comps)
 
     col = _comp(col_id, "Column", {
         "gap": 12,
-        "children": {"explicitList": [row_id, total_id, div_id, list_id]},
+        "children": {"explicitList": [row_id, total_id, div_id, items_col_id]},
     })
     card = _comp(card_id, "Card", {
         "width": 100,
@@ -280,8 +303,7 @@ def build_withdraw_summary_section(
         "children": {"explicitList": [col_id]},
     })
 
-    extra_key = f"_ws_{section_name}_items"
-    return [card, col] + comps, {extra_key: items}
+    return [card, col] + comps, {}
 
 
 # ---------------------------------------------------------------------------
@@ -356,26 +378,11 @@ def build_withdraw_plan_card(
     col_children.append(div_id)
     comps.append(_comp(div_id, "Divider", {"borderColor": DIVIDER_COLOR, "hairline": True}))
 
-    # Policies list
+    # Policies (unrolled — no List/path binding)
     if policies:
-        list_id = g("list")
-        item_row_id = g("row")
-        item_label_id, item_val_id = g("text"), g("text")
-
-        comps.append(_text(item_label_id, "$item.label", color=BODY_COLOR, fontSize="14px"))
-        comps.append(_text(item_val_id, "$item.value", color=BODY_COLOR, fontSize="14px"))
-        comps.append(_comp(item_row_id, "Row", {
-            "width": 100,
-            "distribution": "spaceBetween",
-            "children": {"explicitList": [item_label_id, item_val_id]},
-        }))
-        comps.append(_comp(list_id, "List", {
-            "direction": "vertical",
-            "gap": 8,
-            "child": item_row_id,
-            "dataSource": {"literalString": policies},
-        }))
-        col_children.append(list_id)
+        pol_col_id, pol_comps = _item_rows(policies, g)
+        comps.extend(pol_comps)
+        col_children.append(pol_col_id)
 
     # Buttons
     if buttons:
@@ -410,8 +417,7 @@ def build_withdraw_plan_card(
         "children": {"explicitList": [col_id]},
     })
 
-    extra_key = f"_wp_{g('idx')}_policies"
-    return [card, col] + comps, {extra_key: policies}
+    return [card, col] + comps, {}
 
 
 INSURANCE_COMPONENTS: dict[str, Any] = {

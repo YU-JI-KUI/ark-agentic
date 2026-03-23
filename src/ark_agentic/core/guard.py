@@ -7,9 +7,12 @@ Agent 准入检查（Intake Guard）
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from .types import AgentMessage
 
 
 class GuardResult(BaseModel):
@@ -26,5 +29,5 @@ class IntakeGuard(Protocol):
         self,
         user_input: str,
         context: dict[str, Any] | None = None,
-        history: list[dict[str, str]] | None = None,
+        history: list[AgentMessage] | None = None,
     ) -> GuardResult: ...

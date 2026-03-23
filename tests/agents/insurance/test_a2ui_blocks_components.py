@@ -168,9 +168,7 @@ class TestWithdrawSummarySection:
         assert len(comps) > 0
         card = comps[0]
         assert "Card" in card["component"]
-        assert "_ws_zero_cost_items" in extra
-        items = extra["_ws_zero_cost_items"]
-        assert len(items) == 2  # survival_fund + bonus from POL002
+        assert extra == {}
 
     def test_loan(self):
         comps, extra = build_withdraw_summary_section(
@@ -179,7 +177,7 @@ class TestWithdrawSummarySection:
             _SAMPLE_RAW_DATA,
         )
         assert len(comps) > 0
-        assert "_ws_loan_items" in extra
+        assert extra == {}
 
     def test_partial_surrender_total_color_is_gray(self):
         raw = {

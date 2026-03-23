@@ -246,13 +246,8 @@ class AgentRunner:
 
         # 准入检查：在进入 ReAct 循环之前判断请求是否在 Agent 受理范围内
         if self._intake_guard:
-            recent = [
-                {"role": m.role.value, "content": m.content or ""}
-                for m in session.messages[-5:-1]  # 当前用户消息之前的最近 4 条
-                if m.role in (MessageRole.USER, MessageRole.ASSISTANT) and m.content
-            ]
             guard_result = await self._intake_guard.check(
-                user_input, input_context, history=recent or None,
+                user_input, input_context, history=session.messages[:-1] or None,
             )
             if not guard_result.accepted:
                 logger.info(f"Intake guard rejected: {guard_result.message}")
