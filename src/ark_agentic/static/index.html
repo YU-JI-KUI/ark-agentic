@@ -1777,7 +1777,7 @@
             </div>
             ${data.today_profit ? `
               <div class="tc-metric">
-                <span class="tc-label">今日收益</span>
+                <span class="tc-label">今日收益${data.settlement_date ? `（结算日期 ${data.settlement_date}）` : ''}</span>
                 <span class="tc-value ${toNum(data.today_profit) >= 0 ? 'profit' : 'loss'}">
                   ${toNum(data.today_profit) >= 0 ? '+' : ''}￥${formatNumber(Math.abs(toNum(data.today_profit)))}
                 </span>

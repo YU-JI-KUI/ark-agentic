@@ -1,11 +1,15 @@
 """Tests for field extraction utilities."""
 
+from datetime import date
+from unittest.mock import patch
+
 import pytest
 
 from ark_agentic.agents.securities.tools.service.field_extraction import (
     extract_fields,
     _get_by_path,
     extract_account_overview,
+    extract_cash_assets,
     ACCOUNT_OVERVIEW_FIELD_MAPPING,
     SERVICE_FIELD_MAPPINGS,
     extract_service_fields,
@@ -150,9 +154,10 @@ class TestExtractAccountOverview:
         assert result["total_assets"] == "333678978.13"
         assert result["cash_balance"] == "100815068.13"
         assert result["stock_market_value"] == "233663910.00"
-        assert result["net_assets"] == "332733488.56"
-        assert result["total_liabilities"] == "945497.57"
-        assert result["maintenance_margin_ratio"] == "35291.35"
+        rzrq = result["rzrq_assets_info"]
+        assert rzrq["netWorth"] == "332733488.56"
+        assert rzrq["totalLiabilities"] == "945497.57"
+        assert rzrq["mainRatio"] == "35291.35"
 
     def test_extract_with_null_nested_object(self):
         """Test extraction when nested object is null."""
@@ -175,6 +180,36 @@ class TestExtractAccountOverview:
         assert "net_assets" not in result
 
 
+class TestExtractCashAssets:
+    """现金资产提取：today_profit 与 settlement_date"""
+
+    def test_today_profit_and_settlement_date(self) -> None:
+        data = {
+            "status": 1,
+            "results": {
+                "accountType": "1",
+                "rmb": {
+                    "cashBalance": "100",
+                    "available": "90",
+                    "avaliableDetail": {
+                        "drawBalance": "80",
+                        "cashBalanceDetail": {
+                            "dayProfit": "-1.23",
+                            "accuProfit": "4.56",
+                        },
+                    },
+                },
+            },
+        }
+        with patch(
+            "ark_agentic.agents.securities.tools.service.field_extraction.date"
+        ) as mock_date:
+            mock_date.today.return_value = date(2026, 3, 23)
+            result = extract_cash_assets(data)
+        assert result["today_profit"] == "-1.23"
+        assert result["settlement_date"] == "03-22"
+
+
 class TestFieldMappingConfiguration:
     """Test field mapping configuration."""
 
@@ -195,8 +230,8 @@ class TestFieldMappingConfiguration:
             == "results.rmb.cashGainAssetsInfo.cashBalance"
         )
         assert (
-            ACCOUNT_OVERVIEW_FIELD_MAPPING["net_assets"]
-            == "results.rmb.rzrqAssetsInfo.netWorth"
+            ACCOUNT_OVERVIEW_FIELD_MAPPING["rzrq_assets_info"]
+            == "results.rmb.rzrqAssetsInfo"
         )
 
     def test_service_field_mappings_registered(self):

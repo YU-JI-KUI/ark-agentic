@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 
@@ -95,6 +96,7 @@ CASH_ASSETS_FIELD_MAPPING: dict[str, str] = {
     "cash_balance": "results.rmb.cashBalance",
     "cash_available": "results.rmb.available",
     "draw_balance": "results.rmb.avaliableDetail.drawBalance",
+    # dayProfit 对应展示为今日收益；结算日见 extract_cash_assets 中 settlement_date
     "today_profit": "results.rmb.avaliableDetail.cashBalanceDetail.dayProfit",
     "accu_profit": "results.rmb.avaliableDetail.cashBalanceDetail.accuProfit",
     "fund_name": "results.rmb.avaliableDetail.cashBalanceDetail.fundName",
@@ -108,14 +110,18 @@ CASH_ASSETS_FIELD_MAPPING: dict[str, str] = {
 
 def extract_cash_assets(data: dict[str, Any]) -> dict[str, Any]:
     """提取现金资产字段
-    
+
+    为现金收益补充 settlement_date（结算日：当前本地日期的前一天，MM-DD）。
+
     Args:
         data: API 响应数据
-    
+
     Returns:
         提取后的字段字典
     """
-    return extract_fields(data, CASH_ASSETS_FIELD_MAPPING)
+    result = extract_fields(data, CASH_ASSETS_FIELD_MAPPING)
+    result["settlement_date"] = (date.today() - timedelta(days=1)).strftime("%m-%d")
+    return result
 
 
 # ============ ETF 持仓字段映射 ============

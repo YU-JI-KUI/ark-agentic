@@ -141,6 +141,7 @@ class TemplateRenderer:
         - cash_balance: 现金总额
         - cash_available: 可用资金
         - draw_balance: 可取资金
+        - settlement_date: 结算日期（MM-DD）
         - today_profit: 今日收益
         - accu_profit: 累计收益
         - fund_name: 理财产品名称
@@ -157,6 +158,7 @@ class TemplateRenderer:
                 "cash_balance": data.get("cash_balance"),
                 "cash_available": data.get("cash_available"),
                 "draw_balance": data.get("draw_balance"),
+                "settlement_date": data.get("settlement_date"),
                 "today_profit": data.get("today_profit"),
                 # 扩展字段
                 "accu_profit": data.get("accu_profit"),
