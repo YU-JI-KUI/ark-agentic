@@ -60,25 +60,13 @@ class SkillLoader:
         return self._skills
 
     def _load_directory(self, directory: Path, priority: int) -> None:
-        """加载单个目录下的所有技能
-
-        File-based mode selection:
-        - a2ui_mode=dynamic + SKILL_DYNAMIC_UI.md exists -> load that
-        - otherwise -> load SKILL.md
-        - neither exists -> skip
-        """
+        """加载单个目录下的所有技能"""
         for item in directory.iterdir():
             if not item.is_dir():
                 continue
 
-            dynamic_file = item / "SKILL_DYNAMIC_UI.md"
-            default_file = item / "SKILL.md"
-
-            if self.config.a2ui_mode == "dynamic" and dynamic_file.exists():
-                skill_file = dynamic_file
-            elif default_file.exists():
-                skill_file = default_file
-            else:
+            skill_file = item / "SKILL.md"
+            if not skill_file.exists():
                 continue
 
             try:
@@ -160,7 +148,6 @@ class SkillLoader:
             required_tools=frontmatter.get("required_tools"),
             group=frontmatter.get("group"),
             tags=frontmatter.get("tags", []),
-            a2ui_mode=frontmatter.get("a2ui_mode"),
         )
 
     def get_skill(self, skill_id: str) -> SkillEntry | None:

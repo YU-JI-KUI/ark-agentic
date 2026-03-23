@@ -37,6 +37,7 @@ from .types import (
 from .validation import validate_response_against_tools
 
 if TYPE_CHECKING:
+    from .guard import IntakeGuard
     from .memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
@@ -76,9 +77,6 @@ class RunnerConfig:
 
     # 技能配置
     skill_config: SkillConfig = field(default_factory=SkillConfig)
-
-    # A2UI 渲染模式 (preset|dynamic)，可通过环境变量 A2UI_MODE 覆盖
-    a2ui_mode: str = field(default_factory=lambda: os.getenv("A2UI_MODE", "dynamic"))
 
     # 外部历史合并（agent 级开关）
     accept_external_history: bool = True
@@ -132,6 +130,7 @@ class AgentRunner:
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
         context_preprocessor: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        intake_guard: IntakeGuard | None = None,
     ) -> None:
         self.llm = llm
         self.tool_registry = tool_registry or ToolRegistry()
@@ -139,6 +138,7 @@ class AgentRunner:
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
         self._context_preprocessor = context_preprocessor
+        self._intake_guard = intake_guard
 
         self._memory_manager = memory_manager
         self._flusher = None
@@ -217,8 +217,6 @@ class AgentRunner:
         raw = self.config.skill_config.default_load_mode
         resolved_skill_load_mode: str = raw.value
 
-        effective_a2ui_mode = self.config.a2ui_mode
-
         if self._memory_manager and not self._memory_manager._initialized:
             await self._memory_manager.initialize()
 
@@ -246,6 +244,20 @@ class AgentRunner:
                 session_id, user_id, pre_compact_callback=flush_cb,
             )
 
+        # 准入检查：在进入 ReAct 循环之前判断请求是否在 Agent 受理范围内
+        if self._intake_guard:
+            guard_result = await self._intake_guard.check(
+                user_input, input_context, history=session.messages[:-1] or None,
+            )
+            if not guard_result.accepted:
+                logger.info(f"Intake guard rejected: {guard_result.message}")
+                if handler:
+                    handler.on_custom_event("intake_rejected", {"relevant": 0})
+                response = AgentMessage.assistant(guard_result.message or "")
+                self.session_manager.add_message_sync(session_id, response)
+                await self.session_manager.sync_pending_messages(session_id, user_id)
+                return RunResult(response=response)
+
         use_streaming = stream_override if stream_override is not None else self.config.enable_streaming
 
         try:
@@ -255,7 +267,6 @@ class AgentRunner:
                 model_override=effective_model,
                 temperature_override=effective_temperature,
                 skill_load_mode=resolved_skill_load_mode,
-                a2ui_mode=effective_a2ui_mode,
                 handler=handler,
             )
         finally:
@@ -347,7 +358,6 @@ class AgentRunner:
         model_override: str | None = None,
         temperature_override: float | None = None,
         skill_load_mode: str = "full",
-        a2ui_mode: str = "dynamic",
         handler: AgentEventHandler | None = None,
     ) -> RunResult:
         """ReAct 循环: LLM → Tool → LLM → ... → Response"""
@@ -366,7 +376,7 @@ class AgentRunner:
             turns += 1
 
             state = session.state
-            messages = self._build_messages(session_id, state, skill_load_mode=skill_load_mode, a2ui_mode=a2ui_mode)
+            messages = self._build_messages(session_id, state, skill_load_mode=skill_load_mode)
             tools = self._build_tools()
             logger.info(
                 f"Turn {turns} | messages={len(messages)} tools={len(tools)} "
@@ -551,7 +561,6 @@ class AgentRunner:
         state: dict[str, Any],
         *,
         skill_load_mode: str = "full",
-        a2ui_mode: str = "dynamic",
     ) -> list[dict[str, Any]]:
         """构建 LLM 消息列表"""
         import json
@@ -562,7 +571,6 @@ class AgentRunner:
         # 系统提示
         system_prompt = self._build_system_prompt(
             state, session_id=session_id, skill_load_mode=skill_load_mode,
-            a2ui_mode=a2ui_mode
         )
         messages.append({"role": "system", "content": system_prompt})
 
@@ -623,7 +631,6 @@ class AgentRunner:
         session_id: str | None = None,
         *,
         skill_load_mode: str = "full",
-        a2ui_mode: str = "dynamic",
     ) -> str:
         """构建系统提示"""
         tools = self.tool_registry.list_all()

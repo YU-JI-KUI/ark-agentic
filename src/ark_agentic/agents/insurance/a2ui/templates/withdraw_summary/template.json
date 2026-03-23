@@ -61,7 +61,7 @@
       "id": "header-title",
       "component": {
         "Text": {
-          "text": { "path": "header_title", "literalString": "目前可领取的总金额(含贷款)" },
+          "text": { "path": "header_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -72,7 +72,7 @@
       "id": "header-value",
       "component": {
         "Text": {
-          "text": { "path": "header_value", "literalString": "—" },
+          "text": { "path": "header_value" },
           "color": "#FF6600",
           "fontSize": "24px",
           "bold": true
@@ -83,7 +83,7 @@
       "id": "header-sub",
       "component": {
         "Text": {
-          "text": { "path": "header_sub", "literalString": "" },
+          "text": { "path": "header_sub" },
           "color": "#999999",
           "fontSize": "12px"
         }
@@ -93,7 +93,7 @@
       "id": "header-requested",
       "component": {
         "Text": {
-          "text": { "path": "requested_amount_display", "literalString": "—" },
+          "text": { "path": "requested_amount_display" },
           "color": "#666666",
           "fontSize": "12px"
         }
@@ -158,7 +158,7 @@
       "id": "cz-title",
       "component": {
         "Text": {
-          "text": { "path": "zero_cost_title", "literalString": "零成本领取" },
+          "text": { "path": "zero_cost_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -169,7 +169,7 @@
       "id": "cz-tag",
       "component": {
         "Tag": {
-          "text": { "path": "zero_cost_tag", "literalString": "不影响保障" },
+          "text": { "path": "zero_cost_tag" },
           "color": "#6cb585",
           "size": "small"
         }
@@ -179,7 +179,7 @@
       "id": "cz-total",
       "component": {
         "Text": {
-          "text": { "path": "zero_cost_total", "literalString": "合计：—" },
+          "text": { "path": "zero_cost_total" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -305,7 +305,7 @@
       "id": "cl-title",
       "component": {
         "Text": {
-          "text": { "path": "loan_title", "literalString": "保单贷款" },
+          "text": { "path": "loan_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -316,7 +316,7 @@
       "id": "cl-tag",
       "component": {
         "Tag": {
-          "text": { "path": "loan_tag", "literalString": "需支付利息" },
+          "text": { "path": "loan_tag" },
           "color": "#FF8800",
           "size": "small"
         }
@@ -326,7 +326,7 @@
       "id": "cl-total",
       "component": {
         "Text": {
-          "text": { "path": "loan_total", "literalString": "合计可贷：—" },
+          "text": { "path": "loan_total" },
           "color": "#FF6600",
           "fontSize": "16px",
           "bold": true
@@ -452,7 +452,7 @@
       "id": "cp-title",
       "component": {
         "Text": {
-          "text": { "path": "partial_surrender_title", "literalString": "部分领取/退保" },
+          "text": { "path": "partial_surrender_title" },
           "color": "#333333",
           "fontSize": "16px",
           "bold": true
@@ -463,7 +463,7 @@
       "id": "cp-tag",
       "component": {
         "Tag": {
-          "text": { "path": "partial_surrender_tag", "literalString": "保障有损失，不建议" },
+          "text": { "path": "partial_surrender_tag" },
           "color": "#CC6600",
           "size": "small"
         }
@@ -473,7 +473,7 @@
       "id": "cp-total",
       "component": {
         "Text": {
-          "text": { "path": "partial_surrender_total", "literalString": "合计：—" },
+          "text": { "path": "partial_surrender_total" },
           "color": "#999999",
           "fontSize": "16px",
           "bold": true

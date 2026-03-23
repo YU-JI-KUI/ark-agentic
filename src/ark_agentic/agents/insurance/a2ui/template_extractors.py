@@ -1,8 +1,7 @@
 """
-保险 A2UI 卡片数据提取器
+card_type + template.json 专用：扁平 dict 提取器与方案生成。
 
-每个卡片类型一个提取函数：从 context 确定性计算业务数据，从 card_args 仅读取约定文案字段（字符串），
-返回扁平 dict 供 core.a2ui.render_from_template 合并。
+渠道/分配公共逻辑见 withdraw_a2ui_utils。
 """
 
 from __future__ import annotations
@@ -11,44 +10,54 @@ import json
 import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from ark_agentic.agents.insurance.tools.rule_engine import (
     LOAN_INTEREST_RATE as _LOAN_INTEREST_RATE,
-    PROCESSING_TIME as _PROCESSING_TIME,
 )
 
-# option_type → (费用文案, 保障影响文案)
-_OPTION_META: dict[str, tuple[str, str]] = {
-    "survival_fund": ("无", "不影响保障"),
-    "bonus": ("无", "不影响保障"),
-    "partial_withdrawal": ("按保单年度收费", "现金价值减少，保额同步下降"),
-    "surrender": ("无", "所有保障终止，退保后无法恢复"),
-    "policy_loan": (
-        f"年利率{int(_LOAN_INTEREST_RATE * 100)}%, 按日计息",
-        "不影响保障（未按时还款可能导致保单中止）",
-    ),
-}
+from .withdraw_a2ui_utils import (
+    _ALL_CHANNELS,
+    _VALID_CHANNELS,
+    _allocate_to_target,
+    _allocs_to_plan_parts,
+    _channel_available,
+    _fmt,
+    _resolve_channel_filters,
+)
 
-# option_type → 操作名称（用于按钮文案和 queryMsg）
-_OPTION_NAMES: dict[str, str] = {
-    "survival_fund": "生存金领取",
-    "bonus": "红利领取",
+logger = logging.getLogger(__name__)
+
+_CHANNEL_DISPLAY_NAMES: dict[str, str] = {
+    "survival_fund": "生存金",
+    "bonus": "红利",
+    "policy_loan": "贷款",
     "partial_withdrawal": "部分领取",
     "surrender": "退保",
-    "policy_loan": "保单贷款",
 }
 
+_CAT_CHANNELS: dict[str, tuple[str, ...]] = {
+    "zero_cost": ("survival_fund", "bonus"),
+    "loan": ("policy_loan",),
+    "risk": ("partial_withdrawal", "surrender"),
+}
 
-def _fmt(amount: float) -> str:
-    return f"¥ {amount:,.2f}"
+_CAT_META: dict[str, tuple[str, str, str]] = {
+    "zero_cost": ("零成本领取", "(不影响保障)", "零成本、无风险，不影响您的保障"),
+    "loan": ("保单贷款", "(需支付利息)", "保障不受影响，适合短期周转"),
+    "risk": ("部分领取/退保", "(保障有损失，不建议)", "可能导致保障减少或终止"),
+}
 
+_CAT_PRIORITY = ("zero_cost", "loan", "risk")
 
 
 def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]:
     """
     取款汇总卡片：从 context 读 _rule_engine_result，按渠道分组计算金额；
     无数据的渠道卡片通过 hide flag 隐藏。
+
+    card_args 支持:
+      exclude_policies: list[str]  -- 排除指定保单
+      exclude_channels: list[str]  -- 排除指定渠道
+      include_channels: list[str]  -- 仅包含指定渠道（与 exclude_channels 互斥，优先）
     """
     rule_data: Any = context.get("_rule_engine_result")
     if not rule_data:
@@ -62,45 +71,67 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
         raise ValueError("rule_engine 数据格式不符合预期。")
 
     options: list[dict[str, Any]] = rule_data.get("options", [])
-    total_excl_loan = float(rule_data.get("total_available_excl_loan") or 0)
-    total_incl_loan = float(rule_data.get("total_available_incl_loan") or 0)
+    args = card_args or {}
+
+    exclude_pids = set(args.get("exclude_policies") or [])
+    if exclude_pids:
+        options = [o for o in options if o.get("policy_id") not in exclude_pids]
+
+    exclude_chs = _resolve_channel_filters(args)
+    has_filters = bool(exclude_pids) or bool(exclude_chs)
+    include_survival = "survival_fund" not in exclude_chs
+    include_bonus = "bonus" not in exclude_chs
+    include_loan = "policy_loan" not in exclude_chs
+
+    def _refund_line_allowed(opt: dict[str, Any]) -> bool:
+        amt = float(opt.get("refund_amt") or 0)
+        if amt <= 0:
+            return False
+        is_wl = opt.get("product_type") == "whole_life"
+        if is_wl:
+            return "surrender" not in exclude_chs
+        return "partial_withdrawal" not in exclude_chs
 
     zero_cost_items: list[dict[str, str]] = []
     zero_cost_sum = 0.0
     for opt in options:
         name = opt.get("product_name") or opt.get("policy_id", "")
-        survival = float(opt.get("survival_fund_amt") or 0)
-        bonus = float(opt.get("bonus_amt") or 0)
-        if survival > 0:
-            zero_cost_items.append({"label": f"生存金({name})", "value": _fmt(survival)})
-            zero_cost_sum += survival
-        if bonus > 0:
-            zero_cost_items.append({"label": f"红利({name})", "value": _fmt(bonus)})
-            zero_cost_sum += bonus
+        if include_survival:
+            survival = float(opt.get("survival_fund_amt") or 0)
+            if survival > 0:
+                zero_cost_items.append({"label": f"生存金({name})", "value": _fmt(survival)})
+                zero_cost_sum += survival
+        if include_bonus:
+            bonus = float(opt.get("bonus_amt") or 0)
+            if bonus > 0:
+                zero_cost_items.append({"label": f"红利({name})", "value": _fmt(bonus)})
+                zero_cost_sum += bonus
 
     loan_items: list[dict[str, str]] = []
     loan_sum = 0.0
-    for opt in options:
-        loan = float(opt.get("loan_amt") or 0)
-        if loan > 0:
-            name = opt.get("product_name") or opt.get("policy_id", "")
-            rate_pct = int(_LOAN_INTEREST_RATE * 100)
-            loan_items.append({"label": f"{name}可贷(年利率{rate_pct}%)", "value": _fmt(loan)})
-            loan_sum += loan
+    if include_loan:
+        for opt in options:
+            loan = float(opt.get("loan_amt") or 0)
+            if loan > 0:
+                name = opt.get("product_name") or opt.get("policy_id", "")
+                rate_pct = int(_LOAN_INTEREST_RATE * 100)
+                loan_items.append({"label": f"{name}可贷(年利率{rate_pct}%)", "value": _fmt(loan)})
+                loan_sum += loan
 
     partial_surrender_items: list[dict[str, str]] = []
     partial_surrender_sum = 0.0
     for opt in options:
+        if not _refund_line_allowed(opt):
+            continue
         refund = float(opt.get("refund_amt") or 0)
-        if refund > 0:
-            name = opt.get("product_name") or opt.get("policy_id", "")
-            fee_rate = float(opt.get("refund_fee_rate") or 0)
-            if fee_rate > 0:
-                label = f"退保金({name}, 手续费{fee_rate:.0%})"
-            else:
-                label = f"退保金({name})"
-            partial_surrender_items.append({"label": label, "value": _fmt(refund)})
-            partial_surrender_sum += refund
+        name = opt.get("product_name") or opt.get("policy_id", "")
+        fee_rate = float(opt.get("refund_fee_rate") or 0)
+        if fee_rate > 0:
+            label = f"退保金({name}, 手续费{fee_rate:.0%})"
+        else:
+            label = f"退保金({name})"
+        partial_surrender_items.append({"label": label, "value": _fmt(refund)})
+        partial_surrender_sum += refund
 
     requested_raw = rule_data.get("requested_amount")
     if requested_raw is not None and isinstance(requested_raw, (int, float)):
@@ -108,10 +139,23 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
     else:
         requested_amount_display = "—"
 
+    if has_filters:
+        total_shown = zero_cost_sum + loan_sum + partial_surrender_sum
+        excluded_names = [_CHANNEL_DISPLAY_NAMES[ch] for ch in exclude_chs if ch in _CHANNEL_DISPLAY_NAMES]
+        header_title = "可取款总览"
+        header_value = _fmt(total_shown)
+        header_sub = f"已排除：{'、'.join(excluded_names)}" if excluded_names else ""
+    else:
+        total_incl_loan = float(rule_data.get("total_available_incl_loan") or 0)
+        total_excl_loan_rule = float(rule_data.get("total_available_excl_loan") or 0)
+        header_title = "目前可领取的总金额(含贷款)"
+        header_value = _fmt(total_incl_loan)
+        header_sub = f"不含贷款可领金额：{_fmt(total_excl_loan_rule)}"
+
     return {
-        "header_title": "目前可领取的总金额(含贷款)",
-        "header_value": _fmt(total_incl_loan),
-        "header_sub": f"不含贷款可领金额：{_fmt(total_excl_loan)}",
+        "header_title": header_title,
+        "header_value": header_value,
+        "header_sub": header_sub,
         "requested_amount_display": requested_amount_display,
         "section_marker": "|",
         "zero_cost_hide": not zero_cost_items,
@@ -132,114 +176,8 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
     }
 
 
-_ALL_CHANNELS = ("survival_fund", "bonus", "partial_withdrawal", "policy_loan", "surrender")
-
-_CAT_CHANNELS: dict[str, tuple[str, ...]] = {
-    "zero_cost": ("survival_fund", "bonus"),
-    "loan": ("policy_loan",),
-    "risk": ("partial_withdrawal", "surrender"),
-}
-
-_CAT_META: dict[str, tuple[str, str, str]] = {
-    "zero_cost": ("零成本领取", "(不影响保障)", "零成本、无风险，不影响您的保障"),
-    "loan": ("保单贷款", "(需支付利息)", "保障不受影响，适合短期周转"),
-    "risk": ("部分领取/退保", "(保障有损失，不建议)", "可能导致保障减少或终止"),
-}
-
-_BTN_TEXT: dict[str, str] = {
-    "survival_fund": "领取生存金",
-    "bonus": "领取红利",
-    "policy_loan": "办理保单贷款",
-    "partial_withdrawal": "办理部分领取",
-    "surrender": "办理退保",
-}
-
-_CHANNEL_LABELS: dict[str, str] = {
-    "survival_fund": "生存金",
-    "bonus": "红利",
-    "policy_loan": "保单贷款",
-    "partial_withdrawal": "部分领取",
-    "surrender": "退保",
-}
-
-
-def _channel_available(opt: dict[str, Any], channel: str) -> float:
-    """读取单张保单某渠道的可用金额。"""
-    if channel == "survival_fund":
-        return float(opt.get("survival_fund_amt") or 0)
-    if channel == "bonus":
-        return float(opt.get("bonus_amt") or 0)
-    if channel == "policy_loan":
-        return float(opt.get("loan_amt") or 0)
-    is_whole_life = opt.get("product_type") == "whole_life"
-    if channel == "partial_withdrawal":
-        return 0.0 if is_whole_life else float(opt.get("refund_amt") or 0)
-    if channel == "surrender":
-        return float(opt.get("refund_amt") or 0) if is_whole_life else 0.0
-    return 0.0
-
-
 def _category_total(options: list[dict[str, Any]], channels: tuple[str, ...]) -> float:
     return sum(_channel_available(o, ch) for o in options for ch in channels)
-
-
-def _allocate_to_target(
-    options: list[dict[str, Any]], target: float, channels: tuple[str, ...] | list[str],
-) -> list[tuple[str, str, float]]:
-    """按优先级将 target 分配到指定渠道，返回 [(policy_id, channel, allocated_amt)]。"""
-    remaining = target
-    result: list[tuple[str, str, float]] = []
-    for ch in channels:
-        if remaining <= 0:
-            break
-        for opt in options:
-            if remaining <= 0:
-                break
-            avail = _channel_available(opt, ch)
-            if avail <= 0:
-                continue
-            take = min(remaining, avail)
-            result.append((opt.get("policy_id", ""), ch, take))
-            remaining -= take
-    return result
-
-
-def _build_query_msg(action_name: str, entries: list[tuple[str, float]]) -> str:
-    """生成 queryMsg，格式：'办理生存金领取，POL001，12000.00，POL002，5200.00'"""
-    if not entries:
-        return f"办理{action_name}"
-    parts = [f"办理{action_name}"]
-    for pid, amt in entries:
-        parts.extend([pid, f"{amt:.2f}"])
-    return "，".join(parts)
-
-
-def _allocs_to_plan_parts(
-    allocs: list[tuple[str, str, float]],
-) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
-    """将分配结果转换为 (policies_display, buttons)。"""
-    policies: list[dict[str, str]] = []
-    by_channel: dict[str, list[tuple[str, float]]] = {}
-    for pid, ch, amt in allocs:
-        label = _CHANNEL_LABELS.get(ch, ch)
-        policies.append({"label": f"{pid} {label}", "value": _fmt(amt)})
-        by_channel.setdefault(ch, []).append((pid, amt))
-
-    buttons: list[dict[str, Any]] = []
-    for ch in _ALL_CHANNELS:
-        entries = by_channel.get(ch)
-        if not entries:
-            continue
-        buttons.append({
-            "text": _BTN_TEXT.get(ch, ch),
-            "action": {"queryMsg": _build_query_msg(_OPTION_NAMES.get(ch, ch), entries)},
-        })
-    return policies, buttons
-
-
-_CAT_PRIORITY = ("zero_cost", "loan", "risk")
-
-_VALID_CHANNELS: frozenset[str] = frozenset(_ALL_CHANNELS)
 
 
 def _plans_from_spec(
@@ -278,8 +216,6 @@ def _plans_from_spec(
         allocs = _allocate_to_target(filtered, target, channels)
         actual_total = sum(a for _, _, a in allocs)
 
-        # Auto-fill: if preferred channels can't meet target, extend with remaining
-        # channels (in _ALL_CHANNELS priority order), respecting exclude_channels.
         if actual_total < target and target > 0:
             channels_set = set(channels)
             fill_channels = [
@@ -334,9 +270,21 @@ def _combo_reason(cats: list[str]) -> str:
     return "优先使用零成本渠道；不足部分依次搭配其他渠道补足。"
 
 
-def _generate_plans(options: list[dict[str, Any]], target: float) -> list[dict[str, Any]]:
-    """以目标金额为中心生成最多 3 个方案。Plan 1 始终按优先级分配。"""
-    cat_totals = {cat: _category_total(options, chs) for cat, chs in _CAT_CHANNELS.items()}
+def _generate_plans(
+    options: list[dict[str, Any]],
+    target: float,
+    exclude_channels: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
+    """以目标金额为中心生成最多 3 个方案。Plan 1 始终按优先级分配。
+
+    exclude_channels 在所有层级生效：active channel 列表、cat_totals、备选方案。
+    """
+    _exclude = exclude_channels or frozenset()
+    active = tuple(ch for ch in _ALL_CHANNELS if ch not in _exclude)
+    cat_totals = {
+        cat: _category_total(options, tuple(ch for ch in chs if ch not in _exclude))
+        for cat, chs in _CAT_CHANNELS.items()
+    }
     all_total = sum(cat_totals.values())
     if all_total <= 0:
         return []
@@ -344,7 +292,7 @@ def _generate_plans(options: list[dict[str, Any]], target: float) -> list[dict[s
     plans: list[dict[str, Any]] = []
 
     if target <= 0:
-        allocs = _allocate_to_target(options, all_total, _ALL_CHANNELS)
+        allocs = _allocate_to_target(options, all_total, active)
         policies, buttons = _allocs_to_plan_parts(allocs)
         plans.append({"title": "全部可用渠道", "tag": "", "total": all_total,
                        "reason": "以下为所有可用的取款渠道及金额。",
@@ -352,7 +300,7 @@ def _generate_plans(options: list[dict[str, Any]], target: float) -> list[dict[s
         return plans
 
     if all_total < target:
-        allocs = _allocate_to_target(options, all_total, _ALL_CHANNELS)
+        allocs = _allocate_to_target(options, all_total, active)
         policies, buttons = _allocs_to_plan_parts(allocs)
         plans.append({
             "title": f"最大可取（不足目标 {_fmt(target)}）", "tag": "",
@@ -362,8 +310,7 @@ def _generate_plans(options: list[dict[str, Any]], target: float) -> list[dict[s
         })
         return plans
 
-    # Plan 1: 始终按优先级分配 (zero_cost -> loan -> risk)
-    allocs = _allocate_to_target(options, target, _ALL_CHANNELS)
+    allocs = _allocate_to_target(options, target, active)
     policies, buttons = _allocs_to_plan_parts(allocs)
     used_cats = _used_categories(allocs)
 
@@ -379,16 +326,16 @@ def _generate_plans(options: list[dict[str, Any]], target: float) -> list[dict[s
         "reason": reason, "policies": policies, "buttons": buttons,
     })
 
-    # 备选方案：仅当 Plan 1 是单类时，添加其他能独立满足的单类
     if len(used_cats) == 1:
         for cat in _CAT_PRIORITY:
             if len(plans) >= 3:
                 break
             if cat == used_cats[0]:
                 continue
-            if cat_totals[cat] < target:
+            cat_channels = tuple(ch for ch in _CAT_CHANNELS[cat] if ch not in _exclude)
+            if not cat_channels or cat_totals[cat] < target:
                 continue
-            alt_allocs = _allocate_to_target(options, target, _CAT_CHANNELS[cat])
+            alt_allocs = _allocate_to_target(options, target, cat_channels)
             alt_policies, alt_buttons = _allocs_to_plan_parts(alt_allocs)
             alt_name, alt_tag, alt_reason = _CAT_META[cat]
             plans.append({
@@ -402,8 +349,12 @@ def _generate_plans(options: list[dict[str, Any]], target: float) -> list[dict[s
 def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]:
     """
     取款方案卡片：以目标金额为中心，生成最多 3 个方案。
-    每个方案分配恰好目标金额（或最大可取），关联保单列表 + 2x2 按钮网格。
-    Plan 1 按钮 primary，Plan 2/3 按钮 secondary（由 template 静态指定）。
+
+    card_args 支持:
+      exclude_policies: list[str]  -- 排除指定保单
+      exclude_channels: list[str]  -- 排除指定渠道
+      include_channels: list[str]  -- 仅包含指定渠道（与 exclude_channels 互斥，优先）
+      plans: list[dict]            -- LLM 自定义方案规格（高级用法）
     """
     rule_data: Any = context.get("_rule_engine_result")
     if not rule_data:
@@ -420,13 +371,18 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
     args = card_args or {}
     requested_amount = float(rule_data.get("requested_amount") or 0)
 
+    exclude_pids = set(args.get("exclude_policies") or [])
+    if exclude_pids:
+        options = [o for o in options if o.get("policy_id") not in exclude_pids]
+    exclude_chs = _resolve_channel_filters(args)
+
     specs = args.get("plans")
     if specs and isinstance(specs, list):
         plans = _plans_from_spec(options, specs, requested_amount)
         if not plans:
-            plans = _generate_plans(options, requested_amount)
+            plans = _generate_plans(options, requested_amount, exclude_channels=exclude_chs)
     else:
-        plans = _generate_plans(options, requested_amount)
+        plans = _generate_plans(options, requested_amount, exclude_channels=exclude_chs)
 
     data: dict[str, Any] = {
         "section_marker": "|",
@@ -488,6 +444,11 @@ def policy_detail_extractor(context: dict[str, Any], card_args: dict[str, Any] |
         raise ValueError("保单数据格式不符合预期。")
 
     options: list[dict[str, Any]] = rule_data.get("options", [])
+    args = card_args or {}
+    policy_ids = args.get("policy_ids")
+    if policy_ids and isinstance(policy_ids, list):
+        pid_set = set(policy_ids)
+        options = [o for o in options if o.get("policy_id") in pid_set]
     options = sorted(options, key=lambda o: -float(o.get("available_amount") or 0))
 
     def _build_policy_item(opt: dict[str, Any]) -> dict[str, Any]:

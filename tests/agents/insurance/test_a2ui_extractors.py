@@ -1,15 +1,65 @@
-"""Tests for insurance a2ui extractors (withdraw_summary, withdraw_plan, policy_detail) and A2UI template compliance."""
+"""Tests for template_extractors (+ withdraw_a2ui_utils via those paths) and A2UI template compliance."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from ark_agentic.agents.insurance.a2ui.extractors import (
-    withdraw_summary_extractor,
-    withdraw_plan_extractor,
+from ark_agentic.agents.insurance.a2ui.template_extractors import (
     policy_detail_extractor,
+    withdraw_plan_extractor,
+    withdraw_summary_extractor,
 )
+
+
+def test_withdraw_summary_extractor_exclude_policy_loan_uses_filtered_header() -> None:
+    context = {
+        "_rule_engine_result": {
+            "total_available_excl_loan": 9999,
+            "total_available_incl_loan": 99999,
+            "options": [
+                {
+                    "policy_id": "POL1",
+                    "product_name": "A",
+                    "survival_fund_amt": 100,
+                    "bonus_amt": 0,
+                    "loan_amt": 500,
+                    "refund_amt": 200,
+                    "refund_fee_rate": 0,
+                },
+            ],
+        },
+    }
+    flat = withdraw_summary_extractor(context, {"exclude_channels": ["policy_loan"]})
+    assert flat["header_title"] == "可取款总览"
+    assert "贷款" in flat["header_sub"]
+    assert flat["header_value"] == "¥ 300.00"
+    assert flat["loan_hide"] is True
+    assert len(flat["zero_cost_items"]) == 1
+
+
+def test_withdraw_summary_extractor_include_channels_survival_only() -> None:
+    context = {
+        "_rule_engine_result": {
+            "total_available_excl_loan": 0,
+            "total_available_incl_loan": 0,
+            "options": [
+                {
+                    "product_name": "A",
+                    "survival_fund_amt": 50,
+                    "bonus_amt": 40,
+                    "loan_amt": 30,
+                    "refund_amt": 20,
+                    "refund_fee_rate": 0,
+                },
+            ],
+        },
+    }
+    flat = withdraw_summary_extractor(context, {"include_channels": ["survival_fund"]})
+    assert flat["header_value"] == "¥ 50.00"
+    assert len(flat["zero_cost_items"]) == 1
+    assert flat["loan_hide"] is True
+    assert flat["partial_surrender_hide"] is True
 
 
 def test_withdraw_summary_extractor_returns_data_from_rule_engine_result() -> None:
@@ -817,7 +867,44 @@ def test_policy_detail_extractor_raises_when_no_policy_data() -> None:
     assert "保单" in str(exc_info.value) or "rule_engine" in str(exc_info.value)
 
 
-# ----- Integration: render_card with real insurance extractors -----
+def test_policy_detail_extractor_policy_ids_filters_list() -> None:
+    context = {
+        "_rule_engine_result": {
+            "options": [
+                {"policy_id": "P1", "product_name": "A", "policy_year": 1, "survival_fund_amt": 100, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0, "available_amount": 100},
+                {"policy_id": "P2", "product_name": "B", "policy_year": 2, "survival_fund_amt": 200, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0, "available_amount": 200},
+            ],
+        },
+    }
+    flat = policy_detail_extractor(context, {"policy_ids": ["P2"]})
+    assert len(flat["policies"]) == 1
+    assert flat["policies"][0]["title"] == "B"
+
+
+def test_withdraw_plan_extractor_exclude_policy_loan_skips_loan_alternative() -> None:
+    """When policy_loan excluded, no alternative plan should allocate from loan."""
+    context = {
+        "_rule_engine_result": {
+            "requested_amount": 10000,
+            "options": [
+                {
+                    "policy_id": "POL1",
+                    "product_type": "annuity",
+                    "survival_fund_amt": 5000,
+                    "bonus_amt": 0,
+                    "loan_amt": 50000,
+                    "refund_amt": 50000,
+                },
+            ],
+        },
+    }
+    flat = withdraw_plan_extractor(context, {"exclude_channels": ["policy_loan"]})
+    assert flat["plan_1_hide"] is False
+    assert "贷款" not in flat["plan_1_title"]
+    assert flat["plan_2_hide"] is True or "贷款" not in (flat.get("plan_2_title") or "")
+
+
+# ----- Integration: RenderA2UITool with real insurance extractors -----
 
 
 @pytest.fixture
@@ -844,18 +931,18 @@ def _minimal_rule_engine_context() -> dict:
 
 
 @pytest.mark.asyncio
-async def test_insurance_render_card_all_three_types_render_successfully(
+async def test_insurance_render_a2ui_all_three_types_render_successfully(
     _minimal_rule_engine_context: dict,
 ) -> None:
-    """RenderCardTool with real insurance extractors + templates for all 3 card_types."""
+    """RenderA2UITool with real insurance extractors + templates for all 3 card_types."""
     from pathlib import Path
 
-    from ark_agentic.agents.insurance.a2ui.extractors import (
+    from ark_agentic.agents.insurance.a2ui.template_extractors import (
         policy_detail_extractor,
         withdraw_plan_extractor,
         withdraw_summary_extractor,
     )
-    from ark_agentic.core.tools import RenderCardTool
+    from ark_agentic.core.tools import RenderA2UITool
     from ark_agentic.core.types import ToolCall
 
     template_root = (
@@ -867,7 +954,7 @@ async def test_insurance_render_card_all_three_types_render_successfully(
         / "a2ui"
         / "templates"
     )
-    tool = RenderCardTool(
+    tool = RenderA2UITool(
         template_root=template_root,
         extractors={
             "withdraw_summary": withdraw_summary_extractor,
@@ -878,7 +965,7 @@ async def test_insurance_render_card_all_three_types_render_successfully(
     ctx = {**_minimal_rule_engine_context, "session_id": "s1"}
 
     for card_type in ("withdraw_summary", "withdraw_plan", "policy_detail"):
-        tc = ToolCall(id=f"tc-{card_type}", name="render_card", arguments={"card_type": card_type})
+        tc = ToolCall(id=f"tc-{card_type}", name="render_a2ui", arguments={"card_type": card_type})
         result = await tool.execute(tc, ctx)
         assert not result.is_error, f"{card_type}: {result.content}"
         assert result.content.get("event") == "beginRendering"

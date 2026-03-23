@@ -369,7 +369,14 @@ class TestSoftValidation:
 class TestRenderA2UITool:
     @pytest.fixture
     def tool(self):
-        return RenderA2UITool(group="insurance")
+        from ark_agentic.agents.insurance.a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
+        return RenderA2UITool(
+            agent_blocks=INSURANCE_BLOCKS,
+            agent_components=INSURANCE_COMPONENTS,
+            root_gap=16,
+            root_padding=[16, 32, 16, 16],
+            group="insurance",
+        )
 
     @pytest.fixture
     def ctx(self):
@@ -381,10 +388,12 @@ class TestRenderA2UITool:
     @pytest.mark.asyncio
     async def test_basic_render(self, tool, ctx):
         blocks = json.dumps([
-            {"type": "InfoCard", "data": {
-                "title": "Total",
-                "body": {"get": "total_available_incl_loan", "format": "currency"},
-            }},
+            {"type": "Card", "data": {"children": [
+                {"type": "KVRow", "data": {
+                    "label": "Total",
+                    "value": {"get": "total_available_incl_loan", "format": "currency"},
+                }},
+            ]}},
         ])
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
@@ -410,7 +419,6 @@ class TestRenderA2UITool:
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
-        assert result.content["data"] == {}
 
     @pytest.mark.asyncio
     async def test_unknown_block_type_error(self, tool, ctx):
@@ -418,78 +426,6 @@ class TestRenderA2UITool:
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert result.is_error
-
-
-# ============ Mode Switching ============
-
-
-class TestModeSwitching:
-    def test_run_options_no_a2ui_mode(self):
-        opts = RunOptions()
-        assert not hasattr(opts, "a2ui_mode") or getattr(opts, "a2ui_mode", None) is None
-
-    def test_skill_a2ui_mode_filtering(self):
-        from ark_agentic.core.types import SkillMetadata, SkillEntry
-
-        skills = [
-            SkillEntry(
-                id="generic",
-                path="/skills/generic/SKILL.md",
-                content="...",
-                metadata=SkillMetadata(name="generic", description="generic"),
-            ),
-            SkillEntry(
-                id="preset_only",
-                path="/skills/preset_only/SKILL.md",
-                content="...",
-                metadata=SkillMetadata(
-                    name="preset_only", description="preset only", a2ui_mode="preset"
-                ),
-            ),
-            SkillEntry(
-                id="dynamic_only",
-                path="/skills/dynamic_only/SKILL.md",
-                content="...",
-                metadata=SkillMetadata(name="dynamic_only", description="dynamic only", a2ui_mode="dynamic"),
-            ),
-        ]
-
-        preset_filtered = [
-            s for s in skills
-            if s.metadata.a2ui_mode is None or s.metadata.a2ui_mode == "preset"
-        ]
-        assert len(preset_filtered) == 2
-        assert {s.id for s in preset_filtered} == {"generic", "preset_only"}
-
-        dynamic_filtered = [
-            s for s in skills
-            if s.metadata.a2ui_mode is None or s.metadata.a2ui_mode == "dynamic"
-        ]
-        assert len(dynamic_filtered) == 2
-        assert {s.id for s in dynamic_filtered} == {"generic", "dynamic_only"}
-
-
-# ============ Skill Loader a2ui_mode ============
-
-
-class TestSkillLoaderA2UIMode:
-    def test_loader_parses_a2ui_mode(self):
-        from ark_agentic.core.skills.loader import SkillLoader
-        loader = SkillLoader()
-        frontmatter, _ = loader._parse_frontmatter(
-            "---\nname: test\ndescription: test\na2ui_mode: dynamic\n---\ncontent"
-        )
-        metadata = loader._build_metadata(frontmatter, "test")
-        assert metadata.a2ui_mode == "dynamic"
-
-    def test_loader_default_a2ui_mode_none(self):
-        from ark_agentic.core.skills.loader import SkillLoader
-        loader = SkillLoader()
-        frontmatter, _ = loader._parse_frontmatter(
-            "---\nname: test\ndescription: test\n---\ncontent"
-        )
-        metadata = loader._build_metadata(frontmatter, "test")
-        assert metadata.a2ui_mode is None
 
 
 # ============ Policy List Golden E2E ============
@@ -729,7 +665,12 @@ class TestFlatFormatTolerance:
 class TestStrictValidationMode:
     @pytest.fixture
     def tool(self):
-        return RenderA2UITool(group="insurance")
+        from ark_agentic.agents.insurance.a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
+        return RenderA2UITool(
+            agent_blocks=INSURANCE_BLOCKS,
+            agent_components=INSURANCE_COMPONENTS,
+            group="insurance",
+        )
 
     @pytest.fixture
     def ctx(self):

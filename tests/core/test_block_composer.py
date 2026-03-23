@@ -63,14 +63,8 @@ class TestResolveAction:
 
 
 class TestBlockRegistry:
-    def test_all_blocks_registered(self):
-        expected = {
-            "SummaryHeader", "SectionCard", "InfoCard", "AdviceCard",
-            "KeyValueList", "DataTable", "ItemList", "ActionButton",
-            "ButtonGroup", "Divider", "TagRow", "ImageBanner", "StatusRow",
-            "FundsSummary",
-        }
-        assert expected == set(_BLOCK_REGISTRY.keys())
+    def test_registry_empty_after_clear(self):
+        assert set(_BLOCK_REGISTRY.keys()) == set()
 
     def test_get_unknown_raises(self):
         with pytest.raises(ValueError, match="Unknown block type"):
@@ -79,10 +73,10 @@ class TestBlockRegistry:
     def test_get_block_types(self):
         types = get_block_types()
         assert isinstance(types, frozenset)
-        assert "SummaryHeader" in types
+        assert len(types) == 0
 
 
-# ============ Block Builders ============
+# ============ Block Builders (insurance agent) ============
 
 
 def _id_gen():
@@ -94,141 +88,82 @@ def _id_gen():
     return gen
 
 
-class TestSummaryHeaderBuilder:
-    def test_basic(self):
-        builder = get_block_builder("SummaryHeader")
-        comps = builder({"title": "$t", "value": "$v"}, _id_gen())
+class TestInsuranceBlocks:
+    def test_section_header_basic(self):
+        from ark_agentic.agents.insurance.a2ui.blocks import build_section_header
+        comps = build_section_header({"title": "Test"}, _id_gen())
         assert len(comps) >= 3
-        card = comps[0]
-        assert "Card" in card["component"]
-        assert card["component"]["Card"]["backgroundColor"] == CARD_BG
+        assert "Row" in comps[0]["component"]
 
-    def test_with_subtitle_and_note(self):
-        builder = get_block_builder("SummaryHeader")
-        comps = builder(
-            {"title": "T", "value": "V", "subtitle": "S", "note": "N"},
-            _id_gen(),
-        )
-        assert len(comps) >= 5
+    def test_section_header_with_tag(self):
+        from ark_agentic.agents.insurance.a2ui.blocks import build_section_header
+        comps = build_section_header({"title": "Test", "tag": "tag1", "tag_color": "#123"}, _id_gen())
+        tag_comps = [c for c in comps if "Tag" in c.get("component", {})]
+        assert len(tag_comps) == 1
 
+    def test_kv_row(self):
+        from ark_agentic.agents.insurance.a2ui.blocks import build_kv_row
+        comps = build_kv_row({"label": "L", "value": "V"}, _id_gen())
+        assert len(comps) == 3
+        assert "Row" in comps[0]["component"]
 
-class TestSectionCardBuilder:
-    def test_basic(self):
-        builder = get_block_builder("SectionCard")
-        comps = builder(
-            {"title": "Title", "total": "$total", "items": "$items"},
-            _id_gen(),
-        )
-        assert len(comps) >= 6
-        card = comps[0]
-        assert "Card" in card["component"]
+    def test_accent_total_with_label(self):
+        from ark_agentic.agents.insurance.a2ui.blocks import build_accent_total
+        comps = build_accent_total({"label": "Total", "value": "¥1000"}, _id_gen())
+        assert len(comps) == 3
+        assert "Row" in comps[0]["component"]
 
-    def test_with_tag(self):
-        builder = get_block_builder("SectionCard")
-        comps = builder(
-            {"title": "T", "tag": "tag", "total": "$t", "items": "$i"},
-            _id_gen(),
-        )
-        text_tag = {"literalString": "tag"}
-        assert any(
-            c.get("component", {}).get("Text", {}).get("text") == text_tag
-            for c in comps
-        )
+    def test_accent_total_without_label(self):
+        from ark_agentic.agents.insurance.a2ui.blocks import build_accent_total
+        comps = build_accent_total({"value": "¥1000"}, _id_gen())
+        assert len(comps) == 1
+        assert "Text" in comps[0]["component"]
 
+    def test_hint_text(self):
+        from ark_agentic.agents.insurance.a2ui.blocks import build_hint_text
+        comps = build_hint_text({"text": "hint"}, _id_gen())
+        assert len(comps) == 1
+        assert "Text" in comps[0]["component"]
 
-class TestInfoCardBuilder:
-    def test_basic(self):
-        comps = get_block_builder("InfoCard")(
-            {"title": "Hello", "body": "$msg"}, _id_gen()
-        )
-        assert len(comps) == 4
-        assert "Card" in comps[0]["component"]
-
-
-class TestAdviceCardBuilder:
-    def test_with_icon(self):
-        comps = get_block_builder("AdviceCard")(
-            {"icon": "💡", "title": "Tips", "texts": ["a", "b"]}, _id_gen()
-        )
-        assert len(comps) >= 5
-
-    def test_without_icon(self):
-        comps = get_block_builder("AdviceCard")(
-            {"title": "Tips", "texts": ["a"]}, _id_gen()
-        )
-        assert len(comps) >= 4
-
-
-class TestActionButtonBuilder:
-    def test_basic(self):
-        comps = get_block_builder("ActionButton")(
-            {"text": "Go", "action": {"name": "query", "args": "$a"}},
+    def test_action_button(self):
+        from ark_agentic.agents.insurance.a2ui.blocks import build_action_button
+        comps = build_action_button(
+            {"text": "Go", "action": {"name": "query", "args": {"queryMsg": "test"}}},
             _id_gen(),
         )
         assert len(comps) == 1
         btn = comps[0]["component"]["Button"]
         assert btn["type"] == "primary"
-        assert btn["action"]["args"] == {"path": "a"}
+        assert btn["width"] == 100
 
-
-class TestDividerBuilder:
-    def test_basic(self):
-        comps = get_block_builder("Divider")({}, _id_gen())
+    def test_divider(self):
+        from ark_agentic.agents.insurance.a2ui.blocks import build_divider
+        comps = build_divider({}, _id_gen())
         assert len(comps) == 1
         assert "Divider" in comps[0]["component"]
-
-
-class TestStatusRowBuilder:
-    def test_basic(self):
-        comps = get_block_builder("StatusRow")(
-            {"label": "Status", "value": "OK", "status": "success"}, _id_gen()
-        )
-        assert len(comps) == 4
-        circle = comps[1]["component"]["Circle"]
-        assert circle["backgroundColor"] == "#33CC66"
 
 
 # ============ BlockComposer ============
 
 
 class TestBlockComposer:
-    def test_compose_basic(self):
-        composer = BlockComposer()
-        blocks = [
-            {"type": "InfoCard", "data": {"title": "$t", "body": "$b"}},
-            {"type": "ActionButton", "data": {"text": "Go"}},
-        ]
-        data = {"t": "Hello", "b": "World"}
-        payload = composer.compose(blocks, data, session_id="abc12345")
-        assert payload["event"] == "beginRendering"
-        assert payload["version"] == "1.0.0"
-        assert payload["data"] == data
-        assert len(payload["components"]) >= 3
-        root = payload["components"][0]
-        assert "Column" in root["component"]
-        assert root["component"]["Column"]["backgroundColor"] == PAGE_BG
-
-    def test_compose_surface_id(self):
-        composer = BlockComposer()
-        payload = composer.compose(
-            [{"type": "Divider", "data": {}}],
-            {},
-            surface_id="my-surface",
-        )
-        assert payload["surfaceId"] == "my-surface"
-
     def test_compose_empty_blocks(self):
         composer = BlockComposer()
         payload = composer.compose([], {})
         col = payload["components"][0]["component"]["Column"]
         assert col["children"]["explicitList"] == []
 
-    def test_root_component_id(self):
+    def test_compose_surface_id(self):
         composer = BlockComposer()
-        payload = composer.compose(
-            [{"type": "Divider", "data": {}}], {}
-        )
-        assert payload["rootComponentId"] == payload["components"][0]["id"]
+        payload = composer.compose([], {}, surface_id="my-surface")
+        assert payload["surfaceId"] == "my-surface"
+
+    def test_root_gap_and_padding(self):
+        composer = BlockComposer()
+        payload = composer.compose([], {}, root_gap=16, root_padding=[16, 32, 16, 16])
+        col = payload["components"][0]["component"]["Column"]
+        assert col["gap"] == 16
+        assert col["padding"] == [16, 32, 16, 16]
 
 
 # ============ Tool Integration ============
@@ -238,21 +173,6 @@ class TestRenderA2UITool:
     @pytest.fixture
     def tool(self):
         return RenderA2UITool()
-
-    @pytest.mark.asyncio
-    async def test_basic_blocks(self, tool):
-        blocks = [
-            {"type": "InfoCard", "data": {"title": "Test", "body": "Body text"}},
-        ]
-        tc = ToolCall.create(
-            "render_a2ui",
-            {"blocks": json.dumps(blocks)},
-        )
-        result = await tool.execute(tc, context={})
-        assert not result.is_error
-        payload = result.content
-        assert payload["event"] == "beginRendering"
-        assert len(payload["components"]) >= 3
 
     @pytest.mark.asyncio
     async def test_invalid_blocks_json(self, tool):
@@ -274,298 +194,3 @@ class TestRenderA2UITool:
         )
         result = await tool.execute(tc, context={})
         assert result.is_error
-
-    @pytest.mark.asyncio
-    async def test_inline_transforms_from_context(self, tool):
-        blocks = [{"type": "InfoCard", "data": {
-            "title": {"get": "total_available_incl_loan", "format": "currency"},
-            "body": "ok",
-        }}]
-        ctx = {
-            "_rule_engine_result": {"total_available_incl_loan": 12345},
-        }
-        tc = ToolCall.create(
-            "render_a2ui",
-            {"blocks": json.dumps(blocks)},
-        )
-        result = await tool.execute(tc, context=ctx)
-        assert not result.is_error
-        text_comps = [
-            c for c in result.content["components"]
-            if "Text" in c.get("component", {})
-        ]
-        titles = [c["component"]["Text"]["text"] for c in text_comps
-                  if c["component"]["Text"].get("text", {}).get("literalString") == "¥ 12,345.00"]
-        assert len(titles) == 1
-
-    @pytest.mark.asyncio
-    async def test_policy_query_data_via_state_delta(self, tool):
-        """policy_query results stored in _policy_query_result are merged at top level."""
-        blocks = [{"type": "InfoCard", "data": {
-            "title": {"get": "total_count"},
-            "body": "ok",
-        }}]
-        ctx = {
-            "_policy_query_result": {
-                "policyAssertList": [{"policy_id": "P1"}],
-                "total_count": 3,
-            },
-        }
-        tc = ToolCall.create(
-            "render_a2ui",
-            {"blocks": json.dumps(blocks)},
-        )
-        result = await tool.execute(tc, context=ctx)
-        assert not result.is_error
-        text_comps = [
-            c for c in result.content["components"]
-            if "Text" in c.get("component", {})
-            and c["component"]["Text"].get("text", {}).get("literalString") == 3
-        ]
-        assert len(text_comps) == 1
-
-    @pytest.mark.asyncio
-    async def test_customer_info_data_via_state_delta(self, tool):
-        """customer_info results stored in _customer_info_result are merged at top level."""
-        blocks = [{"type": "InfoCard", "data": {
-            "title": {"get": "identity.name"},
-            "body": {"get": "contact.phone"},
-        }}]
-        ctx = {
-            "_customer_info_result": {
-                "identity": {"name": "张明"},
-                "contact": {"phone": "138****5678"},
-            },
-        }
-        tc = ToolCall.create(
-            "render_a2ui",
-            {"blocks": json.dumps(blocks)},
-        )
-        result = await tool.execute(tc, context=ctx)
-        assert not result.is_error
-        text_comps = [
-            c for c in result.content["components"]
-            if "Text" in c.get("component", {})
-        ]
-        literals = [c["component"]["Text"]["text"].get("literalString") for c in text_comps
-                    if isinstance(c["component"]["Text"].get("text"), dict)]
-        assert "张明" in literals
-        assert "138****5678" in literals
-
-    @pytest.mark.asyncio
-    async def test_same_turn_tool_results_merged_at_top_level(self, tool):
-        """Same-turn _tool_results_by_name are merged at top level (no _tool_ prefix)."""
-        blocks = [{"type": "InfoCard", "data": {
-            "title": {"get": "identity.name"},
-            "body": {"get": "total_count"},
-        }}]
-        ctx = {
-            "_tool_results_by_name": {
-                "customer_info": {"identity": {"name": "李四"}},
-                "policy_query": {"policyAssertList": [], "total_count": 5},
-            },
-        }
-        tc = ToolCall.create(
-            "render_a2ui",
-            {"blocks": json.dumps(blocks)},
-        )
-        result = await tool.execute(tc, context=ctx)
-        assert not result.is_error
-        text_comps = [
-            c for c in result.content["components"]
-            if "Text" in c.get("component", {})
-        ]
-        literals = [c["component"]["Text"]["text"].get("literalString") for c in text_comps
-                    if isinstance(c["component"]["Text"].get("text"), dict)]
-        assert "李四" in literals
-        assert 5 in literals
-
-
-class TestKeyValueListRowMode:
-    """KeyValueList row mode produces nested bindings that the renderer must recursively resolve."""
-
-    def test_row_mode_produces_nested_bindings(self):
-        builder = get_block_builder("KeyValueList")
-        comps = builder({"rowCount": 3, "rowPrefix": "r"}, _id_gen())
-        list_comp = next(c for c in comps if "List" in c.get("component", {}))
-        ds = list_comp["component"]["List"]["dataSource"]
-        assert "literalString" in ds
-        items = ds["literalString"]
-        assert len(items) == 3
-        assert items[0] == {"label": {"path": "r1_label"}, "value": {"path": "r1_value"}}
-        assert items[2] == {"label": {"path": "r3_label"}, "value": {"path": "r3_value"}}
-
-    def test_default_row_count_and_prefix(self):
-        builder = get_block_builder("KeyValueList")
-        comps = builder({}, _id_gen())
-        list_comp = next(c for c in comps if "List" in c.get("component", {}))
-        items = list_comp["component"]["List"]["dataSource"]["literalString"]
-        assert len(items) == 9
-        assert items[0]["label"] == {"path": "row1_label"}
-
-
-class TestDataTableWidthNormalization:
-    """DataTable column widths must produce valid CSS units."""
-
-    def test_numeric_widths_become_percent(self):
-        builder = get_block_builder("DataTable")
-        comps = builder(
-            {
-                "columns": [
-                    {"header": "A", "field": "a", "width": 40},
-                    {"header": "B", "field": "b", "width": 30},
-                    {"header": "C", "field": "c", "width": 30},
-                ],
-                "data": "$rows",
-            },
-            _id_gen(),
-        )
-        table_comp = next(c for c in comps if "Table" in c.get("component", {}))
-        widths = table_comp["component"]["Table"]["columnWidths"]
-        assert widths == ["40%", "30%", "30%"]
-
-    def test_string_widths_passthrough(self):
-        builder = get_block_builder("DataTable")
-        comps = builder(
-            {
-                "columns": [
-                    {"header": "A", "field": "a", "width": "2fr"},
-                    {"header": "B", "field": "b", "width": "1fr"},
-                ],
-                "data": "$rows",
-            },
-            _id_gen(),
-        )
-        table_comp = next(c for c in comps if "Table" in c.get("component", {}))
-        widths = table_comp["component"]["Table"]["columnWidths"]
-        assert widths == ["2fr", "1fr"]
-
-    def test_default_width_is_1fr(self):
-        builder = get_block_builder("DataTable")
-        comps = builder(
-            {
-                "columns": [
-                    {"header": "A", "field": "a"},
-                    {"header": "B", "field": "b"},
-                ],
-                "data": "$rows",
-            },
-            _id_gen(),
-        )
-        table_comp = next(c for c in comps if "Table" in c.get("component", {}))
-        widths = table_comp["component"]["Table"]["columnWidths"]
-        assert widths == ["1fr", "1fr"]
-
-    def test_mixed_numeric_and_string_widths(self):
-        builder = get_block_builder("DataTable")
-        comps = builder(
-            {
-                "columns": [
-                    {"header": "A", "field": "a", "width": 50},
-                    {"header": "B", "field": "b", "width": "1fr"},
-                ],
-                "data": "$rows",
-            },
-            _id_gen(),
-        )
-        table_comp = next(c for c in comps if "Table" in c.get("component", {}))
-        widths = table_comp["component"]["Table"]["columnWidths"]
-        assert widths == ["50%", "1fr"]
-
-
-# ============ Skill Loader Mode Selection ============
-
-
-class TestSkillLoaderModeSelection:
-    @pytest.fixture
-    def skill_dir(self, tmp_path):
-        """Create skill dir with SKILL.md and SKILL_DYNAMIC_UI.md."""
-        skill_a = tmp_path / "skill_a"
-        skill_a.mkdir()
-        (skill_a / "SKILL.md").write_text(textwrap.dedent("""\
-            ---
-            name: SkillA Template
-            description: template version
-            required_tools:
-              - render_a2ui
-            ---
-            Template content
-        """))
-        (skill_a / "SKILL_DYNAMIC_UI.md").write_text(textwrap.dedent("""\
-            ---
-            name: SkillA Dynamic
-            description: dynamic version
-            required_tools:
-              - render_a2ui
-            ---
-            Dynamic content
-        """))
-
-        skill_b = tmp_path / "skill_b"
-        skill_b.mkdir()
-        (skill_b / "SKILL.md").write_text(textwrap.dedent("""\
-            ---
-            name: SkillB
-            description: mode-agnostic
-            ---
-            Agnostic content
-        """))
-
-        skill_c = tmp_path / "skill_c"
-        skill_c.mkdir()
-        (skill_c / "SKILL_DYNAMIC_UI.md").write_text(textwrap.dedent("""\
-            ---
-            name: SkillC DynOnly
-            description: dynamic-only skill
-            required_tools:
-              - render_a2ui
-            ---
-            Dynamic only
-        """))
-
-        return tmp_path
-
-    def test_dynamic_mode_picks_dynamic_file(self, skill_dir):
-        from ark_agentic.core.skills.base import SkillConfig
-        from ark_agentic.core.skills.loader import SkillLoader
-
-        config = SkillConfig(
-            skill_directories=[str(skill_dir)],
-            a2ui_mode="dynamic",
-        )
-        loader = SkillLoader(config)
-        skills = loader.load_from_directories()
-
-        skill_a = skills.get("skill_a")
-        assert skill_a is not None
-        assert skill_a.metadata.name == "SkillA Dynamic"
-        assert "Dynamic content" in skill_a.content
-
-        skill_b = skills.get("skill_b")
-        assert skill_b is not None
-        assert skill_b.metadata.name == "SkillB"
-
-        skill_c = skills.get("skill_c")
-        assert skill_c is not None
-        assert skill_c.metadata.name == "SkillC DynOnly"
-
-    def test_preset_mode_picks_default_file(self, skill_dir):
-        from ark_agentic.core.skills.base import SkillConfig
-        from ark_agentic.core.skills.loader import SkillLoader
-
-        config = SkillConfig(
-            skill_directories=[str(skill_dir)],
-            a2ui_mode="preset",
-        )
-        loader = SkillLoader(config)
-        skills = loader.load_from_directories()
-
-        skill_a = skills.get("skill_a")
-        assert skill_a is not None
-        assert skill_a.metadata.name == "SkillA Template"
-
-        skill_b = skills.get("skill_b")
-        assert skill_b is not None
-
-        # skill_c has no SKILL.md -> not loaded when not in dynamic mode
-        assert "skill_c" not in skills

@@ -35,13 +35,13 @@ def _resolve_value(v: Any, raw_data: dict[str, Any]) -> Any:
     if _is_transform_spec(v):
         return _exec_one(v, raw_data)
     if isinstance(v, dict):
-        return _resolve_block_data(v, raw_data)
+        return resolve_block_data(v, raw_data)
     if isinstance(v, list):
         return [_resolve_value(item, raw_data) for item in v]
     return v
 
 
-def _resolve_block_data(data: dict[str, Any], raw_data: dict[str, Any]) -> dict[str, Any]:
+def resolve_block_data(data: dict[str, Any], raw_data: dict[str, Any]) -> dict[str, Any]:
     """Resolve inline transform specs in block data before passing to builders."""
     resolved: dict[str, Any] = {}
     for k, v in data.items():
@@ -64,6 +64,9 @@ class BlockComposer:
         surface_id: str = "",
         session_id: str = "",
         raw_data: dict[str, Any] | None = None,
+        block_registry: dict[str, Any] | None = None,
+        root_gap: int = 0,
+        root_padding: int | list[int] = 2,
     ) -> dict[str, Any]:
         counter = itertools.count(1)
 
@@ -78,9 +81,11 @@ class BlockComposer:
             block_data = descriptor.get("data", {})
 
             if raw_data:
-                block_data = _resolve_block_data(block_data, raw_data)
+                block_data = resolve_block_data(block_data, raw_data)
 
-            builder = get_block_builder(block_type)
+            builder = (block_registry or {}).get(block_type)
+            if not builder:
+                builder = get_block_builder(block_type)
             components = builder(block_data, id_gen)
 
             if components:
@@ -94,8 +99,8 @@ class BlockComposer:
                 "Column": {
                     "width": 100,
                     "backgroundColor": PAGE_BG,
-                    "padding": 2,
-                    "gap": 0,
+                    "padding": root_padding,
+                    "gap": root_gap,
                     "children": {"explicitList": root_children},
                 }
             },

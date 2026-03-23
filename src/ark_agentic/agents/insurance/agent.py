@@ -15,6 +15,7 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
@@ -76,7 +77,6 @@ def create_insurance_agent(
         agent_id="insurance",
         enable_eligibility_check=True,
         default_load_mode=SkillLoadMode.full,
-        a2ui_mode="dynamic",
     )
     skill_loader = SkillLoader(skill_config)
     try:
@@ -97,7 +97,6 @@ def create_insurance_agent(
             agent_description="专业的保险咨询和业务处理助手，帮助您管理保单和解决保险相关问题。",
         ),
         skill_config=skill_config,
-        a2ui_mode="dynamic",
     )
 
     return AgentRunner(
@@ -107,5 +106,6 @@ def create_insurance_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
+        intake_guard=InsuranceIntakeGuard(llm),
     )
 
