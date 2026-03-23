@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from typing import Any
 
 from .stock_search.loader import StockLoader
 from .stock_search.matcher import MultiPathMatcher
@@ -39,7 +40,12 @@ class StockSearchService:
         self._loader = loader or _get_default_loader()
         self._matcher = MultiPathMatcher(self._loader.index)
 
-    def search(self, query: str, include_dividend: bool = True) -> StockSearchResult:
+    def search(
+        self,
+        query: str,
+        include_dividend: bool = True,
+        context: dict[str, Any] | None = None,
+    ) -> StockSearchResult:
         """检索股票信息
 
         Args:
@@ -64,7 +70,9 @@ class StockSearchService:
         )
         if include_dividend and result.matched and result.stock:
             t1 = time.perf_counter()
-            result.dividend_info = self._loader.get_dividend_info(result.stock.code)
+            result.dividend_info = self._loader.get_dividend_info(
+                result.stock.code, context=context
+            )
             div_ms = (time.perf_counter() - t1) * 1000
             logger.info(
                 "stock search dividend done code=%s dividend_ms=%.2f",

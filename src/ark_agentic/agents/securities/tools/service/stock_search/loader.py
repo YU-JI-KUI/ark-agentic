@@ -17,6 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from ..mock_mode import get_mock_mode_for_context
 from .index import StockIndex
 from .models import DividendInfo
 
@@ -104,12 +105,21 @@ class StockLoader:
     def index(self) -> StockIndex:
         return self._index
 
-    def get_dividend_info(self, code: str) -> DividendInfo | None:
+    def get_dividend_info(
+        self, code: str, context: dict[str, Any] | None = None
+    ) -> DividendInfo | None:
         """获取分红信息
 
         Mock 模式返回内置数据；生产模式返回 None（由外部服务补充）。
+        传入 context 时与证券工具一致：优先 user:mock_mode / mock_mode，否则环境变量；
+        未传 context 时使用构造时的 mock_mode（兼容单测与脚本直接调用）。
         """
-        if not self._mock_mode:
+        is_mock = (
+            get_mock_mode_for_context(context)
+            if context is not None
+            else self._mock_mode
+        )
+        if not is_mock:
             return None
 
         raw = _MOCK_DIVIDEND.get(code)

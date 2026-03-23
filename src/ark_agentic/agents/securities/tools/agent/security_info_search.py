@@ -62,7 +62,9 @@ class SecurityInfoSearchTool(AgentTool):
         include_dividend = read_bool_param(args, "include_dividend", True)
 
         try:
-            result = self._service.search(query, include_dividend=include_dividend)
+            result = self._service.search(
+                query, include_dividend=include_dividend, context=context
+            )
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
                 data=result.model_dump(exclude_none=False),
