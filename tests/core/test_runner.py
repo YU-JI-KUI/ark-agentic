@@ -520,7 +520,7 @@ async def test_a2ui_tool_call_args_redacted_in_history(tmp_sessions_dir: Path) -
     tc_out = assistant_msgs[0]["tool_calls"][0]
     assert tc_out["function"]["name"] == "render_a2ui"
     args = json.loads(tc_out["function"]["arguments"])
-    assert args["blocks"] == "[已渲染为卡片]", "render_a2ui arguments must be redacted"
+    assert args["_redacted"] == "已渲染", "render_a2ui arguments must be redacted"
     assert "WithdrawPlanCard" not in tc_out["function"]["arguments"]
 
 

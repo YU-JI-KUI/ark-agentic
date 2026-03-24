@@ -607,7 +607,7 @@ class AgentRunner:
                             "function": {
                                 "name": tc.name,
                                 "arguments": (
-                                    json.dumps({"blocks": "[已渲染为卡片]"}, ensure_ascii=False)
+                                    json.dumps({"_redacted": "已渲染"}, ensure_ascii=False)
                                     if tc.id in a2ui_tc_ids
                                     else json.dumps(tc.arguments, ensure_ascii=False)
                                 ),
