@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from .service_client import get_mock_mode_for_context
+from .mock_mode import get_mock_mode_for_context
 from typing import Any, Callable
 
 
@@ -378,25 +378,101 @@ UNIFIED_HEADER_CONFIG: dict[str, tuple] = {
 # 基金理财持仓 API 参数配置（HTTP GET query params）
 FUND_HOLDINGS_PARAM_CONFIG: dict[str, tuple] = {
     "usercode": ("context", "usercode"),  # 来自 user:usercode 或 usercode
-    "channel":  ("static", "10014"),      # 固定值 10014
+    "channel": ("static", "10014"),  # 固定值 10014
+}
+
+# 用户资产历史收益曲线 API 参数配置
+ASSET_PROFIT_HIST_PARAM_CONFIG: dict[str, tuple] = {
+    "assetGrpType": ("transform", "account_type", lambda x: 2 if x == "margin" else 1),
+    "timeType":    ("context", "time_type"),
+    "beginTime":   ("context", "begin_time"),
+    "endTime":     ("context", "end_time"),
+    "stringParam": ("static", 1),
+    "ruleType":    ("static", 1),
+}
+
+# 用户股票每日收益明细 API 参数配置
+STOCK_DAILY_PROFIT_PARAM_CONFIG: dict[str, tuple] = {
+    "assetGrpType": ("transform", "account_type", lambda x: 2 if x == "margin" else 1),
+    "beginTime":   ("context", "begin_time"),
+    "endTime":     ("context", "end_time"),
+    "month":       ("context", "month"),
+    "stringParam": ("static", 1),
+}
+
+# 用户股票盈亏排行 API 参数配置
+STOCK_PROFIT_RANKING_PARAM_CONFIG: dict[str, tuple] = {
+    "timeType":    ("context", "time_type"),
+    "pftType":     ("context", "pft_type"),
+    "limit":       ("transform", "limit", lambda x: x if x else 10),
+    "stringParam": ("static", 1),
 }
 
 # 服务参数配置注册表
 SERVICE_PARAM_CONFIGS: dict[str, dict[str, tuple]] = {
-    "account_overview": ACCOUNT_OVERVIEW_PARAM_CONFIG,
-    "cash_assets": CASH_ASSETS_PARAM_CONFIG,
-    "etf_holdings": ETF_HOLDINGS_PARAM_CONFIG,
-    "hksc_holdings": HKSC_HOLDINGS_PARAM_CONFIG,
-    "fund_holdings": FUND_HOLDINGS_PARAM_CONFIG,
+    "account_overview":    ACCOUNT_OVERVIEW_PARAM_CONFIG,
+    "cash_assets":         CASH_ASSETS_PARAM_CONFIG,
+    "etf_holdings":        ETF_HOLDINGS_PARAM_CONFIG,
+    "hksc_holdings":       HKSC_HOLDINGS_PARAM_CONFIG,
+    "fund_holdings":       FUND_HOLDINGS_PARAM_CONFIG,
+    "asset_profit_hist":   ASSET_PROFIT_HIST_PARAM_CONFIG,
+    "stock_daily_profit":  STOCK_DAILY_PROFIT_PARAM_CONFIG,
+    "stock_profit_ranking": STOCK_PROFIT_RANKING_PARAM_CONFIG,
 }
 
 # 服务 Header 配置注册表（用于需要特殊 header 的服务）
 SERVICE_HEADER_CONFIGS: dict[str, dict[str, tuple]] = {
-    "account_overview": UNIFIED_HEADER_CONFIG,  # 账户总览使用 validatedata
-    "cash_assets": UNIFIED_HEADER_CONFIG,       # 现金资产使用 validatedata
-    "fund_holdings": UNIFIED_HEADER_CONFIG,     # 基金持仓使用 validatedata
-    "security_detail": UNIFIED_HEADER_CONFIG,   # 标的详情使用 validatedata
-    "etf_holdings": ETF_HOLDINGS_HEADER_CONFIG,  # ETF 使用 validatedata
-    "hksc_holdings": HKSC_HOLDINGS_HEADER_CONFIG,  # HKSC 使用 validatedata
-    "branch_info": UNIFIED_HEADER_CONFIG,       # 开户营业部查询使用 validatedata
+    "account_overview":    UNIFIED_HEADER_CONFIG,
+    "cash_assets":         UNIFIED_HEADER_CONFIG,
+    "fund_holdings":       UNIFIED_HEADER_CONFIG,
+    "security_detail":     UNIFIED_HEADER_CONFIG,
+    "etf_holdings":        ETF_HOLDINGS_HEADER_CONFIG,
+    "hksc_holdings":       HKSC_HOLDINGS_HEADER_CONFIG,
+    "branch_info":         UNIFIED_HEADER_CONFIG,
+    "asset_profit_hist":   UNIFIED_HEADER_CONFIG,
+    "stock_daily_profit":  UNIFIED_HEADER_CONFIG,
+    "stock_profit_ranking": UNIFIED_HEADER_CONFIG,
 }
+
+# validatedata 必需字段列表
+VALIDATEDATA_REQUIRED_FIELDS: list[str] = [
+    "channel",
+    "usercode",
+    "userid",
+    "account",
+    "branchno",
+    "loginflag",
+    "mobileNo",
+]
+
+
+def validate_validatedata_fields(
+    context: dict[str, Any] | None,
+    required_fields: list[str] | None = None,
+    skip_on_mock: bool = True,
+) -> list[str]:
+    """校验 context 中 validatedata 所需字段
+
+    Args:
+        context: 上下文字典（支持 user: 前缀和裸 key）
+        required_fields: 必需字段列表，默认使用 VALIDATEDATA_REQUIRED_FIELDS
+        skip_on_mock: Mock 模式下跳过校验，返回空列表
+
+    Returns:
+        缺失字段列表
+    """
+    from .mock_mode import get_mock_mode_for_context
+
+    if skip_on_mock and get_mock_mode_for_context(context):
+        return []
+
+    if required_fields is None:
+        required_fields = VALIDATEDATA_REQUIRED_FIELDS
+
+    missing = []
+    for field in required_fields:
+        val = _get_context_value(context, field)
+        if not val:
+            missing.append(field)
+
+    return missing

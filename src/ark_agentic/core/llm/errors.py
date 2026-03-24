@@ -18,6 +18,7 @@ class LLMErrorReason(str, Enum):
     """LLM 错误原因分类"""
 
     AUTH = "auth"
+    QUOTA = "quota"           # 余额不足 / 配额耗尽
     RATE_LIMIT = "rate_limit"
     TIMEOUT = "timeout"
     CONTEXT_OVERFLOW = "context_overflow"
@@ -54,6 +55,19 @@ class LLMError(Exception):
 def classify_error(error: Exception, model: Optional[str] = None) -> LLMError:
     """智能错误分类"""
     error_str = str(error).lower()
+
+    # Quota / billing errors (402 Insufficient Balance)
+    if any(keyword in error_str for keyword in [
+        "insufficient balance", "insufficient_balance", "402",
+        "quota exceeded", "billing", "payment required",
+    ]):
+        return LLMError(
+            f"Quota/billing error: {error}",
+            reason=LLMErrorReason.QUOTA,
+            status_code=402,
+            original_error=error,
+            model=model,
+        )
 
     # Authentication errors
     if any(keyword in error_str for keyword in [

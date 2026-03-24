@@ -330,6 +330,71 @@ def extract_branch_info(data: dict[str, Any]) -> dict[str, Any]:
     return {"branch_info": branch_info}
 
 
+# ============ 资产历史收益曲线字段映射 ============
+
+ASSET_PROFIT_HIST_FIELD_MAPPING: dict[str, str] = {
+    "total_profit":      "results.totalProfit",
+    "total_profit_rate": "results.totalProfitRate",
+    "asset":             "results.asset",
+    "asset_total":       "results.assetTotal",  # 两融账户特有
+}
+
+
+def extract_asset_profit_hist(data: dict[str, Any], account_type: str = "normal") -> dict[str, Any]:
+    """提取资产历史收益曲线字段
+
+    普通账户：asset 为期初/期末总资产序列。
+    两融账户：asset 为期初/期末净资产序列，asset_total 为期初/期末总资产序列。
+    """
+    extracted = extract_fields(data, ASSET_PROFIT_HIST_FIELD_MAPPING)
+    extracted["account_type"] = account_type
+    if account_type != "margin":
+        extracted.pop("asset_total", None)
+    return extracted
+
+
+# ============ 股票每日收益明细字段映射 ============
+
+STOCK_DAILY_PROFIT_FIELD_MAPPING: dict[str, str] = {
+    "total_profit":      "results.totalProfit",
+    "total_profit_rate": "results.totalProfitRate",
+    "trading_dates":     "results.trdDate",
+    "daily_profit_rate": "results.profitRate",
+    "daily_profit":      "results.profit",
+}
+
+
+def extract_stock_daily_profit(data: dict[str, Any]) -> dict[str, Any]:
+    """提取股票每日收益明细字段"""
+    return extract_fields(data, STOCK_DAILY_PROFIT_FIELD_MAPPING)
+
+
+# ============ 股票盈亏排行字段映射 ============
+
+STOCK_PROFIT_RANKING_SUMMARY_MAPPING: dict[str, str] = {
+    "profit_count":  "results.pftCnt",
+    "profit_amount": "results.pftAmt",
+    "loss_count":    "results.lossCnt",
+    "loss_amount":   "results.lossAmt",
+}
+
+STOCK_PROFIT_RANKING_ITEM_MAPPING: dict[str, str] = {
+    "name":         "stockName",
+    "profit":       "profit",
+    "profit_rate":  "profitRate",
+    "profit_ratio": "pftRatio",
+}
+
+
+def extract_stock_profit_ranking(data: dict[str, Any]) -> dict[str, Any]:
+    """提取股票盈亏排行字段"""
+    extracted = extract_fields(data, STOCK_PROFIT_RANKING_SUMMARY_MAPPING)
+    stock_list = (data.get("results") or {}).get("stockList", [])
+    if stock_list:
+        extracted["stock_list"] = extract_list_items(stock_list, STOCK_PROFIT_RANKING_ITEM_MAPPING)
+    return extracted
+
+
 # ============ 服务字段配置注册表 ============
 
 SERVICE_FIELD_MAPPINGS: dict[str, dict[str, str]] = {

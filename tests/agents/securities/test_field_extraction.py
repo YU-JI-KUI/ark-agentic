@@ -2,7 +2,7 @@
 
 import pytest
 
-from ark_agentic.agents.securities.tools.field_extraction import (
+from ark_agentic.agents.securities.tools.service.field_extraction import (
     extract_fields,
     _get_by_path,
     extract_account_overview,
@@ -22,27 +22,13 @@ class TestGetByPath:
 
     def test_get_nested_field(self):
         """Test extracting a nested field with dot notation."""
-        data = {
-            "results": {
-                "rmb": {
-                    "totalAssetVal": "1000000.00"
-                }
-            }
-        }
+        data = {"results": {"rmb": {"totalAssetVal": "1000000.00"}}}
         result = _get_by_path(data, "results.rmb.totalAssetVal")
         assert result == "1000000.00"
 
     def test_get_deeply_nested_field(self):
         """Test extracting a deeply nested field."""
-        data = {
-            "results": {
-                "rmb": {
-                    "mktAssetsInfo": {
-                        "totalMktVal": "500000.00"
-                    }
-                }
-            }
-        }
+        data = {"results": {"rmb": {"mktAssetsInfo": {"totalMktVal": "500000.00"}}}}
         result = _get_by_path(data, "results.rmb.mktAssetsInfo.totalMktVal")
         assert result == "500000.00"
 
@@ -65,20 +51,18 @@ class TestExtractFields:
             "results": {
                 "rmb": {
                     "totalAssetVal": "1000000.00",
-                    "cashGainAssetsInfo": {
-                        "cashBalance": "500000.00"
-                    }
+                    "cashGainAssetsInfo": {"cashBalance": "500000.00"},
                 }
             }
         }
-        
+
         mapping = {
             "total_assets": "results.rmb.totalAssetVal",
             "cash_balance": "results.rmb.cashGainAssetsInfo.cashBalance",
         }
-        
+
         result = extract_fields(data, mapping)
-        
+
         assert result["total_assets"] == "1000000.00"
         assert result["cash_balance"] == "500000.00"
 
@@ -91,14 +75,14 @@ class TestExtractFields:
                 }
             }
         }
-        
+
         mapping = {
             "total_assets": "results.rmb.totalAssetVal",
             "missing_field": "results.rmb.missing.value",
         }
-        
+
         result = extract_fields(data, mapping)
-        
+
         assert result["total_assets"] == "1000000.00"
         assert "missing_field" not in result
 
@@ -114,24 +98,20 @@ class TestExtractAccountOverview:
                 "accountType": "1",
                 "rmb": {
                     "totalAssetVal": "390664059.82",
-                    "cashGainAssetsInfo": {
-                        "cashBalance": "1227455354.88"
-                    },
+                    "cashGainAssetsInfo": {"cashBalance": "1227455354.88"},
                     "mktAssetsInfo": {
                         "totalMktVal": "267887813.40",
                         "totalMktProfitToday": "-54638.28",
-                        "totalMktYieldToday": "-0.01"
+                        "totalMktYieldToday": "-0.01",
                     },
-                    "fundMktAssetsInfo": {
-                        "fundMktVal": "1323481.54"
-                    },
-                    "rzrqAssetsInfo": None
-                }
-            }
+                    "fundMktAssetsInfo": {"fundMktVal": "1323481.54"},
+                    "rzrqAssetsInfo": None,
+                },
+            },
         }
-        
+
         result = extract_account_overview(data)
-        
+
         assert result["total_assets"] == "390664059.82"
         assert result["cash_balance"] == "1227455354.88"
         assert result["stock_market_value"] == "267887813.40"
@@ -149,26 +129,24 @@ class TestExtractAccountOverview:
                 "accountType": "2",
                 "rmb": {
                     "totalAssetVal": "333678978.13",
-                    "cashGainAssetsInfo": {
-                        "cashBalance": "100815068.13"
-                    },
+                    "cashGainAssetsInfo": {"cashBalance": "100815068.13"},
                     "mktAssetsInfo": {
                         "totalMktVal": "233663910.00",
                         "totalMktProfitToday": "-1420880.00",
-                        "totalMktYieldToday": "-0.42"
+                        "totalMktYieldToday": "-0.42",
                     },
                     "fundMktAssetsInfo": None,
                     "rzrqAssetsInfo": {
                         "netWorth": "332733488.56",
                         "totalLiabilities": "945497.57",
-                        "mainRatio": "35291.35"
-                    }
-                }
-            }
+                        "mainRatio": "35291.35",
+                    },
+                },
+            },
         }
-        
+
         result = extract_account_overview(data)
-        
+
         assert result["total_assets"] == "333678978.13"
         assert result["cash_balance"] == "100815068.13"
         assert result["stock_market_value"] == "233663910.00"
@@ -187,13 +165,13 @@ class TestExtractAccountOverview:
                 "rmb": {
                     "totalAssetVal": "1000000.00",
                     "fundMktAssetsInfo": None,
-                    "rzrqAssetsInfo": None
-                }
-            }
+                    "rzrqAssetsInfo": None,
+                },
+            },
         }
-        
+
         result = extract_account_overview(data)
-        
+
         assert result["total_assets"] == "1000000.00"
         assert "fund_market_value" not in result
         assert "net_assets" not in result
@@ -227,14 +205,8 @@ class TestExtractServiceFields:
 
     def test_extract_account_overview_service(self):
         """Test extracting account overview service fields."""
-        data = {
-            "results": {
-                "rmb": {
-                    "totalAssetVal": "1000000.00"
-                }
-            }
-        }
-        
+        data = {"results": {"rmb": {"totalAssetVal": "1000000.00"}}}
+
         result = extract_service_fields("account_overview", data)
         assert result["total_assets"] == "1000000.00"
 
