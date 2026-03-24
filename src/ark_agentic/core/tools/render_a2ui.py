@@ -154,12 +154,6 @@ class RenderA2UITool(AgentTool):
         surface_id = (args.get("surface_id") or "").strip()
         event = "surfaceUpdate" if surface_id else "beginRendering"
 
-        if isinstance(blocks_raw, str) and "已渲染" in blocks_raw:
-            return AgentToolResult.error_result(
-                tool_call.id,
-                "blocks 包含历史占位符文本，请根据工具定义生成完整的 blocks JSON 数组。",
-            )
-
         try:
             block_descriptors = json.loads(str(blocks_raw))
         except json.JSONDecodeError as e:

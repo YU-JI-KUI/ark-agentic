@@ -576,7 +576,8 @@ class AgentRunner:
         )
         messages.append({"role": "system", "content": system_prompt})
 
-        # A2UI 遮蔽：name-based 为主（跨持久化稳定），result_type 为辅（兼容非 render_a2ui 的 A2UI 工具）
+        # A2UI tool result 遮蔽：将大体积组件 payload 替换为极简标记，节省 token。
+        # arguments 保留原值，作为模型后续调用的 few-shot 示例。
         _A2UI_TOOL = "render_a2ui"
         a2ui_tc_ids: set[str] = set()
         for msg in session.messages:
@@ -606,11 +607,7 @@ class AgentRunner:
                             "type": "function",
                             "function": {
                                 "name": tc.name,
-                                "arguments": (
-                                    json.dumps({"_redacted": "已渲染"}, ensure_ascii=False)
-                                    if tc.id in a2ui_tc_ids
-                                    else json.dumps(tc.arguments, ensure_ascii=False)
-                                ),
+                                "arguments": json.dumps(tc.arguments, ensure_ascii=False),
                             },
                         }
                         for tc in msg.tool_calls

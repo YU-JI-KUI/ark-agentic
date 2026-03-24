@@ -498,13 +498,12 @@ async def test_input_context_seed_only(tmp_sessions_dir: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a2ui_tool_call_args_redacted_in_history(tmp_sessions_dir: Path) -> None:
-    """render_a2ui tool call arguments must be redacted in LLM history to prevent markdown shortcuts."""
+async def test_a2ui_tool_call_args_preserved_in_history(tmp_sessions_dir: Path) -> None:
+    """render_a2ui arguments must be preserved (not redacted) so models see valid few-shot examples."""
     blocks_payload = [{"type": "WithdrawPlanCard", "data": {"channels": ["survival_fund"], "target": 10000}}]
     runner = _make_runner_with_a2ui(tmp_sessions_dir, responses=[])
     session = runner.session_manager.create_session_sync()
 
-    # Directly construct session history with a render_a2ui tool call
     tc = ToolCall(id="call_redact_1", name="render_a2ui", arguments={"blocks": json.dumps(blocks_payload)})
     session.add_message(AgentMessage.user("取10000"))
     session.add_message(AgentMessage.assistant(content="", tool_calls=[tc]))
@@ -520,8 +519,14 @@ async def test_a2ui_tool_call_args_redacted_in_history(tmp_sessions_dir: Path) -
     tc_out = assistant_msgs[0]["tool_calls"][0]
     assert tc_out["function"]["name"] == "render_a2ui"
     args = json.loads(tc_out["function"]["arguments"])
-    assert args["_redacted"] == "已渲染", "render_a2ui arguments must be redacted"
-    assert "WithdrawPlanCard" not in tc_out["function"]["arguments"]
+    assert args["blocks"] == json.dumps(blocks_payload), "render_a2ui arguments must be preserved"
+    assert "WithdrawPlanCard" in tc_out["function"]["arguments"]
+
+    # tool RESULT must still be redacted
+    tool_msgs = [m for m in messages if m["role"] == "tool" and m["tool_call_id"] == "call_redact_1"]
+    assert len(tool_msgs) == 1
+    result = json.loads(tool_msgs[0]["content"])
+    assert result["event"] == "a2ui_emitted", "A2UI tool result must still be redacted"
 
 
 @pytest.mark.asyncio
