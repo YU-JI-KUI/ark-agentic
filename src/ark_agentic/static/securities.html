@@ -865,6 +865,94 @@
     }
 
     /* ============================================================
+   Dividend info card
+   ============================================================ */
+
+    .tc-badge-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .di-meta {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 10px;
+      background: var(--step-bg);
+      color: var(--text-secondary);
+    }
+
+    .di-list {
+      gap: 12px;
+    }
+
+    .di-item {
+      padding: 12px;
+      background: var(--step-bg);
+      border-radius: var(--radius-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .di-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .di-year {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .di-type-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: var(--orange-pale);
+      color: var(--orange);
+      font-weight: 500;
+    }
+
+    .di-plan {
+      font-size: 14px;
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .di-details {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .di-detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .di-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .di-value {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .di-empty {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 16px;
+      font-size: 13px;
+    }
+
+    /* ============================================================
    Branch info card
    ============================================================ */
     .bi-table {
@@ -2596,6 +2684,10 @@
             cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderStockDailyProfitCalendarCard(template.data);
             break;
+          case 'dividend_info_card':
+            cardDiv.className = 'template-card';
+            cardDiv.innerHTML = renderDividendInfoCard(template.data);
+            break;
           default:
             cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderGenericCard(template);
@@ -2867,6 +2959,45 @@
                 </span>
               </div>
             ` : '<div style="text-align:center;color:var(--text-muted);padding:12px;">当前未持仓</div>'}
+          </div>
+        `;
+      }
+
+      function renderDividendInfoCard(data) {
+        const title = escHtml(data.title || '分红历史');
+        const statDate = data.stat_date ? `<span class="di-meta">统计日期：${escHtml(data.stat_date)}</span>` : '';
+        const marketType = data.market_type ? `<span class="di-meta">${escHtml(data.market_type)}</span>` : '';
+        const dividendList = data.dividend_list || [];
+
+        const itemsHtml = dividendList.length === 0
+          ? '<div class="di-empty">暂无分红记录</div>'
+          : dividendList.map(item => {
+              const hasCash = item.cash_amount && toNum(item.cash_amount) > 0;
+              const hasStock = item.stock_shares && item.stock_shares > 0;
+              return `
+                <div class="di-item">
+                  <div class="di-item-header">
+                    <span class="di-year">${escHtml(item.year || '')} ${escHtml(item.assign_type_description || '')}</span>
+                    <span class="di-type-badge">${escHtml(item.stk_div_type_description || '')}</span>
+                  </div>
+                  ${item.plan ? `<div class="di-plan">${escHtml(item.plan)}</div>` : ''}
+                  <div class="di-details">
+                    ${hasCash ? `<div class="di-detail-row"><span class="di-label">现金（元/千股）</span><span class="di-value profit">￥${formatNumber(item.cash_amount)}</span></div>` : ''}
+                    ${hasStock ? `<div class="di-detail-row"><span class="di-label">送股（股/千股）</span><span class="di-value">${item.stock_shares}</span></div>` : ''}
+                    ${item.arrival_date ? `<div class="di-detail-row"><span class="di-label">到账日期</span><span class="di-value">${escHtml(item.arrival_date)}</span></div>` : ''}
+                    ${item.plan_info ? `<div class="di-detail-row"><span class="di-label">方案说明</span><span class="di-value">${escHtml(item.plan_info)}</span></div>` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('');
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${title}</div>
+            <div class="tc-badge-group">${marketType}${statDate}</div>
+          </div>
+          <div class="template-card-body di-list">
+            ${itemsHtml}
           </div>
         `;
       }

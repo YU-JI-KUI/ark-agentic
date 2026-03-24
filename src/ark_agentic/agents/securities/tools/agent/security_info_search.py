@@ -43,7 +43,7 @@ class SecurityInfoSearchTool(AgentTool):
         ToolParameter(
             name="include_dividend",
             type="boolean",
-            description="是否包含分红信息，默认为 true",
+            description="是否需要查询分红信息，默认为 False",
             required=False,
             default=False,
         ),
@@ -59,15 +59,17 @@ class SecurityInfoSearchTool(AgentTool):
     ) -> AgentToolResult:
         args = tool_call.arguments or {}
         query = read_string_param_required(args, "query")
-        include_dividend = read_bool_param(args, "include_dividend", True)
+        include_dividend = read_bool_param(args, "include_dividend", False)
 
         try:
             result = self._service.search(
                 query, include_dividend=include_dividend, context=context
             )
+            data = result.model_dump(exclude_none=False)
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
-                data=result.model_dump(exclude_none=False),
+                data=data,
+                metadata={"state_delta": {self.name: data}},
             )
         except Exception as e:
             return AgentToolResult.error_result(

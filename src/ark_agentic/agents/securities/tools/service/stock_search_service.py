@@ -24,7 +24,7 @@ def _get_default_loader() -> StockLoader:
     """进程内单例 Loader（首次调用时初始化）"""
     global _DEFAULT_LOADER
     if _DEFAULT_LOADER is None:
-        csv_path = os.getenv("STOCKS_CSV_PATH")
+        csv_path = os.getenv("STOCKS_CSV_PATH", "")
         _DEFAULT_LOADER = StockLoader(csv_path=csv_path)
     return _DEFAULT_LOADER
 

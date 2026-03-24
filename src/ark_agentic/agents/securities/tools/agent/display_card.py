@@ -55,6 +55,7 @@ _RENDER_MAP: dict[str, str] = {
     "stock_profit_ranking":        "stock_profit_ranking",
     "stock_daily_profit_range":    "stock_daily_profit_calendar",
     "stock_daily_profit_month":    "stock_daily_profit_calendar",
+    "security_info_search":        "dividend_info",
 }
 
 _ASSET_CLASS_MAP: dict[str, Literal["ETF", "HKSC", "Fund", "Cash"]] = {
@@ -70,6 +71,7 @@ register_lean_card("cash_assets_card", lambda d: d)
 register_lean_card("security_detail_card", lambda d: d)
 register_lean_card("branch_info_card", lambda d: d)
 register_lean_card("profit_summary_card", lambda d: d)
+register_lean_card("dividend_info_card", lambda d: d)
 
 
 class DisplayCardTool(AgentTool):
@@ -95,7 +97,7 @@ class DisplayCardTool(AgentTool):
                 "可选值：etf_holdings, hksc_holdings, fund_holdings, "
                 "account_overview, cash_assets, security_detail, branch_info, "
                 "asset_profit_hist_period, asset_profit_hist_range, stock_profit_ranking, "
-                "stock_daily_profit_range, stock_daily_profit_month"
+                "stock_daily_profit_range, stock_daily_profit_month, security_info_search"
             ),
             required=True,
         ),
@@ -183,6 +185,14 @@ class DisplayCardTool(AgentTool):
             data["title"] = f"资金账号：{masked}的股票每日收益"
             data["account_type"] = account_type
             template = TemplateRenderer.render_stock_daily_profit_calendar_card(data)
+        elif render_type == "dividend_info":
+            dividend_info = data.get("dividend_info")
+            if not dividend_info:
+                return AgentToolResult.error_result(
+                    tool_call_id=tool_call.id,
+                    error="security_info_search 结果中未查询到分红信息。",
+                )
+            template = TemplateRenderer.render_dividend_info_card(dividend_info)
         else:
             return AgentToolResult.error_result(
                 tool_call_id=tool_call.id,

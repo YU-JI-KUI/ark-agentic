@@ -87,16 +87,22 @@ class TemplateRenderer:
         """
         # 检测数据格式
         if "stock_list" in data:
-            # 真实 API 格式
+            # 通用字段格式
             summary = {
                 "total_market_value": data.get("total_market_value") or data.get("hold_market_value"),
                 "total_profit": data.get("total_profit") or data.get("day_total_profit"),
                 "total_profit_rate": data.get("total_profit_rate") or data.get("day_total_profit_rate"),
-                "total": data.get("total"),
             }
+            # total 不一定存在
+            if "total" in data:
+                summary["total"] = data.get("total")
 
             # HKSC 特有字段
             if asset_class == "HKSC":
+                summary["hold_market_value"] = data.get("hold_market_value")
+                summary["hold_position_profit"] = data.get("hold_position_profit")
+                summary["day_total_profit"] = data.get("day_total_profit")
+                summary["day_total_profit_rate"] = data.get("day_total_profit_rate")
                 summary["available_hksc_share"] = data.get("available_hksc_share")
                 summary["limit_hksc_share"] = data.get("limit_hksc_share")
                 summary["total_hksc_share"] = data.get("total_hksc_share")
@@ -334,4 +340,30 @@ class TemplateRenderer:
                 "total_profit_rate": data.get("total_profit_rate"),
                 "top_performers": data.get("top_performers", []),
             }
+        }
+
+    @staticmethod
+    def render_dividend_info_card(data: dict[str, Any]) -> dict[str, Any]:
+        """渲染分红信息卡片
+
+        输入来自 DividendInfo.model_dump()，字段说明：
+        - stat_date:         统计日期
+        - market_type:       市场代码（SH/SZ/BJ）
+        - stock_code:        6 位股票代码
+        - dividend_list:     分红记录列表，每项含 year/assign_type_*/stk_div_type_*/plan 等
+        """
+        dividend_list = data.get("dividend_list") or []
+        # 取第一条记录的 stock_name 作为卡片标题
+        first_name = dividend_list[0].get("stock_name") if dividend_list else None
+        stock_label = first_name or data.get("stock_code") or "股票"
+        return {
+            "template": "dividend_info_card",
+            "data": {
+                "template": "dividend_info_card",
+                "title": f"{stock_label} 分红历史",
+                "stock_code": data.get("stock_code"),
+                "market_type": data.get("market_type"),
+                "stat_date": data.get("stat_date"),
+                "dividend_list": dividend_list,
+            },
         }
