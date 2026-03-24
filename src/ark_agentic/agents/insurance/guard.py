@@ -1,7 +1,8 @@
 """
 保险智能体准入检查
 
-使用 LLM 快速判断用户输入是否在保险业务受理范围内。
+使用 LLM 快速判断用户输入是否在保险取款业务受理范围内。
+temperature=0 消除分类非确定性，few-shot 锚定边界 case。
 """
 
 from __future__ import annotations
@@ -18,27 +19,49 @@ from ark_agentic.core.types import AgentMessage, MessageRole
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = """
-你是保险业务准入分类器。根据对话上下文，判断最新一条用户输入是否属于受理范围。
-【受理】满足以下任一条件：
-1. 领钱/取款：红利、生存金、保单贷款、部分领取、退保、取款方案制定/调整/查询；
-2. 保单与信息查询：个人信息、保单列表、持有产品、额度明细、办理取款操作；
-3. 上下文有保险话题时：简单问候、肯定/否定回复、指代性表达（"这个""继续"等）；
-【拒绝】与保险无关且上下文无保险话题延续。
-受理返回 {"accepted":true}，拒绝返回 {"accepted":false,"message":"<15字拒绝原因>"}。
-只返回 JSON，不要任何其他内容。
-""".strip()
+_SYSTEM_PROMPT = """你是保险取款业务准入分类器。根据对话上下文，判断最新一条用户输入是否属于受理范围。
+
+【受理范围】仅限以下业务：
+1. 领钱/取款：红利领取、生存金领取、保单贷款、部分领取、退保；
+2. 方案：取款方案的制定、调整、查询；
+3. 相关查询：与取款直接相关的保单信息、个人信息、额度明细；
+4. 上下文延续：上下文有取款相关话题时的确认、否定、指代性表达（"好的""继续""这个"等）。
+
+【不受理】以下情况：
+- 保费缴纳、理赔报案、投保咨询、续保、核保等非取款业务；
+- 与保险完全无关的话题。
+
+示例：
+用户：领50000 → {"accepted":true}
+用户：红利能领多少钱 → {"accepted":true}
+用户：帮我做个取款方案 → {"accepted":true}
+用户：保单贷款怎么办理 → {"accepted":true}
+用户：好的，就这样 → {"accepted":true}（上下文延续）
+用户：50000的方案 → {"accepted":true}
+用户：还是第一个方案 → {"accepted":true}
+用户：用卡片展示一下 → {"accepted":true}
+用户：怎么理赔 → {"accepted":false,"message":"理赔非取款业务范围"}
+用户：我要交保费 → {"accepted":false,"message":"保费非取款业务范围"}
+用户：今天天气怎么样 → {"accepted":false,"message":"非保险业务范围"}
+
+受理返回 {"accepted":true}，拒绝返回 {"accepted":false,"message":"<简短拒绝原因>"}。
+只返回 JSON，不要任何其他内容。""".strip()
 
 _ROLE_MAP: dict[str, type[BaseMessage]] = {"user": HumanMessage, "assistant": AIMessage}
 
 
 class InsuranceIntakeGuard:
-    """保险业务准入检查：单次 LLM 调用判断输入是否在受理范围。"""
+    """保险取款业务准入检查：单次 LLM 调用，temperature=0 确保确定性。"""
 
-    _HISTORY_WINDOW = 5  # 最近 5 轮，不足则取全部
+    _HISTORY_WINDOW = 10
 
     def __init__(self, llm: BaseChatModel) -> None:
-        self._llm = llm
+        if hasattr(llm, "model_copy"):
+            self._llm = llm.model_copy(update={"temperature": 0})
+        elif hasattr(llm, "copy"):
+            self._llm = llm.copy(update={"temperature": 0})
+        else:
+            self._llm = llm
 
     async def check(
         self,
@@ -57,7 +80,7 @@ class InsuranceIntakeGuard:
 
         try:
             response = await self._llm.ainvoke(messages)
-            raw = (response.content or "").strip()
+            raw = (response.content or "").strip()  # type: ignore[union-attr]
             data = json.loads(raw)
             return GuardResult(
                 accepted=bool(data.get("accepted", True)),
