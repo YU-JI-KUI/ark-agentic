@@ -569,6 +569,19 @@ class AgentRunner:
         )
         messages.append({"role": "system", "content": system_prompt})
 
+        # A2UI 遮蔽：name-based 为主（跨持久化稳定），result_type 为辅（兼容非 render_a2ui 的 A2UI 工具）
+        _A2UI_TOOL = "render_a2ui"
+        a2ui_tc_ids: set[str] = set()
+        for msg in session.messages:
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if tc.name == _A2UI_TOOL:
+                        a2ui_tc_ids.add(tc.id)
+            if msg.tool_results:
+                for tr in msg.tool_results:
+                    if tr.result_type == ToolResultType.A2UI:
+                        a2ui_tc_ids.add(tr.tool_call_id)
+
         # 历史消息
         for msg in session.messages:
             if msg.role == MessageRole.SYSTEM:
@@ -586,7 +599,11 @@ class AgentRunner:
                             "type": "function",
                             "function": {
                                 "name": tc.name,
-                                "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                                "arguments": (
+                                    json.dumps({"blocks": "[已渲染为卡片]"}, ensure_ascii=False)
+                                    if tc.id in a2ui_tc_ids
+                                    else json.dumps(tc.arguments, ensure_ascii=False)
+                                ),
                             },
                         }
                         for tc in msg.tool_calls
@@ -596,10 +613,9 @@ class AgentRunner:
             elif msg.role == MessageRole.TOOL:
                 if msg.tool_results:
                     for tr in msg.tool_results:
-                        if tr.result_type == ToolResultType.A2UI:
+                        if tr.tool_call_id in a2ui_tc_ids:
                             # A2UI payload 通过 on_ui_component 走独立 UI 通道推送给前端。
-                            # 写回 LLM history 仅保留极简哑标记：无展示语义、无卡片内容，
-                            # 避免 LLM 将"已渲染"解读为"业务已完成，无需再次生成"。
+                            # 写回 LLM history 仅保留极简哑标记，防止模型从历史复述卡片内容。
                             raw = tr.content
                             component_count = len(raw) if isinstance(raw, list) else 1
                             content = json.dumps(

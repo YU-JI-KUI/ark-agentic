@@ -492,3 +492,92 @@ async def test_input_context_seed_only(tmp_sessions_dir: Path) -> None:
     state = session.state
     assert state["user:id"] == "new_value"
     assert "temp:x" not in state
+
+
+# ============ A2UI redaction tests ============
+
+
+@pytest.mark.asyncio
+async def test_a2ui_tool_call_args_redacted_in_history(tmp_sessions_dir: Path) -> None:
+    """render_a2ui tool call arguments must be redacted in LLM history to prevent markdown shortcuts."""
+    blocks_payload = [{"type": "WithdrawPlanCard", "data": {"channels": ["survival_fund"], "target": 10000}}]
+    runner = _make_runner_with_a2ui(tmp_sessions_dir, responses=[])
+    session = runner.session_manager.create_session_sync()
+
+    # Directly construct session history with a render_a2ui tool call
+    tc = ToolCall(id="call_redact_1", name="render_a2ui", arguments={"blocks": json.dumps(blocks_payload)})
+    session.add_message(AgentMessage.user("取10000"))
+    session.add_message(AgentMessage.assistant(content="", tool_calls=[tc]))
+    session.add_message(AgentMessage.tool([
+        AgentToolResult.a2ui_result("call_redact_1", {"event": "beginRendering", "components": []}),
+    ]))
+    session.add_message(AgentMessage.assistant(content="需要办理吗？"))
+
+    messages = runner._build_messages(session.session_id, session.state)
+    assistant_msgs = [m for m in messages if m["role"] == "assistant" and m.get("tool_calls")]
+
+    assert len(assistant_msgs) == 1
+    tc_out = assistant_msgs[0]["tool_calls"][0]
+    assert tc_out["function"]["name"] == "render_a2ui"
+    args = json.loads(tc_out["function"]["arguments"])
+    assert args["blocks"] == "[已渲染为卡片]", "render_a2ui arguments must be redacted"
+    assert "WithdrawPlanCard" not in tc_out["function"]["arguments"]
+
+
+@pytest.mark.asyncio
+async def test_non_a2ui_tool_call_args_not_redacted(tmp_sessions_dir: Path) -> None:
+    """Non-A2UI tool calls must keep their original arguments."""
+    runner = _make_runner_with_a2ui(tmp_sessions_dir, responses=[])
+    session = runner.session_manager.create_session_sync()
+
+    tc = ToolCall(id="call_keep_1", name="mock_tool", arguments={"key": "important_value"})
+    session.add_message(AgentMessage.user("do something"))
+    session.add_message(AgentMessage.assistant(content="", tool_calls=[tc]))
+    session.add_message(AgentMessage.tool([
+        AgentToolResult.json_result("call_keep_1", {"result": "done"}),
+    ]))
+    session.add_message(AgentMessage.assistant(content="Result."))
+
+    messages = runner._build_messages(session.session_id, session.state)
+    assistant_msgs = [m for m in messages if m["role"] == "assistant" and m.get("tool_calls")]
+
+    assert len(assistant_msgs) == 1
+    tc_out = assistant_msgs[0]["tool_calls"][0]
+    args = json.loads(tc_out["function"]["arguments"])
+    assert args["key"] == "important_value", "Non-A2UI tool args must not be redacted"
+
+
+@pytest.mark.asyncio
+async def test_a2ui_marker_by_name_not_result_type(tmp_sessions_dir: Path) -> None:
+    """A2UI tool result marker must work based on tool call name, not result_type.
+
+    Simulates a disk-reloaded session where result_type=A2UI was lost (deserialized as JSON).
+    The name-based check on the tool call must still apply the a2ui_emitted marker.
+    """
+    runner = _make_runner_with_a2ui(tmp_sessions_dir, responses=[])
+    session = runner.session_manager.create_session_sync()
+
+    # Use "render_a2ui" name to match the name-based check in _build_messages
+    tc = ToolCall(id="call_name_test", name="render_a2ui", arguments={"blocks": "[]"})
+    assistant_msg = AgentMessage.assistant(content="", tool_calls=[tc])
+    session.add_message(assistant_msg)
+
+    # Simulate disk-reloaded result: result_type is JSON (not A2UI)
+    fake_result = AgentToolResult(
+        tool_call_id="call_name_test",
+        result_type=ToolResultType.JSON,
+        content={"event": "beginRendering", "surfaceId": "abc", "components": [{"id": "x"}]},
+    )
+    tool_msg = AgentMessage.tool([fake_result])
+    session.add_message(tool_msg)
+
+    messages = runner._build_messages(session.session_id, session.state)
+    tool_messages = [m for m in messages if m["role"] == "tool" and m.get("tool_call_id") == "call_name_test"]
+
+    assert len(tool_messages) == 1
+    parsed = json.loads(tool_messages[0]["content"])
+    assert parsed["event"] == "a2ui_emitted", (
+        "Must apply a2ui_emitted marker based on tool name, even when result_type is JSON"
+    )
+    assert "beginRendering" not in tool_messages[0]["content"]
+    assert "components" not in tool_messages[0]["content"]
