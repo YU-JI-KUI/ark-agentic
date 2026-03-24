@@ -31,6 +31,7 @@ from .types import (
     MessageRole,
     RunOptions,
     SessionEntry,
+    SkillLoadMode,
     ToolCall,
     ToolResultType,
 )
@@ -152,9 +153,10 @@ class AgentRunner:
             logger.info(f"Registered {len(memory_tools)} memory tools")
 
         if skill_loader is not None:
-            from .tools.read_skill import ReadSkillTool
-            self.tool_registry.register(ReadSkillTool(skill_loader))
-            logger.info("Registered read_skill tool for dynamic skill loading")
+            if self.config.skill_config.default_load_mode != SkillLoadMode.full:
+                from .tools.read_skill import ReadSkillTool
+                self.tool_registry.register(ReadSkillTool(skill_loader))
+                logger.info("Registered read_skill tool for dynamic skill loading")
 
         self.skill_matcher = (
             SkillMatcher(skill_loader) if skill_loader else None
