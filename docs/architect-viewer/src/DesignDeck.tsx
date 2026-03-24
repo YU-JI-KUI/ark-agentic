@@ -63,6 +63,14 @@ export default function DesignDeck() {
   const slide = designSlides[index]
 
   const progress = useMemo(() => `${index + 1} / ${total}`, [index, total])
+  const contentLayout =
+    slide.layout === 'stack'
+      ? 'grid-cols-1'
+      : slide.columns && slide.columns.length >= 3
+        ? '2xl:grid-cols-3'
+        : slide.columns && slide.columns.length >= 2
+          ? '2xl:grid-cols-2'
+          : 'grid-cols-1'
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -140,7 +148,7 @@ export default function DesignDeck() {
               ) : null}
 
               {slide.columns?.length ? (
-                <section className={`grid gap-5 ${slide.columns.length >= 2 ? '2xl:grid-cols-2' : 'grid-cols-1'}`}>
+                <section className={`grid gap-5 ${contentLayout}`}>
                   {slide.columns.map((column) => (
                     <article key={column.title} className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 lg:p-6">
                       <h3 className="mb-4 text-xl font-semibold text-white">{column.title}</h3>
@@ -157,13 +165,17 @@ export default function DesignDeck() {
                 </section>
               ) : null}
 
-              {slide.references?.length ? (
-                <section className="mt-6 rounded-3xl border border-sky-400/20 bg-sky-500/8 p-5 lg:p-6">
-                  <div className="mb-3 text-sm font-semibold uppercase tracking-[0.25em] text-sky-200">代码锚点</div>
-                  <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                    {slide.references.map((item) => (
-                      <div key={item} className="rounded-2xl border border-white/10 bg-slate-950/45 px-4 py-3 font-mono text-[13px] text-sky-100">
-                        {item}
+              {slide.icons?.length ? (
+                <section className="mt-6 rounded-3xl border border-emerald-400/20 bg-emerald-500/8 p-5 lg:p-6">
+                  <div className="mb-3 text-sm font-semibold uppercase tracking-[0.25em] text-emerald-200">相关技术</div>
+                  <div className="flex flex-wrap gap-3">
+                    {slide.icons.map((item) => (
+                      <div
+                        key={item}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/45 px-4 py-2 text-sm text-emerald-50"
+                      >
+                        <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-300 shadow-[0_0_0_4px_rgba(16,185,129,0.14)]" />
+                        <span>{item}</span>
                       </div>
                     ))}
                   </div>
