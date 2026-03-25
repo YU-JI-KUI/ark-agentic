@@ -10,6 +10,10 @@ export type DesignSlide = {
     title: string
     items: string[]
   }>
+  table?: {
+    headers: string[]
+    rows: string[][]
+  }
   icons?: string[]
 }
 
@@ -60,24 +64,25 @@ export const designSlides: DesignSlide[] = [
   {
     id: 'comparison',
     section: '选型视角',
-    title: '与主流框架的差异化分析',
-    summary: 'Ark-Agentic 更像面向业务落地的轻量 Agent Runtime，而不是纯编排框架。',
-    layout: 'split',
-    columns: [
-      {
-        title: 'LangGraph · Graph',
-        items: ['图结构 / 状态机强。', '适合复杂分支决策。', '编排能力强，心智负担也更高。', '更偏复杂工作流控制。'],
-      },
-      {
-        title: 'OpenClaw · Assistant',
-        items: ['偏个人助手与系统集成。', '强调外部连接与操作。', '适合 assistant infrastructure。', '上下文治理和 UI 协议不是主卖点。'],
-      },
-      {
-        title: 'Ark-Agentic · Runtime',
-        items: ['轻量 ReAct Runtime。', '继承 OpenClaw 的 Skill 机制。', '强调上下文工程与记忆治理。', '内置 AG-UI / A2UI。', '更适合 SOP 密集型业务落地。'],
-      },
-    ],
-    icons: ['Graph', 'State Machine', 'Assistant', 'System Integration', 'ReAct Runtime', 'Context Engineering', 'Enterprise UI'],
+    title: '框架对比总览',
+    summary: '严格对应 docs/core/framework_compare.md 中的“框架对比总览”表格。',
+    layout: 'stack',
+    table: {
+      headers: ['维度', 'LangGraph', 'OpenClaw', 'Ark-Agentic'],
+      rows: [
+        ['定位', '有状态、基于图的 LLM 代理编排框架', 'AI执行型智能体框架', 'OpenClaw 简化版，聚焦业务落地'],
+        ['核心模型', '图 + 状态机，Pregel 运行时', 'Gateway + Agent + Skills + Memory', 'ReAct Runtime'],
+        ['编排', '强（节点/边 + 条件边 + 循环边 + 并行边）', '中（Skill 串联）', 'Skill + 对话 State 状态传递'],
+        ['上下文治理', 'State 内置状态管理（单次运行），跨会话需对接 Store 接口', '强（ContextEngine 可插拔接口 + 生命周期钩子 + 三级记忆架构）', '支持外部上下文，合并去重，窗口压缩'],
+        ['记忆治理', 'Checkpointer（短期）+ Store 接口 + LangMem SDK', '强（三级记忆 + SQLite 向量检索 + BM25/向量混合检索）', 'Markdown 文件 + 内置 SQLite 向量检索'],
+        ['运行时能力', '弱（侧重定义时编排）', '强', '幻觉校正（核心差异化能力）'],
+        ['UI/交互协议', '无', '不在重点（侧重消息通道集成）', '内置 AG-UI / A2UI'],
+        ['扩展机制', '节点/边自定义 + 子图', 'Skills + ContextEngine 插件', '继承 OpenClaw Skill 机制'],
+        ['业务接入成本', '高', '中', '低'],
+        ['适用场景', '复杂工作流、多分支决策', '个人数字员工、多平台消息接入', 'SOP 密集型业务落地、企业级 Agent'],
+      ],
+    },
+    icons: ['Graph Runtime', 'Pregel', 'Gateway', 'Skills', 'ReAct Runtime', 'Context Engineering', 'AG-UI / A2UI'],
   },
   {
     id: 'formula',

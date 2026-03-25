@@ -147,6 +147,43 @@ export default function DesignDeck() {
                 </section>
               ) : null}
 
+              {slide.table ? (
+                <section className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-collapse text-left">
+                      <thead className="bg-white/8">
+                        <tr>
+                          {slide.table.headers.map((header) => (
+                            <th
+                              key={header}
+                              className="border-b border-white/10 px-4 py-4 text-sm font-semibold tracking-wide text-white lg:px-5"
+                            >
+                              {header}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {slide.table.rows.map((row) => (
+                          <tr key={row.join('|')} className="align-top odd:bg-white/[0.02]">
+                            {row.map((cell, cellIndex) => (
+                              <td
+                                key={`${row[0]}-${cellIndex}`}
+                                className={`border-b border-white/10 px-4 py-4 text-sm leading-7 text-slate-200 lg:px-5 lg:text-[15px] ${
+                                  cellIndex === 0 ? 'w-40 font-semibold text-white' : ''
+                                }`}
+                              >
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
+
               {slide.columns?.length ? (
                 <section className={`grid gap-5 ${contentLayout}`}>
                   {slide.columns.map((column) => (
