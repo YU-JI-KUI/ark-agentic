@@ -5,17 +5,20 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 from dataclasses import dataclass, field, replace
-from typing import Any, TYPE_CHECKING, Callable
+from typing import Any, TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage
 
-from .llm.errors import LLMError, LLMErrorReason, classify_error
+from .callbacks import (
+    CallbackContext,
+    RunnerCallbacks,
+)
+from .llm.caller import LLMCaller
+from .llm.errors import LLMError, LLMErrorReason
 from .prompt.builder import SystemPromptBuilder, PromptConfig
 from .session import SessionManager
 from .skills.base import SkillConfig
@@ -23,6 +26,7 @@ from .skills.loader import SkillLoader
 from .skills.matcher import SkillMatcher
 from .stream.event_bus import AgentEventHandler
 from .tools.base import AgentTool
+from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
 from .types import (
@@ -33,12 +37,12 @@ from .types import (
     SessionEntry,
     SkillLoadMode,
     ToolCall,
+    ToolLoopAction,
     ToolResultType,
 )
 from .validation import validate_response_against_tools
 
 if TYPE_CHECKING:
-    from .guard import IntakeGuard
     from .memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
@@ -130,27 +134,36 @@ class AgentRunner:
         skill_loader: SkillLoader | None = None,
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
-        context_preprocessor: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-        intake_guard: IntakeGuard | None = None,
+        callbacks: RunnerCallbacks | None = None,
     ) -> None:
         self.llm = llm
         self.tool_registry = tool_registry or ToolRegistry()
         self.session_manager = session_manager
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
-        self._context_preprocessor = context_preprocessor
-        self._intake_guard = intake_guard
+
+        self._callbacks = callbacks or RunnerCallbacks()
 
         self._memory_manager = memory_manager
         self._flusher = None
 
+        # LLMCaller / ToolExecutor (SRP)
+        self._llm_caller = LLMCaller(
+            llm, enable_thinking_tags=self.config.enable_thinking_tags,
+        )
+        self._tool_executor = ToolExecutor(
+            self.tool_registry,
+            timeout=self.config.tool_timeout,
+            max_calls_per_turn=self.config.max_tool_calls_per_turn,
+        )
+
         if memory_manager is not None:
             from .memory.extractor import MemoryFlusher
-            self._flusher = MemoryFlusher(self._get_llm)
+            self._flusher = MemoryFlusher(self._llm_caller.get_llm)
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
-            logger.info(f"Registered {len(memory_tools)} memory tools")
+            logger.info("Registered %d memory tools", len(memory_tools))
 
         if skill_loader is not None:
             if self.config.skill_config.default_load_mode != SkillLoadMode.full:
@@ -222,10 +235,32 @@ class AgentRunner:
         if self._memory_manager and not self._memory_manager._initialized:
             await self._memory_manager.initialize()
 
-        if self._context_preprocessor:
-            input_context = self._context_preprocessor(input_context)
-
         session = self.session_manager.get_session_required(session_id)
+
+        # before_agent callbacks（context_preprocessor / intake_guard 等）
+        cb_ctx = CallbackContext(
+            user_input=user_input,
+            input_context=input_context,
+            session=session,
+            handler=handler,
+        )
+        for cb in self._callbacks.before_agent:
+            cb_result = await cb(cb_ctx)
+            if cb_result is not None:
+                response_msg, event_data = cb_result
+                # 短路：持久化用户消息 + 助手回复后提前退出
+                self._merge_input_context(session, cb_ctx.input_context)
+                user_message = AgentMessage.user(user_input, metadata=cb_ctx.input_context)
+                self.session_manager.add_message_sync(session_id, user_message)
+                if handler and event_data:
+                    handler.on_custom_event("intake_rejected", event_data)
+                self.session_manager.add_message_sync(session_id, response_msg)
+                await self.session_manager.sync_pending_messages(session_id, user_id)
+                return RunResult(response=response_msg)
+
+        # callback 可能修改了 input_context
+        input_context = cb_ctx.input_context
+
         self._merge_input_context(session, input_context)
 
         # 外部历史合并（在添加当前用户消息之前）
@@ -235,30 +270,22 @@ class AgentRunner:
             ops = merge_external_history(session.messages, history)
             if ops:
                 self.session_manager.inject_messages(session_id, ops)
-                logger.info(f"Merged {len(ops)} external history message(s)")
+                logger.info("Merged %d external history message(s)", len(ops))
 
         user_message = AgentMessage.user(user_input, metadata=input_context)
         self.session_manager.add_message_sync(session_id, user_message)
 
         if self.config.auto_compact:
-            flush_cb = self._make_memory_flush_callback(user_id) if self._flusher else None
+            flush_cb = (
+                self._flusher.make_pre_compact_callback(
+                    user_id, self.config.prompt_config, self._memory_manager,
+                )
+                if self._flusher and self._memory_manager
+                else None
+            )
             await self.session_manager.auto_compact_if_needed(
                 session_id, user_id, pre_compact_callback=flush_cb,
             )
-
-        # 准入检查：在进入 ReAct 循环之前判断请求是否在 Agent 受理范围内
-        if self._intake_guard:
-            guard_result = await self._intake_guard.check(
-                user_input, input_context, history=session.messages[:-1] or None,
-            )
-            if not guard_result.accepted:
-                logger.info(f"Intake guard rejected: {guard_result.message}")
-                if handler:
-                    handler.on_custom_event("intake_rejected", {"relevant": 0})
-                response = AgentMessage.assistant(guard_result.message or "")
-                self.session_manager.add_message_sync(session_id, response)
-                await self.session_manager.sync_pending_messages(session_id, user_id)
-                return RunResult(response=response)
 
         use_streaming = stream_override if stream_override is not None else self.config.enable_streaming
 
@@ -274,6 +301,10 @@ class AgentRunner:
         finally:
             await self.session_manager.sync_pending_messages(session_id, user_id)
 
+        # after_agent callbacks
+        for cb in self._callbacks.after_agent:
+            await cb(cb_ctx, result.response)
+
         session.strip_temp_state()
         await self.session_manager.sync_session_state(session_id, user_id)
 
@@ -284,53 +315,6 @@ class AgentRunner:
         """将 input_context 合并到 session.state，所有键始终覆盖已有值。"""
         for k, v in input_context.items():
             session.state[k] = v
-
-    def _make_memory_flush_callback(
-        self, user_id: str,
-    ) -> Callable:
-        """返回 pre_compact_callback 闭包，在压缩前全量提取记忆。"""
-        from .types import AgentMessage as AM
-
-        async def _flush(session_id: str, messages: list[AM]) -> None:
-            if not self._flusher or not self._memory_manager:
-                return
-            try:
-                from .paths import get_memory_base_dir
-                from .memory.user_profile import (
-                    load_user_profile, get_profile_path, write_profile,
-                )
-                from pathlib import Path
-
-                base_dir = get_memory_base_dir()
-                current_profile = load_user_profile(base_dir, user_id)
-                agent_name = self.config.prompt_config.agent_name or "assistant"
-                agent_desc = self.config.prompt_config.agent_description or ""
-
-                conversation_text = "\n".join(
-                    f"{m.role.value}: {m.content or ''}" for m in messages if m.content
-                )
-
-                result = await self._flusher.flush(
-                    conversation_text=conversation_text,
-                    current_profile=current_profile,
-                    agent_name=agent_name,
-                    agent_description=agent_desc,
-                )
-
-                if result.has_content:
-                    if result.profile:
-                        write_profile(base_dir, user_id, result.profile)
-                    if result.agent_memory:
-                        ws = Path(self._memory_manager.config.workspace_dir) / user_id
-                        agent_memory_path = ws / "MEMORY.md"
-                        self._flusher._append_agent_memory(result.agent_memory, agent_memory_path)
-                    self._memory_manager.mark_dirty()
-                    logger.info("Pre-compaction memory flush completed for user %s", user_id)
-
-            except Exception as e:
-                logger.warning("Memory flush failed for user %s: %s", user_id, e)
-
-        return _flush
 
     def _get_user_friendly_error_message(self, error: LLMError) -> str:
         if error.reason == LLMErrorReason.AUTH:
@@ -398,7 +382,7 @@ class AgentRunner:
 
             try:
                 if use_streaming:
-                    response = await self._call_llm_streaming(
+                    response = await self._llm_caller.call_streaming(
                         messages, tools,
                         model_override=model_override,
                         temperature_override=temperature_override,
@@ -407,7 +391,7 @@ class AgentRunner:
                         handler=handler,
                     )
                 else:
-                    response = await self._call_llm(
+                    response = await self._llm_caller.call(
                         messages, tools,
                         model_override=model_override,
                         temperature_override=temperature_override,
@@ -471,12 +455,13 @@ class AgentRunner:
             # 工具调用轮
             if response.tool_calls:
                 logger.info(
-                    f"[TOOLS] turn={turns} count={len(response.tool_calls)} "
-                    f"names={[tc.name for tc in response.tool_calls]}"
+                    "[TOOLS] turn=%d count=%d names=%s",
+                    turns, len(response.tool_calls),
+                    [tc.name for tc in response.tool_calls],
                 )
                 all_tool_calls.extend(response.tool_calls)
 
-                tool_results = await self._execute_tools(
+                tool_results = await self._tool_executor.execute(
                     response.tool_calls, {**state, "session_id": session_id}, handler=handler,
                 )
                 total_tool_calls += len(response.tool_calls)
@@ -491,8 +476,32 @@ class AgentRunner:
                 tool_message = AgentMessage.tool(tool_results)
                 self.session_manager.add_message_sync(session_id, tool_message)
 
+                # ToolLoopAction.STOP: 工具请求终止 loop
+                stop_results = [tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP]
+                if stop_results:
+                    stop_content_parts = [
+                        str(tr.content) for tr in stop_results
+                        if tr.content and not tr.is_error
+                    ]
+                    stop_content = "\n".join(stop_content_parts)
+                    if stop_content and handler:
+                        handler.on_content_delta(stop_content, turns)
+                    if not stop_content and not any(tr.events for tr in stop_results):
+                        logger.warning("[TOOL_STOP] tool signaled STOP but both content and events are empty")
+                    stop_response = AgentMessage.assistant(content=stop_content or "")
+                    self.session_manager.add_message_sync(session_id, stop_response)
+                    return RunResult(
+                        response=stop_response,
+                        turns=turns,
+                        tool_calls_count=total_tool_calls,
+                        tool_calls=all_tool_calls,
+                        tool_results=all_tool_results,
+                        prompt_tokens=total_prompt_tokens,
+                        completion_tokens=total_completion_tokens,
+                    )
+
                 if all(tr.is_error for tr in tool_results):
-                    logger.warning(f"[TOOLS_FAIL] turn={turns} all_failed=True")
+                    logger.warning("[TOOLS_FAIL] turn=%d all_failed=True", turns)
 
                 if handler:
                     handler.on_step("信息收集完毕，正在为您总结…")
@@ -726,255 +735,8 @@ class AgentRunner:
         return [tool.get_json_schema() for tool in self.tool_registry.list_all()]
 
     def _get_llm(self, model_override: str | None = None, temperature_override: float | None = None) -> BaseChatModel:
-        """获取 LLM 实例，支持 per-call model/temperature 覆盖。"""
-        updates: dict[str, Any] = {}
-        if model_override:
-            updates["model"] = model_override
-        if temperature_override is not None:
-            updates["temperature"] = temperature_override
-        if updates:
-            if hasattr(self.llm, "model_copy"):
-                return self.llm.model_copy(update=updates)
-            if hasattr(self.llm, "copy"):
-                return self.llm.copy(update=updates)
-            logger.debug(f"LLM backend lacks model_copy/copy methods; ignoring overrides: {updates}")
-        return self.llm
-
-    async def _call_llm(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-        *,
-        model_override: str | None = None,
-        temperature_override: float | None = None,
-    ) -> AgentMessage:
-        """非流式 LLM 调用（ChatOpenAI.ainvoke）"""
-        llm = self._get_llm(model_override, temperature_override)
-        if tools:
-            llm = llm.bind_tools(tools)
-
-        try:
-            ai_msg = await llm.ainvoke(messages)
-        except LLMError:
-            raise
-        except Exception as exc:
-            error = classify_error(exc, model=model_override or self.config.model)
-            raise error from exc
-
-        return self._ai_message_to_agent_message(ai_msg)
-
-    async def _call_llm_streaming(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-        *,
-        model_override: str | None = None,
-        temperature_override: float | None = None,
-        content_callback: Callable[[str], None] | None = None,
-        thinking_callback: Callable[[str], None] | None = None,
-        handler: AgentEventHandler | None = None,
-    ) -> AgentMessage:
-        """流式 LLM 调用（ChatOpenAI.astream）
-
-        当 enable_thinking_tags=True 时，通过 ThinkingTagParser 实时解析
-        <think>/<final> 标签，将 thinking 内容路由到 thinking_callback，
-        final 内容路由到 content_callback。
-        """
-        from .stream.thinking_tag_parser import ThinkingTagParser
-
-        llm = self._get_llm(model_override, temperature_override)
-        if tools:
-            llm = llm.bind_tools(tools)
-
-        model = model_override or self.config.model
-        logger.info(f"LLM stream start | model={model}")
-
-        parser = ThinkingTagParser() if self.config.enable_thinking_tags else None
-
-        full_content = ""
-        tool_calls_data: dict[int, dict[str, str]] = {}  # index → {id, name, args}
-        finish_reason = "stop"
-        usage: dict[str, int] = {}
-
-        try:
-            async for chunk in llm.astream(messages):
-                # Content delta
-                if chunk.content:
-                    full_content += chunk.content
-                    if parser:
-                        thinking, final = parser.process_chunk(chunk.content)
-                        if thinking and thinking_callback:
-                            thinking_callback(thinking)
-                        if final and content_callback:
-                            content_callback(final)
-                    elif content_callback:
-                        content_callback(chunk.content)
-
-                # Tool call chunks (dict or ToolCallChunk-like; index may be int or str)
-                if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
-                    for tc_chunk in chunk.tool_call_chunks:
-                        raw = tc_chunk if isinstance(tc_chunk, dict) else dict(tc_chunk)
-                        idx = int(raw.get("index") or 0)
-                        if idx not in tool_calls_data:
-                            tool_calls_data[idx] = {"id": "", "name": "", "args": ""}
-                        if raw.get("id"):
-                            tool_calls_data[idx]["id"] = str(raw["id"])
-                        if raw.get("name"):
-                            tool_calls_data[idx]["name"] = str(raw["name"])
-                        args_delta = raw.get("args")
-                        if args_delta is not None and args_delta != "":
-                            tool_calls_data[idx]["args"] += (
-                                args_delta if isinstance(args_delta, str) else str(args_delta)
-                            )
-
-                # Response metadata (last chunk)
-                if hasattr(chunk, "response_metadata") and chunk.response_metadata:
-                    finish_reason = chunk.response_metadata.get("finish_reason", finish_reason)
-                if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                    usage = {
-                        "prompt_tokens": chunk.usage_metadata.get("input_tokens", 0),
-                        "completion_tokens": chunk.usage_metadata.get("output_tokens", 0),
-                    }
-
-        except LLMError:
-            raise
-        except Exception as exc:
-            error = classify_error(exc, model=model)
-            raise error from exc
-
-        # flush parser pending buffer
-        if parser:
-            thinking, final = parser.flush()
-            if thinking and thinking_callback:
-                thinking_callback(thinking)
-            if final and content_callback:
-                content_callback(final)
-
-        # 组装工具调用
-        parsed_tool_calls = None
-        if tool_calls_data:
-            parsed_tool_calls = []
-            for idx in sorted(tool_calls_data):
-                tc = tool_calls_data[idx]
-                try:
-                    args = json.loads(tc["args"]) if tc["args"] else {}
-                except json.JSONDecodeError:
-                    args = {"_raw": tc["args"]}
-                parsed_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
-
-        # strip 标签后存入 content，防止污染对话历史
-        clean_content = ThinkingTagParser.strip_tags(full_content) if parser else full_content
-        msg = AgentMessage.assistant(content=clean_content, tool_calls=parsed_tool_calls)
-        msg.metadata["finish_reason"] = finish_reason
-        if usage:
-            msg.metadata["usage"] = usage
-
-        # strict 模式：整轮未出现 <final> 时，预计算 fallback 供 _run_loop 最终轮补发
-        if parser and not parser.ever_in_final and full_content:
-            fallback = ThinkingTagParser.extract_non_think(full_content)
-            if fallback:
-                msg.metadata["thinking_fallback_content"] = fallback
-
-        logger.debug(f"[LLM_STREAM_DONE] content={len(full_content)}B tools={len(tool_calls_data)}")
-        return msg
-
-    def _ai_message_to_agent_message(self, ai_msg: AIMessage) -> AgentMessage:
-        """将 LangChain AIMessage 转为 AgentMessage。"""
-        content = ai_msg.content if isinstance(ai_msg.content, str) else ""
-
-        tool_calls = None
-        if ai_msg.tool_calls:
-            tool_calls = [
-                ToolCall(id=tc["id"], name=tc["name"], arguments=tc.get("args", {}))
-                for tc in ai_msg.tool_calls
-            ]
-
-        msg = AgentMessage.assistant(content=content, tool_calls=tool_calls)
-
-        # finish_reason
-        rm = getattr(ai_msg, "response_metadata", {}) or {}
-        msg.metadata["finish_reason"] = rm.get("finish_reason", "stop")
-
-        # usage
-        um = getattr(ai_msg, "usage_metadata", None)
-        if um:
-            msg.metadata["usage"] = {
-                "prompt_tokens": um.get("input_tokens", 0),
-                "completion_tokens": um.get("output_tokens", 0),
-            }
-
-        return msg
-
-    async def _execute_tools(
-        self,
-        tool_calls: list[ToolCall],
-        context: dict[str, Any],
-        handler: AgentEventHandler | None = None,
-    ) -> list[AgentToolResult]:
-        timeout = self.config.tool_timeout
-        # Mutable context so later tools in the same turn see state_delta and _tool_results_by_name
-        ctx = {**context, "_tool_results_by_name": dict(context.get("_tool_results_by_name") or {})}
-
-        async def execute_single(tc: ToolCall, current_ctx: dict[str, Any]) -> AgentToolResult:
-            logger.debug(f"[TOOL_START] {tc.name} args={tc.arguments}")
-
-            tool = self.tool_registry.get(tc.name)
-            if handler:
-                handler.on_tool_call_start(tc.id, tc.name, tc.arguments)
-                status = (tool.thinking_hint if tool and tool.thinking_hint else f"正在处理 {tc.name}…")
-                handler.on_step(status)
-            if tool is None:
-                result = AgentToolResult.error_result(
-                    tc.id, f"Tool not found: {tc.name}"
-                )
-            else:
-                try:
-                    result = await asyncio.wait_for(
-                        tool.execute(tc, current_ctx),
-                        timeout=timeout,
-                    )
-                except asyncio.TimeoutError:
-                    logger.error(f"Tool execution timeout: {tc.name} ({timeout}s)")
-                    result = AgentToolResult.error_result(
-                        tc.id, f"Tool '{tc.name}' timed out after {timeout}s"
-                    )
-                except Exception as e:
-                    logger.error(f"[TOOL_ERROR] {tc.name}: {e}")
-                    result = AgentToolResult.error_result(tc.id, str(e))
-
-            if handler:
-                handler.on_tool_call_result(tc.id, tc.name, result.content)
-                if result.result_type == ToolResultType.A2UI:
-                    components = (
-                        [result.content]
-                        if isinstance(result.content, dict)
-                        else result.content
-                    )
-                    for component in components:
-                        handler.on_ui_component(component)
-
-            logger.debug(f"[TOOL_DONE] {tc.name} error={result.is_error} size={len(str(result.content))}B")
-            if result.is_error and handler:
-                handler.on_step("工具调用遇到问题，正在尝试其他方式…")
-
-            return result
-
-        limited_calls = tool_calls[: self.config.max_tool_calls_per_turn]
-        if len(tool_calls) > len(limited_calls):
-            logger.warning(f"[TOOLS_LIMIT] requested={len(tool_calls)} limited={len(limited_calls)}")
-
-        results: list[AgentToolResult] = []
-        for tc in limited_calls:
-            result = await execute_single(tc, ctx)
-            results.append(result)
-            state_delta = result.metadata.get("state_delta") if result.metadata else None
-            if isinstance(state_delta, dict) and state_delta:
-                ctx.update(state_delta)
-            by_name = ctx.get("_tool_results_by_name") or {}
-            by_name[tc.name] = result.content
-            ctx["_tool_results_by_name"] = by_name
-
-        return results
+        """向后兼容 — 委托给 LLMCaller.get_llm。"""
+        return self._llm_caller.get_llm(model_override, temperature_override)
 
     # ============ 便捷方法 ============
 

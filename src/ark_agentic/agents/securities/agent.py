@@ -15,6 +15,7 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from ark_agentic.core.callbacks import CallbackContext, RunnerCallbacks
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
@@ -99,6 +100,10 @@ def create_securities_agent(
 
     from .tools.service.param_mapping import enrich_securities_context
 
+    async def _enrich_context(ctx: CallbackContext) -> tuple | None:
+        ctx.input_context = enrich_securities_context(ctx.input_context)
+        return None
+
     return AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
@@ -106,5 +111,7 @@ def create_securities_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
-        context_preprocessor=enrich_securities_context,
+        callbacks=RunnerCallbacks(
+            before_agent=[_enrich_context],
+        ),
     )

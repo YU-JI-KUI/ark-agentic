@@ -15,8 +15,9 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard
+from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard, make_before_agent_callback
 from ark_agentic.agents.insurance.tools import create_insurance_tools
+from ark_agentic.core.callbacks import RunnerCallbacks
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
@@ -115,6 +116,8 @@ def create_insurance_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
-        intake_guard=InsuranceIntakeGuard(llm),
+        callbacks=RunnerCallbacks(
+            before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],
+        ),
     )
 

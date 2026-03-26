@@ -26,6 +26,7 @@ from ark_agentic.core.memory.embeddings import BGE_MODEL_DIMS, DEFAULT_BGE_MODEL
 from ark_agentic.core.memory.extractor import FlushResult, MemoryFlusher
 from ark_agentic.core.memory.manager import MemoryConfig, MemoryManager
 from ark_agentic.core.prompt.builder import PromptConfig
+from ark_agentic.core.llm.caller import LLMCaller
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
@@ -220,7 +221,7 @@ async def test_phase2_compact_flush(
     monkeypatch.setattr(MemoryFlusher, "flush", fake_flush)
 
     async def fake_call_llm(
-        self: AgentRunner,
+        self: LLMCaller,
         messages: list,
         tools: list,
         *,
@@ -229,7 +230,8 @@ async def test_phase2_compact_flush(
     ) -> AgentMessage:
         return AgentMessage.assistant(content="简要回复：理赔请咨询承保方。")
 
-    monkeypatch.setattr(AgentRunner, "_call_llm", fake_call_llm)
+    monkeypatch.setattr(LLMCaller, "call", fake_call_llm)
+    monkeypatch.setattr(LLMCaller, "call_streaming", fake_call_llm)
 
     user_id = "compacttest"
     session_id = await base_agent.create_session(
@@ -295,7 +297,7 @@ async def test_phase3_cross_session_recall(
     llm_round: dict[str, int] = {"n": 0}
 
     async def fake_call_llm(
-        self: AgentRunner,
+        self: LLMCaller,
         messages: list,
         tools: list,
         *,
@@ -314,7 +316,8 @@ async def test_phase3_cross_session_recall(
             content="李四您好，您关心的保单 PL-2024-999999 是万能险。",
         )
 
-    monkeypatch.setattr(AgentRunner, "_call_llm", fake_call_llm)
+    monkeypatch.setattr(LLMCaller, "call", fake_call_llm)
+    monkeypatch.setattr(LLMCaller, "call_streaming", fake_call_llm)
     
     session_id = await base_agent.create_session(
         user_id=user_id,
