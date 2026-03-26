@@ -284,6 +284,8 @@ class TemplateRenderer:
             "data": {
                 "template": "stockProfitRankingTpl",
                 "title": data.get("title", ""),
+                "period_description": data.get("period_description", ""),
+                "as_of_date": data.get("as_of_date", ""),
                 "profit_count": data.get("profit_count"),
                 "profit_amount": data.get("profit_amount"),
                 "loss_count": data.get("loss_count"),

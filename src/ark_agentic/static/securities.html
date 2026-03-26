@@ -3103,6 +3103,11 @@
 
       function renderStockProfitRankingCard(data) {
         const title = escHtml(data.title || '股票盈亏排行');
+        const periodDesc = data.period_description ? escHtml(data.period_description) : '';
+        const asOfDateRaw = data.as_of_date || '';
+        const asOfLabel = asOfDateRaw.length === 8
+          ? `数据截至 ${asOfDateRaw.slice(4,6)}-${asOfDateRaw.slice(6,8)}`
+          : (asOfDateRaw ? `数据截至 ${escHtml(asOfDateRaw)}` : '');
         const profitCount = data.profit_count || '0';
         const profitAmount = toNum(data.profit_amount);
         const lossCount = data.loss_count || '0';
@@ -3152,7 +3157,11 @@
 
         return `
           <div class="template-card-header">
-            <div class="tc-title">${title}</div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">
+              <div class="tc-title">${title}</div>
+              ${asOfLabel ? `<div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${asOfLabel}</div>` : ''}
+            </div>
+            ${periodDesc ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${periodDesc}</div>` : ''}
           </div>
           <div class="template-card-body">
             <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--border);">

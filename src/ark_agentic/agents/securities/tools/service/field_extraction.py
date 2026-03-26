@@ -382,6 +382,7 @@ STOCK_PROFIT_RANKING_SUMMARY_MAPPING: dict[str, str] = {
     "profit_amount": "results.pftAmt",
     "loss_count":    "results.lossCnt",
     "loss_amount":   "results.lossAmt",
+    "as_of_date":    "results.statDate",
 }
 
 STOCK_PROFIT_RANKING_ITEM_MAPPING: dict[str, str] = {
