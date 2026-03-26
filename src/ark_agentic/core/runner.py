@@ -31,6 +31,7 @@ from .types import (
     MessageRole,
     RunOptions,
     SessionEntry,
+    SkillLoadMode,
     ToolCall,
     ToolResultType,
 )
@@ -152,9 +153,10 @@ class AgentRunner:
             logger.info(f"Registered {len(memory_tools)} memory tools")
 
         if skill_loader is not None:
-            from .tools.read_skill import ReadSkillTool
-            self.tool_registry.register(ReadSkillTool(skill_loader))
-            logger.info("Registered read_skill tool for dynamic skill loading")
+            if self.config.skill_config.default_load_mode != SkillLoadMode.full:
+                from .tools.read_skill import ReadSkillTool
+                self.tool_registry.register(ReadSkillTool(skill_loader))
+                logger.info("Registered read_skill tool for dynamic skill loading")
 
         self.skill_matcher = (
             SkillMatcher(skill_loader) if skill_loader else None
@@ -574,6 +576,20 @@ class AgentRunner:
         )
         messages.append({"role": "system", "content": system_prompt})
 
+        # A2UI tool result 遮蔽：将大体积组件 payload 替换为极简标记，节省 token。
+        # arguments 保留原值，作为模型后续调用的 few-shot 示例。
+        _A2UI_TOOL = "render_a2ui"
+        a2ui_tc_ids: set[str] = set()
+        for msg in session.messages:
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if tc.name == _A2UI_TOOL:
+                        a2ui_tc_ids.add(tc.id)
+            if msg.tool_results:
+                for tr in msg.tool_results:
+                    if tr.result_type == ToolResultType.A2UI:
+                        a2ui_tc_ids.add(tr.tool_call_id)
+
         # 历史消息
         for msg in session.messages:
             if msg.role == MessageRole.SYSTEM:
@@ -601,10 +617,9 @@ class AgentRunner:
             elif msg.role == MessageRole.TOOL:
                 if msg.tool_results:
                     for tr in msg.tool_results:
-                        if tr.result_type == ToolResultType.A2UI:
+                        if tr.tool_call_id in a2ui_tc_ids:
                             # A2UI payload 通过 on_ui_component 走独立 UI 通道推送给前端。
-                            # 写回 LLM history 仅保留极简哑标记：无展示语义、无卡片内容，
-                            # 避免 LLM 将"已渲染"解读为"业务已完成，无需再次生成"。
+                            # 写回 LLM history 仅保留极简哑标记，防止模型从历史复述卡片内容。
                             raw = tr.content
                             component_count = len(raw) if isinstance(raw, list) else 1
                             content = json.dumps(

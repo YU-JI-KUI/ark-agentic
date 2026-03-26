@@ -42,8 +42,8 @@ from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
 from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
-from ark_agentic.agents.securities.tools.service_client import get_mock_mode
 from ark_agentic.studio import setup_studio_from_env
+from ark_agentic.agents.securities.tools.service.mock_mode import get_mock_mode
 
 logger = logging.getLogger(__name__)
 

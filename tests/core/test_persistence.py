@@ -61,6 +61,13 @@ class TestSerialization:
         assert serialized["tool_call_id"] == "tc1"
         assert json.loads(serialized["content"]) == {"key": "value"}
         assert not serialized["is_error"]
+        assert serialized["result_type"] == "json"
+
+    def test_serialize_tool_result_preserves_a2ui_type(self) -> None:
+        """A2UI result_type must survive serialization."""
+        tr = AgentToolResult.a2ui_result("tc_a2ui", {"event": "beginRendering", "surfaceId": "s1"})
+        serialized = serialize_tool_result(tr)
+        assert serialized["result_type"] == "a2ui"
 
     def test_deserialize_tool_result(self) -> None:
         """Test tool result deserialization."""
@@ -73,6 +80,39 @@ class TestSerialization:
         assert tr.tool_call_id == "tc1"
         assert tr.content == {"key": "value"}
         assert tr.result_type == ToolResultType.JSON
+
+    def test_deserialize_tool_result_restores_a2ui_type(self) -> None:
+        """result_type=a2ui must be restored when present in serialized data."""
+        data = {
+            "tool_call_id": "tc_a2ui",
+            "result_type": "a2ui",
+            "content": '{"event": "beginRendering", "surfaceId": "s1"}',
+            "is_error": False,
+        }
+        tr = deserialize_tool_result(data)
+        assert tr.result_type == ToolResultType.A2UI
+        assert tr.content == {"event": "beginRendering", "surfaceId": "s1"}
+
+    def test_deserialize_tool_result_backward_compat_no_result_type(self) -> None:
+        """Old JSONL data without result_type field must still deserialize correctly."""
+        data = {
+            "tool_call_id": "tc_old",
+            "content": '{"key": "value"}',
+            "is_error": False,
+        }
+        tr = deserialize_tool_result(data)
+        assert tr.result_type == ToolResultType.JSON
+        assert tr.content == {"key": "value"}
+
+    def test_a2ui_result_roundtrip(self) -> None:
+        """A2UI result must survive serialize→deserialize without type loss."""
+        original = AgentToolResult.a2ui_result(
+            "tc_rt", {"event": "beginRendering", "surfaceId": "s1", "components": []}
+        )
+        serialized = serialize_tool_result(original)
+        restored = deserialize_tool_result(serialized)
+        assert restored.result_type == ToolResultType.A2UI
+        assert restored.content == original.content
 
     def test_serialize_message_user(self) -> None:
         """Test user message serialization."""

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 from dataclasses import dataclass, field
 from typing import Any
@@ -169,16 +170,28 @@ def format_skills_metadata_for_prompt(skills: list[SkillEntry]) -> str:
     return "\n".join(lines)
 
 
+_LEADING_H1_RE = re.compile(r"^\s*#\s+.+", re.MULTILINE)
+
+
+def _strip_leading_h1(content: str) -> str:
+    """Remove the first ``# Title`` line if it appears at the very start.
+
+    Skill bodies typically open with ``# 技能名称`` which duplicates the
+    ``<skill name="...">`` attribute — stripping it avoids redundancy.
+    Only the leading H1 is removed; deeper headings are kept intact.
+    """
+    stripped = content.lstrip("\n")
+    m = _LEADING_H1_RE.match(stripped)
+    if m:
+        stripped = stripped[m.end():].lstrip("\n")
+    return stripped
+
+
 def build_skill_prompt(skills: list[SkillEntry]) -> str:
-    """构建技能提示文本
+    """构建 full-mode 技能提示文本。
 
-    参考: openclaw-main/src/agents/skills/workspace.ts - buildEligibleSkillPrompt
-
-    Args:
-        skills: 要包含的技能列表
-
-    Returns:
-        格式化的技能提示文本
+    每个 skill 用 ``<skill>`` XML 标签包裹，避免 skill body 内部的
+    markdown heading 与外层 ``## Available Skills`` 产生层级冲突。
     """
     if not skills:
         return ""
@@ -186,12 +199,11 @@ def build_skill_prompt(skills: list[SkillEntry]) -> str:
     sections = ["## Available Skills\n"]
 
     for skill in skills:
-        # 技能标题
-        sections.append(f"### {skill.metadata.name}")
-        sections.append(f"_{skill.metadata.description}_\n")
-
-        # 技能内容（SKILL.md 的主体）
-        sections.append(skill.content)
-        sections.append("")  # 空行分隔
+        sections.append(
+            f'<skill name="{_escape_xml(skill.metadata.name)}" '
+            f'description="{_escape_xml(skill.metadata.description)}">'
+        )
+        sections.append(_strip_leading_h1(skill.content))
+        sections.append("</skill>\n")
 
     return "\n".join(sections)

@@ -69,6 +69,13 @@ def test_full_mode_contains_skill_body(runner_with_one_skill) -> None:
     assert "业务必选协议" not in prompt
 
 
+def test_full_mode_does_not_register_read_skill_tool(runner_with_one_skill) -> None:
+    """When default_load_mode is full, read_skill is not in the tool registry."""
+    runner, _ = runner_with_one_skill
+    names = [t.name for t in runner.tool_registry.list_all()]
+    assert "read_skill" not in names
+
+
 # ============ dynamic mode ============
 
 
@@ -119,3 +126,29 @@ def test_skill_config_custom_load_mode() -> None:
     """SkillConfig.default_load_mode can be set to dynamic."""
     config = SkillConfig(default_load_mode=SkillLoadMode.dynamic)
     assert config.default_load_mode == SkillLoadMode.dynamic
+
+
+def test_dynamic_mode_registers_read_skill_tool(tmp_sessions_dir: Path) -> None:
+    """When default_load_mode is dynamic, read_skill is registered for on-demand loading."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        skill_dir = Path(tmpdir) / "sk"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: S\ndescription: d\n---\n\nBody."
+        )
+        skill_cfg = SkillConfig(
+            skill_directories=[tmpdir],
+            default_load_mode=SkillLoadMode.dynamic,
+        )
+        loader = SkillLoader(skill_cfg)
+        loader.load_from_directories()
+
+        runner = AgentRunner(
+            llm=_MockLLM(),
+            session_manager=SessionManager(tmp_sessions_dir),
+            tool_registry=ToolRegistry(),
+            skill_loader=loader,
+            config=RunnerConfig(skill_config=skill_cfg),
+        )
+        names = [t.name for t in runner.tool_registry.list_all()]
+        assert "read_skill" in names

@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 _AGENT_DIR = Path(__file__).resolve().parent
 _SKILLS_DIR = _AGENT_DIR / "skills"
 
+_INSURANCE_INSTRUCTIONS = """\
+取款数据展示协议（最高优先级）：
+- 查询总览、生成方案、调整方案 → 必须调用 render_a2ui 渲染卡片，禁止文字替代。
+- 办理确认（用户明确要求执行取款操作）→ 纯文字回复，禁止调用 render_a2ui。"""
+
 
 def create_insurance_agent(
     llm: BaseChatModel | None = None,
@@ -94,7 +99,11 @@ def create_insurance_agent(
         enable_thinking_tags=enable_thinking_tags,
         prompt_config=PromptConfig(
             agent_name="保险智能助手",
-            agent_description="专业的保险咨询和业务处理助手，帮助您管理保单和解决保险相关问题。",
+            agent_description=(
+                "专业的保险咨询和业务处理助手。"
+                "展示取款数据时必须调用 render_a2ui 渲染卡片，严禁文字替代。"
+            ),
+            custom_instructions=_INSURANCE_INSTRUCTIONS,
         ),
         skill_config=skill_config,
     )

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ark_agentic.core.skills.base import (
     SkillConfig,
+    _strip_leading_h1,
     build_skill_prompt,
     check_skill_eligibility,
     format_skills_metadata_for_prompt,
@@ -173,6 +174,75 @@ class TestBuildSkillPrompt:
         assert "Skill 2" in prompt
         assert "Content 1" in prompt
         assert "Content 2" in prompt
+
+    def test_xml_skill_tags_and_boundaries(self) -> None:
+        """Full-mode prompt wraps each skill in <skill>...</skill> (no ### headings)."""
+        skills = [
+            SkillEntry(
+                id="a",
+                path="/a",
+                content="Body A",
+                metadata=SkillMetadata(name="Skill A", description="Desc A"),
+            ),
+            SkillEntry(
+                id="b",
+                path="/b",
+                content="Body B",
+                metadata=SkillMetadata(name="Skill B", description="Desc B"),
+            ),
+        ]
+        prompt = build_skill_prompt(skills)
+        assert prompt.startswith("## Available Skills\n")
+        assert '<skill name="Skill A" description="Desc A">' in prompt
+        assert '<skill name="Skill B" description="Desc B">' in prompt
+        assert prompt.count("</skill>") == 2
+        assert "### Skill A" not in prompt
+
+    def test_leading_h1_stripped_from_skill_body(self) -> None:
+        """Redundant # title line is removed; body remains."""
+        skill = SkillEntry(
+            id="x",
+            path="/x",
+            content="# My Title\n\nReal content after H1.",
+            metadata=SkillMetadata(name="My Title", description="d"),
+        )
+        prompt = build_skill_prompt([skill])
+        assert "# My Title" not in prompt
+        assert "Real content after H1." in prompt
+
+    def test_xml_escapes_special_chars_in_attributes(self) -> None:
+        """Name/description with quotes, <, & are escaped in XML attributes."""
+        skill = SkillEntry(
+            id="x",
+            path="/x",
+            content="Body.",
+            metadata=SkillMetadata(
+                name='Name "quoted"',
+                description="Use <tag> & ampersand",
+            ),
+        )
+        prompt = build_skill_prompt([skill])
+        assert "&quot;" in prompt
+        assert "&lt;tag&gt;" in prompt
+        assert "&amp;" in prompt
+
+
+class TestStripLeadingH1:
+    """Unit tests for _strip_leading_h1 (full-mode skill body normalization)."""
+
+    def test_removes_first_h1_at_start(self) -> None:
+        assert _strip_leading_h1("# Title\n\nBody") == "Body"
+
+    def test_preserves_when_no_h1(self) -> None:
+        text = "No heading\n\nBody"
+        assert _strip_leading_h1(text) == text
+
+    def test_leading_blank_lines_then_h1(self) -> None:
+        assert _strip_leading_h1("\n\n# T\n\nBody") == "Body"
+
+    def test_does_not_strip_h2(self) -> None:
+        text = "## Not H1\n\nBody"
+        assert _strip_leading_h1(text) == text
 
 
 class TestSkillLoader:
