@@ -17,6 +17,7 @@ class AGUIDataPayload(BaseModel):
     """AGUI data 层字段（§3.6 data 参数定义）。"""
 
     code: str = "200"
+    type: str | None = None
     msg: str | None = None
     request_id: str | None = None
     trace_id: str | None = None

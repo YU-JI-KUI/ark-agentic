@@ -41,20 +41,29 @@ class ToolLoopAction(str, Enum):
     STOP = "stop"
 
 
-class ToolEventType(str, Enum):
-    """工具可声明的事件类型 — 与 AgentEventHandler 方法 1:1 对应"""
-
-    CUSTOM = "custom"
-    STEP = "step"
-    UI_COMPONENT = "ui_component"
+@dataclass
+class ToolEvent:
+    """Base tool event — executor isinstance dispatch (OCP extension point)"""
+    pass
 
 
 @dataclass
-class ToolEvent:
-    """工具声明的事件 — 由 ToolExecutor 分发到 handler, 工具不直接依赖 handler (DIP)"""
+class CustomToolEvent(ToolEvent):
+    """Custom business event sent to frontend (e.g. start_flow, intake_rejected)"""
+    custom_type: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)
 
-    type: ToolEventType
-    data: dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class UIComponentToolEvent(ToolEvent):
+    """A2UI component event"""
+    component: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class StepToolEvent(ToolEvent):
+    """Step status event"""
+    text: str = ""
 
 
 @dataclass
@@ -154,7 +163,7 @@ class AgentToolResult:
     ) -> AgentToolResult:
         """A2UI 前端组件结果 — 自动将 content 转为 UI_COMPONENT events。"""
         components = [data] if isinstance(data, dict) else data
-        auto_events = [ToolEvent(type=ToolEventType.UI_COMPONENT, data=c) for c in components]
+        auto_events = [UIComponentToolEvent(component=c) for c in components]
         return cls(
             tool_call_id=tool_call_id,
             result_type=ToolResultType.A2UI,

@@ -14,10 +14,12 @@ from typing import Any
 from ..stream.event_bus import AgentEventHandler
 from ..types import (
     AgentToolResult,
+    CustomToolEvent,
+    StepToolEvent,
     ToolCall,
-    ToolEventType,
     ToolLoopAction,
     ToolResultType,
+    UIComponentToolEvent,
 )
 from .registry import ToolRegistry
 
@@ -104,6 +106,14 @@ class ToolExecutor:
 
         return result
 
+    _RESULT_TYPE_TO_PROTOCOL: dict[ToolResultType, str] = {
+        ToolResultType.JSON: "json",
+        ToolResultType.TEXT: "text",
+        ToolResultType.A2UI: "A2UI",
+        ToolResultType.IMAGE: "json",
+        ToolResultType.ERROR: "text",
+    }
+
     @staticmethod
     def _dispatch_events(
         result: AgentToolResult,
@@ -113,11 +123,11 @@ class ToolExecutor:
         if not handler or not result.events:
             return
         for evt in result.events:
-            if evt.type == ToolEventType.UI_COMPONENT:
-                handler.on_ui_component(evt.data)
-            elif evt.type == ToolEventType.CUSTOM:
-                custom_type = evt.data.get("type", "custom")
-                rest = {k: v for k, v in evt.data.items() if k != "type"}
-                handler.on_custom_event(custom_type, rest)
-            elif evt.type == ToolEventType.STEP:
-                handler.on_step(evt.data.get("text", ""))
+            if isinstance(evt, UIComponentToolEvent):
+                handler.on_ui_component(evt.component)
+            elif isinstance(evt, CustomToolEvent):
+                ui_protocol = ToolExecutor._RESULT_TYPE_TO_PROTOCOL.get(result.result_type, "json")
+                payload = {**evt.payload, "ui_protocol": ui_protocol}
+                handler.on_custom_event(evt.custom_type, payload)
+            elif isinstance(evt, StepToolEvent):
+                handler.on_step(evt.text)

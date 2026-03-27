@@ -13,9 +13,8 @@ from typing import Any
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import (
     AgentToolResult,
+    CustomToolEvent,
     ToolCall,
-    ToolEvent,
-    ToolEventType,
     ToolLoopAction,
 )
 
@@ -75,18 +74,14 @@ class SubmitWithdrawalTool(AgentTool):
             for p in policies
         )
 
-        return AgentToolResult.text_result(
+        return AgentToolResult.json_result(
             tool_call_id=tool_call.id,
-            text="已提交办理请求",
+            data={"message": "已提交办理请求"},
             loop_action=ToolLoopAction.STOP,
             events=[
-                ToolEvent(
-                    type=ToolEventType.CUSTOM,
-                    data={
-                        "type": "start_flow",
-                        "source_type": source_type,
-                        "query_msg": query_msg,
-                    },
+                CustomToolEvent(
+                    custom_type="start_flow",
+                    payload={"flow_type": source_type, "query_msg": query_msg},
                 ),
             ],
         )

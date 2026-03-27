@@ -24,8 +24,10 @@ from .types import (
     MessageRole,
     ToolResultType,
     ToolLoopAction,
-    ToolEventType,
     ToolEvent,
+    CustomToolEvent,
+    UIComponentToolEvent,
+    StepToolEvent,
     RunOptions,
 )
 from .callbacks import (
@@ -74,8 +76,10 @@ __all__ = [
     "MessageRole",
     "ToolResultType",
     "ToolLoopAction",
-    "ToolEventType",
     "ToolEvent",
+    "CustomToolEvent",
+    "UIComponentToolEvent",
+    "StepToolEvent",
     "RunOptions",
     # Callbacks
     "CallbackContext",
