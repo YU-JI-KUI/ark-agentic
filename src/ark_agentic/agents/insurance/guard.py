@@ -14,7 +14,12 @@ from typing import Any
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from ark_agentic.core.callbacks import BeforeAgentCallback, CallbackContext
+from ark_agentic.core.callbacks import (
+    BeforeAgentCallback,
+    CallbackContext,
+    CallbackEvent,
+    CallbackResult,
+)
 from ark_agentic.core.guard import GuardResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
@@ -103,7 +108,7 @@ def make_before_agent_callback(
         rejected_event_data: 拒绝时发送的 custom event data，默认 {"relevant": 0}
     """
 
-    async def _cb(ctx: CallbackContext) -> tuple[AgentMessage, dict[str, Any]] | None:
+    async def _cb(ctx: CallbackContext) -> CallbackResult | None:
         result = await guard.check(
             ctx.user_input,
             ctx.input_context,
@@ -111,10 +116,14 @@ def make_before_agent_callback(
         )
         if not result.accepted:
             logger.info("Intake guard rejected: %s", result.message)
-            return (
-                AgentMessage.assistant(result.message or ""),
-                rejected_event_data or {"relevant": 0},
+            return CallbackResult(
+                halt=True,
+                response=AgentMessage.assistant(result.message or ""),
+                event=CallbackEvent(
+                    type="intake_rejected",
+                    data=rejected_event_data or {"relevant": 0},
+                ),
             )
         return None
 
-    return _cb  # type: ignore[return-value]
+    return _cb

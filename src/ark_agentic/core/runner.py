@@ -15,6 +15,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from .callbacks import (
     CallbackContext,
+    CallbackResult,
     RunnerCallbacks,
 )
 from .llm.caller import LLMCaller
@@ -237,28 +238,27 @@ class AgentRunner:
 
         session = self.session_manager.get_session_required(session_id)
 
-        # before_agent callbacks（context_preprocessor / intake_guard 等）
         cb_ctx = CallbackContext(
             user_input=user_input,
             input_context=input_context,
             session=session,
-            handler=handler,
         )
-        for cb in self._callbacks.before_agent:
-            cb_result = await cb(cb_ctx)
-            if cb_result is not None:
-                response_msg, event_data = cb_result
-                # 短路：持久化用户消息 + 助手回复后提前退出
-                self._merge_input_context(session, cb_ctx.input_context)
-                user_message = AgentMessage.user(user_input, metadata=cb_ctx.input_context)
-                self.session_manager.add_message_sync(session_id, user_message)
-                if handler and event_data:
-                    handler.on_custom_event("intake_rejected", event_data)
-                self.session_manager.add_message_sync(session_id, response_msg)
-                await self.session_manager.sync_pending_messages(session_id, user_id)
-                return RunResult(response=response_msg)
 
-        # callback 可能修改了 input_context
+        # before_agent hooks
+        r = await self._run_hooks(
+            self._callbacks.before_agent, cb_ctx,
+            context=input_context, handler=handler,
+        )
+        if r and r.halt:
+            self._merge_input_context(session, input_context)
+            user_message = AgentMessage.user(user_input, metadata=input_context)
+            self.session_manager.add_message_sync(session_id, user_message)
+            resp = r.response or AgentMessage.assistant("")
+            self.session_manager.add_message_sync(session_id, resp)
+            await self.session_manager.sync_pending_messages(session_id, user_id)
+            return RunResult(response=resp)
+
+        # hooks may have updated input_context via context_updates
         input_context = cb_ctx.input_context
 
         self._merge_input_context(session, input_context)
@@ -297,13 +297,17 @@ class AgentRunner:
                 temperature_override=effective_temperature,
                 skill_load_mode=resolved_skill_load_mode,
                 handler=handler,
+                cb_ctx=cb_ctx,
             )
         finally:
             await self.session_manager.sync_pending_messages(session_id, user_id)
 
-        # after_agent callbacks
-        for cb in self._callbacks.after_agent:
-            await cb(cb_ctx, result.response)
+        # after_agent hooks
+        await self._run_hooks(
+            self._callbacks.after_agent, cb_ctx,
+            response=result.response,
+            context=input_context, handler=handler,
+        )
 
         session.strip_temp_state()
         await self.session_manager.sync_session_state(session_id, user_id)
@@ -336,6 +340,36 @@ class AgentRunner:
         else:
             return "抱歉，处理您的请求时出现了问题，请稍后重试。"
 
+    async def _run_hooks(
+        self,
+        hooks: list,
+        cb_ctx: CallbackContext | None,
+        *,
+        context: dict[str, Any] | None = None,
+        handler: AgentEventHandler | None = None,
+        **kwargs: Any,
+    ) -> CallbackResult | None:
+        """Run hooks in order. Apply context_updates/event for each non-None result.
+
+        Returns first result with halt=True (remaining hooks skipped),
+        or last non-None result, or None.
+        """
+        if not hooks or cb_ctx is None:
+            return None
+        last: CallbackResult | None = None
+        for cb in hooks:
+            r = await cb(cb_ctx, **kwargs)
+            if r is None:
+                continue
+            if r.context_updates and context is not None:
+                context.update(r.context_updates)
+            if r.event and handler:
+                handler.on_custom_event(r.event.type, r.event.data)
+            last = r
+            if r.halt:
+                return r
+        return last
+
     async def _run_loop(
         self,
         session_id: str,
@@ -345,6 +379,7 @@ class AgentRunner:
         temperature_override: float | None = None,
         skill_load_mode: str = "full",
         handler: AgentEventHandler | None = None,
+        cb_ctx: CallbackContext | None = None,
     ) -> RunResult:
         """ReAct 循环: LLM → Tool → LLM → ... → Response"""
         logger.info(f"[RUN] session={session_id[:8]} streaming={use_streaming}")
@@ -380,44 +415,61 @@ class AgentRunner:
                 if handler:
                     handler.on_thinking_delta(text, _turn)
 
-            try:
-                if use_streaming:
-                    response = await self._llm_caller.call_streaming(
-                        messages, tools,
-                        model_override=model_override,
-                        temperature_override=temperature_override,
-                        content_callback=_scoped_content,
-                        thinking_callback=_scoped_thinking,
-                        handler=handler,
+            # before_model hook
+            bm = await self._run_hooks(
+                self._callbacks.before_model, cb_ctx,
+                turn=turns, messages=messages,
+                context=state, handler=handler,
+            ) if cb_ctx else None
+
+            if bm and bm.halt and bm.response:
+                response = bm.response
+            else:
+                try:
+                    if use_streaming:
+                        response = await self._llm_caller.call_streaming(
+                            messages, tools,
+                            model_override=model_override,
+                            temperature_override=temperature_override,
+                            content_callback=_scoped_content,
+                            thinking_callback=_scoped_thinking,
+                        )
+                    else:
+                        response = await self._llm_caller.call(
+                            messages, tools,
+                            model_override=model_override,
+                            temperature_override=temperature_override,
+                        )
+                except LLMError as e:
+                    logger.error(f"[LLM_ERROR] turn={turns} reason={e.reason.value} retryable={e.retryable}")
+                    user_message = self._get_user_friendly_error_message(e)
+                    error_response = AgentMessage.assistant(content=user_message)
+                    error_response.metadata["error"] = {
+                        "reason": e.reason.value,
+                        "message": str(e),
+                        "retryable": e.retryable,
+                    }
+                    self.session_manager.add_message_sync(session_id, error_response)
+                    if handler:
+                        handler.on_content_delta(user_message, turns)
+                    return RunResult(
+                        response=error_response,
+                        turns=turns,
+                        tool_calls_count=total_tool_calls,
+                        tool_calls=all_tool_calls,
+                        prompt_tokens=total_prompt_tokens,
+                        completion_tokens=total_completion_tokens,
+                        stopped_by_limit=False,
                     )
-                else:
-                    response = await self._llm_caller.call(
-                        messages, tools,
-                        model_override=model_override,
-                        temperature_override=temperature_override,
-                    )
-            except LLMError as e:
-                logger.error(f"[LLM_ERROR] turn={turns} reason={e.reason.value} retryable={e.retryable}")
-                user_message = self._get_user_friendly_error_message(e)
-                error_response = AgentMessage.assistant(content=user_message)
-                error_response.metadata["error"] = {
-                    "reason": e.reason.value,
-                    "message": str(e),
-                    "retryable": e.retryable,
-                }
-                self.session_manager.add_message_sync(session_id, error_response)
-                # 将错误文案作为流式内容推送，确保前端 answerBubble 能正常渲染
-                if handler:
-                    handler.on_content_delta(user_message, turns)
-                return RunResult(
-                    response=error_response,
-                    turns=turns,
-                    tool_calls_count=total_tool_calls,
-                    tool_calls=all_tool_calls,
-                    prompt_tokens=total_prompt_tokens,
-                    completion_tokens=total_completion_tokens,
-                    stopped_by_limit=False,
-                )
+
+            # after_model hook
+            am = await self._run_hooks(
+                self._callbacks.after_model, cb_ctx,
+                turn=turns, response=response,
+                context=state, handler=handler,
+            ) if cb_ctx else None
+            if am and am.response:
+                response = am.response
 
             usage = response.metadata.get("usage", {})
             turn_prompt = usage.get("prompt_tokens", 0)
@@ -461,22 +513,41 @@ class AgentRunner:
                 )
                 all_tool_calls.extend(response.tool_calls)
 
-                tool_results = await self._tool_executor.execute(
-                    response.tool_calls, {**state, "session_id": session_id}, handler=handler,
-                )
+                # before_tool hook
+                bt = await self._run_hooks(
+                    self._callbacks.before_tool, cb_ctx,
+                    turn=turns, tool_calls=response.tool_calls,
+                    context=state, handler=handler,
+                ) if cb_ctx else None
+
+                if bt and bt.halt and bt.tool_results is not None:
+                    tool_results = bt.tool_results
+                else:
+                    tool_results = await self._tool_executor.execute(
+                        response.tool_calls, {**state, "session_id": session_id}, handler=handler,
+                    )
+
                 total_tool_calls += len(response.tool_calls)
                 all_tool_results.extend(tool_results)
 
-                # 合并工具返回的 state_delta 到 session.state
                 for tr in tool_results:
                     state_delta = tr.metadata.get("state_delta")
                     if state_delta and isinstance(state_delta, dict):
                         session.update_state(state_delta)
 
+                # after_tool hook
+                at = await self._run_hooks(
+                    self._callbacks.after_tool, cb_ctx,
+                    turn=turns, results=tool_results,
+                    context=state, handler=handler,
+                ) if cb_ctx else None
+                if at and at.tool_results is not None:
+                    tool_results = at.tool_results
+
                 tool_message = AgentMessage.tool(tool_results)
                 self.session_manager.add_message_sync(session_id, tool_message)
 
-                # ToolLoopAction.STOP: 工具请求终止 loop
+                # ToolLoopAction.STOP
                 stop_results = [tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP]
                 if stop_results:
                     stop_content_parts = [

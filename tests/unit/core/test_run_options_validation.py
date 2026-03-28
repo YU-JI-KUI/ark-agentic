@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from pydantic import ValidationError
 
-from ark_agentic.core.types import RunOptions, SkillLoadMode
-from ark_agentic.core.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.types import AgentMessage, RunOptions, SessionEntry, SkillLoadMode
+from ark_agentic.core.runner import AgentRunner, RunnerConfig, RunResult
 from ark_agentic.core.skills.base import SkillConfig
 
 
@@ -55,8 +55,13 @@ class TestRunnerConfigurationPrecedence:
             config=config
         )
         
-        # Mock internals to isolate logic
-        runner._run_loop = AsyncMock(return_value="mock_result") # type: ignore
+        runner._run_loop = AsyncMock(
+            return_value=RunResult(response=AgentMessage.assistant("mock")),
+        )  # type: ignore
+
+        runner.session_manager.get_session_required = Mock(
+            side_effect=lambda sid: SessionEntry(session_id=sid, user_id="test_user"),
+        )
         
         # Mock session manager sync methods used in run()
         runner.session_manager.add_message_sync = Mock()

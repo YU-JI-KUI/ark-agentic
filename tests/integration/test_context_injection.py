@@ -8,8 +8,6 @@ import pytest
 import os
 from ark_agentic.core.types import ToolCall
 from ark_agentic.agents.securities.tools.agent.account_overview import AccountOverviewTool
-from ark_agentic.agents.securities.tools.service.field_extraction import extract_account_overview
-
 # Ensure mock environment
 os.environ["SECURITIES_SERVICE_MOCK"] = "true"
 
@@ -31,15 +29,11 @@ async def test_account_overview_context_injection():
     result = await tool.execute(tool_call, context=context)
     data = result.content
     
-    # 验证返回的是真实 API 格式
-    # Mock 数据现在返回真实 API 格式：{"status": 1, "results": {"rmb": {...}}}
-    assert "results" in data or "total_assets" in data
+    # Adapter 已归一化为展示字段（非原始 API 包一层 results）
+    assert "total_assets" in data
     
-    # 使用字段提取工具提取显示字段
-    extracted = extract_account_overview(data)
-    
-    # 普通账户不应带出 rzrq 块（空则不出现在 extract 结果中）
-    assert "rzrq_assets_info" not in extracted
+    # 普通账户不应带出 rzrq 块
+    assert not data.get("rzrq_assets_info")
     
     # 2. Test Margin Account (扁平 context)
     tool_call = ToolCall(id="test_margin", name="account_overview", arguments={})
@@ -52,13 +46,9 @@ async def test_account_overview_context_injection():
     result_margin = await tool.execute(tool_call, context=context_margin)
     data_margin = result_margin.content
     
-    # 验证返回的是真实 API 格式
-    assert "results" in data_margin or "total_assets" in data_margin
+    assert "total_assets" in data_margin
     
-    # 使用字段提取工具提取显示字段
-    extracted_margin = extract_account_overview(data_margin)
-    
-    rzrq = extracted_margin.get("rzrq_assets_info")
+    rzrq = data_margin.get("rzrq_assets_info")
     assert isinstance(rzrq, dict)
     assert rzrq.get("netWorth")
     assert rzrq.get("totalLiabilities")
@@ -87,10 +77,7 @@ async def test_account_overview_prefixed_context_injection():
     result = await tool.execute(tool_call, context=context)
     data = result.content
 
-    # 使用字段提取工具提取显示字段
-    extracted = extract_account_overview(data)
-
-    rzrq = extracted.get("rzrq_assets_info")
+    rzrq = data.get("rzrq_assets_info")
     assert isinstance(rzrq, dict), "若未正确读取 user:account_type 会退化为普通账户，rzrq 缺失"
     assert rzrq.get("netWorth")
     assert rzrq.get("totalLiabilities")

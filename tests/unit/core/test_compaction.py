@@ -269,8 +269,8 @@ class TestHelperFunctions:
 
 
 @pytest.mark.skipif(
-    not os.getenv("API_KEY"),
-    reason="API_KEY not set, skipping LLM integration tests"
+    not os.getenv("API_KEY") or os.getenv("RUN_LLM_INTEGRATION") != "1",
+    reason="Set API_KEY and RUN_LLM_INTEGRATION=1 for real LLM compaction tests",
 )
 class TestLLMSummarizerIntegration:
     """Integration tests for LLMSummarizer with real LLM."""
@@ -362,8 +362,8 @@ class TestLLMSummarizerIntegration:
 
 
 @pytest.mark.skipif(
-    not os.getenv("API_KEY"),
-    reason="API_KEY not set, skipping LLM integration tests"
+    not os.getenv("API_KEY") or os.getenv("RUN_LLM_INTEGRATION") != "1",
+    reason="Set API_KEY and RUN_LLM_INTEGRATION=1 for real LLM compaction tests",
 )
 class TestContextCompactorIntegration:
     """Integration tests for ContextCompactor with real LLM."""

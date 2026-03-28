@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-INDEX_HTML = Path(__file__).resolve().parents[1] / "src" / "ark_agentic" / "static" / "index.html"
+INDEX_HTML = Path(__file__).resolve().parents[2] / "src" / "ark_agentic" / "static" / "index.html"
 
 
 def _read_index_html() -> str:

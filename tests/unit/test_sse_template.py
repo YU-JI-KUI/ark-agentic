@@ -6,11 +6,7 @@
 
 import asyncio
 import json
-import os
 import sys
-
-# 添加 src 到路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 
 def test_template_renderer():
@@ -46,9 +42,9 @@ def test_template_renderer():
     }
     template = TemplateRenderer.render_holdings_list_card("ETF", data)
     assert template["template"] == "holdings_list_card"
-    assert template["assetClass"] == "ETF"
+    assert template["asset_class"] == "ETF"
     assert len(template["data"]["holdings"]) == 1
-    print(f"   ✓ template={template['template']}, assetClass={template['assetClass']}")
+    print(f"   ✓ template={template['template']}, asset_class={template['asset_class']}")
 
     # 测试 3: cash_assets_card
     print("\n3. 测试 cash_assets_card...")
@@ -67,7 +63,6 @@ def test_template_renderer():
     print("\n" + "=" * 60)
     print("✅ TemplateRenderer 测试通过！")
     print("=" * 60)
-    return True
 
 
 def test_tool_result_carries_template():
@@ -81,7 +76,7 @@ def test_tool_result_carries_template():
     # 模拟工具返回（与 etf_holdings.py 等工具的实际行为一致）
     template = {
         "template": "holdings_list_card",
-        "assetClass": "ETF",
+        "asset_class": "ETF",
         "data": {"holdings": [], "summary": {}},
     }
     result = AgentToolResult.json_result(
@@ -104,7 +99,6 @@ def test_tool_result_carries_template():
     print("\n" + "=" * 60)
     print("✅ 工具结果模板测试通过！")
     print("=" * 60)
-    return True
 
 
 def test_sse_event_model():
@@ -138,7 +132,6 @@ def test_sse_event_model():
     print("\n" + "=" * 60)
     print("✅ SSE 事件模型测试通过！")
     print("=" * 60)
-    return True
 
 
 def test_display_card_tool():
@@ -149,13 +142,12 @@ def test_display_card_tool():
 
     from ark_agentic.core.types import AgentToolResult, ToolCall, ToolResultType
 
-    # 模拟数据工具结果（etf_holdings 返回的原始数据，符合真实 API 格式）
+    # 与 service 层归一化后一致：顶层含 stock_list（display_card 走 TemplateRenderer 新分支）
     etf_data = {
-        "results": {
-            "dayTotalMktVal": 48000,
-            "dayTotalPft": 3000,
-            "stockList": [{"secuCode": "510300", "secuName": "沪深300ETF", "mktVal": 48000}],
-        }
+        "stock_list": [{"secuCode": "510300", "secuName": "沪深300ETF", "mktVal": 48000}],
+        "total_market_value": 48000,
+        "total_profit": 3000,
+        "total": 1,
     }
 
     # 模拟 runner 注入的 context（state_delta 会将工具结果合并到 state）
@@ -177,11 +169,11 @@ def test_display_card_tool():
     assert result.result_type == ToolResultType.A2UI
     template = result.content
     assert template["template"] == "holdings_list_card"
-    assert template["assetClass"] == "ETF"
+    assert template["asset_class"] == "ETF"
     # stock_list 被 render_holdings_list_card 转换为 holdings
     assert len(template["data"]["holdings"]) == 1
     print("   ✓ 成功从 context 读取 etf_holdings 结果")
-    print(f"   ✓ template={template['template']}, assetClass={template['assetClass']}")
+    print(f"   ✓ template={template['template']}, asset_class={template['asset_class']}")
 
     # 测试未找到数据的情况：display_card 返回错误，要求先调用数据工具
     tc_bad = ToolCall.create(name="display_card", arguments={"source_tool": "hksc_holdings"})
@@ -199,7 +191,6 @@ def test_display_card_tool():
     print("\n" + "=" * 60)
     print("✅ DisplayCardTool 测试通过！")
     print("=" * 60)
-    return True
 
 
 if __name__ == "__main__":

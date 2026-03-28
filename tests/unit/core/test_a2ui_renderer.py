@@ -10,7 +10,7 @@ from ark_agentic.core.a2ui import render_from_template
 
 def _template_root() -> Path:
     return (
-        Path(__file__).resolve().parent.parent.parent
+        Path(__file__).resolve().parents[3]
         / "src"
         / "ark_agentic"
         / "agents"

@@ -13,7 +13,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 
 from .errors import LLMError, classify_error
-from ..stream.event_bus import AgentEventHandler
 from ..types import AgentMessage, ToolCall
 
 logger = logging.getLogger(__name__)
@@ -80,7 +79,6 @@ class LLMCaller:
         temperature_override: float | None = None,
         content_callback: Callable[[str], None] | None = None,
         thinking_callback: Callable[[str], None] | None = None,
-        handler: AgentEventHandler | None = None,
     ) -> AgentMessage:
         """流式 LLM 调用
 

@@ -397,7 +397,7 @@ def test_withdraw_plan_extractor_output_keys_match_template_paths() -> None:
     import json
     from pathlib import Path
 
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     def collect_paths(obj: dict, out: set) -> None:
@@ -441,7 +441,7 @@ _ALLOWED_A2UI_COMPONENT_TYPES = frozenset({
 
 def test_a2ui_withdraw_plan_template_structure() -> None:
     """withdraw_plan template has required root keys and components array."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     assert tpl.get("event") == "beginRendering"
@@ -454,7 +454,7 @@ def test_a2ui_withdraw_plan_template_structure() -> None:
 
 def test_a2ui_withdraw_plan_template_components_only_allowed_types() -> None:
     """Every component in withdraw_plan template uses only A2UI-standard component types."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     for comp in tpl["components"]:
@@ -468,7 +468,7 @@ def test_a2ui_withdraw_plan_template_components_only_allowed_types() -> None:
 
 def test_a2ui_withdraw_plan_list_has_child_and_datasource() -> None:
     """List components in withdraw_plan have required child and dataSource (path)."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     for comp in tpl["components"]:
@@ -485,7 +485,7 @@ def test_a2ui_withdraw_plan_list_has_child_and_datasource() -> None:
 
 def test_a2ui_withdraw_plan_button_has_action_with_name_and_args() -> None:
     """Button components have action with name and args (query event)."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     for comp in tpl["components"]:
@@ -502,7 +502,7 @@ def test_a2ui_withdraw_plan_button_has_action_with_name_and_args() -> None:
 
 def test_a2ui_withdraw_plan_hide_uses_path() -> None:
     """Components with hide property use path binding (dynamic)."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     for comp in tpl["components"]:
@@ -946,7 +946,7 @@ async def test_insurance_render_a2ui_all_three_types_render_successfully(
     from ark_agentic.core.types import ToolCall
 
     template_root = (
-        Path(__file__).resolve().parent.parent.parent.parent
+        Path(__file__).resolve().parents[4]
         / "src"
         / "ark_agentic"
         / "agents"
