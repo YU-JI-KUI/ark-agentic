@@ -249,7 +249,9 @@ class TemplateRenderer:
                 "account_type": data.get("account_type", "normal"),
                 "total_profit": data.get("total_profit"),
                 "total_profit_rate": data.get("total_profit_rate"),
+                "time_interval": data.get("time_interval", ""),
                 "asset": data.get("asset", []),
+                "profit_curve": data.get("profit_curve", []),
             },
         }
         # 两融账户特有字段

@@ -341,6 +341,7 @@ def extract_branch_info(data: dict[str, Any]) -> dict[str, Any]:
 ASSET_PROFIT_HIST_FIELD_MAPPING: dict[str, str] = {
     "total_profit":      "results.totalProfit",
     "total_profit_rate": "results.totalProfitRate",
+    "time_interval":     "results.timeInterval",
     "asset":             "results.asset",
     "asset_total":       "results.assetTotal",  # 两融账户特有
 }
@@ -351,9 +352,39 @@ def extract_asset_profit_hist(data: dict[str, Any], account_type: str = "normal"
 
     普通账户：asset 为期初/期末总资产序列。
     两融账户：asset 为期初/期末净资产序列，asset_total 为期初/期末总资产序列。
+
+    profit_curve 合并格式：
+        [{"trade_date": "20260315", "profit": "120.1", "asset": "100000.00"}, ...]
+    asset[0] 为期初资产，asset[1..n] 与 trdDate/profit 对齐。
+    两融账户额外包含 asset_total 字段。
     """
     extracted = extract_fields(data, ASSET_PROFIT_HIST_FIELD_MAPPING)
     extracted["account_type"] = account_type
+
+    results = data.get("results") or {}
+    trd_date: list[str] = results.get("trdDate") or []
+    profit_items: list[str] = results.get("profit") or []
+    asset: list[str] = extracted.get("asset") or []
+    asset_total: list[str] = extracted.get("asset_total") or []
+
+    # asset[0] = 期初，asset[1..n] 与交易日对齐
+    asset_tail = asset[1:] if len(asset) > 1 else []
+    asset_total_tail = asset_total[1:] if len(asset_total) > 1 else []
+
+    profit_curve: list[dict[str, Any]] = []
+    for i, (td, p) in enumerate(zip(trd_date, profit_items)):
+        entry: dict[str, Any] = {
+            "trade_date": td,
+            "profit": p,
+            "asset": asset_tail[i] if i < len(asset_tail) else None,
+        }
+        if account_type == "margin" and asset_total_tail:
+            entry["asset_total"] = asset_total_tail[i] if i < len(asset_total_tail) else None
+        profit_curve.append(entry)
+
+    if profit_curve:
+        extracted["profit_curve"] = profit_curve
+
     if account_type != "margin":
         extracted.pop("asset_total", None)
     return extracted

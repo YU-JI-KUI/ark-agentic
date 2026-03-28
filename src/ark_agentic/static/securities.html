@@ -3053,18 +3053,47 @@
         const totalProfitRate = toNum(data.total_profit_rate);
         const rateDisplay = (totalProfitRate * 100).toFixed(2);
 
+        // 期初/期末资产从原始 asset 数组取首尾
         const asset = data.asset || [];
         const assetTotal = data.asset_total || [];
         const startAsset = asset.length > 0 ? asset[0] : null;
         const endAsset = asset.length > 0 ? asset[asset.length - 1] : null;
         const startTotal = assetTotal.length > 0 ? assetTotal[0] : null;
         const endTotal = assetTotal.length > 0 ? assetTotal[assetTotal.length - 1] : null;
-
         const assetLabel = isMargin ? '净资产' : '总资产';
+
+        // profit_curve 逐日明细
+        const curve = data.profit_curve || [];
+        const PREVIEW_LIMIT = 5;
+        const uid = 'aph-' + Math.random().toString(36).slice(2, 8);
+
+        const renderCurveItem = (item) => {
+          const p = toNum(item.profit);
+          const cls = p >= 0 ? 'profit' : 'loss';
+          const sign = p >= 0 ? '+' : '';
+          // 日期格式化 20260315 → 03-15
+          const td = String(item.trade_date || '');
+          const dateLabel = td.length === 8 ? `${td.slice(4,6)}-${td.slice(6,8)}` : td;
+          return `
+            <div class="tc-list-item">
+              <span style="font-size:12px;color:var(--text-muted);min-width:44px;">${escHtml(dateLabel)}</span>
+              <span style="font-size:12px;color:var(--text-muted);">￥${formatNumber(item.asset)}</span>
+              <span class="tc-item-value ${cls}" style="font-size:13px;">${sign}￥${formatNumber(Math.abs(p))}</span>
+            </div>`;
+        };
+
+        const visibleRows = curve.slice(0, PREVIEW_LIMIT).map(renderCurveItem).join('');
+        const hiddenRows  = curve.slice(PREVIEW_LIMIT).map(renderCurveItem).join('');
+        const moreLabel = hiddenRows
+          ? `查看更多（剩余 ${curve.length - PREVIEW_LIMIT} 天）&rsaquo;`
+          : '查看更多 &rsaquo;';
 
         return `
           <div class="template-card-header">
-            <div class="tc-title">${title}</div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;">
+              <div class="tc-title">${title}</div>
+              ${data.time_interval ? `<div style="font-size:11px;color:var(--text-muted);">${escHtml(data.time_interval)}</div>` : ''}
+            </div>
           </div>
           <div class="template-card-body">
             <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--border);">
@@ -3097,7 +3126,29 @@
                 <span class="tc-value">￥${formatNumber(endTotal)}</span>
               </div>
             ` : ''}
+            ${curve.length > 0 ? `
+              <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:4px;padding:0 2px;">
+                  <span>日期</span><span>${isMargin ? '净资产' : '资产'}</span><span>当日收益</span>
+                </div>
+                <div class="tc-list">${visibleRows}</div>
+                ${hiddenRows ? `<div id="${uid}-more" class="tc-list" style="display:none;">${hiddenRows}</div>` : ''}
+              </div>
+            ` : ''}
           </div>
+          ${curve.length > PREVIEW_LIMIT ? `
+            <div class="ao-footer" style="margin:8px -16px -16px;border-radius:0 0 var(--radius-md) var(--radius-md);"
+                 onclick="
+                   var m=document.getElementById('${uid}-more');
+                   var f=this;
+                   if(!m)return;
+                   if(m.style.display==='none'){
+                     m.style.display='flex';m.style.flexDirection='column';m.style.gap='4px';
+                     f.textContent='收起 ‹';
+                   } else {
+                     m.style.display='none';f.innerHTML='${moreLabel}';
+                   }">${moreLabel}</div>
+          ` : ''}
         `;
       }
 
