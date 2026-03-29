@@ -1240,3 +1240,259 @@ a:hover {
   color: var(--color-primary);
   flex-shrink: 0;
 }
+
+/* ── Session Message Blocks ────────────────────────────────────── */
+
+.msg-block {
+  margin-bottom: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-border);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.msg-block-user {
+  border-left-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.msg-block-assistant {
+  border-left-color: var(--color-info);
+  background: var(--color-surface);
+}
+
+.msg-block-tool {
+  border-left-color: var(--color-warning);
+  border-left-style: dashed;
+  background: var(--color-surface-hover);
+}
+
+.msg-role-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-bg);
+  margin-bottom: 4px;
+}
+
+.msg-block-user .msg-role-badge {
+  color: var(--color-primary);
+  background: rgba(234, 85, 4, 0.12);
+}
+
+.msg-block-assistant .msg-role-badge {
+  color: var(--color-info);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.msg-block-tool .msg-role-badge {
+  color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+/* ── Turn Dividers ─────────────────────────────────────────────── */
+
+.turn-divider {
+  border: none;
+  border-top: 1px dashed var(--color-border);
+  margin: var(--space-xl) 0 var(--space-md);
+  position: relative;
+  height: 0;
+}
+
+.turn-label {
+  position: absolute;
+  top: -9px;
+  left: 12px;
+  background: var(--color-surface);
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+/* ── Tool Result Status ────────────────────────────────────────── */
+
+.tool-result-error {
+  color: var(--color-error);
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.tool-result-ok {
+  color: var(--color-success);
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.tool-result-error-bg {
+  border-left: 3px solid var(--color-error);
+}
+
+/* ── Session Group Headers ─────────────────────────────────────── */
+
+.session-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px var(--space-lg);
+  border: none;
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-bg);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.session-group-header:hover {
+  background: var(--color-border-light);
+}
+
+.session-group-count {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+/* ── Memory View ───────────────────────────────────────────────── */
+
+.memory-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-text-primary);
+}
+
+.memory-content-heading {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--color-text-primary);
+  margin-top: var(--space-md);
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+/* ── StateViewer ── */
+.state-viewer {
+  margin-bottom: var(--space-lg);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.state-viewer-title {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-light);
+}
+.state-viewer-row {
+  border-bottom: 1px solid var(--color-border-light);
+}
+.state-viewer-row:last-child { border-bottom: none; }
+.state-viewer-temp { opacity: 0.55; }
+.state-viewer-key {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  color: var(--color-text-primary);
+}
+.state-viewer-key:hover { background: var(--color-hover); }
+.state-viewer-key-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.state-viewer-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.state-viewer-value {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm) var(--space-sm) calc(var(--space-sm) + 20px);
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  background: var(--color-bg);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+.metadata-value { overflow: hidden; word-break: break-all; }
+
+/* ── LUI panel toggle ── */
+.panel-lui { transition: width 0.2s ease, flex-basis 0.2s ease, padding 0.2s ease; }
+.panel-lui.collapsed {
+  flex: 0 0 0 !important;
+  width: 0 !important;
+  overflow: hidden;
+  border: none;
+  padding: 0;
+}
+.lui-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+.lui-toggle-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-text-primary);
+}
+.lui-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, var(--color-primary), #FF8C42);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-lg);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.lui-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 8px 30px rgba(234, 85, 4, 0.3);
+}

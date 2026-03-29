@@ -6,13 +6,16 @@ Tests use deps.init_registry() to inject a registry with a mock AgentRunner.
 """
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from fastapi import FastAPI
 
 from ark_agentic.api.deps import init_registry
 from ark_agentic.studio.api.sessions import router as sessions_router
-from ark_agentic.studio.api.memory import router as memory_router
+from ark_agentic.studio.api.memory import _resolve_memory_path, router as memory_router
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.core.persistence import RawJsonlValidationError
 
@@ -30,11 +33,13 @@ class DummyMessage:
 
 
 class DummySession:
-    def __init__(self, sid, msgs=None, state=None, user_id=""):
+    def __init__(self, sid, msgs=None, state=None, user_id="", *, created_at=None, updated_at=None):
         self.session_id = sid
         self.user_id = user_id
         self.messages = msgs or []
         self.state = state or {}
+        self.created_at = created_at
+        self.updated_at = updated_at
 
 
 class DummyTranscriptManager:
@@ -84,9 +89,17 @@ class DummySessionManager:
         return self._sessions.get(sid)
 
 
+class DummyMemoryManager:
+    """Minimal stand-in for MemoryManager (only workspace_dir needed by Studio API)."""
+
+    def __init__(self, workspace_dir: Path) -> None:
+        self.config = SimpleNamespace(workspace_dir=str(workspace_dir))
+
+
 class DummyAgentRunner:
-    def __init__(self, sessions=None, transcript_files=None):
+    def __init__(self, sessions=None, transcript_files=None, memory_manager=None):
         self.session_manager = DummySessionManager(sessions, transcript_files)
+        self._memory_manager = memory_manager
 
 
 # ── Test setup ──────────────────────────────────────────────────────
@@ -208,9 +221,101 @@ def test_put_session_raw_id_mismatch():
     assert response.status_code == 400
 
 
-# ── Memory tests (unchanged) ───────────────────────────────────────
+# ── Memory API tests ────────────────────────────────────────────────
 
-def test_get_memory_not_implemented():
-    response = client.get("/api/studio/agents/insurance/memory")
-    assert response.status_code == 501
-    assert "not yet implemented" in response.json()["detail"]
+def _sessions_and_transcript():
+    return [
+        DummySession("sid1", [DummyMessage("user", "hi"), DummyMessage("assistant", "hello")], {"foo": "bar"}, user_id="u1"),
+        DummySession("sid2", [], {}, user_id="u2"),
+    ], {"sid1": VALID_JSONL_SID1}
+
+
+def _register_insurance(*, memory_manager: DummyMemoryManager | None) -> None:
+    registry = AgentRegistry()
+    sessions, transcript_files = _sessions_and_transcript()
+    runner = DummyAgentRunner(sessions, transcript_files, memory_manager=memory_manager)
+    registry.register("insurance", runner)
+    init_registry(registry)
+
+
+def test_list_memory_files_empty_when_memory_disabled():
+    """Runner without MemoryManager returns empty file list."""
+    _register_insurance(memory_manager=None)
+    response = client.get("/api/studio/agents/insurance/memory/files")
+    assert response.status_code == 200
+    assert response.json()["files"] == []
+
+
+def test_list_memory_files_includes_workspace_memory_md(tmp_path: Path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "MEMORY.md").write_text("# Studio test\n", encoding="utf-8")
+    _register_insurance(memory_manager=DummyMemoryManager(ws))
+    response = client.get("/api/studio/agents/insurance/memory/files")
+    assert response.status_code == 200
+    paths = {f["file_path"] for f in response.json()["files"]}
+    assert "MEMORY.md" in paths
+
+
+def test_get_put_memory_content_roundtrip(tmp_path: Path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "MEMORY.md").write_text("# Before\n", encoding="utf-8")
+    _register_insurance(memory_manager=DummyMemoryManager(ws))
+
+    r_get = client.get(
+        "/api/studio/agents/insurance/memory/content",
+        params={"file_path": "MEMORY.md", "user_id": ""},
+    )
+    assert r_get.status_code == 200
+    assert r_get.text == "# Before\n"
+
+    r_put = client.put(
+        "/api/studio/agents/insurance/memory/content",
+        params={"file_path": "MEMORY.md", "user_id": ""},
+        content="# After edit\n",
+        headers={"Content-Type": "text/plain"},
+    )
+    assert r_put.status_code == 200
+    assert r_put.json() == {"status": "saved"}
+
+    r_verify = client.get(
+        "/api/studio/agents/insurance/memory/content",
+        params={"file_path": "MEMORY.md", "user_id": ""},
+    )
+    assert r_verify.status_code == 200
+    assert r_verify.text == "# After edit\n"
+
+
+def test_put_memory_content_missing_file_404(tmp_path: Path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "MEMORY.md").write_text("x", encoding="utf-8")
+    _register_insurance(memory_manager=DummyMemoryManager(ws))
+    response = client.put(
+        "/api/studio/agents/insurance/memory/content",
+        params={"file_path": "missing.md", "user_id": ""},
+        content="nope",
+        headers={"Content-Type": "text/plain"},
+    )
+    assert response.status_code == 404
+
+
+def test_resolve_memory_path_rejects_traversal(tmp_path: Path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "MEMORY.md").write_text("ok", encoding="utf-8")
+    with pytest.raises(HTTPException) as exc:
+        _resolve_memory_path(ws, "../../../etc/passwd")
+    assert exc.value.status_code == 403
+    assert "traversal" in (exc.value.detail or "").lower()
+
+
+def test_resolve_memory_path_allows_workspace_file(tmp_path: Path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    target = ws / "MEMORY.md"
+    target.write_text("content", encoding="utf-8")
+    resolved = _resolve_memory_path(ws, "MEMORY.md")
+    assert resolved == target.resolve()
+    assert resolved.read_text(encoding="utf-8") == "content"

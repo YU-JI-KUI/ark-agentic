@@ -21,7 +21,7 @@ from typing import Any, Callable, Protocol
 from .base import AgentTool, ToolParameter
 from ..types import AgentToolResult, ToolCall
 from ..a2ui import render_from_template
-from ..a2ui.blocks import _comp, IdGen, PAGE_BG, CARD_BG, CARD_RADIUS
+from ..a2ui.blocks import _comp, A2UIOutput, IdGen, PAGE_BG, CARD_BG, CARD_RADIUS
 from ..a2ui.composer import BlockComposer, resolve_block_data
 from ..a2ui.guard import validate_full_payload
 
@@ -33,10 +33,21 @@ _composer = BlockComposer()
 class CardExtractor(Protocol):
     """卡片数据提取器契约。
 
-    入参: (context, card_args)。返回扁平 dict 供 render_from_template 合并到模板 data。
+    入参: (context, card_args)。返回 A2UIOutput，其中 template_data 供模板渲染，
+    llm_digest / state_delta 由 render_a2ui 统一路由。
     """
 
-    def __call__(self, context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]: ...
+    def __call__(self, context: dict[str, Any], card_args: dict[str, Any] | None) -> A2UIOutput: ...
+
+
+def _attach_enrichment(result: AgentToolResult, output: A2UIOutput) -> None:
+    """Route llm_digest and state_delta from A2UIOutput into AgentToolResult.metadata."""
+    if output.llm_digest:
+        result.metadata["llm_digest"] = output.llm_digest
+    if output.state_delta:
+        existing = result.metadata.get("state_delta") or {}
+        existing.update(output.state_delta)
+        result.metadata["state_delta"] = existing
 
 
 class RenderA2UITool(AgentTool):
@@ -194,19 +205,27 @@ class RenderA2UITool(AgentTool):
 
         root_children: list[str] = []
         all_components: list[dict[str, Any]] = []
-        extra_data: dict[str, Any] = {}
+        digest_parts: list[str] = []
+        component_state: dict[str, Any] = {}
 
         for desc in block_descriptors:
             try:
-                comps, extra = self._expand_one(desc, id_gen, raw_data)
+                output = self._expand_one(desc, id_gen, raw_data)
             except Exception as e:
                 return AgentToolResult.error_result(
                     tool_call.id, f"渲染失败: {e}"
                 )
-            if comps:
-                root_children.append(comps[0]["id"])
-                all_components.extend(comps)
-            extra_data.update(extra)
+            if output.components:
+                root_children.append(output.components[0]["id"])
+                all_components.extend(output.components)
+            if output.llm_digest:
+                digest_parts.append(output.llm_digest)
+            if output.state_delta:
+                for key, value in output.state_delta.items():
+                    if key in component_state and isinstance(component_state[key], list) and isinstance(value, list):
+                        component_state[key].extend(value)
+                    else:
+                        component_state[key] = value
 
         root_id = id_gen("root")
         root = _comp(root_id, "Column", {
@@ -227,10 +246,16 @@ class RenderA2UITool(AgentTool):
             "surfaceId": sid,
             "rootComponentId": root_id,
             "style": "default",
-            "data": extra_data,
+            "data": {},
             "components": [root] + all_components,
         }
-        return self._validate_and_return(tool_call, payload)
+        result = self._validate_and_return(tool_call, payload)
+        merged = A2UIOutput(
+            llm_digest="\n".join(digest_parts),
+            state_delta=component_state or None,
+        )
+        _attach_enrichment(result, merged)
+        return result
 
     def _expand_one(
         self,
@@ -238,7 +263,7 @@ class RenderA2UITool(AgentTool):
         id_gen: IdGen,
         raw_data: dict[str, Any],
         _depth: int = 0,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    ) -> A2UIOutput:
         block_type = desc.get("type", "")
 
         if block_type == "Card":
@@ -254,7 +279,9 @@ class RenderA2UITool(AgentTool):
             return self._agent_components[block_type](block_data, id_gen, raw_data)
 
         if block_type in self._agent_blocks:
-            return self._agent_blocks[block_type](block_data, id_gen), {}
+            return A2UIOutput(
+                components=self._agent_blocks[block_type](block_data, id_gen),
+            )
 
         available = sorted(
             list(self._agent_blocks.keys())
@@ -269,21 +296,29 @@ class RenderA2UITool(AgentTool):
         id_gen: IdGen,
         raw_data: dict[str, Any],
         _depth: int = 0,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    ) -> A2UIOutput:
         if _depth >= self._MAX_CARD_DEPTH:
             raise ValueError(f"Card 嵌套超过 {self._MAX_CARD_DEPTH} 层")
 
         card_id, col_id = id_gen("card"), id_gen("column")
         child_ids: list[str] = []
         all_comps: list[dict[str, Any]] = []
-        all_extra: dict[str, Any] = {}
+        all_digests: list[str] = []
+        merged_state: dict[str, Any] = {}
 
         for child_desc in data.get("children", []):
-            comps, extra = self._expand_one(child_desc, id_gen, raw_data, _depth=_depth + 1)
-            if comps:
-                child_ids.append(comps[0]["id"])
-                all_comps.extend(comps)
-            all_extra.update(extra)
+            child = self._expand_one(child_desc, id_gen, raw_data, _depth=_depth + 1)
+            if child.components:
+                child_ids.append(child.components[0]["id"])
+                all_comps.extend(child.components)
+            if child.llm_digest:
+                all_digests.append(child.llm_digest)
+            if child.state_delta:
+                for k, v in child.state_delta.items():
+                    if k in merged_state and isinstance(merged_state[k], list) and isinstance(v, list):
+                        merged_state[k].extend(v)
+                    else:
+                        merged_state[k] = v
 
         col = _comp(col_id, "Column", {
             "gap": data.get("gap", 8),
@@ -296,7 +331,11 @@ class RenderA2UITool(AgentTool):
             "padding": data.get("padding", 16),
             "children": {"explicitList": [col_id]},
         })
-        return [card, col] + all_comps, all_extra
+        return A2UIOutput(
+            components=[card, col] + all_comps,
+            llm_digest="\n".join(all_digests),
+            state_delta=merged_state or None,
+        )
 
     # ---- template path ----
 
@@ -327,13 +366,14 @@ class RenderA2UITool(AgentTool):
 
         extractor = self._extractors[card_type]
         try:
-            flat_data = extractor(ctx, card_args)
+            output = extractor(ctx, card_args)
         except Exception as e:
             logger.exception("提取器执行失败: card_type=%s", card_type)
             return AgentToolResult.error_result(
                 tool_call.id, f"数据提取失败: {e}"
             )
 
+        flat_data = output.template_data
         session_id = str(ctx.get("session_id", ""))
         try:
             payload = render_from_template(
@@ -356,7 +396,9 @@ class RenderA2UITool(AgentTool):
                 tool_call.id, f"模板不存在或渲染失败: {e}"
             )
 
-        return self._validate_and_return(tool_call, payload)
+        result = self._validate_and_return(tool_call, payload)
+        _attach_enrichment(result, output)
+        return result
 
     # ---- shared validation ----
 

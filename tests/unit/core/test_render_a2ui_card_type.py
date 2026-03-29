@@ -3,13 +3,14 @@
 import pytest
 from pathlib import Path
 
+from ark_agentic.core.a2ui.blocks import A2UIOutput
 from ark_agentic.core.tools.render_a2ui import RenderA2UITool
 from ark_agentic.core.types import ToolCall, ToolResultType
 
 
 def _template_root() -> Path:
     return (
-        Path(__file__).resolve().parent.parent.parent
+        Path(__file__).resolve().parents[3]
         / "src"
         / "ark_agentic"
         / "agents"
@@ -19,9 +20,9 @@ def _template_root() -> Path:
     )
 
 
-def _mock_extractor(context: dict, card_args: dict | None) -> dict:
+def _mock_extractor(context: dict, card_args: dict | None) -> A2UIOutput:
     """Extractor that returns minimal flat data for withdraw_summary template."""
-    return {
+    return A2UIOutput(template_data={
         "header_title": "标题",
         "header_value": "¥ 0",
         "header_sub": "",
@@ -42,7 +43,7 @@ def _mock_extractor(context: dict, card_args: dict | None) -> dict:
         "partial_surrender_tag": "",
         "partial_surrender_total": "",
         "partial_surrender_items": [],
-    }
+    })
 
 
 @pytest.fixture

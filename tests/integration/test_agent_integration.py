@@ -158,14 +158,15 @@ class SmarterMockLLM:
             print(f"Tool Output received: {content}")
             try:
                 data = json.loads(content)
-                # 适配真实 API 数据格式: results.rmb.rzrqAssetsInfo.mainRatio
                 main_ratio = None
-                if data.get("status") == 1:  # 真实 API 格式
+                if data.get("status") == 1:
                     results = data.get("results", {})
                     rmb = results.get("rmb", {})
                     rzrq = rmb.get("rzrqAssetsInfo", {})
                     main_ratio = rzrq.get("mainRatio")
-                else:  # 旧格式兼容
+                elif isinstance(data.get("rzrq_assets_info"), dict):
+                    main_ratio = data["rzrq_assets_info"].get("mainRatio")
+                else:
                     main_ratio = data.get("margin_ratio")
                 
                 final_content = "No margin data found."

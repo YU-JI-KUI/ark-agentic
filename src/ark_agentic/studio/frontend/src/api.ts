@@ -113,15 +113,26 @@ export interface SessionItem {
     user_id: string
     message_count: number
     state: Record<string, unknown>
+    created_at: string | null
+    updated_at: string | null
+    first_message: string | null
 }
 
 export interface MessageItem {
     role: string
     content: string | null
-    tool_calls?: Array<{ name: string; arguments: Record<string, unknown> }> | null
+    tool_calls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> | null
     tool_results?: Array<{ tool_call_id: string; content: unknown; is_error?: boolean }> | null
     thinking?: string | null
     metadata?: Record<string, unknown> | null
+}
+
+export interface MemoryFileItem {
+    user_id: string
+    file_path: string
+    file_type: string
+    size_bytes: number
+    modified_at: string | null
 }
 
 export interface SessionDetail {
@@ -228,5 +239,32 @@ export const api = {
             }
             return res.json() as Promise<{ status: string; session_id: string }>
         }),
+
+    // Memory
+    listMemoryFiles: (agentId: string) =>
+        fetchJSON<{ files: MemoryFileItem[] }>(`${API_BASE}/agents/${agentId}/memory/files`).then(r => r.files),
+
+    getMemoryContent: async (agentId: string, filePath: string, userId: string): Promise<string> => {
+        const res = await fetch(
+            `${API_BASE}/agents/${agentId}/memory/content?file_path=${encodeURIComponent(filePath)}&user_id=${encodeURIComponent(userId)}`
+        )
+        if (!res.ok) {
+            const t = await res.text()
+            throw new Error(`API Error ${res.status}: ${t}`)
+        }
+        return res.text()
+    },
+
+    putMemoryContent: async (agentId: string, filePath: string, userId: string, body: string): Promise<{ status: string }> => {
+        const res = await fetch(
+            `${API_BASE}/agents/${agentId}/memory/content?file_path=${encodeURIComponent(filePath)}&user_id=${encodeURIComponent(userId)}`,
+            { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body },
+        )
+        if (!res.ok) {
+            const t = await res.text()
+            throw new Error(`API Error ${res.status}: ${t}`)
+        }
+        return res.json()
+    },
 }
 

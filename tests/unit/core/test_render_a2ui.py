@@ -48,7 +48,7 @@ _SAMPLE_DATA = {
 
 def _template_root() -> Path:
     return (
-        Path(__file__).resolve().parent.parent.parent
+        Path(__file__).resolve().parents[3]
         / "src"
         / "ark_agentic"
         / "agents"
@@ -58,8 +58,11 @@ def _template_root() -> Path:
     )
 
 
-def _mock_extractor(context: dict, card_args: dict | None) -> dict:
-    return {
+from ark_agentic.core.a2ui.blocks import A2UIOutput
+
+
+def _mock_extractor(context: dict, card_args: dict | None) -> A2UIOutput:
+    return A2UIOutput(template_data={
         "header_title": "标题",
         "header_value": "¥ 0",
         "header_sub": "",
@@ -85,7 +88,7 @@ def _mock_extractor(context: dict, card_args: dict | None) -> dict:
         "advice_text_2": (card_args or {}).get("advice_text_2", "a2"),
         "plan_button_text": (card_args or {}).get("plan_button_text", "获取"),
         "plan_action_args": {"queryMsg": (card_args or {}).get("plan_action_query", "获取")},
-    }
+    })
 
 
 @pytest.fixture

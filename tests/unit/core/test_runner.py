@@ -74,7 +74,6 @@ def _make_runner(
     sessions_dir: Path,
     responses: list[Any] = None,
     stream_responses: list[list[Any]] = None,
-    enable_streaming: bool = False,
 ) -> tuple[AgentRunner, _MockTool]:
     """Create a fresh AgentRunner with mock dependencies."""
     mock_llm = MockChatModel(responses=responses or [], stream_responses=stream_responses or [])
@@ -85,7 +84,6 @@ def _make_runner(
     session_mgr = SessionManager(sessions_dir)
     config = RunnerConfig(
         max_turns=5,
-        enable_streaming=enable_streaming,
         auto_compact=False,
     )
     runner = AgentRunner(
@@ -109,7 +107,7 @@ async def test_run_basic_text_response(tmp_sessions_dir: Path) -> None:
     session = runner.session_manager.create_session_sync()
     
     # Act
-    result = await runner.run(session.session_id, "Who are you?", user_id="test_user")
+    result = await runner.run(session.session_id, "Who are you?", user_id="test_user", stream=False)
     
     # Assert
     assert result.response.content == "Hello! I am a helpful agent."
@@ -131,7 +129,7 @@ async def test_run_with_tool_call(tmp_sessions_dir: Path) -> None:
     session = runner.session_manager.create_session_sync()
     
     # Act
-    result = await runner.run(session.session_id, "Use the tool!", user_id="test_user", input_context={"input_val": "123"})
+    result = await runner.run(session.session_id, "Use the tool!", user_id="test_user", stream=False, input_context={"input_val": "123"})
     
     # Assert
 
@@ -157,7 +155,7 @@ async def test_run_streaming_text_response(tmp_sessions_dir: Path) -> None:
             AIMessageChunk(content="!")
         ]
     ]
-    runner, _ = _make_runner(tmp_sessions_dir, stream_responses=stream_responses, enable_streaming=True)
+    runner, _ = _make_runner(tmp_sessions_dir, stream_responses=stream_responses)
     session = runner.session_manager.create_session_sync()
     
     captured_deltas = []
@@ -179,7 +177,7 @@ async def test_run_streaming_text_response(tmp_sessions_dir: Path) -> None:
             pass
 
     # Act
-    result = await runner.run(session.session_id, "Greeting", user_id="test_user", handler=MockHandler())
+    result = await runner.run(session.session_id, "Greeting", user_id="test_user", stream=True, handler=MockHandler())
     
     # Assert
 
@@ -205,7 +203,7 @@ async def test_run_streaming_with_tool_call(tmp_sessions_dir: Path) -> None:
             AIMessageChunk(content="processing.")
         ]
     ]
-    runner, _ = _make_runner(tmp_sessions_dir, stream_responses=stream_responses, enable_streaming=True)
+    runner, _ = _make_runner(tmp_sessions_dir, stream_responses=stream_responses)
     session = runner.session_manager.create_session_sync()
     
     captured_deltas = []
@@ -229,7 +227,7 @@ async def test_run_streaming_with_tool_call(tmp_sessions_dir: Path) -> None:
             pass
 
     # Act
-    result = await runner.run(session.session_id, "Use tool", user_id="test_user", handler=MockHandler(), input_context={"input_val": "abc"})
+    result = await runner.run(session.session_id, "Use tool", user_id="test_user", stream=True, handler=MockHandler(), input_context={"input_val": "abc"})
     
     # Assert
 
@@ -275,7 +273,7 @@ async def test_execute_tools_on_step_uses_tool_thinking_hint(tmp_sessions_dir: P
         llm=mock_llm,  # type: ignore[arg-type]
         session_manager=session_mgr,
         tool_registry=registry,
-        config=RunnerConfig(max_turns=5, enable_streaming=True, auto_compact=False),
+        config=RunnerConfig(max_turns=5, auto_compact=False),
     )
     session = runner.session_manager.create_session_sync()
     captured_steps: list[str] = []
@@ -296,7 +294,7 @@ async def test_execute_tools_on_step_uses_tool_thinking_hint(tmp_sessions_dir: P
         def on_ui_component(self, component: dict) -> None:
             pass
 
-    await runner.run(session.session_id, "Use hint_tool", user_id="test_user", handler=MockHandler())
+    await runner.run(session.session_id, "Use hint_tool", user_id="test_user", stream=True, handler=MockHandler())
 
     assert "正在查询保单信息…" in captured_steps, (
         f"on_step should be called with tool.thinking_hint, got: {captured_steps}"
@@ -338,11 +336,11 @@ async def test_state_delta_merge(tmp_sessions_dir: Path) -> None:
     registry = ToolRegistry()
     registry.register(_StateDeltaTool())
     session_mgr = SessionManager(tmp_sessions_dir)
-    config = RunnerConfig(max_turns=5, enable_streaming=False, auto_compact=False)
+    config = RunnerConfig(max_turns=5, auto_compact=False)
     runner = AgentRunner(llm=mock_llm, session_manager=session_mgr, tool_registry=registry, config=config)
 
     session = session_mgr.create_session_sync()
-    result = await runner.run(session.session_id, "login", user_id="test_user")
+    result = await runner.run(session.session_id, "login", user_id="test_user", stream=False)
 
     assert result.response.content == "Done."
     state = session.state
@@ -361,6 +359,7 @@ async def test_temp_state_stripped_after_run(tmp_sessions_dir: Path) -> None:
         session.session_id,
         "hi",
         user_id="test_user",
+        stream=False,
         input_context={"temp:trace_id": "t1", "user:id": "U1"},
     )
 
@@ -393,7 +392,7 @@ def _make_runner_with_a2ui(sessions_dir: Path, responses: list[Any]) -> AgentRun
     registry = ToolRegistry()
     registry.register(_A2UITool())
     session_mgr = SessionManager(sessions_dir)
-    config = RunnerConfig(max_turns=5, enable_streaming=False, auto_compact=False)
+    config = RunnerConfig(max_turns=5, auto_compact=False)
     return AgentRunner(llm=mock_llm, session_manager=session_mgr, tool_registry=registry, config=config)
 
 
@@ -410,7 +409,7 @@ async def test_a2ui_history_marker_is_neutral(tmp_sessions_dir: Path) -> None:
     runner = _make_runner_with_a2ui(tmp_sessions_dir, responses)
     session = runner.session_manager.create_session_sync()
 
-    await runner.run(session.session_id, "Show me a plan", user_id="test_user")
+    await runner.run(session.session_id, "Show me a plan", user_id="test_user", stream=False)
 
     # Inspect what _build_messages produces for the A2UI tool result
     state = session.state
@@ -420,15 +419,7 @@ async def test_a2ui_history_marker_is_neutral(tmp_sessions_dir: Path) -> None:
     assert len(tool_messages) == 1, "Expected exactly one tool message for the A2UI call"
     content = tool_messages[0]["content"]
 
-    # Must be parseable as JSON (machine-readable, not conversational)
-    parsed = json.loads(content)
-    assert parsed.get("kind") == "ui_event"
-    assert parsed.get("event") == "a2ui_emitted"
-    assert "component_count" in parsed
-
-    # Must NOT contain display-completion wording
-    for bad_phrase in ["已成功渲染", "已展示", "请勿在文字中重复", "已生成", "do not repeat"]:
-        assert bad_phrase not in content, f"History marker must not contain '{bad_phrase}'"
+    assert content.startswith("[已向用户展示卡片")
 
     # Must NOT leak card payload values
     assert "99999" not in content
@@ -466,7 +457,7 @@ async def test_a2ui_on_ui_component_still_fires(tmp_sessions_dir: Path) -> None:
         def on_ui_component(self, component: dict) -> None:
             captured_components.append(component)
 
-    await runner.run(session.session_id, "Show me a plan", user_id="test_user", handler=_Handler())
+    await runner.run(session.session_id, "Show me a plan", user_id="test_user", stream=False, handler=_Handler())
 
     assert len(captured_components) == 1, "on_ui_component must be called once for the A2UI tool result"
     assert captured_components[0].get("type") == "card"
@@ -486,6 +477,7 @@ async def test_input_context_seed_only(tmp_sessions_dir: Path) -> None:
         session.session_id,
         "hi",
         user_id="test_user",
+        stream=False,
         input_context={"user:id": "new_value", "temp:x": "t"},
     )
 
@@ -522,11 +514,9 @@ async def test_a2ui_tool_call_args_preserved_in_history(tmp_sessions_dir: Path) 
     assert args["blocks"] == json.dumps(blocks_payload), "render_a2ui arguments must be preserved"
     assert "WithdrawPlanCard" in tc_out["function"]["arguments"]
 
-    # tool RESULT must still be redacted
     tool_msgs = [m for m in messages if m["role"] == "tool" and m["tool_call_id"] == "call_redact_1"]
     assert len(tool_msgs) == 1
-    result = json.loads(tool_msgs[0]["content"])
-    assert result["event"] == "a2ui_emitted", "A2UI tool result must still be redacted"
+    assert tool_msgs[0]["content"].startswith("[已向用户展示卡片"), "A2UI tool result must still be redacted"
 
 
 @pytest.mark.asyncio
@@ -580,9 +570,9 @@ async def test_a2ui_marker_by_name_not_result_type(tmp_sessions_dir: Path) -> No
     tool_messages = [m for m in messages if m["role"] == "tool" and m.get("tool_call_id") == "call_name_test"]
 
     assert len(tool_messages) == 1
-    parsed = json.loads(tool_messages[0]["content"])
-    assert parsed["event"] == "a2ui_emitted", (
-        "Must apply a2ui_emitted marker based on tool name, even when result_type is JSON"
+    content = tool_messages[0]["content"]
+    assert content.startswith("[已向用户展示卡片"), (
+        "Must apply masking based on tool name, even when result_type is JSON"
     )
-    assert "beginRendering" not in tool_messages[0]["content"]
-    assert "components" not in tool_messages[0]["content"]
+    assert "beginRendering" not in content
+    assert "surfaceId" not in content

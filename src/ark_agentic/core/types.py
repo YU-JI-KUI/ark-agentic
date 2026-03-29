@@ -34,6 +34,38 @@ class ToolResultType(str, Enum):
     ERROR = "error"
 
 
+class ToolLoopAction(str, Enum):
+    """工具对 ReAct loop 的控制信号"""
+
+    CONTINUE = "continue"
+    STOP = "stop"
+
+
+@dataclass
+class ToolEvent:
+    """Base tool event — executor isinstance dispatch (OCP extension point)"""
+    pass
+
+
+@dataclass
+class CustomToolEvent(ToolEvent):
+    """Custom business event sent to frontend (e.g. start_flow, intake_rejected)"""
+    custom_type: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class UIComponentToolEvent(ToolEvent):
+    """A2UI component event"""
+    component: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class StepToolEvent(ToolEvent):
+    """Step status event"""
+    text: str = ""
+
+
 @dataclass
 class ToolCall:
     """工具调用请求
@@ -62,29 +94,43 @@ class AgentToolResult:
     content: Union[str, dict[str, Any], list[Any], int, float]
     is_error: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    loop_action: ToolLoopAction = ToolLoopAction.CONTINUE
+    events: list[ToolEvent] = field(default_factory=list)
 
     @classmethod
     def json_result(
-        cls, tool_call_id: str, data: Any, metadata: dict[str, Any] | None = None
+        cls,
+        tool_call_id: str,
+        data: Any,
+        metadata: dict[str, Any] | None = None,
+        loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
+        events: list[ToolEvent] | None = None,
     ) -> AgentToolResult:
-        """创建 JSON 结果"""
         return cls(
             tool_call_id=tool_call_id,
             result_type=ToolResultType.JSON,
             content=data,
             metadata=metadata or {},
+            loop_action=loop_action,
+            events=events or [],
         )
 
     @classmethod
     def text_result(
-        cls, tool_call_id: str, text: str, metadata: dict[str, Any] | None = None
+        cls,
+        tool_call_id: str,
+        text: str,
+        metadata: dict[str, Any] | None = None,
+        loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
+        events: list[ToolEvent] | None = None,
     ) -> AgentToolResult:
-        """创建文本结果"""
         return cls(
             tool_call_id=tool_call_id,
             result_type=ToolResultType.TEXT,
             content=text,
             metadata=metadata or {},
+            loop_action=loop_action,
+            events=events or [],
         )
 
     @classmethod
@@ -94,13 +140,16 @@ class AgentToolResult:
         base64_data: str,
         media_type: str = "image/png",
         metadata: dict[str, Any] | None = None,
+        loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
+        events: list[ToolEvent] | None = None,
     ) -> AgentToolResult:
-        """创建图片结果"""
         return cls(
             tool_call_id=tool_call_id,
             result_type=ToolResultType.IMAGE,
             content={"data": base64_data, "media_type": media_type},
             metadata=metadata or {},
+            loop_action=loop_action,
+            events=events or [],
         )
 
     @classmethod
@@ -109,20 +158,25 @@ class AgentToolResult:
         tool_call_id: str,
         data: Union[dict[str, Any], list[dict[str, Any]]],
         metadata: dict[str, Any] | None = None,
+        loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
+        events: list[ToolEvent] | None = None,
     ) -> AgentToolResult:
-        """创建 A2UI 前端组件结果。data 为单个组件 dict 或组件列表。"""
+        """A2UI 前端组件结果 — 自动将 content 转为 UI_COMPONENT events。"""
+        components = [data] if isinstance(data, dict) else data
+        auto_events = [UIComponentToolEvent(component=c) for c in components]
         return cls(
             tool_call_id=tool_call_id,
             result_type=ToolResultType.A2UI,
             content=data,
             metadata=metadata or {},
+            loop_action=loop_action,
+            events=auto_events + (events or []),
         )
 
     @classmethod
     def error_result(
         cls, tool_call_id: str, error: str, metadata: dict[str, Any] | None = None
     ) -> AgentToolResult:
-        """创建错误结果"""
         return cls(
             tool_call_id=tool_call_id,
             result_type=ToolResultType.ERROR,

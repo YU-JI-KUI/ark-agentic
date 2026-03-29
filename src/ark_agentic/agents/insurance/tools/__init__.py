@@ -24,6 +24,7 @@ from .data_service import DataServiceClient, MockDataServiceClient, get_data_ser
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
 from .customer_info import CustomerInfoTool
+from .submit_withdrawal import SubmitWithdrawalTool
 
 _A2UI_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "a2ui" / "templates"
 _CARD_EXTRACTORS = {
@@ -61,6 +62,7 @@ __all__ = [
     "RuleEngineTool",
     "CustomerInfoTool",
     "RenderA2UITool",
+    "SubmitWithdrawalTool",
     "create_insurance_tools",
     "create_insurance_tools_minimal",
 ]
@@ -76,6 +78,7 @@ def create_insurance_tools(
         RuleEngineTool(client=client),
         CustomerInfoTool(client=client),
         _create_render_a2ui_tool(),
+        SubmitWithdrawalTool(),
     ]
 
 

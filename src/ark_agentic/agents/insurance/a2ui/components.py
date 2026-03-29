@@ -1,9 +1,11 @@
 """
 Insurance agent component builders (coarse-grained, business-aware).
 
-Each component: (data: dict, id_gen: IdGen, raw_data: dict) -> (list[A2UIComponent], dict).
-Components read raw_data, perform business logic, and return final A2UI components
-with implicit Card wrapping. Reuses withdraw_a2ui_utils helpers.
+Each component: (data, id_gen, raw_data) -> A2UIOutput.
+Components read raw_data, perform business logic, and return:
+  - components  -> UI payload for frontend
+  - llm_digest  -> concise text for LLM conversation context
+  - state_delta -> session state for downstream tool auto-fill
 
 Styles strictly match the 3 template.json files in templates/.
 """
@@ -17,6 +19,7 @@ from typing import Any
 from ark_agentic.core.a2ui.blocks import (
     _comp,
     _text,
+    A2UIOutput,
     IdGen,
     ACCENT,
     TITLE_COLOR,
@@ -129,7 +132,7 @@ def build_withdraw_summary_header(
     data: dict[str, Any],
     g: IdGen,
     raw_data: dict[str, Any],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> A2UIOutput:
     """Header card for withdraw summary.
 
     Input: {"sections": ["zero_cost","loan","partial_surrender"], "exclude_policies"?: [...]}
@@ -199,7 +202,11 @@ def build_withdraw_summary_header(
         "children": {"explicitList": [col_id]},
     })
 
-    return [card, col] + comps, {}
+    digest = f"汇总: 总可领{'(含贷款)' if has_loan_section else ''} ¥{total:,.2f}"
+    if has_loan_section:
+        digest += f" | 不含贷款 ¥{total_excl_loan:,.2f}"
+
+    return A2UIOutput(components=[card, col] + comps, llm_digest=digest)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +217,7 @@ def build_withdraw_summary_section(
     data: dict[str, Any],
     g: IdGen,
     raw_data: dict[str, Any],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> A2UIOutput:
     """Section card for withdraw summary.
 
     Input: {"section": "zero_cost"} (preset)
@@ -253,7 +260,7 @@ def build_withdraw_summary_section(
             total_sum += amt
 
     if not items:
-        return [], {}
+        return A2UIOutput()
 
     card_id, col_id = g("card"), g("column")
     row_id = g("row")
@@ -303,7 +310,10 @@ def build_withdraw_summary_section(
         "children": {"explicitList": [col_id]},
     })
 
-    return [card, col] + comps, {}
+    detail = "; ".join(f"{item['label']} {item['value']}" for item in items)
+    digest = f"渠道: {title} | 合计: ¥{total_sum:,.2f} | {detail}"
+
+    return A2UIOutput(components=[card, col] + comps, llm_digest=digest)
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +324,7 @@ def build_withdraw_plan_card(
     data: dict[str, Any],
     g: IdGen,
     raw_data: dict[str, Any],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> A2UIOutput:
     """Plan card for withdraw plan.
 
     Input: {"channels": [...], "target": 50000, "title": ..., "tag"?: ..., "reason"?: ...,
@@ -417,7 +427,24 @@ def build_withdraw_plan_card(
         "children": {"explicitList": [col_id]},
     })
 
-    return [card, col] + comps, {}
+    alloc_summary = {
+        "title": title,
+        "channels": channels,
+        "allocations": [
+            {"channel": ch, "policy_no": pid, "amount": amt}
+            for pid, ch, amt in allocs
+        ],
+    }
+    detail = "; ".join(f"{pid}({ch}) ¥{amt:,.2f}" for pid, ch, amt in allocs)
+    digest = f"方案: {title} | channels: {channels} | 总额: ¥{actual_total:,.2f}"
+    if detail:
+        digest += f" | 明细: {detail}"
+
+    return A2UIOutput(
+        components=[card, col] + comps,
+        llm_digest=digest,
+        state_delta={"_plan_allocations": [alloc_summary]},
+    )
 
 
 INSURANCE_COMPONENTS: dict[str, Any] = {

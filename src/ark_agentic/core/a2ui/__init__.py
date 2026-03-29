@@ -7,6 +7,7 @@ from .contract_models import validate_event_payload, SUPPORTED_EVENTS
 from .validator import validate_payload
 from .guard import BlockDataError, validate_full_payload, validate_data_coverage
 from .blocks import (
+    A2UIOutput,
     _BLOCK_REGISTRY as BLOCK_REGISTRY,
     get_block_builder,
     get_block_types,
@@ -25,6 +26,7 @@ __all__ = [
     "validate_payload",
     "validate_full_payload",
     "validate_data_coverage",
+    "A2UIOutput",
     "BlockDataError",
     "BLOCK_REGISTRY",
     "get_block_builder",

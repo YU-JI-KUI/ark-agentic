@@ -14,6 +14,12 @@ from typing import Any
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
+from ark_agentic.core.callbacks import (
+    BeforeAgentCallback,
+    CallbackContext,
+    CallbackEvent,
+    CallbackResult,
+)
 from ark_agentic.core.guard import GuardResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
@@ -89,3 +95,35 @@ class InsuranceIntakeGuard:
         except Exception as e:
             logger.warning("Intake guard LLM call failed, defaulting to accepted: %s", e)
             return GuardResult(accepted=True)
+
+
+def make_before_agent_callback(
+    guard: InsuranceIntakeGuard,
+    rejected_event_data: dict[str, Any] | None = None,
+) -> BeforeAgentCallback:
+    """将 InsuranceIntakeGuard 适配为 BeforeAgentCallback。
+
+    Args:
+        guard: 准入检查实例
+        rejected_event_data: 拒绝时发送的 custom event data，默认 {"relevant": 0}
+    """
+
+    async def _cb(ctx: CallbackContext) -> CallbackResult | None:
+        result = await guard.check(
+            ctx.user_input,
+            ctx.input_context,
+            history=ctx.session.messages or None,
+        )
+        if not result.accepted:
+            logger.info("Intake guard rejected: %s", result.message)
+            return CallbackResult(
+                halt=True,
+                response=AgentMessage.assistant(result.message or ""),
+                event=CallbackEvent(
+                    type="intake_rejected",
+                    data=rejected_event_data or {"relevant": 0},
+                ),
+            )
+        return None
+
+    return _cb

@@ -30,7 +30,7 @@ def test_withdraw_summary_extractor_exclude_policy_loan_uses_filtered_header() -
             ],
         },
     }
-    flat = withdraw_summary_extractor(context, {"exclude_channels": ["policy_loan"]})
+    flat = withdraw_summary_extractor(context, {"exclude_channels": ["policy_loan"]}).template_data
     assert flat["header_title"] == "可取款总览"
     assert "贷款" in flat["header_sub"]
     assert flat["header_value"] == "¥ 300.00"
@@ -55,7 +55,7 @@ def test_withdraw_summary_extractor_include_channels_survival_only() -> None:
             ],
         },
     }
-    flat = withdraw_summary_extractor(context, {"include_channels": ["survival_fund"]})
+    flat = withdraw_summary_extractor(context, {"include_channels": ["survival_fund"]}).template_data
     assert flat["header_value"] == "¥ 50.00"
     assert len(flat["zero_cost_items"]) == 1
     assert flat["loan_hide"] is True
@@ -77,7 +77,7 @@ def test_withdraw_summary_extractor_returns_data_from_rule_engine_result() -> No
     }
     card_args = None  # card_args no longer used for withdraw_summary
 
-    flat = withdraw_summary_extractor(context, card_args)
+    flat = withdraw_summary_extractor(context, card_args).template_data
 
     assert flat["header_value"] == "¥ 6,957.76"
     assert flat["header_sub"] == "不含贷款可领金额：¥ 4,029.63"
@@ -113,7 +113,7 @@ def test_withdraw_summary_extractor_empty_options_sets_hide_true() -> None:
     context = {
         "_rule_engine_result": {"total_available_excl_loan": 0, "total_available_incl_loan": 0, "options": []},
     }
-    flat = withdraw_summary_extractor(context, None)
+    flat = withdraw_summary_extractor(context, None).template_data
 
     assert flat["zero_cost_items"] == []
     assert flat["loan_items"] == []
@@ -147,7 +147,7 @@ def test_withdraw_summary_extractor_accepts_rule_engine_from_tool_results_by_nam
             },
         },
     }
-    flat = withdraw_summary_extractor(context, None)
+    flat = withdraw_summary_extractor(context, None).template_data
     assert flat["header_value"] == "¥ 200.00"
     assert flat["zero_cost_items"][0]["value"] == "¥ 100.00"
 
@@ -160,7 +160,7 @@ def test_withdraw_summary_extractor_accepts_json_string_rule_engine_result() -> 
             "options": [],
         }),
     }
-    flat = withdraw_summary_extractor(context, None)
+    flat = withdraw_summary_extractor(context, None).template_data
     assert flat["header_value"] == "¥ 50.00"
 
 
@@ -175,7 +175,7 @@ def test_withdraw_summary_extractor_partial_surrender_fee_rate_in_label() -> Non
             ],
         },
     }
-    flat = withdraw_summary_extractor(context, None)
+    flat = withdraw_summary_extractor(context, None).template_data
     ps = flat["partial_surrender_items"]
     assert len(ps) == 2
     assert "手续费3%" in ps[0]["label"]
@@ -196,7 +196,7 @@ def test_withdraw_summary_extractor_hide_only_when_channel_empty() -> None:
             ],
         },
     }
-    flat = withdraw_summary_extractor(context, None)
+    flat = withdraw_summary_extractor(context, None).template_data
     assert flat["zero_cost_hide"] is False
     assert len(flat["zero_cost_items"]) == 1
     assert flat["loan_hide"] is True
@@ -223,7 +223,7 @@ def test_withdraw_plan_extractor_returns_data_with_defaults() -> None:
         },
     }
     # Act
-    flat = withdraw_plan_extractor(context, None)
+    flat = withdraw_plan_extractor(context, None).template_data
 
     # Assert: global + 3 plan slots
     assert flat["section_marker"] == "|"
@@ -249,7 +249,7 @@ def test_withdraw_plan_extractor_uses_card_args_for_plans() -> None:
             ],
         },
     }
-    flat = withdraw_plan_extractor(context, {"plans": None})
+    flat = withdraw_plan_extractor(context, {"plans": None}).template_data
 
     assert flat["plan_1_hide"] is False
     assert isinstance(flat["plan_1_policies"], list)
@@ -274,7 +274,7 @@ def test_withdraw_plan_extractor_target_allocation_caps_at_requested() -> None:
             ],
         },
     }
-    flat = withdraw_plan_extractor(context, None)
+    flat = withdraw_plan_extractor(context, None).template_data
 
     assert flat["plan_1_hide"] is False
     assert "10000" in flat["plan_1_total"] or "10,000" in flat["plan_1_total"]
@@ -297,7 +297,7 @@ def test_withdraw_plan_extractor_max_three_plans() -> None:
             ],
         },
     }
-    flat = withdraw_plan_extractor(context, None)
+    flat = withdraw_plan_extractor(context, None).template_data
 
     visible = [n for n in (1, 2, 3) if not flat.get(f"plan_{n}_hide", True)]
     assert len(visible) <= 3, f"Expected at most 3 plans, got {visible}"
@@ -325,7 +325,7 @@ def test_withdraw_plan_extractor_priority_combo_over_risk_only() -> None:
             ],
         },
     }
-    flat = withdraw_plan_extractor(context, None)
+    flat = withdraw_plan_extractor(context, None).template_data
 
     assert flat["plan_1_hide"] is False
     assert "★ 推荐" in flat["plan_1_title"]
@@ -361,7 +361,7 @@ def test_withdraw_plan_extractor_insufficient_total_shows_max() -> None:
             ],
         },
     }
-    flat = withdraw_plan_extractor(context, None)
+    flat = withdraw_plan_extractor(context, None).template_data
 
     assert flat["plan_1_hide"] is False
     assert "最大可取" in flat["plan_1_title"] or "不足目标" in flat["plan_1_title"]
@@ -379,7 +379,7 @@ def test_withdraw_plan_extractor_no_requested_amount_shows_all_channels() -> Non
             ],
         },
     }
-    flat = withdraw_plan_extractor(context, None)
+    flat = withdraw_plan_extractor(context, None).template_data
 
     assert flat["plan_1_hide"] is False
     assert "全部可用" in flat["plan_1_title"]
@@ -397,7 +397,7 @@ def test_withdraw_plan_extractor_output_keys_match_template_paths() -> None:
     import json
     from pathlib import Path
 
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     def collect_paths(obj: dict, out: set) -> None:
@@ -423,7 +423,7 @@ def test_withdraw_plan_extractor_output_keys_match_template_paths() -> None:
             ],
         },
     }
-    flat = withdraw_plan_extractor(ctx, None)
+    flat = withdraw_plan_extractor(ctx, None).template_data
     extractor_keys = set(flat.keys())
 
     missing_in_extractor = template_paths - extractor_keys
@@ -441,7 +441,7 @@ _ALLOWED_A2UI_COMPONENT_TYPES = frozenset({
 
 def test_a2ui_withdraw_plan_template_structure() -> None:
     """withdraw_plan template has required root keys and components array."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     assert tpl.get("event") == "beginRendering"
@@ -454,7 +454,7 @@ def test_a2ui_withdraw_plan_template_structure() -> None:
 
 def test_a2ui_withdraw_plan_template_components_only_allowed_types() -> None:
     """Every component in withdraw_plan template uses only A2UI-standard component types."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     for comp in tpl["components"]:
@@ -468,7 +468,7 @@ def test_a2ui_withdraw_plan_template_components_only_allowed_types() -> None:
 
 def test_a2ui_withdraw_plan_list_has_child_and_datasource() -> None:
     """List components in withdraw_plan have required child and dataSource (path)."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     for comp in tpl["components"]:
@@ -485,7 +485,7 @@ def test_a2ui_withdraw_plan_list_has_child_and_datasource() -> None:
 
 def test_a2ui_withdraw_plan_button_has_action_with_name_and_args() -> None:
     """Button components have action with name and args (query event)."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     for comp in tpl["components"]:
@@ -502,7 +502,7 @@ def test_a2ui_withdraw_plan_button_has_action_with_name_and_args() -> None:
 
 def test_a2ui_withdraw_plan_hide_uses_path() -> None:
     """Components with hide property use path binding (dynamic)."""
-    tpl_path = Path(__file__).resolve().parent.parent.parent.parent / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
+    tpl_path = Path(__file__).resolve().parents[4] / "src" / "ark_agentic" / "agents" / "insurance" / "a2ui" / "templates" / "withdraw_plan" / "template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
 
     for comp in tpl["components"]:
@@ -538,7 +538,7 @@ def test_withdraw_plan_extractor_with_plans_spec_autofill_when_channels_insuffic
              "channels": ["survival_fund", "bonus"]},
         ]
     }
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, card_args).template_data
 
     assert flat["plan_1_hide"] is False
     policies = flat["plan_1_policies"]
@@ -573,7 +573,7 @@ def test_withdraw_plan_extractor_with_plans_spec_autofill_respects_exclude_chann
             }
         ]
     }
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, card_args).template_data
 
     assert flat["plan_1_hide"] is False
     policies = flat["plan_1_policies"]
@@ -608,7 +608,7 @@ def test_withdraw_plan_extractor_with_plans_spec_autofill_impossible_shows_max()
             }
         ]
     }
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, card_args).template_data
 
     assert flat["plan_1_hide"] is False
     total_alloc = sum(float(p["value"].replace("¥", "").replace(",", "").strip()) for p in flat["plan_1_policies"])
@@ -633,7 +633,7 @@ def test_withdraw_plan_extractor_with_plans_spec_no_autofill_when_sufficient() -
             {"title": "★ 零成本", "tag": "", "reason": "足够", "channels": ["survival_fund", "bonus"]},
         ]
     }
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, card_args).template_data
 
     assert flat["plan_1_hide"] is False
     labels = [p["label"] for p in flat["plan_1_policies"]]
@@ -658,7 +658,7 @@ def test_withdraw_plan_extractor_with_plans_spec_basic() -> None:
             {"title": "★ 推荐: 零成本", "tag": "(不影响保障)", "reason": "零成本优先", "channels": ["survival_fund", "bonus"]},
         ]
     }
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, card_args).template_data
 
     assert flat["plan_1_hide"] is False
     assert flat["plan_1_title"] == "★ 推荐: 零成本"
@@ -694,7 +694,7 @@ def test_withdraw_plan_extractor_with_plans_spec_exclude_policies() -> None:
             }
         ]
     }
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, card_args).template_data
 
     assert flat["plan_1_hide"] is False
     labels = [p["label"] for p in flat["plan_1_policies"]]
@@ -717,7 +717,7 @@ def test_withdraw_plan_extractor_with_plans_spec_invalid_channel_skipped() -> No
             {"title": "测试", "tag": "", "reason": "", "channels": ["bad_channel", "survival_fund"]},
         ]
     }
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, card_args).template_data
 
     # valid channel (survival_fund) still allocates correctly
     assert flat["plan_1_hide"] is False
@@ -740,7 +740,7 @@ def test_withdraw_plan_extractor_with_plans_spec_all_invalid_falls_back() -> Non
             {"title": "bad", "tag": "", "reason": "", "channels": ["nonexistent_channel"]},
         ]
     }
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, card_args).template_data
 
     # Falls back to _generate_plans; Plan 1 should still render
     assert flat["plan_1_hide"] is False
@@ -757,7 +757,7 @@ def test_withdraw_plan_extractor_with_plans_spec_empty_list_falls_back() -> None
             ],
         },
     }
-    flat = withdraw_plan_extractor(context, {"plans": []})
+    flat = withdraw_plan_extractor(context, {"plans": []}).template_data
 
     assert flat["plan_1_hide"] is False
     assert "★ 推荐" in flat["plan_1_title"] or "全部可用" in flat["plan_1_title"]
@@ -778,7 +778,7 @@ def test_withdraw_plan_extractor_with_plans_spec_insufficient_channels() -> None
             {"title": "★ 零成本", "tag": "", "reason": "无法满足全额", "channels": ["survival_fund", "bonus"]},
         ]
     }
-    flat = withdraw_plan_extractor(context, card_args)
+    flat = withdraw_plan_extractor(context, card_args).template_data
 
     assert flat["plan_1_hide"] is False
     # Only 5000 available in those channels, not 50000
@@ -796,8 +796,8 @@ def test_withdraw_plan_extractor_backward_compat_no_plans_key() -> None:
             ],
         },
     }
-    flat_with_args = withdraw_plan_extractor(context, None)
-    flat_no_args = withdraw_plan_extractor(context, None)
+    flat_with_args = withdraw_plan_extractor(context, None).template_data
+    flat_no_args = withdraw_plan_extractor(context, None).template_data
 
     assert flat_with_args["plan_1_hide"] is False
     assert flat_no_args["plan_1_hide"] is False
@@ -824,7 +824,7 @@ def test_policy_detail_extractor_one_policy() -> None:
             ],
         },
     }
-    flat = policy_detail_extractor(context, None)
+    flat = policy_detail_extractor(context, None).template_data
 
     policies = flat["policies"]
     assert isinstance(policies, list) and len(policies) == 1
@@ -842,7 +842,7 @@ def test_policy_detail_extractor_three_policies_sorted_by_amount() -> None:
             ],
         },
     }
-    flat = policy_detail_extractor(context, None)
+    flat = policy_detail_extractor(context, None).template_data
 
     policies = flat["policies"]
     assert len(policies) == 3
@@ -856,7 +856,7 @@ def test_policy_detail_extractor_three_policies_sorted_by_amount() -> None:
 
 def test_policy_detail_extractor_empty_options() -> None:
     context = {"_rule_engine_result": {"options": []}}
-    flat = policy_detail_extractor(context, None)
+    flat = policy_detail_extractor(context, None).template_data
 
     assert flat["policies"] == []
 
@@ -876,7 +876,7 @@ def test_policy_detail_extractor_policy_ids_filters_list() -> None:
             ],
         },
     }
-    flat = policy_detail_extractor(context, {"policy_ids": ["P2"]})
+    flat = policy_detail_extractor(context, {"policy_ids": ["P2"]}).template_data
     assert len(flat["policies"]) == 1
     assert flat["policies"][0]["title"] == "B"
 
@@ -898,7 +898,7 @@ def test_withdraw_plan_extractor_exclude_policy_loan_skips_loan_alternative() ->
             ],
         },
     }
-    flat = withdraw_plan_extractor(context, {"exclude_channels": ["policy_loan"]})
+    flat = withdraw_plan_extractor(context, {"exclude_channels": ["policy_loan"]}).template_data
     assert flat["plan_1_hide"] is False
     assert "贷款" not in flat["plan_1_title"]
     assert flat["plan_2_hide"] is True or "贷款" not in (flat.get("plan_2_title") or "")
@@ -946,7 +946,7 @@ async def test_insurance_render_a2ui_all_three_types_render_successfully(
     from ark_agentic.core.types import ToolCall
 
     template_root = (
-        Path(__file__).resolve().parent.parent.parent.parent
+        Path(__file__).resolve().parents[4]
         / "src"
         / "ark_agentic"
         / "agents"

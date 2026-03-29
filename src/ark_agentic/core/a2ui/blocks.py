@@ -8,6 +8,7 @@ Core keeps only the shared toolkit; the registry starts empty.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,22 @@ KV_ROW_WIDTH = 98
 # ---------------------------------------------------------------------------
 
 IdGen = Callable[[str], str]
+
+
+@dataclass
+class A2UIOutput:
+    """One data computation, multiple consumers.
+
+    components    -> blocks path: UI component list for frontend
+    template_data -> template/preset path: flat dict for template rendering
+    llm_digest    -> LLM conversation context (replaces masked stub)
+    state_delta   -> session state for downstream tool auto-fill
+    """
+
+    components: list[dict[str, Any]] = field(default_factory=list)
+    template_data: dict[str, Any] = field(default_factory=dict)
+    llm_digest: str = ""
+    state_delta: dict[str, Any] | None = None
 
 
 _TRANSFORM_OPS = frozenset({"get", "sum", "count", "concat", "select", "switch", "literal"})

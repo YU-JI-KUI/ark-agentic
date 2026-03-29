@@ -314,8 +314,10 @@ class EnterpriseAGUIFormatter:
                 dp.ui_protocol = "text"
                 dp.ui_data = raw
         elif event.type == "custom":
-            dp.ui_protocol = "json"
-            dp.ui_data = event.custom_data
+            dp.type = event.custom_type
+            raw = event.custom_data or {}
+            dp.ui_protocol = raw.get("ui_protocol", "json")
+            dp.ui_data = {k: v for k, v in raw.items() if k != "ui_protocol"} or None
         elif event.type == "run_error":
             dp.code = "500"
             dp.ui_protocol = "text"

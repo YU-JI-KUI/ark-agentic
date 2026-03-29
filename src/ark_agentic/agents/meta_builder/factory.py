@@ -79,7 +79,6 @@ def create_meta_builder_from_env(
         temperature=0.3,  # 构建任务偏低温，确保工具调用精准
         max_tokens=4096,
         max_turns=8,
-        enable_streaming=True,
         prompt_config=PromptConfig(
             agent_name="Ark-Agentic Meta-Agent",
             agent_description=(
