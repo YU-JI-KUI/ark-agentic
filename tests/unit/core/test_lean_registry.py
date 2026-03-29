@@ -1,5 +1,6 @@
 """Tests for core.a2ui.lean_registry."""
 
+from ark_agentic.core.a2ui.blocks import A2UIOutput
 from ark_agentic.core.a2ui.lean_registry import (
     build_lean_payload,
     register_lean_card,
@@ -9,25 +10,30 @@ from ark_agentic.core.a2ui.lean_registry import (
 
 
 def test_register_and_build():
-    register_lean_card("test_card", lambda d: {**d, "enriched": True})
+    register_lean_card(
+        "test_card",
+        lambda d: A2UIOutput(template_data={**d, "enriched": True}, llm_digest="test"),
+    )
     try:
-        payload = build_lean_payload("test_card", {"key": "val"})
+        payload, output = build_lean_payload("test_card", {"key": "val"})
         assert payload["template_type"] == "test_card"
         assert payload["data"]["key"] == "val"
         assert payload["data"]["enriched"] is True
+        assert output.llm_digest == "test"
     finally:
         _LEAN_REGISTRY.pop("test_card", None)
 
 
 def test_build_unknown_type_passthrough():
-    payload = build_lean_payload("unknown_type", {"a": 1})
+    payload, output = build_lean_payload("unknown_type", {"a": 1})
     assert payload["template_type"] == "unknown_type"
     assert payload["data"]["a"] == 1
+    assert output.llm_digest == ""
 
 
 def test_list_lean_types():
-    register_lean_card("z_test", lambda d: d)
-    register_lean_card("a_test", lambda d: d)
+    register_lean_card("z_test", lambda d: A2UIOutput(template_data=d))
+    register_lean_card("a_test", lambda d: A2UIOutput(template_data=d))
     try:
         types = list_lean_types()
         assert "a_test" in types

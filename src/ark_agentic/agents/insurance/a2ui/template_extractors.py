@@ -13,6 +13,7 @@ from typing import Any
 from ark_agentic.agents.insurance.tools.rule_engine import (
     LOAN_INTEREST_RATE as _LOAN_INTEREST_RATE,
 )
+from ark_agentic.core.a2ui.blocks import A2UIOutput
 
 from .withdraw_a2ui_utils import (
     _ALL_CHANNELS,
@@ -49,7 +50,7 @@ _CAT_META: dict[str, tuple[str, str, str]] = {
 _CAT_PRIORITY = ("zero_cost", "loan", "risk")
 
 
-def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]:
+def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> A2UIOutput:
     """
     取款汇总卡片：从 context 读 _rule_engine_result，按渠道分组计算金额；
     无数据的渠道卡片通过 hide flag 隐藏。
@@ -152,7 +153,7 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
         header_value = _fmt(total_incl_loan)
         header_sub = f"不含贷款可领金额：{_fmt(total_excl_loan_rule)}"
 
-    return {
+    data = {
         "header_title": header_title,
         "header_value": header_value,
         "header_sub": header_sub,
@@ -174,6 +175,16 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
         "partial_surrender_total": f"合计：{_fmt(partial_surrender_sum)}",
         "partial_surrender_items": partial_surrender_items,
     }
+
+    parts = [f"取款汇总: {header_title} {header_value}"]
+    if zero_cost_sum > 0:
+        parts.append(f"零成本 ¥{zero_cost_sum:,.2f}")
+    if loan_sum > 0:
+        parts.append(f"贷款 ¥{loan_sum:,.2f}")
+    if partial_surrender_sum > 0:
+        parts.append(f"退保 ¥{partial_surrender_sum:,.2f}")
+
+    return A2UIOutput(template_data=data, llm_digest=" | ".join(parts))
 
 
 def _category_total(options: list[dict[str, Any]], channels: tuple[str, ...]) -> float:
@@ -235,6 +246,8 @@ def _plans_from_spec(
             "reason": spec.get("reason") or "",
             "policies": policies,
             "buttons": buttons,
+            "channels": channels,
+            "allocs": allocs,
         })
     return plans
 
@@ -296,7 +309,8 @@ def _generate_plans(
         policies, buttons = _allocs_to_plan_parts(allocs)
         plans.append({"title": "全部可用渠道", "tag": "", "total": all_total,
                        "reason": "以下为所有可用的取款渠道及金额。",
-                       "policies": policies, "buttons": buttons})
+                       "policies": policies, "buttons": buttons,
+                       "channels": list(active), "allocs": allocs})
         return plans
 
     if all_total < target:
@@ -307,6 +321,7 @@ def _generate_plans(
             "total": all_total,
             "reason": f"所有渠道合计 {_fmt(all_total)}，无法满足目标 {_fmt(target)}。",
             "policies": policies, "buttons": buttons,
+            "channels": list(active), "allocs": allocs,
         })
         return plans
 
@@ -321,9 +336,11 @@ def _generate_plans(
         tag = _combo_tag(used_cats)
         reason = _combo_reason(used_cats)
 
+    used_channels = list(dict.fromkeys(ch for _, ch, _ in allocs))
     plans.append({
         "title": f"★ 推荐: {name}", "tag": tag, "total": target,
         "reason": reason, "policies": policies, "buttons": buttons,
+        "channels": used_channels, "allocs": allocs,
     })
 
     if len(used_cats) == 1:
@@ -341,12 +358,13 @@ def _generate_plans(
             plans.append({
                 "title": alt_name, "tag": alt_tag, "total": target,
                 "reason": alt_reason, "policies": alt_policies, "buttons": alt_buttons,
+                "channels": list(cat_channels), "allocs": alt_allocs,
             })
 
     return plans
 
 
-def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]:
+def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> A2UIOutput:
     """
     取款方案卡片：以目标金额为中心，生成最多 3 个方案。
 
@@ -424,10 +442,35 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
                 data[f"{p}btn_{bn}_text"] = ""
                 data[f"{p}btn_{bn}_action"] = {"queryMsg": ""}
 
-    return data
+    digest_parts: list[str] = []
+    plan_allocations: list[dict[str, Any]] = []
+    for plan in plans:
+        allocs = plan.get("allocs", [])
+        channels = plan.get("channels", [])
+        title = plan["title"]
+        total = plan["total"]
+        detail = "; ".join(f"{pid}({ch}) ¥{amt:,.2f}" for pid, ch, amt in allocs)
+        line = f"方案: {title} | channels: {channels} | 总额: ¥{total:,.2f}"
+        if detail:
+            line += f" | 明细: {detail}"
+        digest_parts.append(line)
+        plan_allocations.append({
+            "title": title,
+            "channels": channels,
+            "allocations": [
+                {"channel": ch, "policy_no": pid, "amount": amt}
+                for pid, ch, amt in allocs
+            ],
+        })
+
+    return A2UIOutput(
+        template_data=data,
+        llm_digest="\n".join(digest_parts),
+        state_delta={"_plan_allocations": plan_allocations} if plan_allocations else None,
+    )
 
 
-def policy_detail_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> dict[str, Any]:
+def policy_detail_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> A2UIOutput:
     """
     保单详情列表卡片：动态展示所有保单的四项金额明细，通过 List 组件渲染。
     数据源优先读 _rule_engine_result，其次 _tool_results_by_name["policy_query"]。
@@ -476,7 +519,17 @@ def policy_detail_extractor(context: dict[str, Any], card_args: dict[str, Any] |
             "total_value": _fmt(total),
         }
 
-    return {
+    data = {
         "section_marker": "|",
         "policies": [_build_policy_item(opt) for opt in options],
     }
+
+    digest_lines = []
+    for opt in options:
+        name = opt.get("product_name") or opt.get("policy_id", "保单")
+        pid = opt.get("policy_id", "")
+        total = float(opt.get("available_amount") or 0)
+        digest_lines.append(f"{name}({pid}) 合计¥{total:,.2f}")
+    digest = "保单明细: " + "; ".join(digest_lines) if digest_lines else ""
+
+    return A2UIOutput(template_data=data, llm_digest=digest)

@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall, ToolResultType
+from ark_agentic.core.a2ui.blocks import A2UIOutput
 from ark_agentic.core.a2ui.lean_registry import build_lean_payload, register_lean_card
 
 from ...template_renderer import TemplateRenderer
@@ -64,12 +65,12 @@ _ASSET_CLASS_MAP: dict[str, Literal["ETF", "HKSC", "Fund", "Cash"]] = {
 }
 
 # Register lean card builders for each preset template type
-register_lean_card("account_overview_card", lambda d: d)
-register_lean_card("holdings_list_card", lambda d: d)
-register_lean_card("cash_assets_card", lambda d: d)
-register_lean_card("security_detail_card", lambda d: d)
-register_lean_card("branch_info_card", lambda d: d)
-register_lean_card("profit_summary_card", lambda d: d)
+register_lean_card("account_overview_card", lambda d: A2UIOutput(template_data=d))
+register_lean_card("holdings_list_card", lambda d: A2UIOutput(template_data=d))
+register_lean_card("cash_assets_card", lambda d: A2UIOutput(template_data=d))
+register_lean_card("security_detail_card", lambda d: A2UIOutput(template_data=d))
+register_lean_card("branch_info_card", lambda d: A2UIOutput(template_data=d))
+register_lean_card("profit_summary_card", lambda d: A2UIOutput(template_data=d))
 
 
 class DisplayCardTool(AgentTool):

@@ -147,37 +147,35 @@ class TestInsuranceComponentsRegistry:
 
 class TestWithdrawSummaryHeader:
     def test_basic(self):
-        comps, extra = build_withdraw_summary_header(
+        output = build_withdraw_summary_header(
             {"sections": ["zero_cost", "loan"]},
             _id_gen(),
             _SAMPLE_RAW_DATA,
         )
-        assert len(comps) >= 4
-        card = comps[0]
+        assert len(output.components) >= 4
+        card = output.components[0]
         assert "Card" in card["component"]
         assert card["component"]["Card"]["padding"] == 20
 
 
 class TestWithdrawSummarySection:
     def test_zero_cost(self):
-        comps, extra = build_withdraw_summary_section(
+        output = build_withdraw_summary_section(
             {"section": "zero_cost"},
             _id_gen(),
             _SAMPLE_RAW_DATA,
         )
-        assert len(comps) > 0
-        card = comps[0]
+        assert len(output.components) > 0
+        card = output.components[0]
         assert "Card" in card["component"]
-        assert extra == {}
 
     def test_loan(self):
-        comps, extra = build_withdraw_summary_section(
+        output = build_withdraw_summary_section(
             {"section": "loan"},
             _id_gen(),
             _SAMPLE_RAW_DATA,
         )
-        assert len(comps) > 0
-        assert extra == {}
+        assert len(output.components) > 0
 
     def test_partial_surrender_total_color_is_gray(self):
         raw = {
@@ -186,20 +184,20 @@ class TestWithdrawSummarySection:
                  "survival_fund_amt": 0, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 5000},
             ]
         }
-        comps, _ = build_withdraw_summary_section(
+        output = build_withdraw_summary_section(
             {"section": "partial_surrender"}, _id_gen(), raw,
         )
-        total_texts = [c for c in comps if "Text" in c.get("component", {})
+        total_texts = [c for c in output.components if "Text" in c.get("component", {})
                        and c["component"]["Text"].get("bold") is True
                        and "合计" in str(c["component"]["Text"].get("text", {}).get("literalString", ""))]
         assert len(total_texts) == 1
         assert total_texts[0]["component"]["Text"]["color"] == "#999999"
 
     def test_zero_cost_total_color_is_accent(self):
-        comps, _ = build_withdraw_summary_section(
+        output = build_withdraw_summary_section(
             {"section": "zero_cost"}, _id_gen(), _SAMPLE_RAW_DATA,
         )
-        total_texts = [c for c in comps if "Text" in c.get("component", {})
+        total_texts = [c for c in output.components if "Text" in c.get("component", {})
                        and c["component"]["Text"].get("bold") is True
                        and "合计" in str(c["component"]["Text"].get("text", {}).get("literalString", ""))]
         assert len(total_texts) == 1
@@ -212,63 +210,66 @@ class TestWithdrawSummarySection:
                  "survival_fund_amt": 100, "bonus_amt": 0, "loan_amt": 0, "refund_amt": 0},
             ]
         }
-        comps, extra = build_withdraw_summary_section(
+        output = build_withdraw_summary_section(
             {"section": "loan"},
             _id_gen(),
             data_no_loan,
         )
-        assert comps == []
-        assert extra == {}
+        assert output.components == []
 
 
 class TestWithdrawPlanCard:
     def test_basic(self):
-        comps, extra = build_withdraw_plan_card(
+        output = build_withdraw_plan_card(
             {"channels": ["survival_fund", "bonus"], "target": 10000, "title": "零成本"},
             _id_gen(),
             _SAMPLE_RAW_DATA,
         )
-        assert len(comps) > 0
-        card = comps[0]
+        assert len(output.components) > 0
+        card = output.components[0]
         assert "Card" in card["component"]
+        assert output.llm_digest
+        assert "channels" in output.llm_digest
+        assert output.state_delta is not None
+        assert "_plan_allocations" in output.state_delta
 
     def test_tag_color_default_green(self):
-        comps, _ = build_withdraw_plan_card(
+        output = build_withdraw_plan_card(
             {"channels": ["survival_fund"], "target": 5000, "title": "T", "tag": "(ok)"},
             _id_gen(), _SAMPLE_RAW_DATA,
         )
-        tag_texts = [c for c in comps if "Text" in c.get("component", {})
+        tag_texts = [c for c in output.components if "Text" in c.get("component", {})
                      and "(ok)" in str(c["component"]["Text"].get("text", {}).get("literalString", ""))]
         assert len(tag_texts) == 1
         assert tag_texts[0]["component"]["Text"]["color"] == "#52C41A"
 
     def test_tag_color_custom(self):
-        comps, _ = build_withdraw_plan_card(
+        output = build_withdraw_plan_card(
             {"channels": ["policy_loan"], "target": 5000, "title": "T",
              "tag": "(利息)", "tag_color": "#FA8C16"},
             _id_gen(), _SAMPLE_RAW_DATA,
         )
-        tag_texts = [c for c in comps if "Text" in c.get("component", {})
+        tag_texts = [c for c in output.components if "Text" in c.get("component", {})
                      and "(利息)" in str(c["component"]["Text"].get("text", {}).get("literalString", ""))]
         assert len(tag_texts) == 1
         assert tag_texts[0]["component"]["Text"]["color"] == "#FA8C16"
 
     def test_button_variant_default_primary(self):
-        comps, _ = build_withdraw_plan_card(
+        output = build_withdraw_plan_card(
             {"channels": ["survival_fund"], "target": 5000, "title": "T"},
             _id_gen(), _SAMPLE_RAW_DATA,
         )
-        buttons = [c for c in comps if "Button" in c.get("component", {})]
+        buttons = [c for c in output.components if "Button" in c.get("component", {})]
         for btn in buttons:
             assert btn["component"]["Button"]["type"] == "primary"
 
     def test_button_variant_secondary(self):
-        comps, _ = build_withdraw_plan_card(
+        output = build_withdraw_plan_card(
             {"channels": ["policy_loan"], "target": 5000, "title": "T",
              "button_variant": "secondary"},
             _id_gen(), _SAMPLE_RAW_DATA,
         )
-        buttons = [c for c in comps if "Button" in c.get("component", {})]
+        buttons = [c for c in output.components if "Button" in c.get("component", {})]
         assert len(buttons) > 0, "Expected at least one button"
         for btn in buttons:
             assert btn["component"]["Button"]["type"] == "secondary"

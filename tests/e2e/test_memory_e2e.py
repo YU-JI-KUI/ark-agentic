@@ -120,7 +120,6 @@ async def base_agent(memory_dir: Path, base_sessions_dir: Path):
     runner_config = RunnerConfig(
         max_tokens=4096,
         max_turns=10,
-        enable_streaming=False,
         prompt_config=PromptConfig(
             agent_name="记忆测试助手",
             agent_description="一个专门用于测试长期记忆能力的助手。你需要积极地记住用户的偏好、关键信息，并在后续对话中主动利用这些记忆。",
@@ -154,14 +153,14 @@ async def test_phase1_react_loop_memory(base_agent: AgentRunner, memory_dir: Pat
     # Turn 1: 声明偏好
     turn1 = "我叫张三，我的保单号是 PL-2024-888888。以后跟我说话请尽量用简洁的语言，我更喜欢简短的回复。"
     r1 = await base_agent.run(
-        session_id=session_id, user_input=turn1, user_id=user_id, input_context={"user:id": user_id}
+        session_id=session_id, user_input=turn1, user_id=user_id, stream=False, input_context={"user:id": user_id}
     )
     logger.info(f"[Phase1 T1] Agent: {r1.response.content}")
 
     # Turn 2: 强制保存记忆
     turn2 = "请帮我把刚才的偏好和保单号记录到你的记忆里，一定要调用保存记忆的工具。"
     r2 = await base_agent.run(
-        session_id=session_id, user_input=turn2, user_id=user_id, input_context={"user:id": user_id}
+        session_id=session_id, user_input=turn2, user_id=user_id, stream=False, input_context={"user:id": user_id}
     )
     logger.info(f"[Phase1 T2] Agent: {r2.response.content}")
 
@@ -252,7 +251,7 @@ async def test_phase2_compact_flush(
     ]
 
     for turn in turns:
-        await base_agent.run(session_id=session_id, user_input=turn, user_id=user_id, input_context={"user:id": user_id})
+        await base_agent.run(session_id=session_id, user_input=turn, user_id=user_id, stream=False, input_context={"user:id": user_id})
 
     # 验证 snapshot 是否写入
     assert seed_file.exists()
@@ -326,7 +325,7 @@ async def test_phase3_cross_session_recall(
 
     # Turn
     turn = "你还记得我吗？上次我好像聊过一个保单的事情，你能帮我回忆一下吗？"
-    r = await base_agent.run(session_id=session_id, user_input=turn, user_id=user_id, input_context={"user:id": user_id})
+    r = await base_agent.run(session_id=session_id, user_input=turn, user_id=user_id, stream=False, input_context={"user:id": user_id})
     logger.info(f"[Phase3] Agent: {r.response.content}")
     
     # 断言

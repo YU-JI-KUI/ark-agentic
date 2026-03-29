@@ -96,7 +96,6 @@ def create_insurance_agent(
     runner_config = RunnerConfig(
         max_tokens=4096,
         max_turns=10,
-        enable_streaming=False,
         enable_thinking_tags=enable_thinking_tags,
         prompt_config=PromptConfig(
             agent_name="保险智能助手",
