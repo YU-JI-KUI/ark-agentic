@@ -1,9 +1,11 @@
-"""Unit tests for SubmitWithdrawalTool — state-only policies, single operation_type param."""
+"""Unit tests for SubmitWithdrawalTool — state-only policies, remaining-channel detection."""
 
 import pytest
 
 from ark_agentic.agents.insurance.tools.submit_withdrawal import (
     SubmitWithdrawalTool,
+    _build_stop_message,
+    _find_remaining_channels,
     _resolve_policies_from_state,
 )
 from ark_agentic.core.types import (
@@ -17,16 +19,33 @@ from ark_agentic.core.types import (
 
 def _plan_ctx(
     allocations: list[dict],
+    channels: list[str] | None = None,
+    submitted: list[str] | None = None,
 ) -> dict:
-    return {
+    ctx: dict = {
         "_plan_allocations": [
             {
                 "title": "plan",
-                "channels": [],
+                "channels": channels or [],
                 "allocations": allocations,
             }
         ]
     }
+    if submitted is not None:
+        ctx["_submitted_channels"] = submitted
+    return ctx
+
+
+def _multi_channel_ctx(submitted: list[str] | None = None) -> dict:
+    """Zero-cost plan with survival_fund + bonus."""
+    return _plan_ctx(
+        allocations=[
+            {"channel": "survival_fund", "policy_no": "POL002", "amount": 12000},
+            {"channel": "bonus", "policy_no": "POL002", "amount": 5200},
+        ],
+        channels=["survival_fund", "bonus"],
+        submitted=submitted,
+    )
 
 
 class TestResolvePoliciesFromState:
@@ -89,6 +108,89 @@ class TestResolvePoliciesFromState:
         ]
 
 
+class TestFindRemainingChannels:
+    def test_single_channel_plan_returns_empty(self) -> None:
+        ctx = _plan_ctx(
+            [{"channel": "policy_loan", "policy_no": "P1", "amount": 5000}],
+            channels=["policy_loan"],
+        )
+        assert _find_remaining_channels("policy_loan", ctx) == []
+
+    def test_multi_channel_first_submit_returns_remaining(self) -> None:
+        ctx = _multi_channel_ctx()
+        remaining = _find_remaining_channels("survival_fund", ctx)
+        assert len(remaining) == 1
+        assert remaining[0]["channel"] == "bonus"
+        assert remaining[0]["amount"] == 5200
+
+    def test_multi_channel_second_submit_returns_empty(self) -> None:
+        ctx = _multi_channel_ctx(submitted=["survival_fund"])
+        remaining = _find_remaining_channels("bonus", ctx)
+        assert remaining == []
+
+    def test_channel_not_in_any_plan(self) -> None:
+        ctx = _plan_ctx(
+            [{"channel": "bonus", "policy_no": "P1", "amount": 100}],
+        )
+        assert _find_remaining_channels("policy_loan", ctx) == []
+
+    def test_empty_plan_allocations(self) -> None:
+        assert _find_remaining_channels("survival_fund", {}) == []
+
+    def test_three_channel_plan_returns_two_remaining(self) -> None:
+        ctx = _plan_ctx(
+            [
+                {"channel": "survival_fund", "policy_no": "P1", "amount": 1000},
+                {"channel": "bonus", "policy_no": "P1", "amount": 500},
+                {"channel": "policy_loan", "policy_no": "P1", "amount": 3000},
+            ],
+            channels=["survival_fund", "bonus", "policy_loan"],
+        )
+        remaining = _find_remaining_channels("survival_fund", ctx)
+        assert len(remaining) == 2
+        channels = {r["channel"] for r in remaining}
+        assert channels == {"bonus", "policy_loan"}
+
+    def test_already_submitted_channels_excluded(self) -> None:
+        ctx = _plan_ctx(
+            [
+                {"channel": "survival_fund", "policy_no": "P1", "amount": 1000},
+                {"channel": "bonus", "policy_no": "P1", "amount": 500},
+                {"channel": "policy_loan", "policy_no": "P1", "amount": 3000},
+            ],
+            channels=["survival_fund", "bonus", "policy_loan"],
+            submitted=["survival_fund"],
+        )
+        remaining = _find_remaining_channels("bonus", ctx)
+        assert len(remaining) == 1
+        assert remaining[0]["channel"] == "policy_loan"
+
+
+class TestBuildStopMessage:
+    def test_single_channel_no_remaining(self) -> None:
+        msg = _build_stop_message("policy_loan", [])
+        assert msg == "已启动保单贷款办理流程"
+
+    def test_with_remaining_channels(self) -> None:
+        remaining = [
+            {"channel": "bonus", "amount": 5200},
+        ]
+        msg = _build_stop_message("survival_fund", remaining)
+        assert "已启动生存金领取办理流程" in msg
+        assert "红利领取(¥5,200.00)待办理" in msg
+
+    def test_multiple_remaining_deduped(self) -> None:
+        remaining = [
+            {"channel": "bonus", "amount": 500},
+            {"channel": "bonus", "amount": 700},
+            {"channel": "policy_loan", "amount": 3000},
+        ]
+        msg = _build_stop_message("survival_fund", remaining)
+        assert "红利领取" in msg
+        assert "保单贷款" in msg
+        assert msg.count("红利领取") == 1
+
+
 class TestSubmitWithdrawalToolExecute:
     @pytest.fixture
     def tool(self) -> SubmitWithdrawalTool:
@@ -99,7 +201,7 @@ class TestSubmitWithdrawalToolExecute:
         assert tool.parameters[0].name == "operation_type"
 
     @pytest.mark.asyncio
-    async def test_happy_path_emits_start_flow_and_stops(
+    async def test_happy_path_single_channel(
         self, tool: SubmitWithdrawalTool
     ) -> None:
         tc = ToolCall(
@@ -113,14 +215,75 @@ class TestSubmitWithdrawalToolExecute:
         result = await tool.execute(tc, context=ctx)
         assert isinstance(result, AgentToolResult)
         assert result.result_type == ToolResultType.JSON
-        assert result.content == {"message": "已提交办理请求"}
         assert result.loop_action == ToolLoopAction.STOP
+        assert "已启动保单贷款办理流程" in str(result.content)
+        assert "待办理" not in str(result.content)
         assert len(result.events) == 1
         ev = result.events[0]
         assert isinstance(ev, CustomToolEvent)
         assert ev.custom_type == "start_flow"
         assert ev.payload["flow_type"] == "E027Flow"
         assert ev.payload["query_msg"] == "保单号-L1，金额-5000"
+
+    @pytest.mark.asyncio
+    async def test_multi_channel_first_submit_shows_remaining(
+        self, tool: SubmitWithdrawalTool
+    ) -> None:
+        tc = ToolCall(
+            id="c1",
+            name="submit_withdrawal",
+            arguments={"operation_type": "shengcunjin"},
+        )
+        ctx = _multi_channel_ctx()
+        result = await tool.execute(tc, context=ctx)
+        assert result.loop_action == ToolLoopAction.STOP
+        assert "已启动生存金领取办理流程" in str(result.content)
+        assert "红利领取" in str(result.content)
+        assert "待办理" in str(result.content)
+
+    @pytest.mark.asyncio
+    async def test_multi_channel_second_submit_no_remaining(
+        self, tool: SubmitWithdrawalTool
+    ) -> None:
+        tc = ToolCall(
+            id="c1",
+            name="submit_withdrawal",
+            arguments={"operation_type": "bonus"},
+        )
+        ctx = _multi_channel_ctx(submitted=["survival_fund"])
+        result = await tool.execute(tc, context=ctx)
+        assert result.loop_action == ToolLoopAction.STOP
+        assert "已启动红利领取办理流程" in str(result.content)
+        assert "待办理" not in str(result.content)
+
+    @pytest.mark.asyncio
+    async def test_state_delta_tracks_submitted_channels(
+        self, tool: SubmitWithdrawalTool
+    ) -> None:
+        tc = ToolCall(
+            id="c1",
+            name="submit_withdrawal",
+            arguments={"operation_type": "shengcunjin"},
+        )
+        ctx = _multi_channel_ctx()
+        result = await tool.execute(tc, context=ctx)
+        delta = result.metadata.get("state_delta", {})
+        assert "survival_fund" in delta["_submitted_channels"]
+
+    @pytest.mark.asyncio
+    async def test_state_delta_accumulates_across_turns(
+        self, tool: SubmitWithdrawalTool
+    ) -> None:
+        tc = ToolCall(
+            id="c1",
+            name="submit_withdrawal",
+            arguments={"operation_type": "bonus"},
+        )
+        ctx = _multi_channel_ctx(submitted=["survival_fund"])
+        result = await tool.execute(tc, context=ctx)
+        delta = result.metadata.get("state_delta", {})
+        submitted = set(delta["_submitted_channels"])
+        assert submitted == {"survival_fund", "bonus"}
 
     @pytest.mark.asyncio
     async def test_unknown_operation_type_error(

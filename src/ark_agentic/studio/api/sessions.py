@@ -29,6 +29,9 @@ class SessionItem(BaseModel):
     user_id: str = ""
     message_count: int
     state: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+    updated_at: str | None = None
+    first_message: str | None = None
 
 
 class SessionListResponse(BaseModel):
@@ -55,7 +58,7 @@ def _message_to_item(msg: Any) -> MessageItem:
     role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
     content = msg.content
     tool_calls = (
-        [{"name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls]
+        [{"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls]
         if msg.tool_calls
         else None
     )
@@ -92,17 +95,23 @@ async def list_agent_sessions(
         return SessionListResponse(sessions=[])
 
     sessions = await runner.session_manager.list_sessions_from_disk(user_id=user_id)
-    return SessionListResponse(
-        sessions=[
-            SessionItem(
-                session_id=s.session_id,
-                user_id=s.user_id,
-                message_count=len(s.messages),
-                state=s.state,
-            )
-            for s in sessions
-        ]
-    )
+    items: list[SessionItem] = []
+    for s in sessions:
+        first_user_msg = next(
+            (m for m in s.messages
+             if (m.role.value if hasattr(m.role, "value") else m.role) == "user" and m.content),
+            None,
+        )
+        items.append(SessionItem(
+            session_id=s.session_id,
+            user_id=s.user_id,
+            message_count=len(s.messages),
+            state=s.state,
+            created_at=s.created_at.isoformat() if s.created_at else None,
+            updated_at=s.updated_at.isoformat() if s.updated_at else None,
+            first_message=first_user_msg.content[:80] if first_user_msg else None,
+        ))
+    return SessionListResponse(sessions=items)
 
 
 @router.get("/agents/{agent_id}/sessions/{session_id}", response_model=SessionDetailResponse)

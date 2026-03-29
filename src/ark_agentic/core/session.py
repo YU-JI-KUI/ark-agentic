@@ -148,7 +148,15 @@ class SessionManager:
                 if header and header.timestamp
                 else datetime.now()
             ),
-            updated_at=datetime.now(),
+            updated_at=(
+                datetime.fromtimestamp(store_entry.updated_at / 1000)
+                if store_entry and store_entry.updated_at
+                else (
+                    datetime.fromisoformat(header.timestamp)
+                    if header and header.timestamp
+                    else datetime.now()
+                )
+            ),
             model=store_entry.model if store_entry else "Qwen3-80B-Instruct",
             provider=store_entry.provider if store_entry else "ark",
             messages=messages,
@@ -183,7 +191,15 @@ class SessionManager:
                 if header and header.timestamp
                 else datetime.now()
             ),
-            updated_at=datetime.now(),
+            updated_at=(
+                datetime.fromtimestamp(store_entry.updated_at / 1000)
+                if store_entry and store_entry.updated_at
+                else (
+                    datetime.fromisoformat(header.timestamp)
+                    if header and header.timestamp
+                    else datetime.now()
+                )
+            ),
             model=store_entry.model if store_entry else "Qwen3-80B-Instruct",
             provider=store_entry.provider if store_entry else "ark",
             messages=messages,

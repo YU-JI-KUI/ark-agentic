@@ -17,6 +17,7 @@ export default function StudioLayout() {
     }, [])
 
     const selectedAgentId = agentId ?? null
+    const [luiHidden, setLuiHidden] = useState(false)
 
     return (
         <div className="agent-shell">
@@ -67,7 +68,7 @@ export default function StudioLayout() {
                     <Outlet />
                 </div>
 
-                <div className="panel-lui">
+                <div className={`panel-lui ${luiHidden ? 'collapsed' : ''}`}>
                     <div className="lui-header">
                         <div className="lui-status-dot lui-status-dot-active" />
                         <strong style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>Meta-Agent</strong>
@@ -76,11 +77,31 @@ export default function StudioLayout() {
                                 for {selectedAgentId}
                             </span>
                         )}
+                        <button
+                            type="button"
+                            className="lui-toggle-btn"
+                            style={{ marginLeft: selectedAgentId ? 'var(--space-xs)' : 'auto' }}
+                            title="Hide Meta-Agent"
+                            onClick={() => setLuiHidden(true)}
+                        >
+                            {'\u2715'}
+                        </button>
                     </div>
                     {/* 固定 key 保证切换左侧 agent/中间 tab 时聊天会话保留，不新建 */}
                     <ChatPanel key="meta-agent-chat" agentId={selectedAgentId ?? 'meta_builder'} />
                 </div>
             </div>
+
+            {luiHidden && (
+                <button
+                    type="button"
+                    className="lui-fab"
+                    title="Show Meta-Agent"
+                    onClick={() => setLuiHidden(false)}
+                >
+                    {'\uD83D\uDCAC'}
+                </button>
+            )}
         </div>
     )
 }
