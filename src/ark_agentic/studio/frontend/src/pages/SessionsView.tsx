@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, type SessionItem, type SessionDetail } from '../api'
+import { useAuth } from '../auth'
 import MessageBlock from '../components/MessageBlock'
 
 interface Props { agentId: string }
@@ -52,6 +53,8 @@ function StateViewer({ state }: { state: Record<string, unknown> }) {
 }
 
 export default function SessionsView({ agentId }: Props) {
+    const { user } = useAuth()
+    const isEditor = user?.role === 'editor'
     const [sessions, setSessions] = useState<SessionItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -257,9 +260,11 @@ export default function SessionsView({ agentId }: Props) {
                                     {rawLoading && <div className="loading"><div className="spinner" /></div>}
                                     {!rawLoading && raw !== null && !rawEdit && (
                                         <>
+                                            {isEditor && (
                                             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
                                                 <button type="button" className="btn-action" onClick={() => setRawEdit(true)}>Edit</button>
                                             </div>
+                                            )}
                                             <pre className="code-block" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 12 }}>{raw}</pre>
                                         </>
                                     )}
