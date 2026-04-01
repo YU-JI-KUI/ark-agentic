@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
@@ -19,6 +20,39 @@ PERIOD_TO_TIME_TYPE: dict[str, int] = {
     "past_year":        4,  # 过去一年
     "since_inception": 13,  # 开户以来
 }
+
+_PERIOD_LABEL: dict[str, str] = {
+    "this_week":       "本周",
+    "month_to_date":   "近一个月",
+    "year_to_date":    "年初至今",
+    "past_year":       "过去一年",
+    "since_inception": "开户以来",
+}
+
+
+def build_period_description(period: str, today: date | None = None) -> str:
+    """根据 period 枚举构建可读时间段描述，例如：近一个月：2026年02月19日-至今"""
+    if today is None:
+        today = date.today()
+    label = _PERIOD_LABEL.get(period, period)
+
+    if period == "this_week":
+        start = today - timedelta(days=today.weekday())  # 本周一
+    elif period == "month_to_date":
+        start = today - timedelta(days=30)
+    elif period == "year_to_date":
+        start = today.replace(month=1, day=1)
+    elif period == "past_year":
+        try:
+            start = today.replace(year=today.year - 1)
+        except ValueError:  # 2/29 闰年边界
+            start = today.replace(year=today.year - 1, day=28)
+    elif period == "since_inception":
+        return "开户以来"
+    else:
+        return label
+
+    return f"{label}：{start.year}年{start.month:02d}月{start.day:02d}日-至今"
 
 
 def _get_context_value(

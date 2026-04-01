@@ -1,11 +1,15 @@
 """Tests for field extraction utilities."""
 
+from datetime import date
+from unittest.mock import patch
+
 import pytest
 
 from ark_agentic.agents.securities.tools.service.field_extraction import (
     extract_fields,
     _get_by_path,
     extract_account_overview,
+    extract_cash_assets,
     ACCOUNT_OVERVIEW_FIELD_MAPPING,
     SERVICE_FIELD_MAPPINGS,
     extract_service_fields,
@@ -177,6 +181,36 @@ class TestExtractAccountOverview:
         assert "net_assets" not in result
 
 
+class TestExtractCashAssets:
+    """现金资产提取：today_profit 与 settlement_date"""
+
+    def test_today_profit_and_settlement_date(self) -> None:
+        data = {
+            "status": 1,
+            "results": {
+                "accountType": "1",
+                "rmb": {
+                    "cashBalance": "100",
+                    "available": "90",
+                    "avaliableDetail": {
+                        "drawBalance": "80",
+                        "cashBalanceDetail": {
+                            "dayProfit": "-1.23",
+                            "accuProfit": "4.56",
+                        },
+                    },
+                },
+            },
+        }
+        with patch(
+            "ark_agentic.agents.securities.tools.service.field_extraction.date"
+        ) as mock_date:
+            mock_date.today.return_value = date(2026, 3, 23)
+            result = extract_cash_assets(data)
+        assert result["today_profit"] == "-1.23"
+        assert result["settlement_date"] == "03-22"
+
+
 class TestFieldMappingConfiguration:
     """Test field mapping configuration."""
 
@@ -188,9 +222,18 @@ class TestFieldMappingConfiguration:
 
     def test_field_mapping_paths(self):
         """Test field mapping paths are correct."""
-        assert ACCOUNT_OVERVIEW_FIELD_MAPPING["total_assets"] == "results.rmb.totalAssetVal"
-        assert ACCOUNT_OVERVIEW_FIELD_MAPPING["cash_balance"] == "results.rmb.cashGainAssetsInfo.cashBalance"
-        assert ACCOUNT_OVERVIEW_FIELD_MAPPING["rzrq_assets_info"] == "results.rmb.rzrqAssetsInfo"
+        assert (
+            ACCOUNT_OVERVIEW_FIELD_MAPPING["total_assets"]
+            == "results.rmb.totalAssetVal"
+        )
+        assert (
+            ACCOUNT_OVERVIEW_FIELD_MAPPING["cash_balance"]
+            == "results.rmb.cashGainAssetsInfo.cashBalance"
+        )
+        assert (
+            ACCOUNT_OVERVIEW_FIELD_MAPPING["rzrq_assets_info"]
+            == "results.rmb.rzrqAssetsInfo"
+        )
 
     def test_service_field_mappings_registered(self):
         """Test that service field mappings are registered."""

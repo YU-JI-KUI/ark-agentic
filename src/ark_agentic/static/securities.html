@@ -865,6 +865,94 @@
     }
 
     /* ============================================================
+   Dividend info card
+   ============================================================ */
+
+    .tc-badge-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .di-meta {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 10px;
+      background: var(--step-bg);
+      color: var(--text-secondary);
+    }
+
+    .di-list {
+      gap: 12px;
+    }
+
+    .di-item {
+      padding: 12px;
+      background: var(--step-bg);
+      border-radius: var(--radius-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .di-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .di-year {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .di-type-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: var(--orange-pale);
+      color: var(--orange);
+      font-weight: 500;
+    }
+
+    .di-plan {
+      font-size: 14px;
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .di-details {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .di-detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .di-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .di-value {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .di-empty {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 16px;
+      font-size: 13px;
+    }
+
+    /* ============================================================
    Branch info card
    ============================================================ */
     .bi-table {
@@ -2596,6 +2684,10 @@
             cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderStockDailyProfitCalendarCard(template.data);
             break;
+          case 'dividend_info_card':
+            cardDiv.className = 'template-card';
+            cardDiv.innerHTML = renderDividendInfoCard(template.data);
+            break;
           default:
             cardDiv.className = 'template-card';
             cardDiv.innerHTML = renderGenericCard(template);
@@ -2805,7 +2897,7 @@
             </div>
             ${data.today_profit ? `
               <div class="tc-metric">
-                <span class="tc-label">今日收益</span>
+                <span class="tc-label">今日收益${data.settlement_date ? `（结算日期 ${data.settlement_date}）` : ''}</span>
                 <span class="tc-value ${toNum(data.today_profit) >= 0 ? 'profit' : 'loss'}">
                   ${toNum(data.today_profit) >= 0 ? '+' : ''}￥${formatNumber(Math.abs(toNum(data.today_profit)))}
                 </span>
@@ -2871,6 +2963,45 @@
         `;
       }
 
+      function renderDividendInfoCard(data) {
+        const title = escHtml(data.title || '分红历史');
+        const statDate = data.stat_date ? `<span class="di-meta">统计日期：${escHtml(data.stat_date)}</span>` : '';
+        const marketType = data.market_type ? `<span class="di-meta">${escHtml(data.market_type)}</span>` : '';
+        const dividendList = data.dividend_list || [];
+
+        const itemsHtml = dividendList.length === 0
+          ? '<div class="di-empty">暂无分红记录</div>'
+          : dividendList.map(item => {
+              const hasCash = item.cash_amount && toNum(item.cash_amount) > 0;
+              const hasStock = item.stock_shares && item.stock_shares > 0;
+              return `
+                <div class="di-item">
+                  <div class="di-item-header">
+                    <span class="di-year">${escHtml(item.year || '')} ${escHtml(item.assign_type_description || '')}</span>
+                    <span class="di-type-badge">${escHtml(item.stk_div_type_description || '')}</span>
+                  </div>
+                  ${item.plan ? `<div class="di-plan">${escHtml(item.plan)}</div>` : ''}
+                  <div class="di-details">
+                    ${hasCash ? `<div class="di-detail-row"><span class="di-label">现金（元/千股）</span><span class="di-value profit">￥${formatNumber(item.cash_amount)}</span></div>` : ''}
+                    ${hasStock ? `<div class="di-detail-row"><span class="di-label">送股（股/千股）</span><span class="di-value">${item.stock_shares}</span></div>` : ''}
+                    ${item.arrival_date ? `<div class="di-detail-row"><span class="di-label">到账日期</span><span class="di-value">${escHtml(item.arrival_date)}</span></div>` : ''}
+                    ${item.plan_info ? `<div class="di-detail-row"><span class="di-label">方案说明</span><span class="di-value">${escHtml(item.plan_info)}</span></div>` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('');
+
+        return `
+          <div class="template-card-header">
+            <div class="tc-title">${title}</div>
+            <div class="tc-badge-group">${marketType}${statDate}</div>
+          </div>
+          <div class="template-card-body di-list">
+            ${itemsHtml}
+          </div>
+        `;
+      }
+
       function renderBranchInfoCard(data) {
         // 新格式：字段在 data.resData 下，title 由后端构造
         const bi = data.resData || {};
@@ -2922,18 +3053,47 @@
         const totalProfitRate = toNum(data.total_profit_rate);
         const rateDisplay = (totalProfitRate * 100).toFixed(2);
 
+        // 期初/期末资产从原始 asset 数组取首尾
         const asset = data.asset || [];
         const assetTotal = data.asset_total || [];
         const startAsset = asset.length > 0 ? asset[0] : null;
         const endAsset = asset.length > 0 ? asset[asset.length - 1] : null;
         const startTotal = assetTotal.length > 0 ? assetTotal[0] : null;
         const endTotal = assetTotal.length > 0 ? assetTotal[assetTotal.length - 1] : null;
-
         const assetLabel = isMargin ? '净资产' : '总资产';
+
+        // profit_curve 逐日明细
+        const curve = data.profit_curve || [];
+        const PREVIEW_LIMIT = 5;
+        const uid = 'aph-' + Math.random().toString(36).slice(2, 8);
+
+        const renderCurveItem = (item) => {
+          const p = toNum(item.profit);
+          const cls = p >= 0 ? 'profit' : 'loss';
+          const sign = p >= 0 ? '+' : '';
+          // 日期格式化 20260315 → 03-15
+          const td = String(item.trade_date || '');
+          const dateLabel = td.length === 8 ? `${td.slice(4,6)}-${td.slice(6,8)}` : td;
+          return `
+            <div class="tc-list-item">
+              <span style="font-size:12px;color:var(--text-muted);min-width:44px;">${escHtml(dateLabel)}</span>
+              <span style="font-size:12px;color:var(--text-muted);">￥${formatNumber(item.asset)}</span>
+              <span class="tc-item-value ${cls}" style="font-size:13px;">${sign}￥${formatNumber(Math.abs(p))}</span>
+            </div>`;
+        };
+
+        const visibleRows = curve.slice(0, PREVIEW_LIMIT).map(renderCurveItem).join('');
+        const hiddenRows  = curve.slice(PREVIEW_LIMIT).map(renderCurveItem).join('');
+        const moreLabel = hiddenRows
+          ? `查看更多（剩余 ${curve.length - PREVIEW_LIMIT} 天）&rsaquo;`
+          : '查看更多 &rsaquo;';
 
         return `
           <div class="template-card-header">
-            <div class="tc-title">${title}</div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;">
+              <div class="tc-title">${title}</div>
+              ${data.time_interval ? `<div style="font-size:11px;color:var(--text-muted);">${escHtml(data.time_interval)}</div>` : ''}
+            </div>
           </div>
           <div class="template-card-body">
             <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--border);">
@@ -2966,12 +3126,39 @@
                 <span class="tc-value">￥${formatNumber(endTotal)}</span>
               </div>
             ` : ''}
+            ${curve.length > 0 ? `
+              <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:4px;padding:0 2px;">
+                  <span>日期</span><span>${isMargin ? '净资产' : '资产'}</span><span>当日收益</span>
+                </div>
+                <div class="tc-list">${visibleRows}</div>
+                ${hiddenRows ? `<div id="${uid}-more" class="tc-list" style="display:none;">${hiddenRows}</div>` : ''}
+              </div>
+            ` : ''}
           </div>
+          ${curve.length > PREVIEW_LIMIT ? `
+            <div class="ao-footer" style="margin:8px -16px -16px;border-radius:0 0 var(--radius-md) var(--radius-md);"
+                 onclick="
+                   var m=document.getElementById('${uid}-more');
+                   var f=this;
+                   if(!m)return;
+                   if(m.style.display==='none'){
+                     m.style.display='flex';m.style.flexDirection='column';m.style.gap='4px';
+                     f.textContent='收起 ‹';
+                   } else {
+                     m.style.display='none';f.innerHTML='${moreLabel}';
+                   }">${moreLabel}</div>
+          ` : ''}
         `;
       }
 
       function renderStockProfitRankingCard(data) {
         const title = escHtml(data.title || '股票盈亏排行');
+        const periodDesc = data.period_description ? escHtml(data.period_description) : '';
+        const asOfDateRaw = data.as_of_date || '';
+        const asOfLabel = asOfDateRaw.length === 8
+          ? `数据截至 ${asOfDateRaw.slice(4,6)}-${asOfDateRaw.slice(6,8)}`
+          : (asOfDateRaw ? `数据截至 ${escHtml(asOfDateRaw)}` : '');
         const profitCount = data.profit_count || '0';
         const profitAmount = toNum(data.profit_amount);
         const lossCount = data.loss_count || '0';
@@ -3021,7 +3208,11 @@
 
         return `
           <div class="template-card-header">
-            <div class="tc-title">${title}</div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">
+              <div class="tc-title">${title}</div>
+              ${asOfLabel ? `<div style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${asOfLabel}</div>` : ''}
+            </div>
+            ${periodDesc ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${periodDesc}</div>` : ''}
           </div>
           <div class="template-card-body">
             <div style="display:flex;justify-content:space-between;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid var(--border);">
