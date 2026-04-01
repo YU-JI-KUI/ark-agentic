@@ -1,7 +1,7 @@
 ---
 name: 保险取款
-description: 用户表达取钱、领钱、用钱、周转、借款等意图且已提及具体金额时，立即使用此技能；或用户询问"能领多少钱"、"最多能取多少"、"有多少额度"等容量查询时也使用此技能。调用 rule_engine 查询保单可用额度，以 A2UI 卡片展示方案（有金额→withdraw_plan，容量查询→withdraw_summary），绝不用大段文字替代卡片。当用户要办理具体操作时，由 execute_withdrawal 技能处理。
-version: "4.0.0"
+description: 查询可取金额总览、生成取款方案、调整已有方案，均以 A2UI 卡片展示。用户表达取款意图（无论是否给出金额）均由本技能处理。
+version: "11.0.0"
 invocation_policy: auto
 group: insurance
 tags:
@@ -16,284 +16,239 @@ required_tools:
 
 # 保险取款技能
 
-> **输出原则（最高优先级）**
->
-> 用户在移动端查看：A2UI 卡片已占据主屏幕，卡片内已完整呈现方案名称、金额、费用、保障影响和办理按钮。
-> 卡片后再追加文字描述，用户必须滚动屏幕才能看到按钮，打断决策流。
->
-> 因此：`render_card` 调用后，**只允许 1 句文字（≤ 25 字）**作为确认引导或关键对比，其余一律省略。
-> 如果你发现自己想写第二句话——那正说明卡片已经把该说的都说了，**停止**。
+处理所有与取款相关的用户请求，包括总览查询、具体方案生成、方案调整。
 
-当用户表达取款需求**并已明确金额**时，使用此技能帮助用户完成保险取款操作。
+本技能使用 **component 级别**的 blocks 动态组合，LLM 通过选择和组合 component 控制展示内容。
+
+> **所有数据展示必须调用 `render_a2ui`，详见末尾「输出约束」。**
 
 ## 触发条件
 
-满足以下**任一情形**时触发：
+以下意图触发本技能：
+- "能取多少钱" / "可以取多少" / "总共多少钱" → Case A（总览）
+- "想取钱" / "需要用钱" / "帮我取一些" / 表达取款意图但未给金额 → Case A（总览）
+- "取5万" / "需要10万" / 带金额的取款需求 → Case B（具体方案）
+- "不要贷款" / "换个方案" / "多取一点" → Case C（方案调整，前提是已有推荐方案）
 
-1. **有金额的执行意图**：用户表达了取款意图（"取钱"、"领取"、"借款"、"需要用钱"等）且已明确金额（如"取5万"、"需要10万"）→ 展示 `withdraw_plan` 卡
-2. **容量查询**：用户询问可领额度上限（"我能领多少钱"、"最多能取多少"、"有多少额度"、"能取多少"等），无需金额 → 展示 `withdraw_summary` 卡
-
-**不触发**的情况：
-- 用户只说了"想取钱"但没说金额，且无容量查询意图 → 应由 clarify_need 技能先收集金额
-- 用户在聊非取款话题
-- 用户确认办理某项具体操作（如"办理生存金领取"、"领取红利"） → 由 `execute_withdrawal` 技能处理
+**不触发**：
+- 未明确取款意图的闲聊
 
 ## 回复结构
 
-- **卡片优先**：核心内容必须通过 A2UI 卡片呈现，文字仅用于引导或补充。
-- **严禁重复**：卡片已完整展示方案详情，**绝对禁止**在文字中重复金额、保单、费用、时间等任何卡片内容。
-- **结构**：`A2UI 卡片 + 最多 1 句确认引导（≤25字）`；卡片前**不写任何引导语**。
-- 本技能已包含「取款方案卡片」的展示，无需再触发单独的取款汇总技能。
+`render_a2ui 调用 + [1 句确认引导]`
 
-## 执行流程
+不需要在卡片前加引导语，直接调用 `render_a2ui`。卡片发出后**禁止**在文字中重复金额、渠道名称、保单号等任何卡片内容。仅允许 1 句引导（≤25字），示例：
+- "需要取多少呢？"
+- "需要办理哪个方案？"
+- "确认办理吗？"
 
-> 根据触发情形（有金额 or 容量查询），流程在**第二步**和**第五步**有所不同，其余步骤相同。
+---
 
-### 第一步：信息收集
+## 渠道 ID 参考
 
-调用 `customer_info` 获取用户基本信息（年龄、性别、家庭关系），用于后续推荐话术的针对性调整：
+| 用户说法 | 渠道 ID |
+|---------|---------|
+| 生存金 | `survival_fund` |
+| 红利 | `bonus` |
+| 贷款 | `policy_loan` |
+| 部分领取 | `partial_withdrawal` |
+| 退保 | `surrender` |
+
+---
+
+## 可用 Component 类型
+
+| 类型 | 用途 | data |
+|------|------|------|
+| `WithdrawSummaryHeader` | 总览头部（总金额） | `{"sections": [...]}` |
+| `WithdrawSummarySection` | 总览分组（零成本/贷款/退保） | `{"section": "preset_name"}` |
+| `WithdrawPlanCard` | 取款方案卡 | `{"channels": [...], "target": N, "title": "...", "tag_color"?: "...", "button_variant"?: "primary/secondary"}` |
+
+Component 内部自动从 context 读取 `rule_engine` 数据并计算金额，LLM 无需硬编码数字。
+
+---
+
+## Case A：总览（无具体金额）
+
+用户想知道"一共能取多少钱"，或表达了取款意图但未说明金额。展示总览卡，让用户了解可取范围后自行决定。
+
+### 执行流程
 
 ```
-customer_info(info_type="identity", user_id=用户ID)
+rule_engine(action="list_options", user_id=用户ID)
+→ render_a2ui(blocks=...)
 ```
 
-### 第二步：调用规则引擎
-
-**情形 A — 有金额（执行意图）**：
-
-```
-rule_engine(
-  action="list_options",
-  user_id=用户ID,
-  amount=用户期望金额
-)
-```
-
-**情形 B — 容量查询（无金额）**：
-
-```
-rule_engine(
-  action="list_options",
-  user_id=用户ID
-)
-```
-
-`amount` 不传，规则引擎返回所有保单的完整可用额度，`requested_amount` 为 null。
-
-**不需要再做需求澄清**：情形 A 的金额在触发本技能前已由 clarify_need 技能确认；情形 B 本就不需要金额。
-
-### 第三步：理解返回数据
-
-规则引擎返回每张保单一条记录：
-
-```json
-{
-  "requested_amount": 50000,
-  "total_available_excl_loan": 219200,
-  "total_available_incl_loan": 252800,
-  "combination_hint": null,
-  "options": [
-    {
-      "policy_id": "POL002",
-      "product_name": "金瑞人生年金险",
-      "product_type": "annuity",
-      "policy_year": 5,
-      "available_amount": 177200,
-      "survival_fund_amt": 12000,
-      "bonus_amt": 5200,
-      "loan_amt": 0,
-      "refund_amt": 160000,
-      "refund_fee_rate": 0.01,
-      "loan_interest_rate": null,
-      "processing_time": "1-3个工作日"
-    },
-    ...
-  ]
-}
-```
-
-**每张保单同时有四个可用金额**，代表不同的取款渠道：
-- `survival_fund_amt` — 生存金/满期金（零成本，不影响保障）
-- `bonus_amt` — 红利（零成本，不影响保障）
-- `refund_amt` — 部分领取或退保金额：
-  - `product_type` 为 `whole_life` → **退保**（保障终止，无手续费）
-  - 其他类型 → **部分领取**（保障部分降低，手续费率为 `refund_fee_rate`）
-- `loan_amt` — 保单贷款额度（年利率 `loan_interest_rate`，不影响保障，逾期可致保单中止）
-
-同一张保单的多个渠道可以**同时使用**（如同时领取生存金 + 红利 + 贷款），但每个渠道的取用金额不能超过该渠道的数值。
-
-### 第四步：组装推荐方案
-
-根据用户金额需求，**你需要自行决策**方案结构，并通过 `card_args.plans` 传入。extractor 只负责按你指定的渠道分配具体金额、生成保单列表和按钮。
-
-#### 渠道优先级（从高到低）
-
-渠道 ID 如下，按此顺序优先使用：
-
-| 渠道 ID | 含义 | 成本 | 保障影响 |
-|--------|------|------|---------|
-| `survival_fund` | 生存金 | 零 | 不影响 |
-| `bonus` | 红利 | 零 | 不影响 |
-| `partial_withdrawal` | 部分领取（非 whole_life） | 手续费率 `refund_fee_rate` | 保额同步下降 |
-| `policy_loan` | 保单贷款 | 年利率5% | 不影响（逾期可致中止） |
-| `surrender` | 退保（whole_life） | 零 | 保障完全终止 |
-
-#### 方案组装规则
-
-**推荐方案的总取款金额等于用户请求金额（总额不足时取最大可取）。**
-
-- **总额充足**：构建 2-3 个方案
-  - Plan 1（推荐 ★）：按渠道优先级从高到低选渠道，凑满目标金额
-  - Plan 2/3（备选）：当 Plan 1 仅用单类渠道时，提供其他可独立满足目标的单类方案
-- **总额不足**（`total_available_incl_loan` < 目标金额）：仅给一个"最大可取"方案，使用所有渠道
-
-#### plans 规格格式
+### 完整示例
 
 ```json
 [
-  {
-    "title": "★ 推荐: 零成本优先",
-    "tag": "(不影响保障)",
-    "reason": "优先使用零成本渠道，不足时自动搭配其他方式补足。",
-    "channels": ["survival_fund", "bonus"]
-  },
-  {
-    "title": "保单贷款",
-    "tag": "(需支付利息)",
-    "reason": "保障不受影响，适合短期周转",
-    "channels": ["policy_loan"]
-  }
+  {"type": "WithdrawSummaryHeader", "data": {"sections": ["zero_cost", "loan", "partial_surrender"]}},
+  {"type": "WithdrawSummarySection", "data": {"section": "zero_cost"}},
+  {"type": "WithdrawSummarySection", "data": {"section": "loan"}},
+  {"type": "WithdrawSummarySection", "data": {"section": "partial_surrender"}}
 ]
 ```
 
-**字段说明**：
+### 动态筛选
 
-- `channels`：**偏好渠道，按此顺序优先分配**。不足目标金额时，extractor 自动按 `_ALL_CHANNELS` 优先级追加剩余渠道补足——无需你手动计算是否够用。
-- `exclude_channels`：**永久排除的渠道**（auto-fill 也跳过它们）。用于表达用户的排除约束：
-  - "不要贷款" → `"exclude_channels": ["policy_loan"]`
-  - "不要退保" → `"exclude_channels": ["surrender"]`
-  - "只用不影响保障的" → `"exclude_channels": ["partial_withdrawal", "policy_loan", "surrender"]`
-- `exclude_policies`：可选，排除特定保单 ID（如 `["POL002"]`）
-- `target`：可选，不填时使用 `requested_amount`
-- `title`：**应反映主要策略**（"零成本优先"），而非断言结果（"零成本领取"）——因为 extractor 可能会自动追加其他渠道
+| 用户说 | 调整 |
+|-------|------|
+| "不算贷款能取多少" | 移除 `loan` section + header 中移除 `"loan"` |
+| "只看零成本的" | 仅保留 `zero_cost` section 和 header |
 
-**关键规则**：无特殊约束时，Plan 1 只需写 `channels: ["survival_fund", "bonus"]`，extractor 会自动补足至目标金额。用户说"不要某渠道"时，用 `exclude_channels` 而非从 channels 中删除。
-
-### 第五步：方案呈现
-
-**核心原则：永远只有一个 ★ 推荐，加上 1-2 个备选。**
-
-#### 卡片选择规则
-
-- **情形 A（有金额）** → 调用 `render_card(card_type="withdraw_plan", card_args=...)` 展示具体方案卡
-- **情形 B（容量查询）** → 调用 `render_card(card_type="withdraw_summary", card_args=...)` 展示汇总卡
-
-#### 情形 A — withdraw_plan card_args 完整示例
+示例（不含贷款）：
 
 ```json
-{
-  "page_title": "为您推荐的取款方案",
-  "prompt_text": "请问您想选择哪个方案？确认后我可以为您办理。",
-  "plans": [
-    {
-      "title": "★ 推荐: 零成本优先",
-      "tag": "(不影响保障优先)",
-      "reason": "零成本，到账快",
-      "channels": ["survival_fund", "bonus"]
-    },
-    {
-      "title": "保单贷款",
-      "tag": "(需支付利息)",
-      "reason": "保障不受影响，适合短期周转。",
-      "channels": ["policy_loan"]
-    }
-  ]
-}
+[
+  {"type": "WithdrawSummaryHeader", "data": {"sections": ["zero_cost", "partial_surrender"]}},
+  {"type": "WithdrawSummarySection", "data": {"section": "zero_cost"}},
+  {"type": "WithdrawSummarySection", "data": {"section": "partial_surrender"}}
+]
 ```
 
-- extractor 会自动补足 Plan 1 至目标金额（按 `partial_withdrawal → policy_loan → surrender` 顺序追加）
-- 按钮 `queryMsg` 由 extractor 从分配结果自动生成（格式：`办理生存金领取，POL001，10000.00`），无需覆盖
-- 不传 `plans` 时，extractor 会用内置规则自动生成（兼容旧行为）
+### Section 预设
 
-#### withdraw_summary card_args 完整示例（情形 B）
+| section | 包含渠道 | 标签 |
+|---------|---------|------|
+| `zero_cost` | survival_fund, bonus | 不影响保障 |
+| `loan` | policy_loan | 需支付利息 |
+| `partial_surrender` | partial_withdrawal, surrender | 保障有损失，不建议 |
 
-以下四个字段均为可选文案，extractor 有合理默认值，无需强制覆盖：
+无数据的 section 自动返回空（不显示）。
+
+---
+
+## Case B：具体方案（有明确金额）
+
+用户明确取款金额，生成方案卡，按成本从低到高排列。
+
+### 执行流程
+
+```
+customer_info(info_type="identity", user_id=用户ID)
+→ rule_engine(action="list_options", user_id=用户ID, amount=金额)
+→ render_a2ui(blocks=...)
+```
+
+### 方案生成策略
+
+1. 先用 `rule_engine` 结果判断各类别渠道合计能否满足目标金额
+2. 如果零成本渠道（survival_fund + bonus）足够 → 推荐方案只用零成本
+3. 如果零成本不够 → **推荐方案必须组合多类别渠道以满足目标金额**
+4. 可选方案二/三展示单类别渠道的最大可取额（作为参考对比）
+5. 每个 PlanCard 的 `target` 应设为该方案实际能达到的金额
+
+### 渠道优先级（从高到低）
+
+1. **生存金 + 红利** → 零成本，不影响保障
+2. **部分领取**（非 whole_life 的 refund_amt）→ 低成本
+3. **保单贷款** → 年利率 5%，保障不受影响
+4. **退保**（whole_life 的 refund_amt）→ 保障终止，最后手段
+
+### 示例 1：单类别足够（零成本 >= 目标金额）
 
 ```json
-{
-  "advice_text_1": "• 建议优先领取零成本渠道（生存金、红利），不影响保障。",
-  "advice_text_2": "• 如需更多资金，可搭配保单贷款，年利率5%，保障不受影响。",
-  "plan_button_text": "获取最优方案",
-  "plan_action_query": "帮我制定取款方案"
-}
+[
+  {"type": "WithdrawPlanCard", "data": {
+    "channels": ["survival_fund", "bonus"],
+    "target": 50000,
+    "title": "★ 推荐: 零成本领取",
+    "tag": "(不影响保障)",
+    "reason": "零成本、无风险，不影响您的保障"
+  }},
+  {"type": "WithdrawPlanCard", "data": {
+    "channels": ["policy_loan"],
+    "target": 50000,
+    "title": "保单贷款",
+    "tag": "(需支付利息)",
+    "tag_color": "#FA8C16",
+    "button_variant": "secondary",
+    "reason": "保障不受影响，适合短期周转"
+  }}
+]
 ```
 
-**字段说明**：
-- `advice_text_1` / `advice_text_2`：建议方案区的两行提示文案
-- `plan_button_text`：汇总卡底部按钮文案
-- `plan_action_query`：用户点击按钮后发送的消息（触发 withdraw_money 展示具体方案）
+### 示例 2：需要组合（目标 30000，零成本仅 20000）
 
-#### 卡片发出后的文字
+推荐方案应组合渠道以满足目标金额；可用单类别方案作为参考对比。
 
-卡片已完整展示所有方案信息。**禁止**在文字中重复金额、保单、费用、时效等任何卡片内容。仅允许 1 句确认引导，如："请问您想选择哪个方案来办理？"
+```json
+[
+  {"type": "WithdrawPlanCard", "data": {
+    "channels": ["survival_fund", "bonus", "policy_loan"],
+    "target": 30000,
+    "title": "★ 推荐: 零成本 + 保单贷款",
+    "tag": "(部分需付利息)",
+    "reason": "优先使用零成本渠道；不足部分用保单贷款补足。"
+  }},
+  {"type": "WithdrawPlanCard", "data": {
+    "channels": ["survival_fund", "bonus"],
+    "target": 20000,
+    "title": "仅零成本（最多 ¥20,000.00）",
+    "tag": "(不影响保障)",
+    "button_variant": "secondary",
+    "reason": "零成本渠道合计 ¥20,000.00，不足目标 ¥30,000.00。"
+  }}
+]
+```
 
-### 第六步：操作确认
+注意：组合方案的 `target` 设为用户的完整目标金额，单类别参考方案的 `target` 设为该类别的实际最大可取额。
 
-展示完方案后，**必须**引导用户确认选择。
+---
 
-### 第七步：用户画像微调
+## Case C：方案调整
 
-根据 customer_info 返回的信息，调整卡片后**唯一允许的那 1 句**确认引导的措辞（不改变方案逻辑，不额外增加句数）：
+用户对已有推荐方案提出修改。**前提**：本轮对话中已展示过 Case A 或 Case B 的方案。
 
-| 用户特征 | 话术调整（体现在 1 句内） |
-|---------|---------|
-| 年龄 > 55 岁 | 确认引导中可提"到账快、不影响养老保障" |
-| 有子女 | 确认引导中可提"保障继续有效" |
-| 资金用途=紧急 | 优先推荐保单贷款（影响卡片内容选择，非额外文字） |
-| 资金用途=教育/医疗 | 优先推荐零成本渠道（影响卡片内容选择，非额外文字） |
+### 调整方式
 
-## 时效参考
+| 用户说 | 调整 blocks |
+|-------|------------|
+| "多取一点，总共8万" | 更新 target 为 80000 |
+| "不要贷款" | 移除 channels 中 policy_loan 的 PlanCard |
+| "不退保" | 移除含 surrender 的 PlanCard |
+| "只用不影响保障的" | 仅保留 `["survival_fund","bonus"]` channels |
+| "不要POL002" | 添加 `"exclude_policies": ["POL002"]` |
 
-| 方式 | 到账时间 | 手续费 | 对保障影响 |
-|-----|---------|-------|-----------|
-| 生存金领取 | 1-3个工作日 | 0 | 不影响 |
-| 红利领取 | 1-3个工作日 | 0 | 不影响 |
-| 部分领取 | 1-3个工作日 | 按 refund_fee_rate | 现金价值、保额同步下降 |
-| 保单贷款 | 1-3个工作日 | 年利率5% | 正常不影响；逾期未还可致保单中止 |
-| 退保 | 1-3个工作日 | 0 | 保障完全终止 |
+### 单项精算
 
-## 输出格式
+调用 `calculate_detail` 获取精确计算：
 
-**主呈现 = A2UI 取款方案卡片（`withdraw_plan`）**。卡片渲染成功后，文字部分**严格限制**在 1 句以内（≤25字）。
+```
+rule_engine(
+  action="calculate_detail",
+  policy={从上文 list_options 中获取该保单数据},
+  option_type="对应渠道",
+  amount=新金额
+)
+```
 
-### 情形 A（有金额）
+`option_type` 取值：`survival_fund` / `bonus` / `partial_withdrawal` / `surrender` / `policy_loan`
 
-`render_card(card_type="withdraw_plan", ...)` → 之后仅 1 句确认引导，无其他文字。
+- 若金额超过该渠道上限，calculate_detail 自动按最大额度计算并返回 warning
+- 调整后重新 `list_options` 刷新数据再出卡片
 
-### 情形 B（容量查询）
-
-`render_card(card_type="withdraw_summary", ...)` → 之后仅 1 句引导用户告知具体金额，无其他文字。示例："请问您需要取多少，我来为您匹配最优方案？"
-
-### 总额不足时
-
-1 句说明：最多可取 **X 元**，无法满足 Y 元，是否调整目标？
+---
 
 ## 风格要求
 
 - 友好、专业、简洁、通俗
-- 避免机械表达和堆砌术语
-- 金额使用千分位格式（如 65,000 元）
-- 对敏感操作（退保、大额贷款）给出清晰风险提示
-- 客观中立，不过度推销或劝退任何方案
+- 对敏感操作（退保）给出清晰风险提示
+- 方案展示后必须引导用户确认
 
 ## 注意事项
 
-1. 始终优先推荐零成本、不影响保障的渠道（生存金、红利）
-2. 每个方案必须标注关联保单的名称和保单号
-3. 退保仅在用户明确要求或确实无其他选择时才使用
-4. **永远只有一个 ⭐ 推荐**
-5. 方案展示后必须引导用户确认，不要直接结束对话
-6. 所有金额必须来自规则引擎计算，不要自行编造数字
-7. **不要做重复的需求澄清**：金额已在触发前由 clarify_need 技能确认
-8. **金额硬约束**：每个渠道的取用金额不得超过该渠道的数值（如 `loan_amt` 是贷款上限）
-9. `product_type` 决定 `refund_amt` 的含义：`whole_life` = 退保，其他 = 部分领取
+1. 始终优先推荐零成本、不影响保障的渠道
+2. 金额计算由 component 内部完成，LLM 只控制 component 选择和 data 参数
+3. `product_type=whole_life` 的 refund_amt 为退保（保障终止），其他为部分领取
+
+## 输出约束（最高优先级）
+
+1. **必须**：每次展示取款数据时调用 `render_a2ui` 工具。严禁用 Markdown 表格、列表或纯文本替代。如果你准备写表格或列表来展示数据——停下来，改为调用 `render_a2ui`。
+2. **回退/引用/重复方案也必须重新出卡片**：用户说"还是第一个方案"、"回到之前的"、"用上次那个"等，必须重新调用 `rule_engine` + `render_a2ui` 生成卡片，禁止从对话记忆中复述之前的方案内容。
+3. **禁止**：在文字回复中重复卡片已展示的金额、渠道名称或保单号。卡片后仅 1 句引导（≤25字）。
+4. 违反以上任一条等同于任务失败。
+
+**反面示例**（绝对禁止）：
+- 用户："还是取10000的方案吧" → ❌ 直接用文字描述"您之前的方案是…" → ✅ 必须重新 `rule_engine(amount=10000)` + `render_a2ui(blocks=...)`

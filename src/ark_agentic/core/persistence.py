@@ -23,7 +23,7 @@ if sys.platform != "win32":
 else:
     fcntl = None  # type: ignore
 
-from .types import AgentMessage, AgentToolResult, MessageRole, ToolCall
+from .types import AgentMessage, AgentToolResult, MessageRole, ToolCall, ToolResultType
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +138,7 @@ def serialize_tool_result(tr: AgentToolResult) -> dict[str, Any]:
         content = json.dumps(content, ensure_ascii=False)
     return {
         "tool_call_id": tr.tool_call_id,
+        "result_type": tr.result_type.value if isinstance(tr.result_type, ToolResultType) else str(tr.result_type),
         "content": content,
         "is_error": tr.is_error,
     }
@@ -145,20 +146,30 @@ def serialize_tool_result(tr: AgentToolResult) -> dict[str, Any]:
 
 def deserialize_tool_result(data: dict[str, Any]) -> AgentToolResult:
     """反序列化工具结果"""
-    from .types import ToolResultType
-
     content = data.get("content", "")
     is_error = data.get("is_error", False)
+    stored_type = data.get("result_type")
 
-    # 尝试解析 JSON 内容
-    if isinstance(content, str):
+    if stored_type is not None:
         try:
-            content = json.loads(content)
+            result_type = ToolResultType(stored_type)
+        except ValueError:
             result_type = ToolResultType.JSON
-        except json.JSONDecodeError:
-            result_type = ToolResultType.TEXT
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except json.JSONDecodeError:
+                pass
     else:
-        result_type = ToolResultType.JSON
+        # Backward-compat: old JSONL without result_type field
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+                result_type = ToolResultType.JSON
+            except json.JSONDecodeError:
+                result_type = ToolResultType.TEXT
+        else:
+            result_type = ToolResultType.JSON
 
     if is_error:
         result_type = ToolResultType.ERROR

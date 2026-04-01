@@ -22,7 +22,8 @@ export function SessionsViewTab() {
 }
 
 export function MemoryViewTab() {
-    return <MemoryView />
+    const { agentId } = useOutletContext<{ agentId: string }>()
+    return <MemoryView agentId={agentId} />
 }
 
 export default function AgentDetail() {

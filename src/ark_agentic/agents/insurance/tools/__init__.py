@@ -14,11 +14,17 @@ from pathlib import Path
 
 from ark_agentic.core.tools import RenderA2UITool
 
-from ..a2ui.extractors import withdraw_summary_extractor, withdraw_plan_extractor, policy_detail_extractor
+from ..a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
+from ..a2ui.template_extractors import (
+    policy_detail_extractor,
+    withdraw_plan_extractor,
+    withdraw_summary_extractor,
+)
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
 from .customer_info import CustomerInfoTool
+from .submit_withdrawal import SubmitWithdrawalTool
 
 _A2UI_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "a2ui" / "templates"
 _CARD_EXTRACTORS = {
@@ -28,11 +34,23 @@ _CARD_EXTRACTORS = {
 }
 
 
+_INSURANCE_STATE_KEYS = (
+    "_rule_engine_result",
+    "_policy_query_result",
+    "_customer_info_result",
+)
+
+
 def _create_render_a2ui_tool() -> RenderA2UITool:
     return RenderA2UITool(
         template_root=_A2UI_TEMPLATE_ROOT,
         extractors=_CARD_EXTRACTORS,
+        agent_blocks=INSURANCE_BLOCKS,
+        agent_components=INSURANCE_COMPONENTS,
+        root_gap=16,
+        root_padding=[16, 32, 16, 16],
         group="insurance",
+        state_keys=_INSURANCE_STATE_KEYS,
     )
 
 
@@ -44,6 +62,7 @@ __all__ = [
     "RuleEngineTool",
     "CustomerInfoTool",
     "RenderA2UITool",
+    "SubmitWithdrawalTool",
     "create_insurance_tools",
     "create_insurance_tools_minimal",
 ]
@@ -59,6 +78,7 @@ def create_insurance_tools(
         RuleEngineTool(client=client),
         CustomerInfoTool(client=client),
         _create_render_a2ui_tool(),
+        SubmitWithdrawalTool(),
     ]
 
 

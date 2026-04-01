@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol, TYPE_CHECKING
 
-from .types import AgentMessage, MessageRole
+from .types import AgentMessage, MessageRole, ToolResultType
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -608,11 +608,13 @@ class ContextCompactor:
                 tool_names = ", ".join(tc.name for tc in msg.tool_calls)
                 content += f"\n[调用工具: {tool_names}]"
             if msg.tool_results:
-                # 包含工具结果的关键信息
                 for tr in msg.tool_results:
-                    result_preview = str(tr.content)[:200]
-                    if len(str(tr.content)) > 200:
-                        result_preview += "..."
+                    if tr.result_type == ToolResultType.A2UI:
+                        result_preview = "[A2UI 卡片已渲染]"
+                    else:
+                        result_preview = str(tr.content)[:200]
+                        if len(str(tr.content)) > 200:
+                            result_preview += "..."
                     content += f"\n[工具结果: {result_preview}]"
             parts.append(f"{role}: {content}")
         return "\n\n".join(parts)

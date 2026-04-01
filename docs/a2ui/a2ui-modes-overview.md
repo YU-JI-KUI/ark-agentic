@@ -6,15 +6,15 @@
 
 ## 1. 两种交付模式
 
-| 模式 | `a2ui_mode` | Wire 形态 | 典型 Agent | LLM 工具 |
-|------|-------------|-----------|------------|----------|
-| **preset** | `"preset"` | `{ template_type, data }` | 证券 | `display_card` |
-| **dynamic** | `"dynamic"` | 完整 A2UI 组件树 | 保险 | `render_a2ui` |
+| 模式 | Wire 形态 | 典型 Agent | LLM 工具 |
+|------|-----------|------------|----------|
+| **preset** | `{ template_type, data }` | 证券 | `display_card` |
+| **dynamic** | 完整 A2UI 组件树 | 保险 | `render_a2ui` |
 
 - **preset**：后端传 `template_type` + `data`，前端按预制组件渲染。
 - **dynamic**：后端生成完整 A2UI 组件树（`components` + `data`），前端通用渲染。
 
-配置字段：`a2ui_mode`（`RunnerConfig` / `SkillConfig` / 环境变量 `A2UI_MODE`），值域 `preset | dynamic`。
+模式由 Agent factory 在工具注册时固定（证券注册 `display_card`，保险注册 `render_a2ui`），无运行时切换配置。
 
 ## 2. dynamic 模式
 
@@ -101,15 +101,12 @@ AgentToolResult.a2ui_result
 
 `core/a2ui/lean_registry.py` 提供注册表，各 Agent 在 factory 中注册 `template_type` → builder。
 
-## 4. 配置与切换
+## 4. 模式归属
 
-| 位置 | 说明 |
-|------|------|
-| `RunnerConfig.a2ui_mode` | Agent 级别 A2UI 模式 |
-| `SkillConfig.a2ui_mode` | 技能加载模式（dynamic → 优先 `SKILL_DYNAMIC_UI.md`） |
-| 环境变量 `A2UI_MODE` | 默认值来源（默认 `dynamic`） |
+模式在 Agent factory 中通过工具注册硬绑定，无独立配置字段：
 
-Agent factory 从同一来源取值，保证 RunnerConfig 与 SkillConfig 一致。
+- 保险 Agent → 注册 `render_a2ui` 工具 → dynamic 管线
+- 证券 Agent → 注册 `display_card` 工具 → preset 管线
 
 ## 5. 框架目录结构
 

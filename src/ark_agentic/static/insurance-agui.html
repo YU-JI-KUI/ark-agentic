@@ -1236,6 +1236,18 @@
                 break;
               }
 
+              case 'custom': {
+                const payload = d.ui_data;
+                if (payload && payload.relevant === 0) {
+                  thinkCard.style.display = 'none';
+                  answerBubble.textContent = '抱歉，该问题不在我的服务范围内。';
+                  answerBubble.classList.remove('hidden');
+                  answerBubble.classList.remove('typing-cursor');
+                  scrollToBottom();
+                }
+                break;
+              }
+
               case 'run_finished':
                 answerBubble.classList.remove('typing-cursor');
                 if (finalText.trim()) {

@@ -10,12 +10,15 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from .user_profile import load_user_profile, write_profile, upsert_profile_by_heading
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
+    from ..types import AgentMessage
+    from ..prompt.builder import PromptConfig
+    from .manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +155,49 @@ class MemoryFlusher:
         profile_path.parent.mkdir(parents=True, exist_ok=True)
         profile_path.write_text(profile_text, encoding="utf-8")
         logger.info("Flushed profile (overwrite) to %s", profile_path)
+
+    def make_pre_compact_callback(
+        self,
+        user_id: str,
+        prompt_config: "PromptConfig",
+        memory_manager: "MemoryManager",
+    ) -> Callable[[str, list["AgentMessage"]], Awaitable[None]]:
+        """返回 pre_compact_callback 闭包，在压缩前全量提取记忆。"""
+
+        async def _flush(session_id: str, messages: list["AgentMessage"]) -> None:
+            try:
+                from ..paths import get_memory_base_dir
+
+                base_dir = get_memory_base_dir()
+                current_profile = load_user_profile(base_dir, user_id)
+                agent_name = prompt_config.agent_name or "assistant"
+                agent_desc = prompt_config.agent_description or ""
+
+                conversation_text = "\n".join(
+                    f"{m.role.value}: {m.content or ''}" for m in messages if m.content
+                )
+
+                result = await self.flush(
+                    conversation_text=conversation_text,
+                    current_profile=current_profile,
+                    agent_name=agent_name,
+                    agent_description=agent_desc,
+                )
+
+                if result.has_content:
+                    if result.profile:
+                        write_profile(base_dir, user_id, result.profile)
+                    if result.agent_memory:
+                        ws = Path(memory_manager.config.workspace_dir) / user_id
+                        agent_memory_path = ws / "MEMORY.md"
+                        self._append_agent_memory(result.agent_memory, agent_memory_path)
+                    memory_manager.mark_dirty()
+                    logger.info("Pre-compaction memory flush completed for user %s", user_id)
+
+            except Exception as e:
+                logger.warning("Memory flush failed for user %s: %s", user_id, e)
+
+        return _flush
 
     def _append_agent_memory(self, text: str, memory_path: Path) -> None:
         """追加 agent 记忆到 MEMORY.md body。"""

@@ -56,6 +56,10 @@ class AgentEventHandler(Protocol):
         """A2UI 组件描述。"""
         ...
 
+    def on_custom_event(self, custom_type: str, custom_data: dict[str, Any]) -> None:
+        """自定义业务事件（如准入拦截）。"""
+        ...
+
 
 # ============ StreamEventBus 实现 ============
 
@@ -200,6 +204,13 @@ class StreamEventBus:
             type="text_message_content",
             content_kind="a2ui",
             custom_data=component,
+        )
+
+    def on_custom_event(self, custom_type: str, custom_data: dict[str, Any]) -> None:
+        self._emit(
+            type="custom",
+            custom_type=custom_type,
+            custom_data=custom_data,
         )
 
     # ---- 生命周期事件（由 app.py 直接调用）----

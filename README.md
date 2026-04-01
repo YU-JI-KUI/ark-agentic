@@ -470,12 +470,13 @@ src/ark_agentic/
 uv run pytest -v
 
 # 特定测试
-uv run pytest tests/core/test_runner.py -v
-uv run pytest tests/core/test_compaction.py -v
+uv run pytest tests/unit/core/test_runner.py -v
+uv run pytest tests/unit/core/test_compaction.py -v
 
-# 运行 LLM 集成测试（需要 API_KEY）
+# 运行真实 LLM compaction 集成测试（需要 API_KEY + RUN_LLM_INTEGRATION=1）
 export API_KEY=sk-xxx
-uv run pytest tests/core/test_compaction.py -v
+export RUN_LLM_INTEGRATION=1
+uv run pytest tests/unit/core/test_compaction.py -v
 ```
 
 ## 依赖管理
