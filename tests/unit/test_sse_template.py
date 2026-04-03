@@ -135,14 +135,15 @@ def test_sse_event_model():
 
 
 def test_display_card_tool():
-    """测试 DisplayCardTool 从 context 读取数据工具结果并渲染卡片"""
+    """测试 RenderA2UITool preset 模式从 context 读取数据工具结果并渲染卡片"""
     print("\n" + "=" * 60)
-    print("测试 DisplayCardTool")
+    print("测试 RenderA2UITool (preset mode)")
     print("=" * 60)
 
-    from ark_agentic.core.types import AgentToolResult, ToolCall, ToolResultType
+    from ark_agentic.core.types import ToolCall, ToolResultType
+    from ark_agentic.agents.securities.a2ui import SECURITIES_PRESETS
+    from ark_agentic.core.tools.render_a2ui import RenderA2UITool
 
-    # 与 service 层归一化后一致：顶层含 stock_list（display_card 走 TemplateRenderer 新分支）
     etf_data = {
         "stock_list": [{"secuCode": "510300", "secuName": "沪深300ETF", "mktVal": 48000}],
         "total_market_value": 48000,
@@ -150,46 +151,40 @@ def test_display_card_tool():
         "total": 1,
     }
 
-    # 模拟 runner 注入的 context（state_delta 会将工具结果合并到 state）
     context = {
         "etf_holdings": etf_data,
         "user_id": "U001",
     }
 
-    # 创建 DisplayCardTool 并执行
-    from ark_agentic.agents.securities.tools.agent.display_card import DisplayCardTool
-
-    tool = DisplayCardTool()
-    tc = ToolCall.create(name="display_card", arguments={"source_tool": "etf_holdings"})
+    tool = RenderA2UITool(preset=SECURITIES_PRESETS, group="securities")
+    tc = ToolCall.create(name="render_a2ui", arguments={"preset_type": "etf_holdings"})
 
     result = asyncio.get_event_loop().run_until_complete(tool.execute(tc, context))
 
-    # 验证
-    assert not result.is_error, f"DisplayCardTool 返回了错误: {result.content}"
+    assert not result.is_error, f"RenderA2UITool 返回了错误: {result.content}"
     assert result.result_type == ToolResultType.A2UI
     template = result.content
     assert template["template"] == "holdings_list_card"
     assert template["asset_class"] == "ETF"
-    # stock_list 被 render_holdings_list_card 转换为 holdings
     assert len(template["data"]["holdings"]) == 1
     print("   ✓ 成功从 context 读取 etf_holdings 结果")
     print(f"   ✓ template={template['template']}, asset_class={template['asset_class']}")
 
-    # 测试未找到数据的情况：display_card 返回错误，要求先调用数据工具
-    tc_bad = ToolCall.create(name="display_card", arguments={"source_tool": "hksc_holdings"})
+    # 未找到数据 — extractor 返回 error 键
+    tc_bad = ToolCall.create(name="render_a2ui", arguments={"preset_type": "hksc_holdings"})
     result_bad = asyncio.get_event_loop().run_until_complete(tool.execute(tc_bad, context))
-    assert result_bad.is_error
-    assert "hksc_holdings" in result_bad.content and ("未找到" in result_bad.content or "请先调用" in result_bad.content)
-    print("   ✓ 未找到数据时正确返回错误提示")
+    assert not result_bad.is_error  # preset extractor returns data with error key, not tool error
+    assert "error" in result_bad.content or "未找到" in str(result_bad.content)
+    print("   ✓ 未找到数据时 extractor 返回带 error 的 payload")
 
-    # 测试未知工具名
-    tc_unknown = ToolCall.create(name="display_card", arguments={"source_tool": "unknown_tool"})
+    # 未注册的 preset_type — tool 返回错误
+    tc_unknown = ToolCall.create(name="render_a2ui", arguments={"preset_type": "unknown_tool"})
     result_unknown = asyncio.get_event_loop().run_until_complete(tool.execute(tc_unknown, context))
     assert result_unknown.is_error
-    print("   ✓ 未知工具名正确返回错误")
+    print("   ✓ 未知 preset_type 正确返回错误")
 
     print("\n" + "=" * 60)
-    print("✅ DisplayCardTool 测试通过！")
+    print("✅ RenderA2UITool preset 模式测试通过！")
     print("=" * 60)
 
 

@@ -1,6 +1,7 @@
 """Tests for skill system."""
 
 import pytest
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -389,6 +390,21 @@ class TestSkillLoader:
 
             loader.reload()
             assert "Updated content" in loader.get_skill("skill1").content
+
+    def test_reload_removes_deleted_skill_from_catalog(self) -> None:
+        """Second load replaces _skills entirely; removed dirs must disappear."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._create_skill_directory(tmpdir, "keep", "A")
+            self._create_skill_directory(tmpdir, "gone", "B")
+
+            loader = SkillLoader(SkillConfig(skill_directories=[tmpdir]))
+            loader.load_from_directories()
+            assert set(loader.list_skill_ids()) == {"keep", "gone"}
+
+            shutil.rmtree(Path(tmpdir) / "gone")
+            loader.reload()
+            assert loader.list_skill_ids() == ["keep"]
+            assert loader.get_skill("gone") is None
 
 
 class TestLoadSkillsFromDirectory:

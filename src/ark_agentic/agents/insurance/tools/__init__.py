@@ -12,7 +12,7 @@
 
 from pathlib import Path
 
-from ark_agentic.core.tools import RenderA2UITool
+from ark_agentic.core.tools import BlocksConfig, RenderA2UITool, TemplateConfig
 
 from ..a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
 from ..a2ui.template_extractors import (
@@ -43,12 +43,16 @@ _INSURANCE_STATE_KEYS = (
 
 def _create_render_a2ui_tool() -> RenderA2UITool:
     return RenderA2UITool(
-        template_root=_A2UI_TEMPLATE_ROOT,
-        extractors=_CARD_EXTRACTORS,
-        agent_blocks=INSURANCE_BLOCKS,
-        agent_components=INSURANCE_COMPONENTS,
-        root_gap=16,
-        root_padding=[16, 32, 16, 16],
+        blocks=BlocksConfig(
+            agent_blocks=INSURANCE_BLOCKS,
+            agent_components=INSURANCE_COMPONENTS,
+            root_gap=16,
+            root_padding=[16, 32, 16, 16],
+        ),
+        template=TemplateConfig(
+            template_root=_A2UI_TEMPLATE_ROOT,
+            extractors=_CARD_EXTRACTORS,
+        ),
         group="insurance",
         state_keys=_INSURANCE_STATE_KEYS,
     )

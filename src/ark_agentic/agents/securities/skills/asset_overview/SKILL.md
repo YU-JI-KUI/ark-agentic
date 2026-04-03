@@ -10,7 +10,7 @@ tags:
   - account
 required_tools:
   - account_overview
-  - display_card
+  - render_a2ui
 ---
 
 # 资产总览技能
@@ -81,7 +81,7 @@ intent_schema:
 
 | 工具                              | 用途                         |
 | --------------------------------- | ---------------------------- |
-| `display_card(source_tool="xx")`  | 将已获取的数据推送至前端显示卡片 |
+| `render_a2ui(preset_type="xx")`  | 将已获取的数据推送至前端显示卡片 |
 
 ------------------------------------------------------------------------
 
@@ -107,7 +107,7 @@ intent_schema:
 
 **触发条件**：`intent.mode == MODE_TEXT`
 
-**执行内容**：基于工具数据输出文字分析，**禁止调用 display_card**。
+**执行内容**：基于工具数据输出文字分析，**禁止调用 render_a2ui**。
 
 分析内容按账户类型选取：
 
@@ -124,15 +124,15 @@ intent_schema:
 
 **执行内容**：
 
-1. 调用 `display_card(source_tool="account_overview")` 展示卡片。
+1. 调用 `render_a2ui(preset_type="account_overview")` 展示卡片。
 2. 输出一句简短确认（≤30字），无需再补充额外信息。
 
 **失败处理**：
 
 | 情况   | 行为                        |
 | ------ | --------------------------- |
-| 超时   | 不调用 display_card，文字回复 |
-| 数据为空 | 不调用 display_card，文字告知 |
+| 超时   | 不调用 render_a2ui，文字回复 |
+| 数据为空 | 不调用 render_a2ui，文字告知 |
 
 ------------------------------------------------------------------------
 
@@ -140,13 +140,13 @@ intent_schema:
 
 ### MODE_CARD
 
-- 调用 `display_card`
+- 调用 `render_a2ui`
 - 确认语 ≤30字，例如："已为您刷新并显示最新的账户资产信息。"
 - 禁止输出数值摘要或原始 JSON
 
 ### MODE_TEXT
 
-- 禁止调用 display_card
+- 禁止调用 render_a2ui
 - **总字数 ≤200字**，Markdown 格式
 
 示例（普通账户）：

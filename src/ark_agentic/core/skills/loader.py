@@ -46,7 +46,7 @@ class SkillLoader:
             加载的技能字典 {id: SkillEntry}
         """
         dirs = directories or self.config.skill_directories
-        self._skills.clear()
+        new_skills: dict[str, SkillEntry] = {}
 
         for priority, directory in enumerate(dirs):
             dir_path = Path(directory)
@@ -54,13 +54,16 @@ class SkillLoader:
                 logger.warning(f"Skill directory not found: {directory}")
                 continue
 
-            self._load_directory(dir_path, priority)
+            self._load_directory(dir_path, priority, new_skills)
 
+        self._skills = new_skills
         logger.info(f"Loaded {len(self._skills)} skills from {len(dirs)} directories")
         return self._skills
 
-    def _load_directory(self, directory: Path, priority: int) -> None:
-        """加载单个目录下的所有技能"""
+    def _load_directory(
+        self, directory: Path, priority: int, target: dict[str, SkillEntry]
+    ) -> None:
+        """加载单个目录下的所有技能到 target dict"""
         for item in directory.iterdir():
             if not item.is_dir():
                 continue
@@ -72,9 +75,9 @@ class SkillLoader:
             try:
                 skill = self._load_skill_file(skill_file, item.name, priority)
                 if skill:
-                    existing = self._skills.get(skill.id)
+                    existing = target.get(skill.id)
                     if existing is None or priority < existing.source_priority:
-                        self._skills[skill.id] = skill
+                        target[skill.id] = skill
                         logger.debug(f"Loaded skill: {skill.id} from {skill_file}")
             except Exception as e:
                 logger.error(f"Failed to load skill from {skill_file}: {e}")

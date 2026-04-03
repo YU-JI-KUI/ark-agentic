@@ -171,4 +171,11 @@ async def put_memory_content(
 
     body = await request.body()
     resolved.write_text(body.decode("utf-8"), encoding="utf-8")
+
+    try:
+        runner = get_registry().get(agent_id)
+        runner.mark_memory_dirty()
+    except KeyError:
+        pass
+
     return {"status": "saved"}

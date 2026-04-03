@@ -13,7 +13,7 @@ required_tools:
   - etf_holdings
   - hksc_holdings
   - fund_holdings
-  - display_card
+  - render_a2ui
 ---
 
 # 用户资产持仓技能
@@ -48,7 +48,7 @@ intent_schema:
 
   mode:
     enum:
-      - MODE_CARD  # 查看持仓 → 调用数据工具 + display_card 展示卡片
+      - MODE_CARD  # 查看持仓 → 调用数据工具 + render_a2ui 展示卡片
       - MODE_TEXT  # 分析持仓 → 调用数据工具 + 文字报告（含盈亏分析、占比分布）
 ```
 
@@ -117,10 +117,10 @@ intent_schema:
 
 | 工具                              | 用途                     |
 | --------------------------------- | ------------------------ |
-| `display_card(source_tool="xx")`  | 将已获取的数据推送至前端显示卡片 |
+| `render_a2ui(preset_type="xx")`  | 将已获取的数据推送至前端显示卡片 |
 
-> ⚠️ **`display_card` 必须在对应数据工具调用成功并返回数据之后才能调用。**
-> 禁止在未调用数据工具的情况下直接调用 `display_card`。
+> ⚠️ **`render_a2ui` 必须在对应数据工具调用成功并返回数据之后才能调用。**
+> 禁止在未调用数据工具的情况下直接调用 `render_a2ui`。
 
 ------------------------------------------------------------------------
 
@@ -168,20 +168,20 @@ intent_schema:
 **执行内容**：
 
 1. 先输出一句简短确认（≤30字）
-2. 调用 `display_card(source_tool="<已调用的工具名>")` 展示卡片
+2. 调用 `render_a2ui(preset_type="<已调用的工具名>")` 展示卡片
 
 **失败处理**：
 
 | 情况   | 行为                        |
 | ------ | --------------------------- |
-| 超时   | 不调用 display_card，文字回复 |
-| 空持仓 | 不调用 display_card，文字告知 |
+| 超时   | 不调用 render_a2ui，文字回复 |
+| 空持仓 | 不调用 render_a2ui，文字告知 |
 
 ### MODE_TEXT（条件触发）
 
 **触发条件**：`intent.mode == MODE_TEXT`
 
-**执行内容**：基于工具数据输出文字分析，**禁止调用 display_card**。
+**执行内容**：基于工具数据输出文字分析，**禁止调用 render_a2ui**。
 
 分析内容按用户问题侧重选取：
 
@@ -200,13 +200,13 @@ intent_schema:
 ### MODE_CARD
 
 - 确认语 ≤30字，例如："已为您刷新并显示最新的ETF持仓信息。"
-- 紧接着调用 `display_card`
+- 紧接着调用 `render_a2ui`
 - 禁止输出数值摘要或原始 JSON
 
 ### MODE_TEXT
 
 - **总字数 ≤200字**，Markdown 格式
-- 禁止调用 display_card
+- 禁止调用 render_a2ui
 
 示例（盈亏分析）：
 

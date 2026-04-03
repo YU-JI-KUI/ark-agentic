@@ -19,7 +19,7 @@ from ark_agentic.agents.insurance.a2ui.components import (
     build_withdraw_summary_section,
     build_withdraw_plan_card,
 )
-from ark_agentic.core.tools.render_a2ui import RenderA2UITool
+from ark_agentic.core.tools.render_a2ui import BlocksConfig, RenderA2UITool
 from ark_agentic.core.types import ToolCall
 
 
@@ -282,10 +282,12 @@ class TestAgentPipeline:
     @pytest.fixture
     def tool(self):
         return RenderA2UITool(
-            agent_blocks=INSURANCE_BLOCKS,
-            agent_components=INSURANCE_COMPONENTS,
-            root_gap=16,
-            root_padding=[16, 32, 16, 16],
+            blocks=BlocksConfig(
+                agent_blocks=INSURANCE_BLOCKS,
+                agent_components=INSURANCE_COMPONENTS,
+                root_gap=16,
+                root_padding=[16, 32, 16, 16],
+            ),
             group="insurance",
             state_keys=("_rule_engine_result",),
         )

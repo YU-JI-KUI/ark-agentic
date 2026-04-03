@@ -217,6 +217,11 @@ class AgentRunner:
         if self._memory_manager is not None:
             await self._memory_manager.initialize()
 
+    def mark_memory_dirty(self) -> None:
+        """标记 memory 索引需要刷新（供 Studio 写操作后调用）。"""
+        if self._memory_manager:
+            self._memory_manager.mark_dirty()
+
     async def close_memory(self) -> None:
         """释放 Memory 资源（供 lifespan shutdown 调用）。"""
         if self._memory_manager:

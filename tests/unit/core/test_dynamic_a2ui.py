@@ -10,7 +10,7 @@ from ark_agentic.core.a2ui.transforms import (
     _eval_condition,
 )
 from ark_agentic.core.a2ui.flattener import TreeFlattener, _resolve_binding
-from ark_agentic.core.tools.render_a2ui import RenderA2UITool
+from ark_agentic.core.tools.render_a2ui import BlocksConfig, RenderA2UITool
 from ark_agentic.core.types import RunOptions, ToolCall
 
 
@@ -371,10 +371,12 @@ class TestRenderA2UITool:
     def tool(self):
         from ark_agentic.agents.insurance.a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
         return RenderA2UITool(
-            agent_blocks=INSURANCE_BLOCKS,
-            agent_components=INSURANCE_COMPONENTS,
-            root_gap=16,
-            root_padding=[16, 32, 16, 16],
+            blocks=BlocksConfig(
+                agent_blocks=INSURANCE_BLOCKS,
+                agent_components=INSURANCE_COMPONENTS,
+                root_gap=16,
+                root_padding=[16, 32, 16, 16],
+            ),
             group="insurance",
         )
 
@@ -667,8 +669,10 @@ class TestStrictValidationMode:
     def tool(self):
         from ark_agentic.agents.insurance.a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
         return RenderA2UITool(
-            agent_blocks=INSURANCE_BLOCKS,
-            agent_components=INSURANCE_COMPONENTS,
+            blocks=BlocksConfig(
+                agent_blocks=INSURANCE_BLOCKS,
+                agent_components=INSURANCE_COMPONENTS,
+            ),
             group="insurance",
         )
 

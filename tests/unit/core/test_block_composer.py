@@ -15,7 +15,7 @@ from ark_agentic.core.a2ui.blocks import (
     PAGE_BG,
 )
 from ark_agentic.core.a2ui.composer import BlockComposer
-from ark_agentic.core.tools.render_a2ui import RenderA2UITool
+from ark_agentic.core.tools.render_a2ui import BlocksConfig, RenderA2UITool
 from ark_agentic.core.types import ToolCall
 
 
@@ -172,7 +172,7 @@ class TestBlockComposer:
 class TestRenderA2UITool:
     @pytest.fixture
     def tool(self):
-        return RenderA2UITool()
+        return RenderA2UITool(blocks=BlocksConfig())
 
     @pytest.mark.asyncio
     async def test_invalid_blocks_json(self, tool):

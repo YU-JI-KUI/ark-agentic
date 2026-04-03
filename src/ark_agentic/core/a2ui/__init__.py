@@ -13,7 +13,7 @@ from .blocks import (
     get_block_types,
 )
 from .composer import BlockComposer
-from .lean_registry import build_lean_payload, register_lean_card, list_lean_types
+from .lean_registry import PresetRegistry
 
 __all__ = [
     "render_from_template",
@@ -32,7 +32,5 @@ __all__ = [
     "get_block_builder",
     "get_block_types",
     "BlockComposer",
-    "build_lean_payload",
-    "register_lean_card",
-    "list_lean_types",
+    "PresetRegistry",
 ]

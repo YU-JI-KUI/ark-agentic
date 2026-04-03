@@ -216,8 +216,9 @@ class StreamEventBus:
     # ---- 生命周期事件（由 app.py 直接调用）----
 
     def emit_created(self, content: str = "收到您的消息，正在处理中…") -> None:
-        """发送 run_started 事件。"""
-        self._emit(type="run_started", run_content=content)
+        """发送 run_started 事件，并立即开启初始 step 保证 reasoning_start 紧跟其后。"""
+        self._emit(type="run_started")
+        self.on_step(content)
 
     def emit_completed(
         self,

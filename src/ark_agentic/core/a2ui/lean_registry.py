@@ -1,51 +1,52 @@
 """
-LeanTemplateRegistry — preset mode card registry.
+PresetRegistry — per-agent preset card registry.
 
-In preset mode the backend sends `{ template_type, data }` and the frontend
-renders a prebuilt component.  Each `template_type` is registered with a
-builder that returns A2UIOutput: template_data for UI, plus optional
-llm_digest / state_delta for LLM context and session state.
+In preset mode the extractor produces a frontend-ready payload (e.g.
+TemplateRenderer output) as ``A2UIOutput.template_data``.  The tool
+returns it directly — no component-tree assembly, no template.json.
+
+Each extractor follows the ``CardExtractor`` protocol:
+    (context: dict, card_args: dict | None) -> A2UIOutput
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from .blocks import A2UIOutput
 
+if TYPE_CHECKING:
+    from ..tools.render_a2ui import CardExtractor
+
 logger = logging.getLogger(__name__)
 
-LeanCardBuilder = Callable[[dict[str, Any]], A2UIOutput]
 
-_LEAN_REGISTRY: dict[str, LeanCardBuilder] = {}
+class PresetRegistry:
+    """Per-agent preset card registry.
 
+    Each entry maps a card type name to a ``CardExtractor`` callable:
+        (context: dict, card_args: dict | None) -> A2UIOutput
 
-def register_lean_card(template_type: str, builder: LeanCardBuilder) -> None:
-    """Register a preset card builder for a given template_type."""
-    _LEAN_REGISTRY[template_type] = builder
-
-
-def get_lean_builder(template_type: str) -> LeanCardBuilder | None:
-    return _LEAN_REGISTRY.get(template_type)
-
-
-def build_lean_payload(
-    template_type: str, data: dict[str, Any]
-) -> tuple[dict[str, Any], A2UIOutput]:
-    """Build a preset-mode payload and return enrichment metadata.
-
-    Returns (payload_dict, A2UIOutput). Callers use the payload for the
-    frontend event and A2UIOutput.llm_digest / .state_delta for metadata routing.
+    ``A2UIOutput.template_data`` is returned as-is to the frontend.
     """
-    builder = _LEAN_REGISTRY.get(template_type)
-    output = builder(data) if builder else A2UIOutput(template_data=data)
-    payload = {
-        "template_type": template_type,
-        "data": output.template_data,
-    }
-    return payload, output
 
+    def __init__(self) -> None:
+        self._extractors: dict[str, Any] = {}
 
-def list_lean_types() -> list[str]:
-    return sorted(_LEAN_REGISTRY.keys())
+    def register(self, card_type: str, extractor: CardExtractor) -> PresetRegistry:
+        self._extractors[card_type] = extractor
+        return self
+
+    def get(self, card_type: str) -> CardExtractor | None:
+        return self._extractors.get(card_type)
+
+    @property
+    def types(self) -> list[str]:
+        return sorted(self._extractors.keys())
+
+    def __len__(self) -> int:
+        return len(self._extractors)
+
+    def __bool__(self) -> bool:
+        return bool(self._extractors)

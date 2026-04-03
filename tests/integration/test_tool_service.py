@@ -122,6 +122,40 @@ def test_list_tools_with_data(seeded_root):
     assert tools[0].name == "my_existing"
 
 
+def test_list_tools_discovers_nested_agent_tool(agents_root: Path):
+    """rglob: tools under subdirs (e.g. tools/agent/) are listed with correct file_path."""
+    sub = agents_root / "test_agent" / "tools" / "agent"
+    sub.mkdir(parents=True)
+    code = '''
+from ark_agentic.core.tools.base import AgentTool
+from ark_agentic.core.types import AgentToolResult, ToolCall
+
+class NestedTool(AgentTool):
+    """nested"""
+    name = "nested_tool"
+    description = "from subdir"
+    parameters = []
+
+    async def execute(self, tool_call: ToolCall) -> AgentToolResult:
+        return AgentToolResult(output="ok")
+'''
+    (sub / "nested_tool.py").write_text(code, encoding="utf-8")
+
+    tools = list_tools(agents_root, "test_agent")
+    names = {t.name for t in tools}
+    assert "nested_tool" in names
+    nested = next(t for t in tools if t.name == "nested_tool")
+    assert nested.file_path.replace("\\", "/") == "tools/agent/nested_tool.py"
+
+
+def test_parse_tool_file_file_path_relative_to_agent_dir(seeded_root: Path):
+    tool_file = seeded_root / "test_agent" / "tools" / "my_existing.py"
+    agent_dir = seeded_root / "test_agent"
+    meta = parse_tool_file(tool_file, "test_agent", agent_dir)
+    assert meta is not None
+    assert meta.file_path.replace("\\", "/") == "tools/my_existing.py"
+
+
 # ── Template Render ─────────────────────────────────────────────────
 
 def test_render_tool_template():

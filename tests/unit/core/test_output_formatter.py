@@ -275,6 +275,56 @@ class TestEnterpriseAGUIFormatter:
         assert etype == "reasoning_start"
 
 
+class TestEnterpriseReasoningBeforeText:
+    """Integration: reasoning phase always completes before text phase."""
+
+    @staticmethod
+    def _collect_enterprise_event_types(sse_chunks: list[str | None]) -> list[str]:
+        """Extract ordered enterprise event types from formatter output."""
+        types: list[str] = []
+        for chunk in sse_chunks:
+            if chunk is None:
+                continue
+            for block in chunk.split("\n\n"):
+                block = block.strip()
+                if not block:
+                    continue
+                for line in block.split("\n"):
+                    if line.startswith("event: "):
+                        types.append(line[7:])
+        return types
+
+    def test_step_then_text_produces_reasoning_end_before_text_start(self) -> None:
+        """run_started → step_started → text_message_start must yield
+        reasoning_start ... reasoning_end ... text_message_start."""
+        f = EnterpriseAGUIFormatter()
+        chunks = [
+            f.format(_event(type="run_started", run_content="处理中")),
+            f.format(_event(type="step_started", step_name="处理中")),
+            f.format(_event(type="text_message_start", message_id="m1")),
+            f.format(_event(type="text_message_content", delta="你好", message_id="m1")),
+            f.format(_event(type="text_message_end", message_id="m1")),
+            f.format(_event(type="run_finished", message="done", turns=1)),
+        ]
+        types = self._collect_enterprise_event_types(chunks)
+        ri = types.index("reasoning_start")
+        re = types.index("reasoning_end")
+        ti = types.index("text_message_start")
+        assert ri < re < ti
+
+    def test_step_then_another_step_stays_in_reasoning(self) -> None:
+        """Consecutive step_started events keep reasoning open (no reasoning_end between them)."""
+        f = EnterpriseAGUIFormatter()
+        chunks = [
+            f.format(_event(type="run_started", run_content="处理中")),
+            f.format(_event(type="step_started", step_name="初始")),
+            f.format(_event(type="step_started", step_name="查询中")),
+        ]
+        types = self._collect_enterprise_event_types(chunks)
+        assert types.count("reasoning_start") == 1
+        assert "reasoning_end" not in types
+
+
 class TestAloneFormatter:
     def test_run_started_maps_to_sa_ready(self) -> None:
         f = AloneFormatter()

@@ -11,6 +11,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ark_agentic.api.deps import get_registry
 from ark_agentic.core.utils.env import get_agents_root
 from ..services import skill_service
 from ..services.skill_service import SkillMeta
@@ -38,6 +39,19 @@ class SkillListResponse(BaseModel):
     skills: list[SkillMeta]
 
 
+# ── Helpers ──────────────────────────────────────────────────────────
+
+def _reload_skills(agent_id: str) -> None:
+    """写操作后刷新对应 runner 的 skill 缓存"""
+    try:
+        runner = get_registry().get(agent_id)
+        if runner.skill_loader:
+            runner.skill_loader.reload()
+            logger.info("Reloaded skills for agent '%s'", agent_id)
+    except KeyError:
+        pass
+
+
 # ── Endpoints ───────────────────────────────────────────────────────
 
 @router.get("/agents/{agent_id}/skills", response_model=SkillListResponse)
@@ -56,7 +70,7 @@ async def create_skill(agent_id: str, req: SkillCreateRequest):
     """创建新 Skill。"""
     root = get_agents_root(__file__)
     try:
-        return skill_service.create_skill(
+        result = skill_service.create_skill(
             root, agent_id, req.name, req.description, req.content,
         )
     except FileNotFoundError:
@@ -65,6 +79,8 @@ async def create_skill(agent_id: str, req: SkillCreateRequest):
         raise HTTPException(status_code=409, detail=f"Skill already exists")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    _reload_skills(agent_id)
+    return result
 
 
 @router.put("/agents/{agent_id}/skills/{skill_id}", response_model=SkillMeta)
@@ -72,12 +88,14 @@ async def update_skill(agent_id: str, skill_id: str, req: SkillUpdateRequest):
     """更新 Skill 内容。"""
     root = get_agents_root(__file__)
     try:
-        return skill_service.update_skill(
+        result = skill_service.update_skill(
             root, agent_id, skill_id,
             name=req.name, description=req.description, content=req.content,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
+    _reload_skills(agent_id)
+    return result
 
 
 @router.delete("/agents/{agent_id}/skills/{skill_id}")
@@ -90,4 +108,5 @@ async def delete_skill(agent_id: str, skill_id: str):
         raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    _reload_skills(agent_id)
     return {"status": "deleted", "skill_id": skill_id}

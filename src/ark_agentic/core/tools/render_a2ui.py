@@ -1,11 +1,12 @@
 """
-Unified A2UI rendering tool: blocks path + optional card_type template path.
+Unified A2UI rendering tool with three mutually-exclusive paths:
 
-Two paths via mutual-exclusion:
-  blocks   → agent pipeline (dynamic block/component composition)
-  card_type → render_from_template pipeline (deterministic JSON template)
+  blocks      → dynamic block/component composition  → full A2UI event
+  card_type   → template.json + extractor            → full A2UI event
+  preset_type → extractor → frontend-ready payload   → lean preset
 
-surface_id presence implies surfaceUpdate; absence implies beginRendering.
+Parameters exposed to the LLM are generated dynamically based on which
+modes are configured via BlocksConfig / TemplateConfig / PresetRegistry.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import json
 import logging
 import os
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -24,6 +26,7 @@ from ..a2ui import render_from_template
 from ..a2ui.blocks import _comp, A2UIOutput, IdGen, PAGE_BG, CARD_BG, CARD_RADIUS
 from ..a2ui.composer import BlockComposer, resolve_block_data
 from ..a2ui.guard import validate_full_payload
+from ..a2ui.lean_registry import PresetRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,32 @@ class CardExtractor(Protocol):
     def __call__(self, context: dict[str, Any], card_args: dict[str, Any] | None) -> A2UIOutput: ...
 
 
+# ---------------------------------------------------------------------------
+# Config objects — group mode-specific parameters
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class BlocksConfig:
+    """Configuration for the *blocks* rendering mode (dynamic composition)."""
+
+    agent_blocks: dict[str, Callable] = field(default_factory=dict)
+    agent_components: dict[str, Callable] = field(default_factory=dict)
+    root_gap: int = 0
+    root_padding: int | list[int] = 2
+
+
+@dataclass(frozen=True)
+class TemplateConfig:
+    """Configuration for the *card_type* rendering mode (template.json)."""
+
+    template_root: Path
+    extractors: dict[str, CardExtractor]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def _attach_enrichment(result: AgentToolResult, output: A2UIOutput) -> None:
     """Route llm_digest and state_delta from A2UIOutput into AgentToolResult.metadata."""
     if output.llm_digest:
@@ -50,23 +79,49 @@ def _attach_enrichment(result: AgentToolResult, output: A2UIOutput) -> None:
         result.metadata["state_delta"] = existing
 
 
+class _CardArgsError(Exception):
+    pass
+
+
+def _parse_card_args(args: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse the optional card_args JSON string from tool arguments.
+
+    Raises ``_CardArgsError`` when the raw value is present but not valid JSON.
+    """
+    card_args_raw = args.get("card_args")
+    if card_args_raw is None or not str(card_args_raw).strip():
+        return None
+    try:
+        parsed = json.loads(str(card_args_raw))
+    except json.JSONDecodeError as e:
+        raise _CardArgsError(f"card_args 不是合法 JSON: {e}") from e
+    return parsed if isinstance(parsed, dict) else None
+
+
+# ---------------------------------------------------------------------------
+# Tool
+# ---------------------------------------------------------------------------
+
 class RenderA2UITool(AgentTool):
     """Unified A2UI rendering tool.
 
-    blocks path: LLM provides block descriptors (+optional transforms) →
-        BlockComposer expands into full A2UI payload.
-    card_type path: loads template.json + extractor → full A2UI payload.
+    Supports up to three rendering modes, each enabled by its config object:
 
-    Both paths share the same validation pipeline.
+    - **blocks** (``BlocksConfig``): LLM provides block descriptors →
+      BlockComposer expands into a full A2UI event payload.
+    - **card_type** (``TemplateConfig``): loads template.json + extractor →
+      full A2UI event payload.
+    - **preset_type** (``PresetRegistry``): extractor produces a
+      frontend-ready payload returned as-is (lean preset).
+
+    Modes are mutually exclusive *per call*; a single tool instance may
+    support multiple modes simultaneously.  LLM-visible ``parameters`` are
+    generated dynamically based on which configs are provided.
     """
 
     name = "render_a2ui"
+    description = "渲染 A2UI 卡片。"
     thinking_hint = "正在生成内容卡片..."
-    description = (
-        "渲染 A2UI 卡片。"
-        "blocks 模式：传入块描述数组动态组合；"
-        "card_type 模式：加载预定义模板。二者互斥。"
-    )
 
     group: str | None = None
 
@@ -74,63 +129,113 @@ class RenderA2UITool(AgentTool):
 
     def __init__(
         self,
-        template_root: str | Path | None = None,
-        extractors: dict[str, CardExtractor] | None = None,
+        blocks: BlocksConfig | None = None,
+        template: TemplateConfig | None = None,
+        preset: PresetRegistry | None = None,
         group: str | None = None,
-        agent_blocks: dict[str, Callable] | None = None,
-        agent_components: dict[str, Callable] | None = None,
-        root_gap: int = 0,
-        root_padding: int | list[int] = 2,
         state_keys: tuple[str, ...] = (),
     ):
-        self._template_root = Path(template_root) if template_root else None
-        self._extractors: dict[str, CardExtractor] = dict(extractors or {})
-        self._agent_blocks: dict[str, Callable] = dict(agent_blocks or {})
-        self._agent_components: dict[str, Callable] = dict(agent_components or {})
-        self._root_gap = root_gap
-        self._root_padding = root_padding
+        self._blocks = blocks
+        self._template = template
+        self._preset = preset
         self._state_keys = state_keys
 
-        card_types = list(self._extractors.keys())
-        available_types = (
-            sorted(self._agent_blocks.keys())
-            + ["Card"]
-            + sorted(self._agent_components.keys())
-        )
-        blocks_desc = ", ".join(available_types) if available_types != ["Card"] else "（未配置 agent blocks）"
-        self.parameters = [
-            ToolParameter(
+        if group is not None:
+            self.group = group
+
+        self.description = self._build_description()
+        self.parameters = self._build_parameters()
+
+    # ---- dynamic parameter generation ----
+
+    def _build_description(self) -> str:
+        modes: list[str] = []
+        if self._blocks:
+            modes.append("blocks 模式（动态组合）")
+        if self._template:
+            modes.append("card_type 模式（模板渲染）")
+        if self._preset:
+            modes.append("preset_type 模式（预设卡片）")
+        if not modes:
+            return "渲染 A2UI 卡片。"
+        suffix = "；".join(modes)
+        exclusive = "互斥，每次只传其一。" if len(modes) > 1 else ""
+        return f"渲染 A2UI 卡片。{suffix}。{exclusive}"
+
+    def _build_parameters(self) -> list[ToolParameter]:
+        params: list[ToolParameter] = []
+
+        if self._blocks:
+            available_types = (
+                sorted(self._blocks.agent_blocks.keys())
+                + ["Card"]
+                + sorted(self._blocks.agent_components.keys())
+            )
+            blocks_desc = ", ".join(available_types)
+            exclusive = self._exclusive_hint("blocks")
+            params.append(ToolParameter(
                 name="blocks",
                 type="string",
                 description=(
-                    "块描述 JSON 数组字符串。每个元素为 {\"type\": \"BlockType\", \"data\": {...}}。"
-                    f"可用类型：{blocks_desc}。"
-                    "与 card_type 互斥。"
+                    f"块描述 JSON 数组字符串。每个元素为 {{\"type\": \"BlockType\", \"data\": {{...}}}}。"
+                    f"可用类型：{blocks_desc}。{exclusive}"
                 ),
                 required=False,
-            ),
-            ToolParameter(
+            ))
+
+        if self._template:
+            card_types = list(self._template.extractors.keys())
+            exclusive = self._exclusive_hint("card_type")
+            params.append(ToolParameter(
                 name="card_type",
                 type="string",
-                description="预定义卡片类型，加载对应模板渲染。与 blocks 互斥。",
+                description=f"预定义卡片类型，加载对应模板渲染。{exclusive}",
                 required=False,
                 enum=card_types if card_types else None,
-            ),
-            ToolParameter(
+            ))
+
+        if self._preset:
+            preset_types = self._preset.types
+            exclusive = self._exclusive_hint("preset_type")
+            params.append(ToolParameter(
+                name="preset_type",
+                type="string",
+                description=f"预设卡片类型，直接渲染数据卡片。{exclusive}",
+                required=False,
+                enum=preset_types if preset_types else None,
+            ))
+
+        if self._template or self._preset:
+            params.append(ToolParameter(
                 name="card_args",
                 type="string",
-                description="card_type 模式下的可选 JSON 参数（文案等）。",
+                description="可选 JSON 参数（文案等），供 card_type / preset_type 使用。",
                 required=False,
-            ),
-            ToolParameter(
+            ))
+
+        if self._blocks or self._template:
+            params.append(ToolParameter(
                 name="surface_id",
                 type="string",
                 description="已有画布 ID。有则更新已有画布（surfaceUpdate），无则创建新画布。",
                 required=False,
-            ),
-        ]
-        if group is not None:
-            self.group = group
+            ))
+
+        return params
+
+    def _exclusive_hint(self, current: str) -> str:
+        others: list[str] = []
+        if self._blocks and current != "blocks":
+            others.append("blocks")
+        if self._template and current != "card_type":
+            others.append("card_type")
+        if self._preset and current != "preset_type":
+            others.append("preset_type")
+        if not others:
+            return ""
+        return f"与 {', '.join(others)} 互斥。"
+
+    # ---- execute dispatch ----
 
     async def execute(
         self, tool_call: ToolCall, context: dict[str, Any] | None = None
@@ -140,27 +245,38 @@ class RenderA2UITool(AgentTool):
 
         blocks_raw = args.get("blocks")
         card_type = (args.get("card_type") or "").strip()
-        has_blocks = blocks_raw is not None and str(blocks_raw).strip()
-        has_card_type = bool(card_type)
+        preset_type = (args.get("preset_type") or "").strip()
 
-        if has_blocks and has_card_type:
+        has_blocks = bool(blocks_raw is not None and str(blocks_raw).strip())
+        has_card_type = bool(card_type)
+        has_preset_type = bool(preset_type)
+
+        chosen = has_blocks + has_card_type + has_preset_type
+        if chosen > 1:
             return AgentToolResult.error_result(
-                tool_call.id, "blocks 和 card_type 互斥，只能传其一。"
+                tool_call.id, "blocks / card_type / preset_type 互斥，只能传其一。"
             )
-        if not has_blocks and not has_card_type:
+        if chosen == 0:
             return AgentToolResult.error_result(
-                tool_call.id, "必须传入 blocks 或 card_type 之一。"
+                tool_call.id, "必须传入 blocks、card_type 或 preset_type 之一。"
             )
 
         if has_blocks:
             return await self._execute_blocks(tool_call, ctx, args)
-        return await self._execute_template(tool_call, ctx, card_type, args)
+        if has_card_type:
+            return await self._execute_template(tool_call, ctx, card_type, args)
+        return await self._execute_preset(tool_call, ctx, preset_type, args)
 
     # ---- blocks path ----
 
     async def _execute_blocks(
         self, tool_call: ToolCall, ctx: dict[str, Any], args: dict[str, Any]
     ) -> AgentToolResult:
+        if not self._blocks:
+            return AgentToolResult.error_result(
+                tool_call.id, "blocks 模式不可用：未配置 BlocksConfig。"
+            )
+
         blocks_raw = args.get("blocks", "")
         surface_id = (args.get("surface_id") or "").strip()
         event = "surfaceUpdate" if surface_id else "beginRendering"
@@ -178,7 +294,7 @@ class RenderA2UITool(AgentTool):
 
         raw_data = _collect_raw_data(ctx, self._state_keys)
 
-        if not self._agent_blocks and not self._agent_components:
+        if not self._blocks.agent_blocks and not self._blocks.agent_components:
             session_id = str(ctx.get("session_id", ""))
             try:
                 payload = _composer.compose(
@@ -231,8 +347,8 @@ class RenderA2UITool(AgentTool):
         root = _comp(root_id, "Column", {
             "width": 100,
             "backgroundColor": PAGE_BG,
-            "padding": self._root_padding,
-            "gap": self._root_gap,
+            "padding": self._blocks.root_padding,
+            "gap": self._blocks.root_gap,
             "children": {"explicitList": root_children},
         })
 
@@ -264,6 +380,9 @@ class RenderA2UITool(AgentTool):
         raw_data: dict[str, Any],
         _depth: int = 0,
     ) -> A2UIOutput:
+        if not self._blocks:
+            raise ValueError("blocks 模式不可用")
+
         block_type = desc.get("type", "")
 
         if block_type == "Card":
@@ -275,18 +394,18 @@ class RenderA2UITool(AgentTool):
 
         block_data = resolve_block_data(desc.get("data", {}), raw_data) if raw_data else desc.get("data", {})
 
-        if block_type in self._agent_components:
-            return self._agent_components[block_type](block_data, id_gen, raw_data)
+        if block_type in self._blocks.agent_components:
+            return self._blocks.agent_components[block_type](block_data, id_gen, raw_data)
 
-        if block_type in self._agent_blocks:
+        if block_type in self._blocks.agent_blocks:
             return A2UIOutput(
-                components=self._agent_blocks[block_type](block_data, id_gen),
+                components=self._blocks.agent_blocks[block_type](block_data, id_gen),
             )
 
         available = sorted(
-            list(self._agent_blocks.keys())
+            list(self._blocks.agent_blocks.keys())
             + ["Card"]
-            + list(self._agent_components.keys())
+            + list(self._blocks.agent_components.keys())
         )
         raise ValueError(f"Unknown type '{block_type}'. Available: {available}")
 
@@ -342,29 +461,22 @@ class RenderA2UITool(AgentTool):
     async def _execute_template(
         self, tool_call: ToolCall, ctx: dict[str, Any], card_type: str, args: dict[str, Any]
     ) -> AgentToolResult:
-        if self._template_root is None or not self._extractors:
+        if self._template is None:
             return AgentToolResult.error_result(
-                tool_call.id, "card_type 模式不可用：未配置模板或提取器。"
+                tool_call.id, "card_type 模式不可用：未配置 TemplateConfig。"
             )
-        if card_type not in self._extractors:
+        if card_type not in self._template.extractors:
             return AgentToolResult.error_result(
                 tool_call.id,
-                f"不支持的卡片类型: {card_type}。可选: {', '.join(self._extractors.keys())}",
+                f"不支持的卡片类型: {card_type}。可选: {', '.join(self._template.extractors.keys())}",
             )
 
-        card_args_raw = args.get("card_args")
-        card_args: dict[str, Any] | None = None
-        if card_args_raw is not None and str(card_args_raw).strip():
-            try:
-                card_args = json.loads(str(card_args_raw))
-            except json.JSONDecodeError as e:
-                return AgentToolResult.error_result(
-                    tool_call.id, f"card_args 不是合法 JSON: {e}"
-                )
-            if not isinstance(card_args, dict):
-                card_args = None
+        try:
+            card_args = _parse_card_args(args)
+        except _CardArgsError as e:
+            return AgentToolResult.error_result(tool_call.id, str(e))
 
-        extractor = self._extractors[card_type]
+        extractor = self._template.extractors[card_type]
         try:
             output = extractor(ctx, card_args)
         except Exception as e:
@@ -377,7 +489,7 @@ class RenderA2UITool(AgentTool):
         session_id = str(ctx.get("session_id", ""))
         try:
             payload = render_from_template(
-                self._template_root,
+                self._template.template_root,
                 card_type,
                 flat_data,
                 session_id=session_id,
@@ -400,7 +512,41 @@ class RenderA2UITool(AgentTool):
         _attach_enrichment(result, output)
         return result
 
-    # ---- shared validation ----
+    # ---- preset path ----
+
+    async def _execute_preset(
+        self, tool_call: ToolCall, ctx: dict[str, Any], preset_type: str, args: dict[str, Any]
+    ) -> AgentToolResult:
+        if not self._preset:
+            return AgentToolResult.error_result(
+                tool_call.id, "preset_type 模式不可用：未配置 PresetRegistry。"
+            )
+
+        extractor = self._preset.get(preset_type)
+        if extractor is None:
+            return AgentToolResult.error_result(
+                tool_call.id,
+                f"不支持的预设类型: {preset_type}。可选: {', '.join(self._preset.types)}",
+            )
+
+        try:
+            card_args = _parse_card_args(args)
+        except _CardArgsError as e:
+            return AgentToolResult.error_result(tool_call.id, str(e))
+
+        try:
+            output = extractor(ctx, card_args)
+        except Exception as e:
+            logger.exception("预设提取器执行失败: preset_type=%s", preset_type)
+            return AgentToolResult.error_result(
+                tool_call.id, f"数据提取失败: {e}"
+            )
+
+        result = AgentToolResult.a2ui_result(tool_call.id, output.template_data)
+        _attach_enrichment(result, output)
+        return result
+
+    # ---- shared validation (blocks + template paths) ----
 
     def _validate_and_return(
         self,

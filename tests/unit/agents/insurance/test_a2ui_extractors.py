@@ -942,7 +942,7 @@ async def test_insurance_render_a2ui_all_three_types_render_successfully(
         withdraw_plan_extractor,
         withdraw_summary_extractor,
     )
-    from ark_agentic.core.tools import RenderA2UITool
+    from ark_agentic.core.tools import RenderA2UITool, TemplateConfig
     from ark_agentic.core.types import ToolCall
 
     template_root = (
@@ -955,12 +955,14 @@ async def test_insurance_render_a2ui_all_three_types_render_successfully(
         / "templates"
     )
     tool = RenderA2UITool(
-        template_root=template_root,
-        extractors={
-            "withdraw_summary": withdraw_summary_extractor,
-            "withdraw_plan": withdraw_plan_extractor,
-            "policy_detail": policy_detail_extractor,
-        },
+        template=TemplateConfig(
+            template_root=template_root,
+            extractors={
+                "withdraw_summary": withdraw_summary_extractor,
+                "withdraw_plan": withdraw_plan_extractor,
+                "policy_detail": policy_detail_extractor,
+            },
+        ),
     )
     ctx = {**_minimal_rule_engine_context, "session_id": "s1"}
 
