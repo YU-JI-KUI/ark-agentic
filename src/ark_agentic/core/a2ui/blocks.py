@@ -1,5 +1,10 @@
 """
-A2UI Block Infrastructure: design tokens, helpers, and registry.
+A2UI Block Infrastructure: helpers, registry, and backward-compat token aliases.
+
+Visual design tokens are defined in ``theme.py`` (``A2UITheme``).
+The module-level constants below (ACCENT, PAGE_BG, …) are aliases derived from
+the default theme instance — kept for backward compatibility with existing agent
+imports.  New code should prefer ``A2UITheme`` directly.
 
 Concrete block builders are registered by each agent (e.g. insurance/a2ui/blocks.py).
 Core keeps only the shared toolkit; the registry starts empty.
@@ -11,27 +16,25 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .theme import A2UITheme
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Design tokens  (single source of truth for all block styles)
+# Design token aliases (backward-compat — canonical values live in A2UITheme)
 # ---------------------------------------------------------------------------
 
-ACCENT = "#FF6600"
-TITLE_COLOR = "#333333"
-BODY_COLOR = "#333333"
-HINT_COLOR = "#999999"
-NOTE_COLOR = "#666666"
-CARD_BG = "#FFFFFF"
-PAGE_BG = "#F5F5F5"
-DIVIDER_COLOR = "#F5F5F5"
-CARD_RADIUS = "middle"
-CARD_WIDTH = 96
-CARD_PADDING = 16
-HEADER_PADDING = 20
-SECTION_GAP = 12
-HEADER_GAP = 8
-KV_ROW_WIDTH = 98
+_DEFAULT_THEME = A2UITheme()
+
+ACCENT = _DEFAULT_THEME.accent
+TITLE_COLOR = _DEFAULT_THEME.title_color
+BODY_COLOR = _DEFAULT_THEME.body_color
+HINT_COLOR = _DEFAULT_THEME.hint_color
+NOTE_COLOR = _DEFAULT_THEME.note_color
+CARD_BG = _DEFAULT_THEME.card_bg
+PAGE_BG = _DEFAULT_THEME.page_bg
+DIVIDER_COLOR = _DEFAULT_THEME.divider_color
+CARD_RADIUS = _DEFAULT_THEME.card_radius
 
 # ---------------------------------------------------------------------------
 # Binding helpers  (moved from flattener.py – sole owner)

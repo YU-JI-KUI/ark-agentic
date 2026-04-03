@@ -13,7 +13,8 @@ from .blocks import (
     get_block_types,
 )
 from .composer import BlockComposer
-from .lean_registry import PresetRegistry
+from .preset_registry import PresetRegistry
+from .theme import A2UITheme
 
 __all__ = [
     "render_from_template",
@@ -33,4 +34,5 @@ __all__ = [
     "get_block_types",
     "BlockComposer",
     "PresetRegistry",
+    "A2UITheme",
 ]

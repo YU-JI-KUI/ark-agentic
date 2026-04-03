@@ -23,10 +23,11 @@ from typing import Any, Callable, Protocol
 from .base import AgentTool, ToolParameter
 from ..types import AgentToolResult, ToolCall
 from ..a2ui import render_from_template
-from ..a2ui.blocks import _comp, A2UIOutput, IdGen, PAGE_BG, CARD_BG, CARD_RADIUS
+from ..a2ui.blocks import _comp, A2UIOutput, IdGen
+from ..a2ui.theme import A2UITheme
 from ..a2ui.composer import BlockComposer, resolve_block_data
 from ..a2ui.guard import validate_full_payload
-from ..a2ui.lean_registry import PresetRegistry
+from ..a2ui.preset_registry import PresetRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,7 @@ class BlocksConfig:
 
     agent_blocks: dict[str, Callable] = field(default_factory=dict)
     agent_components: dict[str, Callable] = field(default_factory=dict)
-    root_gap: int = 0
-    root_padding: int | list[int] = 2
+    theme: A2UITheme | None = None
 
 
 @dataclass(frozen=True)
@@ -126,6 +126,12 @@ class RenderA2UITool(AgentTool):
     group: str | None = None
 
     _MAX_CARD_DEPTH = 3
+
+    @property
+    def _theme(self) -> A2UITheme:
+        if self._blocks and self._blocks.theme:
+            return self._blocks.theme
+        return A2UITheme()
 
     def __init__(
         self,
@@ -346,9 +352,9 @@ class RenderA2UITool(AgentTool):
         root_id = id_gen("root")
         root = _comp(root_id, "Column", {
             "width": 100,
-            "backgroundColor": PAGE_BG,
-            "padding": self._blocks.root_padding,
-            "gap": self._blocks.root_gap,
+            "backgroundColor": self._theme.page_bg,
+            "padding": self._theme.root_padding,
+            "gap": self._theme.root_gap,
             "children": {"explicitList": root_children},
         })
 
@@ -440,14 +446,14 @@ class RenderA2UITool(AgentTool):
                         merged_state[k] = v
 
         col = _comp(col_id, "Column", {
-            "gap": data.get("gap", 8),
+            "gap": data.get("gap", self._theme.header_gap),
             "children": {"explicitList": child_ids},
         })
         card = _comp(card_id, "Card", {
             "width": 100,
-            "backgroundColor": CARD_BG,
-            "borderRadius": CARD_RADIUS,
-            "padding": data.get("padding", 16),
+            "backgroundColor": self._theme.card_bg,
+            "borderRadius": self._theme.card_radius,
+            "padding": data.get("padding", self._theme.card_padding),
             "children": {"explicitList": [col_id]},
         })
         return A2UIOutput(

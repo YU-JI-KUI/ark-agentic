@@ -3,7 +3,7 @@ BlockComposer: assembles block descriptors into a standard A2UI payload.
 
 Each block descriptor is a dict with "type" and "data" keys.
 The composer looks up the builder in the block registry, calls it,
-and wraps all emitted components in a root Column with PAGE_BG styling.
+and wraps all emitted components in a root Column.
 
 Supports inline transform specs in block data values: when a value is a dict
 containing a transform operator key (get/sum/count/concat/select/switch/literal),
@@ -17,7 +17,8 @@ import logging
 import uuid
 from typing import Any
 
-from .blocks import PAGE_BG, get_block_builder
+from .blocks import get_block_builder
+from .theme import A2UITheme
 from .transforms import _exec_one
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,9 @@ class BlockComposer:
         session_id: str = "",
         raw_data: dict[str, Any] | None = None,
         block_registry: dict[str, Any] | None = None,
-        root_gap: int = 0,
-        root_padding: int | list[int] = 2,
+        theme: A2UITheme | None = None,
     ) -> dict[str, Any]:
+        _t = theme or A2UITheme()
         counter = itertools.count(1)
 
         def id_gen(prefix: str) -> str:
@@ -98,9 +99,9 @@ class BlockComposer:
             "component": {
                 "Column": {
                     "width": 100,
-                    "backgroundColor": PAGE_BG,
-                    "padding": root_padding,
-                    "gap": root_gap,
+                    "backgroundColor": _t.page_bg,
+                    "padding": _t.root_padding,
+                    "gap": _t.root_gap,
                     "children": {"explicitList": root_children},
                 }
             },

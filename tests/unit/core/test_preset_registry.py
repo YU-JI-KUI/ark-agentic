@@ -1,7 +1,7 @@
-"""Tests for core.a2ui.lean_registry (PresetRegistry)."""
+"""Tests for core.a2ui.preset_registry (PresetRegistry)."""
 
 from ark_agentic.core.a2ui.blocks import A2UIOutput
-from ark_agentic.core.a2ui.lean_registry import PresetRegistry
+from ark_agentic.core.a2ui.preset_registry import PresetRegistry
 
 
 def _mock_extractor(context: dict, card_args: dict | None) -> A2UIOutput:

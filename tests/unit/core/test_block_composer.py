@@ -12,9 +12,9 @@ from ark_agentic.core.a2ui.blocks import (
     get_block_types,
     _BLOCK_REGISTRY,
     CARD_BG,
-    PAGE_BG,
 )
 from ark_agentic.core.a2ui.composer import BlockComposer
+from ark_agentic.core.a2ui.theme import A2UITheme
 from ark_agentic.core.tools.render_a2ui import BlocksConfig, RenderA2UITool
 from ark_agentic.core.types import ToolCall
 
@@ -160,7 +160,8 @@ class TestBlockComposer:
 
     def test_root_gap_and_padding(self):
         composer = BlockComposer()
-        payload = composer.compose([], {}, root_gap=16, root_padding=[16, 32, 16, 16])
+        theme = A2UITheme(root_gap=16, root_padding=[16, 32, 16, 16])
+        payload = composer.compose([], {}, theme=theme)
         col = payload["components"][0]["component"]["Column"]
         assert col["gap"] == 16
         assert col["padding"] == [16, 32, 16, 16]

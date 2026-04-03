@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.a2ui import A2UIOutput, PresetRegistry
+from ark_agentic.core.a2ui import A2UIOutput, A2UITheme, PresetRegistry
 from ark_agentic.core.tools.render_a2ui import BlocksConfig, RenderA2UITool, TemplateConfig
 from ark_agentic.core.types import ToolCall, ToolResultType
 
@@ -171,8 +171,7 @@ def agent_tool() -> RenderA2UITool:
         blocks=BlocksConfig(
             agent_blocks=INSURANCE_BLOCKS,
             agent_components=INSURANCE_COMPONENTS,
-            root_gap=16,
-            root_padding=[16, 32, 16, 16],
+            theme=A2UITheme(root_gap=16, root_padding=[16, 32, 16, 16]),
         ),
         template=TemplateConfig(
             template_root=_template_root(),

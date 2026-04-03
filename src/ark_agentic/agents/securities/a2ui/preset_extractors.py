@@ -12,7 +12,7 @@ import json
 from typing import Any, Literal
 
 from ark_agentic.core.a2ui.blocks import A2UIOutput
-from ark_agentic.core.a2ui.lean_registry import PresetRegistry
+from ark_agentic.core.a2ui.preset_registry import PresetRegistry
 
 from ..template_renderer import TemplateRenderer
 

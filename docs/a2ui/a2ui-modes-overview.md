@@ -95,11 +95,11 @@ AgentToolResult.a2ui_result
 
 ### 3.1 流程
 
-数据工具写入上下文 → LLM 调用 `display_card(source_tool)` → 字段提取 → `LeanTemplateRegistry` → `AgentToolResult.a2ui_result`。
+数据工具写入上下文 → LLM 调用 `display_card(source_tool)` → 字段提取 → `PresetRegistry` → `AgentToolResult.a2ui_result`。
 
-### 3.2 LeanTemplateRegistry
+### 3.2 PresetRegistry
 
-`core/a2ui/lean_registry.py` 提供注册表，各 Agent 在 factory 中注册 `template_type` → builder。
+`core/a2ui/preset_registry.py` 提供注册表，各 Agent 在 factory 中注册 `template_type` → builder。
 
 ## 4. 模式归属
 
@@ -119,7 +119,7 @@ src/ark_agentic/core/a2ui/
   validator.py         # 组件/binding 校验
   contract_models.py   # 事件级校验
   guard.py             # 统一校验入口
-  lean_registry.py     # preset 注册表
+  preset_registry.py   # preset 注册表
 
 src/ark_agentic/core/tools/
   render_a2ui.py       # 合并后的单工具
