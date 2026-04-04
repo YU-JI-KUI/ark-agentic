@@ -1,0 +1,62 @@
+{
+    "601318": {
+        "results": {
+            "statDate": "20251225",
+            "accountType": "1",
+            "dividendList": [
+                {
+                    "year": "2024",
+                    "assignType": "DAT06",
+                    "arrivalDate": "20250625",
+                    "stkDivType": "SENDING_SHARES",
+                    "plan": "10派0.21送2转2",
+                    "planInfo": "10派0.21(含税)",
+                    "cash": "1000.50",
+                    "stock": 20,
+                    "stockName": "中国平安"
+                },
+                {
+                    "year": "2023",
+                    "assignType": "DAT06",
+                    "arrivalDate": "20240628",
+                    "stkDivType": "CASH",
+                    "plan": "10派18.30",
+                    "planInfo": "10派18.30(含税)",
+                    "cash": "18300.00",
+                    "stock": 0,
+                    "stockName": "中国平安"
+                },
+                {
+                    "year": "2022",
+                    "assignType": "DAT06",
+                    "arrivalDate": "20230630",
+                    "stkDivType": "CASH",
+                    "plan": "10派16.50",
+                    "planInfo": "10派16.50(含税)",
+                    "cash": "16500.00",
+                    "stock": 0,
+                    "stockName": "中国平安"
+                },
+                {
+                    "year": "2021",
+                    "assignType": "DAT06",
+                    "arrivalDate": "20220701",
+                    "stkDivType": "CASH",
+                    "plan": "10派15.80",
+                    "planInfo": "10派15.80(含税)",
+                    "cash": "15800.00",
+                    "stock": 0,
+                    "stockName": "中国平安"
+                }
+            ],
+            "requestBody": {
+                "marketType": "SH",
+                "stockCode": "601318"
+            }
+        },
+        "err": 0,
+        "msg": "success",
+        "errmsg": "success",
+        "status": 1
+    }
+}

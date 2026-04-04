@@ -347,7 +347,8 @@ class CashAssetsSchema(BaseModel):
     cash_balance: str = Field(..., description="现金总额")
     cash_available: str = Field(..., description="可用资金")
     draw_balance: str | None = Field(None, description="可取资金")
-    today_profit: str | None = Field(None, description="今日收益")
+    settlement_date: str | None = Field(None, description="结算日期（收益统计日，MM-DD）")
+    today_profit: str | None = Field(None, description="今日收益（与 API dayProfit 一致）")
     
     # 扩展字段
     account_type: str | None = Field(None, description="账户类型")
@@ -378,6 +379,7 @@ class CashAssetsSchema(BaseModel):
             cash_balance=data.get("cash_balance", "0"),
             cash_available=data.get("cash_available", "0"),
             draw_balance=data.get("draw_balance"),
+            settlement_date=data.get("settlement_date"),
             today_profit=data.get("today_profit"),
             account_type=data.get("account_type"),
             accu_profit=data.get("accu_profit"),

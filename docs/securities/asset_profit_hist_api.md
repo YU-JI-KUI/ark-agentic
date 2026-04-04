@@ -20,6 +20,9 @@ payload = json.dumps({
     "results": {
         "totalProfit": str, # 累计总收益
         "totalProfitRate": str, # 累计收益率
+        "timeInterval": "20240101-20240601",
+        "trdDate": ["20220601","20220602",..,,"20220630"],
+        "profit": ["120.1","-200.00","15000"],
         "asset": [
             "100",   # 数组第一个为：期初总资产， 最后一个为：期末总资产
             "100.1",
@@ -48,6 +51,8 @@ payload = json.dumps({
             "12000", 
             ...
         ],
+        "trdDate": ["20220601","20220602",..,,"20220630"],
+        "profit": ["120.1","-200.00","15000"],
         "status": 1, # 1 为正常返回
         "msg": "success",
         "errmsg": "success"

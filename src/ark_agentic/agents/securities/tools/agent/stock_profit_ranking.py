@@ -19,7 +19,7 @@ from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
 from ..service import create_service_adapter
-from .asset_profit_hist_period import PERIOD_TO_TIME_TYPE
+from .asset_profit_hist_period import PERIOD_TO_TIME_TYPE, build_period_description
 
 PFT_TYPE_MAP: dict[str, int] = {
     "profit": 1,
@@ -94,18 +94,14 @@ class StockProfitRankingTool(AgentTool):
                 error=f"无效的 pft_type 值：{pft_type_str!r}。有效值：{valid}",
             )
 
-        period = args.get("period")
-        if period is not None:
-            time_type = PERIOD_TO_TIME_TYPE.get(period)
-            if time_type is None:
-                valid = ", ".join(PERIOD_TO_TIME_TYPE.keys())
-                return AgentToolResult.error_result(
-                    tool_call_id=tool_call.id,
-                    error=f"无效的 period 值：{period!r}。有效值：{valid}",
-                )
-        else:
-            # time_type 不能为空，默认用本周
-            time_type = PERIOD_TO_TIME_TYPE["this_week"]
+        period = args.get("period") or "this_week"
+        time_type = PERIOD_TO_TIME_TYPE.get(period)
+        if time_type is None:
+            valid = ", ".join(PERIOD_TO_TIME_TYPE.keys())
+            return AgentToolResult.error_result(
+                tool_call_id=tool_call.id,
+                error=f"无效的 period 值：{period!r}。有效值：{valid}",
+            )
 
         user_id = _get_context_value(context, "id") or _get_context_value(
             context, "user_id", "U001"
@@ -127,6 +123,7 @@ class StockProfitRankingTool(AgentTool):
                 user_id=user_id,
                 _context=context,
             )
+            data["period_description"] = build_period_description(period)
             return AgentToolResult.json_result(
                 tool_call_id=tool_call.id,
                 data=data,

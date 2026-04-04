@@ -76,6 +76,8 @@ class MultiPathMatcher:
                 confidence="none",
                 score=0.0,
                 raw_query=query,
+                dividend_info=None,
+                stock=None
             )
 
         # ── 路径 A：精确代码匹配 ─────────────────────────────────────
@@ -88,6 +90,7 @@ class MultiPathMatcher:
                     score=1.0,
                     stock=entity,
                     raw_query=query,
+                    dividend_info=None
                 )
 
         # ── 路径 B + C：模糊匹配 ────────────────────────────────────
@@ -101,9 +104,10 @@ class MultiPathMatcher:
                     score=1.0,
                     stock=entity,
                     raw_query=query,
+                    dividend_info=None
                 )
             return StockSearchResult(
-                matched=False, confidence="none", score=0.0, raw_query=query
+                matched=False, confidence="none", score=0.0, raw_query=query, stock=None, dividend_info=None
             )
 
         return self._fuzzy_match(query)
@@ -120,6 +124,7 @@ class MultiPathMatcher:
                     score=1.0,
                     stock=initials_hits[0],
                     raw_query=query,
+                    dividend_info=None
                 )
             if len(initials_hits) > 1:
                 candidates = [
@@ -138,6 +143,8 @@ class MultiPathMatcher:
                     score=1.0,
                     candidates=candidates,
                     raw_query=query,
+                    stock=None,
+                    dividend_info=None
                 )
 
         # 路径 B：名称模糊匹配
@@ -175,7 +182,7 @@ class MultiPathMatcher:
 
         if not score_map:
             return StockSearchResult(
-                matched=False, confidence="none", score=0.0, raw_query=query
+                matched=False, confidence="none", score=0.0, raw_query=query, stock=None, dividend_info=None
             )
 
         # 排序取 Top N
@@ -192,6 +199,7 @@ class MultiPathMatcher:
                 score=best_score,
                 stock=best_entity,
                 raw_query=query,
+                dividend_info=None,
             )
 
         if best_score_100 >= _THRESHOLD_HIGH:
@@ -201,6 +209,7 @@ class MultiPathMatcher:
                 score=best_score,
                 stock=best_entity,
                 raw_query=query,
+                dividend_info=None
             )
 
         if best_score_100 >= _THRESHOLD_AMBIGUOUS:
@@ -220,8 +229,10 @@ class MultiPathMatcher:
                 score=best_score,
                 candidates=candidates,
                 raw_query=query,
+                stock=None,
+                dividend_info=None
             )
 
         return StockSearchResult(
-            matched=False, confidence="none", score=best_score, raw_query=query
+            matched=False, confidence="none", score=best_score, raw_query=query, stock=None, dividend_info=None
         )

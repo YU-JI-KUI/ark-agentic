@@ -7,66 +7,87 @@
         "pftAmt": "13682.50",
         "lossCnt": "6",
         "lossAmt": "-8934.20",
+        "statDate": "20260326",
         "stockList": [
             {
                 "stockName": "宁德时代",
                 "profit": "4820.30",
                 "profitRate": "0.0921",
-                "pftRatio": "0.3523"
+                "pftRatio": "0.3523",
+                "stockCode": "300750",
+                "marketType": "SH"
             },
             {
                 "stockName": "比亚迪",
                 "profit": "3341.80",
                 "profitRate": "0.0612",
-                "pftRatio": "0.2443"
+                "pftRatio": "0.2443",
+                "stockCode": "002594",
+                "marketType": "SZ"
             },
             {
                 "stockName": "贵州茅台",
                 "profit": "3120.90",
                 "profitRate": "0.0387",
-                "pftRatio": "0.2282"
+                "pftRatio": "0.2282",
+                "stockCode": "600519",
+                "marketType": "SH"
             },
             {
                 "stockName": "中国平安",
                 "profit": "2399.50",
                 "profitRate": "0.0298",
-                "pftRatio": "0.1754"
+                "pftRatio": "0.1754",
+                "stockCode": "601318",
+                "marketType": "SH"
             },
             {
                 "stockName": "招商银行",
                 "profit": "-1280.40",
                 "profitRate": "-0.0234",
-                "pftRatio": "-0.1434"
+                "pftRatio": "-0.1434",
+                "stockCode": "600036",
+                "marketType": "SH"
             },
             {
                 "stockName": "万科A",
                 "profit": "-1643.80",
                 "profitRate": "-0.0412",
-                "pftRatio": "-0.1839"
+                "pftRatio": "-0.1839",
+                "stockCode": "000002",
+                "marketType": "SZ"
             },
             {
                 "stockName": "中国建筑",
                 "profit": "-1892.30",
                 "profitRate": "-0.0523",
-                "pftRatio": "-0.2118"
+                "pftRatio": "-0.2118",
+                "stockCode": "601668",
+                "marketType": "SH"
             },
             {
                 "stockName": "中国铝业",
                 "profit": "-2134.60",
                 "profitRate": "-0.0671",
-                "pftRatio": "-0.2389"
+                "pftRatio": "-0.2389",
+                "stockCode": "601600",
+                "marketType": "SH"
             },
             {
                 "stockName": "海特高新",
                 "profit": "-983.10",
                 "profitRate": "-0.0189",
-                "pftRatio": "-0.1100"
+                "pftRatio": "-0.1100",
+                "stockCode": "002023",
+                "marketType": "SZ"
             },
             {
                 "stockName": "东方财富",
                 "profit": "-1000.00",
                 "profitRate": "-0.0201",
-                "pftRatio": "-0.1119"
+                "pftRatio": "-0.1119",
+                "stockCode": "300059",
+                "marketType": "SZ"
             }
         ]
     }

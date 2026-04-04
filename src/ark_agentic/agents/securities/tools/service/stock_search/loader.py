@@ -5,13 +5,14 @@
   2. agents/securities/mock_data/stocks/a_shares_seed.csv（内置种子，随包发布）
 
 分红信息获取策略：
-  - SECURITIES_SERVICE_MOCK=true  → 从内置 Mock 字典返回
+  - SECURITIES_SERVICE_MOCK=true  → 从 mock_data/dividends/default.json 返回
   - 生产模式                       → 留空（由外部服务补充），可扩展为 akshare 调用
 """
 
 from __future__ import annotations
 
 import csv
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -29,29 +30,13 @@ _SEED_FILE = (
     / "a_shares_seed.csv"
 )
 
-# ── Mock 分红数据（部分典型高股息股票） ────────────────────────────
-_MOCK_DIVIDEND: dict[str, dict[str, str]] = {
-    "600519": {"dividend_per_share": "19.11", "dividend_yield": "1.2%", "ex_dividend_date": "2024-07-16", "frequency": "年度", "last_year_total": "19.11"},
-    "601398": {"dividend_per_share": "0.31", "dividend_yield": "6.8%", "ex_dividend_date": "2024-06-20", "frequency": "年度", "last_year_total": "0.31"},
-    "601988": {"dividend_per_share": "0.21", "dividend_yield": "5.5%", "ex_dividend_date": "2024-07-01", "frequency": "年度", "last_year_total": "0.21"},
-    "600036": {"dividend_per_share": "1.59", "dividend_yield": "4.8%", "ex_dividend_date": "2024-06-18", "frequency": "年度", "last_year_total": "1.59"},
-    "601288": {"dividend_per_share": "0.23", "dividend_yield": "5.2%", "ex_dividend_date": "2024-07-05", "frequency": "年度", "last_year_total": "0.23"},
-    "600028": {"dividend_per_share": "0.35", "dividend_yield": "3.9%", "ex_dividend_date": "2024-06-28", "frequency": "年度", "last_year_total": "0.35"},
-    "601857": {"dividend_per_share": "0.41", "dividend_yield": "4.5%", "ex_dividend_date": "2024-07-10", "frequency": "年度", "last_year_total": "0.41"},
-    "600900": {"dividend_per_share": "0.91", "dividend_yield": "3.1%", "ex_dividend_date": "2024-06-25", "frequency": "年度", "last_year_total": "0.91"},
-    "600887": {"dividend_per_share": "1.22", "dividend_yield": "3.3%", "ex_dividend_date": "2024-06-14", "frequency": "年度", "last_year_total": "1.22"},
-    "000858": {"dividend_per_share": "19.30", "dividend_yield": "3.7%", "ex_dividend_date": "2024-06-24", "frequency": "年度", "last_year_total": "19.30"},
-    "000568": {"dividend_per_share": "6.60", "dividend_yield": "2.9%", "ex_dividend_date": "2024-07-03", "frequency": "年度", "last_year_total": "6.60"},
-    "600809": {"dividend_per_share": "4.80", "dividend_yield": "2.5%", "ex_dividend_date": "2024-06-19", "frequency": "年度", "last_year_total": "4.80"},
-    "000001": {"dividend_per_share": "0.79", "dividend_yield": "4.1%", "ex_dividend_date": "2024-07-08", "frequency": "年度", "last_year_total": "0.79"},
-    "000333": {"dividend_per_share": "1.57", "dividend_yield": "5.3%", "ex_dividend_date": "2024-06-17", "frequency": "年度", "last_year_total": "1.57"},
-    "000651": {"dividend_per_share": "2.00", "dividend_yield": "5.9%", "ex_dividend_date": "2024-06-21", "frequency": "年度", "last_year_total": "2.00"},
-    "300750": {"dividend_per_share": "2.92", "dividend_yield": "1.4%", "ex_dividend_date": "2024-06-26", "frequency": "年度", "last_year_total": "2.92"},
-    "600585": {"dividend_per_share": "1.58", "dividend_yield": "4.2%", "ex_dividend_date": "2024-07-02", "frequency": "年度", "last_year_total": "1.58"},
-    "601166": {"dividend_per_share": "0.99", "dividend_yield": "6.2%", "ex_dividend_date": "2024-06-13", "frequency": "年度", "last_year_total": "0.99"},
-    "601318": {"dividend_per_share": "2.44", "dividend_yield": "5.1%", "ex_dividend_date": "2024-07-12", "frequency": "年度", "last_year_total": "2.44"},
-    "600309": {"dividend_per_share": "4.57", "dividend_yield": "3.6%", "ex_dividend_date": "2024-06-27", "frequency": "年度", "last_year_total": "4.57"},
-}
+# ── Mock 分红数据文件 ──────────────────────────────────────────────────────────
+_MOCK_DIVIDEND_FILE = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "mock_data"
+    / "dividends"
+    / "default.json"
+)
 
 
 def _load_csv(path: Path) -> list[dict[str, Any]]:
@@ -62,6 +47,15 @@ def _load_csv(path: Path) -> list[dict[str, Any]]:
         for row in reader:
             rows.append(dict(row))
     return rows
+
+
+@lru_cache(maxsize=1)
+def _load_mock_dividends() -> dict[str, Any]:
+    """懒加载 Mock 分红数据（进程内缓存）"""
+    if _MOCK_DIVIDEND_FILE.exists():
+        with open(_MOCK_DIVIDEND_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
 
 @lru_cache(maxsize=1)
@@ -122,19 +116,22 @@ class StockLoader:
         if not is_mock:
             return None
 
-        raw = _MOCK_DIVIDEND.get(code)
+        mock_data = _load_mock_dividends()
+        raw = mock_data.get(code)
         if raw is None:
-            return DividendInfo()  # 有 stock 但无分红记录，返回空对象
+            # 有 stock 但无分红记录，返回空对象
+            return DividendInfo(
+                stat_date=None,
+                account_type_code=None,
+                market_type=None,
+                stock_code=None,
+                dividend_list=[],
+            )
 
-        return DividendInfo(
-            dividend_per_share=raw.get("dividend_per_share"),
-            dividend_yield=raw.get("dividend_yield"),
-            ex_dividend_date=raw.get("ex_dividend_date"),
-            frequency=raw.get("frequency"),
-            last_year_total=raw.get("last_year_total"),
-        )
+        return DividendInfo.from_api_response(raw)
 
     @staticmethod
     def invalidate_cache() -> None:
         """清除进程缓存（用于测试或热更新）"""
         _get_default_index.cache_clear()
+        _load_mock_dividends.cache_clear()
