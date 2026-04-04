@@ -265,4 +265,143 @@ class TestInsuranceTheme:
         from ark_agentic.agents.insurance.tools import INSURANCE_THEME
         assert INSURANCE_THEME.root_gap == 16
         assert INSURANCE_THEME.root_padding == [16, 32, 16, 16]
+        assert INSURANCE_THEME.section_gap == 12
+        assert INSURANCE_THEME.header_gap == 8
+        assert INSURANCE_THEME.card_padding == 16
         assert INSURANCE_THEME.page_bg == "#F5F5F5"  # inherits default
+
+
+# ============ Leaf block theme via closure factory ============
+
+
+class TestLeafBlockThemeFactory:
+    """P0: create_insurance_blocks(theme) produces builders that use the given theme."""
+
+    def test_section_header_uses_custom_accent(self):
+        import itertools
+        from ark_agentic.agents.insurance.a2ui.blocks import create_insurance_blocks
+
+        custom = A2UITheme(accent="#00CCFF", title_color="#AABBCC", hint_color="#112233")
+        blocks = create_insurance_blocks(custom)
+        counter = itertools.count(1)
+        id_gen = lambda prefix: f"{prefix.lower()}-{next(counter):03d}"
+
+        comps = blocks["SectionHeader"]({"title": "Test", "tag": "T"}, id_gen)
+        line_comp = next(c for c in comps if "Line" in c.get("component", {}))
+        assert line_comp["component"]["Line"]["backgroundColor"] == "#00CCFF"
+
+        text_comp = next(
+            c for c in comps
+            if "Text" in c.get("component", {})
+            and c["component"]["Text"].get("bold") is True
+        )
+        assert text_comp["component"]["Text"]["color"] == "#AABBCC"
+
+        tag_comp = next(c for c in comps if "Tag" in c.get("component", {}))
+        assert tag_comp["component"]["Tag"]["color"] == "#112233"
+
+    def test_kv_row_uses_custom_colors(self):
+        import itertools
+        from ark_agentic.agents.insurance.a2ui.blocks import create_insurance_blocks
+
+        custom = A2UITheme(note_color="#AAAAAA", body_color="#BBBBBB")
+        blocks = create_insurance_blocks(custom)
+        counter = itertools.count(1)
+        id_gen = lambda prefix: f"{prefix.lower()}-{next(counter):03d}"
+
+        comps = blocks["KVRow"]({"label": "L", "value": "V"}, id_gen)
+        texts = [c for c in comps if "Text" in c.get("component", {})]
+        assert texts[0]["component"]["Text"]["color"] == "#AAAAAA"
+        assert texts[1]["component"]["Text"]["color"] == "#BBBBBB"
+
+    def test_divider_uses_custom_color(self):
+        import itertools
+        from ark_agentic.agents.insurance.a2ui.blocks import create_insurance_blocks
+
+        custom = A2UITheme(divider_color="#DDDDDD")
+        blocks = create_insurance_blocks(custom)
+        counter = itertools.count(1)
+        id_gen = lambda prefix: f"{prefix.lower()}-{next(counter):03d}"
+
+        comps = blocks["Divider"]({}, id_gen)
+        assert comps[0]["component"]["Divider"]["borderColor"] == "#DDDDDD"
+
+    def test_accent_total_uses_custom_accent(self):
+        import itertools
+        from ark_agentic.agents.insurance.a2ui.blocks import create_insurance_blocks
+
+        custom = A2UITheme(accent="#11FF11", title_color="#220022")
+        blocks = create_insurance_blocks(custom)
+        counter = itertools.count(1)
+        id_gen = lambda prefix: f"{prefix.lower()}-{next(counter):03d}"
+
+        comps = blocks["AccentTotal"]({"label": "Total", "value": "¥100"}, id_gen)
+        texts = [c for c in comps if "Text" in c.get("component", {})]
+        assert texts[0]["component"]["Text"]["color"] == "#220022"
+        assert texts[1]["component"]["Text"]["color"] == "#11FF11"
+
+    def test_default_factory_matches_original_constants(self):
+        """Regression: default-theme factory output matches hardcoded defaults."""
+        import itertools
+        from ark_agentic.agents.insurance.a2ui.blocks import create_insurance_blocks
+
+        blocks = create_insurance_blocks()
+        counter = itertools.count(1)
+        id_gen = lambda prefix: f"{prefix.lower()}-{next(counter):03d}"
+
+        comps = blocks["SectionHeader"]({"title": "T"}, id_gen)
+        line_comp = next(c for c in comps if "Line" in c.get("component", {}))
+        assert line_comp["component"]["Line"]["backgroundColor"] == "#FF6600"
+
+        counter2 = itertools.count(1)
+        id_gen2 = lambda prefix: f"{prefix.lower()}-{next(counter2):03d}"
+        div_comps = blocks["Divider"]({}, id_gen2)
+        assert div_comps[0]["component"]["Divider"]["borderColor"] == "#F5F5F5"
+
+
+class TestLeafComponentThemeFactory:
+    """P0: create_insurance_components(theme) produces builders that use the given theme."""
+
+    def test_summary_header_card_uses_custom_theme(self):
+        import itertools
+        from ark_agentic.agents.insurance.a2ui.components import create_insurance_components
+
+        custom = A2UITheme(
+            card_bg="#EEEEEE",
+            card_radius="large",
+            header_padding=24,
+            accent="#00FF00",
+            title_color="#111111",
+        )
+        components = create_insurance_components(custom)
+        counter = itertools.count(1)
+        id_gen = lambda prefix: f"{prefix.lower()}-{next(counter):03d}"
+
+        raw_data: dict = {"options": []}
+        output = components["WithdrawSummaryHeader"]({}, id_gen, raw_data)
+
+        card_comp = next(
+            c for c in output.components if "Card" in c.get("component", {})
+        )
+        assert card_comp["component"]["Card"]["backgroundColor"] == "#EEEEEE"
+        assert card_comp["component"]["Card"]["borderRadius"] == "large"
+        assert card_comp["component"]["Card"]["padding"] == 24
+
+    def test_default_component_factory_matches_original(self):
+        """Regression: default-theme component factory matches hardcoded defaults."""
+        import itertools
+        from ark_agentic.agents.insurance.a2ui.components import create_insurance_components
+
+        components = create_insurance_components()
+        counter = itertools.count(1)
+        id_gen = lambda prefix: f"{prefix.lower()}-{next(counter):03d}"
+
+        raw_data: dict = {"options": []}
+        output = components["WithdrawSummaryHeader"]({}, id_gen, raw_data)
+
+        card_comp = next(
+            c for c in output.components if "Card" in c.get("component", {})
+        )
+        assert card_comp["component"]["Card"]["backgroundColor"] == "#FFFFFF"
+        assert card_comp["component"]["Card"]["borderRadius"] == "middle"
+        assert card_comp["component"]["Card"]["padding"] == 20
