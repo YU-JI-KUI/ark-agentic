@@ -4,22 +4,22 @@ import json
 
 import pytest
 
-from ark_agentic.agents.insurance.a2ui.blocks import (
-    INSURANCE_BLOCKS,
-    build_section_header,
-    build_kv_row,
-    build_accent_total,
-    build_hint_text,
-    build_action_button,
-    build_divider,
-)
-from ark_agentic.agents.insurance.a2ui.components import (
-    INSURANCE_COMPONENTS,
-    build_withdraw_summary_header,
-    build_withdraw_summary_section,
-    build_withdraw_plan_card,
-)
+from ark_agentic.agents.insurance.a2ui.blocks import INSURANCE_BLOCKS
+from ark_agentic.agents.insurance.a2ui.components import INSURANCE_COMPONENTS
+from ark_agentic.core.a2ui.theme import A2UITheme
 from ark_agentic.core.tools.render_a2ui import BlocksConfig, RenderA2UITool
+
+# Default-theme builders (registry entries from create_insurance_* factory)
+build_section_header = INSURANCE_BLOCKS["SectionHeader"]
+build_kv_row = INSURANCE_BLOCKS["KVRow"]
+build_accent_total = INSURANCE_BLOCKS["AccentTotal"]
+build_hint_text = INSURANCE_BLOCKS["HintText"]
+build_action_button = INSURANCE_BLOCKS["ActionButton"]
+build_divider = INSURANCE_BLOCKS["Divider"]
+
+build_withdraw_summary_header = INSURANCE_COMPONENTS["WithdrawSummaryHeader"]
+build_withdraw_summary_section = INSURANCE_COMPONENTS["WithdrawSummarySection"]
+build_withdraw_plan_card = INSURANCE_COMPONENTS["WithdrawPlanCard"]
 from ark_agentic.core.types import ToolCall
 
 
@@ -285,8 +285,7 @@ class TestAgentPipeline:
             blocks=BlocksConfig(
                 agent_blocks=INSURANCE_BLOCKS,
                 agent_components=INSURANCE_COMPONENTS,
-                root_gap=16,
-                root_padding=[16, 32, 16, 16],
+                theme=A2UITheme(root_gap=16, root_padding=[16, 32, 16, 16]),
             ),
             group="insurance",
             state_keys=("_rule_engine_result",),

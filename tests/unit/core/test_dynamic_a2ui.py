@@ -10,6 +10,7 @@ from ark_agentic.core.a2ui.transforms import (
     _eval_condition,
 )
 from ark_agentic.core.a2ui.flattener import TreeFlattener, _resolve_binding
+from ark_agentic.core.a2ui.theme import A2UITheme
 from ark_agentic.core.tools.render_a2ui import BlocksConfig, RenderA2UITool
 from ark_agentic.core.types import RunOptions, ToolCall
 
@@ -374,8 +375,7 @@ class TestRenderA2UITool:
             blocks=BlocksConfig(
                 agent_blocks=INSURANCE_BLOCKS,
                 agent_components=INSURANCE_COMPONENTS,
-                root_gap=16,
-                root_padding=[16, 32, 16, 16],
+                theme=A2UITheme(root_gap=16, root_padding=[16, 32, 16, 16]),
             ),
             group="insurance",
         )

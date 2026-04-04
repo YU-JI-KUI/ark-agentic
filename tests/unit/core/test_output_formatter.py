@@ -135,21 +135,27 @@ class TestEnterpriseAGUIFormatter:
         f = EnterpriseAGUIFormatter(source_bu_type="shouxian", app_type="jgj")
         ev = _event(type="run_started", run_content="开始")
         result = f.format(ev)
-        _, data = _parse_sse(result)
-        assert data["protocol"] == "AGUI"
-        assert data["source_bu_type"] == "shouxian"
-        assert data["app_type"] == "jgj"
-        assert data["event"] == "run_started"
-        assert "data" in data
+        blocks = [b for b in result.split("\n\n") if b.strip()]
+        assert len(blocks) == 2
+        etype1, data1 = _parse_sse(blocks[0] + "\n\n")
+        assert etype1 == "run_started"
+        assert data1["protocol"] == "AGUI"
+        assert data1["source_bu_type"] == "shouxian"
+        assert data1["app_type"] == "jgj"
+        etype2, _ = _parse_sse(blocks[1] + "\n\n")
+        assert etype2 == "reasoning_start"
 
     def test_run_started_ui_data_not_none(self) -> None:
         f = EnterpriseAGUIFormatter()
         ev = _event(type="run_started", run_content="初始化")
         result = f.format(ev)
-        _, data = _parse_sse(result)
-        dp = data["data"]
-        assert dp["ui_protocol"] == "text"
-        assert dp["ui_data"] == "初始化"
+        blocks = [b for b in result.split("\n\n") if b.strip()]
+        etype1, data1 = _parse_sse(blocks[0] + "\n\n")
+        assert etype1 == "run_started"
+        assert data1["data"]["ui_protocol"] == "text"
+        assert data1["data"]["ui_data"] == "初始化"
+        etype2, _ = _parse_sse(blocks[1] + "\n\n")
+        assert etype2 == "reasoning_start"
 
     def test_step_started_ui_protocol_json(self) -> None:
         f = EnterpriseAGUIFormatter()

@@ -24,16 +24,14 @@ def _drain(queue: asyncio.Queue[AgentStreamEvent]) -> list[AgentStreamEvent]:
 class TestStreamEventBusLifecycle:
     """Test step/text lifecycle auto-pairing."""
 
-    def test_emit_created_produces_run_started_and_initial_step(self) -> None:
+    def test_emit_created_produces_run_started_only(self) -> None:
         bus, q = _make_bus()
         bus.emit_created("开始处理")
         events = _drain(q)
-        assert len(events) == 2
+        assert len(events) == 1
         assert events[0].type == "run_started"
         assert events[0].run_content == "开始处理"
         assert events[0].step_name is None
-        assert events[1].type == "step_started"
-        assert events[1].step_name == "开始处理"
 
     def test_on_step_emits_step_started(self) -> None:
         bus, q = _make_bus()
@@ -208,16 +206,15 @@ class TestStreamEventBusRunContent:
         bus, q = _make_bus()
         bus.emit_created("初始化中")
         events = _drain(q)
+        assert len(events) == 1
         assert events[0].run_content == "初始化中"
         assert events[0].step_name is None
-        assert events[1].type == "step_started"
-        assert events[1].step_name == "初始化中"
 
 
-class TestStreamEventBusInitialStep:
-    """emit_created() guarantees step_started right after run_started."""
+class TestStreamEventBusNoInitialStep:
+    """emit_created() only emits run_started — no synthetic step."""
 
-    def test_initial_step_closed_by_next_on_step(self) -> None:
+    def test_next_on_step_is_standalone(self) -> None:
         bus, q = _make_bus()
         bus.emit_created("处理中")
         bus.on_step("正在查询…")
@@ -225,14 +222,11 @@ class TestStreamEventBusInitialStep:
         types = [e.type for e in events]
         assert types == [
             "run_started",
-            "step_started",       # initial (from emit_created)
-            "step_finished",      # auto-close initial
-            "step_started",       # new step
+            "step_started",
         ]
-        assert events[1].step_name == "处理中"
-        assert events[3].step_name == "正在查询…"
+        assert events[1].step_name == "正在查询…"
 
-    def test_initial_step_closed_by_emit_completed(self) -> None:
+    def test_emit_completed_after_created_no_step_finished(self) -> None:
         bus, q = _make_bus()
         bus.emit_created("处理中")
         bus.emit_completed(message="done", turns=1)
@@ -240,8 +234,6 @@ class TestStreamEventBusInitialStep:
         types = [e.type for e in events]
         assert types == [
             "run_started",
-            "step_started",
-            "step_finished",
             "run_finished",
         ]
 
