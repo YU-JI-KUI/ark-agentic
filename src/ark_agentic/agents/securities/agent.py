@@ -28,8 +28,7 @@ from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
 
 from .tools import create_securities_tools
-
-logger = logging.getLogger(__name__)
+from .validation import CITE_SYSTEM_INSTRUCTION, create_securities_validation_callback
 
 _SKILLS_DIR = Path(__file__).parent / "skills"
 
@@ -90,6 +89,7 @@ def create_securities_agent(
         prompt_config=PromptConfig(
             agent_name="证券资产管理助手",
             agent_description="专业的证券资产查询与分析助手",
+            custom_instructions=CITE_SYSTEM_INSTRUCTION,
         ),
         skill_config=skill_config,
     )
@@ -105,6 +105,13 @@ def create_securities_agent(
             context_updates=enrich_securities_context(ctx.input_context),
         )
 
+    # 输出校验回调（after_agent）
+    _STOCKS_CSV = Path(__file__).parent / "mock_data" / "stocks" / "a_shares_seed.csv"
+    _validation_cb = create_securities_validation_callback(
+        csv_path=_STOCKS_CSV,
+        llm=llm,
+    )
+
     return AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
@@ -114,5 +121,6 @@ def create_securities_agent(
         memory_manager=memory_manager,
         callbacks=RunnerCallbacks(
             before_agent=[_enrich_context],
+            after_agent=[_validation_cb],
         ),
     )
