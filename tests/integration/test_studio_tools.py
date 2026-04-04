@@ -42,7 +42,14 @@ class MyTool(AgentTool):
     assert meta.name == "test_tool"
     assert meta.description == "Test description"
     assert meta.group == "test_group"
-    assert meta.file_path == "agents/test_agent/tools/my_tool.py"
+    assert meta.file_path == "tools/my_tool.py"
+
+    # With agent_dir, file_path is relative to agent_dir
+    agent_dir = tmp_path.parent
+    meta2 = parse_tool_file(tool_file, "test_agent", agent_dir)
+    assert meta2 is not None
+    assert meta2.file_path.endswith("my_tool.py")
+    assert "/" in meta2.file_path
 
 
 def test_parse_tool_file_no_agent_tool(tmp_path):

@@ -129,6 +129,12 @@ class SubmitWithdrawalTool(AgentTool):
             description="取款类型",
             enum=list(_SOURCE_TYPE_MAP.keys()),
         ),
+        ToolParameter(
+            name="text",
+            type="string",
+            description="展示给用户的文字说明（由 LLM 生成，包含办理内容和剩余渠道提醒）",
+            required=False,
+        ),
     ]
 
     async def execute(
@@ -156,6 +162,9 @@ class SubmitWithdrawalTool(AgentTool):
         already = set(ctx.get("_submitted_channels") or []) | {channel}
         stop_message = _build_stop_message(channel, remaining)
 
+        user_text = tool_call.arguments.get("text", "")
+        content = user_text if user_text else stop_message
+
         query_msg = "，".join(
             f"保单号-{p['policy_no']}，金额-{p['amount']}"
             for p in policies
@@ -163,7 +172,7 @@ class SubmitWithdrawalTool(AgentTool):
 
         return AgentToolResult.json_result(
             tool_call_id=tool_call.id,
-            data=stop_message,
+            data=content,
             metadata={"state_delta": {"_submitted_channels": sorted(already)}},
             loop_action=ToolLoopAction.STOP,
             events=[

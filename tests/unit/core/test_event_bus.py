@@ -24,14 +24,14 @@ def _drain(queue: asyncio.Queue[AgentStreamEvent]) -> list[AgentStreamEvent]:
 class TestStreamEventBusLifecycle:
     """Test step/text lifecycle auto-pairing."""
 
-    def test_emit_created_produces_run_started(self) -> None:
+    def test_emit_created_produces_run_started_only(self) -> None:
         bus, q = _make_bus()
         bus.emit_created("开始处理")
         events = _drain(q)
         assert len(events) == 1
         assert events[0].type == "run_started"
         assert events[0].run_content == "开始处理"
-        assert events[0].step_name is None  # run_started must not pollute step field
+        assert events[0].step_name is None
 
     def test_on_step_emits_step_started(self) -> None:
         bus, q = _make_bus()
@@ -206,9 +206,36 @@ class TestStreamEventBusRunContent:
         bus, q = _make_bus()
         bus.emit_created("初始化中")
         events = _drain(q)
-        ev = events[0]
-        assert ev.run_content == "初始化中"
-        assert ev.step_name is None
+        assert len(events) == 1
+        assert events[0].run_content == "初始化中"
+        assert events[0].step_name is None
+
+
+class TestStreamEventBusNoInitialStep:
+    """emit_created() only emits run_started — no synthetic step."""
+
+    def test_next_on_step_is_standalone(self) -> None:
+        bus, q = _make_bus()
+        bus.emit_created("处理中")
+        bus.on_step("正在查询…")
+        events = _drain(q)
+        types = [e.type for e in events]
+        assert types == [
+            "run_started",
+            "step_started",
+        ]
+        assert events[1].step_name == "正在查询…"
+
+    def test_emit_completed_after_created_no_step_finished(self) -> None:
+        bus, q = _make_bus()
+        bus.emit_created("处理中")
+        bus.emit_completed(message="done", turns=1)
+        events = _drain(q)
+        types = [e.type for e in events]
+        assert types == [
+            "run_started",
+            "run_finished",
+        ]
 
 
 class TestStreamEventBusSequencing:

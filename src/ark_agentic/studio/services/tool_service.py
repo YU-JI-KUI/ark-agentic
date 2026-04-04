@@ -47,10 +47,10 @@ def list_tools(agents_root: Path, agent_id: str) -> list[ToolMeta]:
         raise FileNotFoundError(f"Agent not found: {agent_id}")
 
     tools: list[ToolMeta] = []
-    for py_file in sorted(tools_dir.glob("*.py")):
+    for py_file in sorted(tools_dir.rglob("*.py")):
         if py_file.name.startswith("_"):
             continue
-        meta = parse_tool_file(py_file, agent_id)
+        meta = parse_tool_file(py_file, agent_id, agent_dir)
         if meta:
             tools.append(meta)
     return tools
@@ -91,15 +91,16 @@ def scaffold_tool(
 
     logger.info("Scaffolded tool: %s/%s", agent_id, name)
 
-    # 解析刚生成的文件以返回标准 ToolMeta
-    meta = parse_tool_file(tool_file, agent_id)
+    meta = parse_tool_file(tool_file, agent_id, agent_dir)
     return meta or ToolMeta(
         name=name, description=description,
-        file_path=f"agents/{agent_id}/tools/{name}.py",
+        file_path=f"tools/{name}.py",
     )
 
 
-def parse_tool_file(tool_file: Path, agent_id: str) -> ToolMeta | None:
+def parse_tool_file(
+    tool_file: Path, agent_id: str, agent_dir: Path | None = None
+) -> ToolMeta | None:
     """通过 AST 解析 Python 文件，提取 AgentTool 子类的元数据。不执行代码。"""
     try:
         source = tool_file.read_text(encoding="utf-8")
@@ -159,11 +160,16 @@ def parse_tool_file(tool_file: Path, agent_id: str) -> ToolMeta | None:
                                         param_name = param_dict.pop("name")
                                         parameters[param_name] = param_dict
 
+        if agent_dir:
+            file_path = str(tool_file.relative_to(agent_dir)).replace("\\", "/")
+        else:
+            file_path = f"tools/{tool_file.name}"
+
         return ToolMeta(
             name=name,
             description=description,
             group=group,
-            file_path=f"agents/{agent_id}/tools/{tool_file.name}",
+            file_path=file_path,
             parameters=parameters,
         )
 

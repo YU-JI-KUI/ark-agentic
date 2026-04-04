@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 
 from ark_agentic.core.a2ui.blocks import A2UIOutput
-from ark_agentic.core.tools.render_a2ui import RenderA2UITool
+from ark_agentic.core.tools.render_a2ui import RenderA2UITool, TemplateConfig
 from ark_agentic.core.types import ToolCall, ToolResultType
 
 
@@ -49,8 +49,10 @@ def _mock_extractor(context: dict, card_args: dict | None) -> A2UIOutput:
 @pytest.fixture
 def tool() -> RenderA2UITool:
     return RenderA2UITool(
-        template_root=_template_root(),
-        extractors={"withdraw_summary": _mock_extractor},
+        template=TemplateConfig(
+            template_root=_template_root(),
+            extractors={"withdraw_summary": _mock_extractor},
+        ),
     )
 
 
@@ -113,8 +115,10 @@ async def test_render_a2ui_tool_execute_extractor_raises_returns_error() -> None
         raise ValueError("no data")
 
     t = RenderA2UITool(
-        template_root=_template_root(),
-        extractors={"withdraw_summary": failing_extractor},
+        template=TemplateConfig(
+            template_root=_template_root(),
+            extractors={"withdraw_summary": failing_extractor},
+        ),
     )
     tc = ToolCall(id="tc4", name="render_a2ui", arguments={"card_type": "withdraw_summary"})
     result = await t.execute(tc, {"session_id": "s1"})

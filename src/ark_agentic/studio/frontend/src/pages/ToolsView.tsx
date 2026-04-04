@@ -1,11 +1,14 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api, type ToolMeta } from '../api'
+import { useAuth } from '../auth'
 
 interface Props { agentId: string }
 
 type Mode = 'view' | 'scaffold'
 
 export default function ToolsView({ agentId }: Props) {
+    const { user } = useAuth()
+    const isEditor = user?.role === 'editor'
     const [tools, setTools] = useState<ToolMeta[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -59,7 +62,7 @@ export default function ToolsView({ agentId }: Props) {
             {/* Left: Tools Menu */}
             <div className="layout-pane-left">
                 <div className="list-header">Tools ({tools.length})</div>
-                <button className="btn-create" onClick={enterScaffold}>＋ New Tool</button>
+                {isEditor && <button className="btn-create" onClick={enterScaffold}>＋ New Tool</button>}
 
                 <div className="list-scroll">
                     {tools.length === 0 && mode !== 'scaffold' ? (

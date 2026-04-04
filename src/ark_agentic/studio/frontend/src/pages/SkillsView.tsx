@@ -1,11 +1,14 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api, type SkillMeta } from '../api'
+import { useAuth } from '../auth'
 
 interface Props { agentId: string }
 
 type Mode = 'view' | 'create' | 'edit'
 
 export default function SkillsView({ agentId }: Props) {
+    const { user } = useAuth()
+    const isEditor = user?.role === 'editor'
     const [skills, setSkills] = useState<SkillMeta[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -93,7 +96,7 @@ export default function SkillsView({ agentId }: Props) {
             {/* Left: Skills Menu */}
             <div className="layout-pane-left">
                 <div className="list-header">Skills ({skills.length})</div>
-                <button className="btn-create" onClick={enterCreate}>＋ New Skill</button>
+                {isEditor && <button className="btn-create" onClick={enterCreate}>＋ New Skill</button>}
 
                 <div className="list-scroll">
                     {skills.length === 0 && mode !== 'create' ? (
@@ -169,6 +172,7 @@ export default function SkillsView({ agentId }: Props) {
                                     <div className="detail-title">{selected.name}</div>
                                     <div className="detail-subtitle">{selected.description || 'No description provided'}</div>
                                 </div>
+                                {isEditor && (
                                 <div className="detail-actions">
                                     <button className="btn-action" onClick={enterEdit}>
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
@@ -179,6 +183,7 @@ export default function SkillsView({ agentId }: Props) {
                                         Delete
                                     </button>
                                 </div>
+                                )}
                             </div>
                         </div>
 

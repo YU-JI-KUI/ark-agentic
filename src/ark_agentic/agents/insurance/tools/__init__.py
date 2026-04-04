@@ -12,9 +12,10 @@
 
 from pathlib import Path
 
-from ark_agentic.core.tools import RenderA2UITool
+from ark_agentic.core.a2ui import A2UITheme
+from ark_agentic.core.tools import BlocksConfig, RenderA2UITool, TemplateConfig
 
-from ..a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
+from ..a2ui import create_insurance_blocks, create_insurance_components
 from ..a2ui.template_extractors import (
     policy_detail_extractor,
     withdraw_plan_extractor,
@@ -34,6 +35,17 @@ _CARD_EXTRACTORS = {
 }
 
 
+INSURANCE_THEME = A2UITheme(
+    root_gap=16,
+    root_padding=[16, 32, 16, 16],
+    section_gap=12,
+    header_gap=8,
+    card_padding=16,
+)
+
+_THEMED_BLOCKS = create_insurance_blocks(INSURANCE_THEME)
+_THEMED_COMPONENTS = create_insurance_components(INSURANCE_THEME)
+
 _INSURANCE_STATE_KEYS = (
     "_rule_engine_result",
     "_policy_query_result",
@@ -43,12 +55,15 @@ _INSURANCE_STATE_KEYS = (
 
 def _create_render_a2ui_tool() -> RenderA2UITool:
     return RenderA2UITool(
-        template_root=_A2UI_TEMPLATE_ROOT,
-        extractors=_CARD_EXTRACTORS,
-        agent_blocks=INSURANCE_BLOCKS,
-        agent_components=INSURANCE_COMPONENTS,
-        root_gap=16,
-        root_padding=[16, 32, 16, 16],
+        blocks=BlocksConfig(
+            agent_blocks=_THEMED_BLOCKS,
+            agent_components=_THEMED_COMPONENTS,
+            theme=INSURANCE_THEME,
+        ),
+        template=TemplateConfig(
+            template_root=_A2UI_TEMPLATE_ROOT,
+            extractors=_CARD_EXTRACTORS,
+        ),
         group="insurance",
         state_keys=_INSURANCE_STATE_KEYS,
     )

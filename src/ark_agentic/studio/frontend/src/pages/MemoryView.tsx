@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, type MemoryFileItem } from '../api'
+import { useAuth } from '../auth'
 
 interface Props { agentId: string }
 
@@ -27,6 +28,8 @@ function MemoryContent({ content }: { content: string }) {
 }
 
 export default function MemoryView({ agentId }: Props) {
+    const { user } = useAuth()
+    const isEditor = user?.role === 'editor'
     const [files, setFiles] = useState<MemoryFileItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -173,7 +176,7 @@ export default function MemoryView({ agentId }: Props) {
                                     </div>
                                 </div>
                             </div>
-                            {!contentLoading && content !== null && !editing && (
+                            {isEditor && !contentLoading && content !== null && !editing && (
                                 <button type="button" className="btn-action" onClick={() => { setDraft(content); setEditing(true) }}>Edit</button>
                             )}
                         </div>

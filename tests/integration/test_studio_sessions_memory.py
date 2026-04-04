@@ -94,12 +94,20 @@ class DummyMemoryManager:
 
     def __init__(self, workspace_dir: Path) -> None:
         self.config = SimpleNamespace(workspace_dir=str(workspace_dir))
+        self._dirty = False
+
+    def mark_dirty(self) -> None:
+        self._dirty = True
 
 
 class DummyAgentRunner:
     def __init__(self, sessions=None, transcript_files=None, memory_manager=None):
         self.session_manager = DummySessionManager(sessions, transcript_files)
         self._memory_manager = memory_manager
+
+    def mark_memory_dirty(self) -> None:
+        if self._memory_manager:
+            self._memory_manager.mark_dirty()
 
 
 # ── Test setup ──────────────────────────────────────────────────────
