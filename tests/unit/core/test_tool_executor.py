@@ -70,7 +70,9 @@ async def test_executor_respects_max_calls_per_turn() -> None:
 
 
 @pytest.mark.asyncio
-async def test_executor_state_delta_visible_to_next_tool_in_same_batch() -> None:
+async def test_executor_state_delta_not_visible_during_parallel_execution() -> None:
+    """With parallel execution, same-turn tools can't see each other's state_delta.
+    state_delta is merged post-execution at the runner level."""
     reg = ToolRegistry()
 
     class _DeltaTool(AgentTool):
@@ -103,15 +105,19 @@ async def test_executor_state_delta_visible_to_next_tool_in_same_batch() -> None
     reg.register(_DeltaTool())
     reg.register(_ReadTool())
     ex = ToolExecutor(reg, timeout=5.0, max_calls_per_turn=5)
-    await ex.execute(
+    results = await ex.execute(
         [ToolCall.create("delta", {}), ToolCall.create("read_flag", {})],
         {},
     )
-    assert seen["flag"] is True
+    # Parallel: read_flag doesn't see delta's state_delta during execution
+    assert seen["flag"] is None
+    # But the state_delta is properly returned in the result metadata
+    assert results[0].metadata.get("state_delta") == {"user_flag": True}
 
 
 @pytest.mark.asyncio
-async def test_executor_stop_breaks_loop() -> None:
+async def test_executor_parallel_returns_all_results_including_stop() -> None:
+    """With parallel execution, all tools run concurrently. STOP is handled at runner level."""
     reg = ToolRegistry()
     reg.register(_EchoTool())
     reg.register(_StopTool())
@@ -122,8 +128,9 @@ async def test_executor_stop_breaks_loop() -> None:
     ]
     ex = ToolExecutor(reg, timeout=5.0, max_calls_per_turn=5)
     out = await ex.execute(calls, {})
-    assert len(out) == 1
+    assert len(out) == 2
     assert out[0].loop_action == ToolLoopAction.STOP
+    assert out[1].loop_action == ToolLoopAction.CONTINUE
 
 
 @pytest.mark.asyncio

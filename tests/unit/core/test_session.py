@@ -57,6 +57,28 @@ class TestSessionManagerBasic:
         manager.create_session_sync()
         assert len(manager.list_sessions()) == 2
 
+    def test_create_session_sync_with_custom_id(self) -> None:
+        manager = SessionManager(self.sessions_dir)
+        session = manager.create_session_sync(session_id="custom-id-001")
+        assert session.session_id == "custom-id-001"
+        assert manager.get_session("custom-id-001") is session
+
+    def test_create_session_sync_with_user_id(self) -> None:
+        manager = SessionManager(self.sessions_dir)
+        session = manager.create_session_sync(user_id="user_42")
+        assert session.user_id == "user_42"
+
+    def test_create_session_sync_with_both_custom_id_and_user_id(self) -> None:
+        manager = SessionManager(self.sessions_dir)
+        session = manager.create_session_sync(
+            session_id="parent:sub:abc", user_id="user_99",
+            state={"user:id": "user_99"},
+        )
+        assert session.session_id == "parent:sub:abc"
+        assert session.user_id == "user_99"
+        assert session.state["user:id"] == "user_99"
+        assert manager.get_session("parent:sub:abc") is session
+
 
 class TestSessionManagerMessages:
     """Tests for message management."""
