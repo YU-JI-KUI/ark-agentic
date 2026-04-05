@@ -71,11 +71,22 @@ class SessionManager:
         model: str = "Qwen3-80B-Instruct",
         provider: str = "ark",
         state: dict[str, Any] | None = None,
+        session_id: str | None = None,
+        user_id: str | None = None,
     ) -> SessionEntry:
-        """同步创建新会话（仅写入内存，不落盘；需持久化请用 create_session）"""
+        """同步创建新会话（仅写入内存，不落盘；需持久化请用 create_session）
+
+        Args:
+            session_id: 自定义 session ID（子任务格式 parent:sub:hex），None 则自动生成
+            user_id: 设置 user_id（子任务继承父会话用户）
+        """
         session = SessionEntry.create(
             model=model, provider=provider, state=state or {}
         )
+        if session_id is not None:
+            session.session_id = session_id
+        if user_id is not None:
+            session.user_id = user_id
         self._sessions[session.session_id] = session
         logger.info(f"Created session (sync): {session.session_id}")
         return session

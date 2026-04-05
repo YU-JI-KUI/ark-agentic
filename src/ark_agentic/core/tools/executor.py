@@ -46,17 +46,18 @@ class ToolExecutor:
         context: dict[str, Any],
         handler: AgentEventHandler | None = None,
     ) -> list[AgentToolResult]:
+        """全并行执行所有 tool_calls，完成后按原始顺序合并副作用。"""
         ctx = {**context, "_tool_results_by_name": dict(context.get("_tool_results_by_name") or {})}
 
         limited = tool_calls[: self._max_calls_per_turn]
         if len(tool_calls) > len(limited):
             logger.warning("[TOOLS_LIMIT] requested=%d limited=%d", len(tool_calls), len(limited))
 
-        results: list[AgentToolResult] = []
-        for tc in limited:
-            result = await self._execute_single(tc, ctx, handler)
-            results.append(result)
+        results = await asyncio.gather(
+            *[self._execute_single(tc, {**ctx}, handler) for tc in limited]
+        )
 
+        for tc, result in zip(limited, results):
             self._dispatch_events(result, handler)
 
             state_delta = result.metadata.get("state_delta") if result.metadata else None
@@ -66,10 +67,7 @@ class ToolExecutor:
             by_name[tc.name] = result.content
             ctx["_tool_results_by_name"] = by_name
 
-            if result.loop_action == ToolLoopAction.STOP:
-                break
-
-        return results
+        return list(results)
 
     async def _execute_single(
         self,
