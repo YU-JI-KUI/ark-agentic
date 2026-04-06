@@ -35,7 +35,7 @@ __all__ = [
 
 
 def create_securities_tools() -> list:
-    """创建所有证券工具"""
+    """创建所有证券业务工具（RecordCitationsTool 在 agent.py 中单独注入）"""
     return [
         AccountOverviewTool(),
         AssetProfitHistPeriodTool(),

@@ -350,6 +350,10 @@ class AgentRunner:
                 pre_compact_callback=flush_cb,
             )
 
+        # 供工具（如 SaveCitationsTool）在执行时访问当前用户输入；
+        # strip_temp_state() 在 _finalize_run 中自动清理。
+        session.state["temp:user_input"] = user_input
+
         return cb_ctx
 
     async def _finalize_run(
@@ -501,6 +505,17 @@ class AgentRunner:
                 )
                 if stop is not None:
                     return stop
+                continue
+
+            bc = await self._run_hooks(
+                self._callbacks.before_complete,
+                cb_ctx,
+                response=response,
+                handler=handler,
+            )
+            if bc and bc.halt:
+                if bc.response:
+                    self.session_manager.add_message_sync(session_id, bc.response)
                 continue
 
             return await self._finalize_response(

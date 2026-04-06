@@ -27,8 +27,11 @@ from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
 
+from ark_agentic.core.tools.citations import RecordCitationsTool
+from ark_agentic.core.validation import EntityTrie, create_citation_validation_hook
+
 from .tools import create_securities_tools
-from .validation import CITE_SYSTEM_INSTRUCTION, create_securities_validation_callback
+from .validation import CITE_SYSTEM_INSTRUCTION, _SECURITIES_TOOL_KEYS
 
 _SKILLS_DIR = Path(__file__).parent / "skills"
 
@@ -55,9 +58,19 @@ def create_securities_agent(
     if enable_memory:
         memory_dir = get_memory_base_dir() / "securities"
 
+    _STOCKS_CSV = Path(__file__).parent / "mock_data" / "stocks" / "a_shares_seed.csv"
+
+    _trie = EntityTrie()
+    _trie.load_from_csv(_STOCKS_CSV)
+    _citation_hook = create_citation_validation_hook(
+        tool_keys=_SECURITIES_TOOL_KEYS,
+        entity_trie=_trie,
+    )
+
     tool_registry = ToolRegistry()
     for tool in create_securities_tools():
         tool_registry.register(tool)
+    tool_registry.register(RecordCitationsTool())
 
     from ark_agentic.core.compaction import LLMSummarizer
 
@@ -105,13 +118,6 @@ def create_securities_agent(
             context_updates=enrich_securities_context(ctx.input_context),
         )
 
-    # 输出校验回调（after_agent）
-    _STOCKS_CSV = Path(__file__).parent / "mock_data" / "stocks" / "a_shares_seed.csv"
-    _validation_cb = create_securities_validation_callback(
-        csv_path=_STOCKS_CSV,
-        llm=llm,
-    )
-
     return AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
@@ -121,6 +127,6 @@ def create_securities_agent(
         memory_manager=memory_manager,
         callbacks=RunnerCallbacks(
             before_agent=[_enrich_context],
-            after_agent=[_validation_cb],
+            before_complete=[_citation_hook],
         ),
     )

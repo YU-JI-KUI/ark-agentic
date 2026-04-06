@@ -7,6 +7,10 @@
   1. 模型负责生成证据（cite）
   2. 系统负责验证证据（deterministic）
   3. 评分基于工具输出，不由模型决定
+
+框架级扩展：
+  - _build_tool_sources: 从 session.state 提取工具文本证据
+  - create_citation_validation_hook: 工厂函数，返回 BeforeCompleteCallback
 """
 
 from __future__ import annotations
@@ -19,11 +23,15 @@ import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union
 
 from flashtext import KeywordProcessor
 
 from .types import AgentToolResult
+
+if TYPE_CHECKING:
+    from .callbacks import BeforeCompleteCallback, CallbackContext, CallbackResult
+    from .types import AgentMessage
 
 logger = logging.getLogger(__name__)
 
@@ -454,3 +462,91 @@ class EntityTrie:
                 seen.add(entity)
                 result.append(entity)
         return result
+
+
+# ============ 框架级辅助：session.state → 工具文本证据 ============
+
+
+def _build_tool_sources(
+    state: dict[str, Any],
+    tool_keys: set[str],
+) -> dict[str, str]:
+    """从 session.state 中提取工具数据快照，转为 {tool_key: text} 供 validate_citations 使用。"""
+    sources: dict[str, str] = {}
+    for key in tool_keys:
+        data = state.get(key)
+        if data is None:
+            continue
+        sources[key] = json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)
+    return sources
+
+
+# ============ 框架级 Hook 工厂 ============
+
+
+def create_citation_validation_hook(
+    tool_keys: set[str],
+    entity_trie: "EntityTrie | None" = None,
+) -> "BeforeCompleteCallback":
+    """工厂：返回一个 BeforeCompleteCallback，在最终回答落地前校验 citations。
+
+    Args:
+        tool_keys:    session.state 中要扫描的工具 key 集合（agent 自定义）
+        entity_trie:  EntityTrie 实体提取器（可选，None 时跳过 ENTITY 校验）
+
+    Returns:
+        BeforeCompleteCallback — 注入 RunnerCallbacks.before_complete
+    """
+    async def _hook(
+        ctx: "CallbackContext",
+        *,
+        response: "AgentMessage",
+    ) -> "CallbackResult | None":
+        from .callbacks import CallbackResult
+        from .types import AgentMessage as _AgentMessage
+
+        content = response.content or ""
+        raw: list[Any] = ctx.session.state.get("_pending_citations", [])
+
+        citations = [
+            Citation(
+                value=str(c["value"]),
+                type=str(c.get("type", "")).upper(),
+                source=str(c.get("source", "")),
+            )
+            for c in raw
+            if isinstance(c, dict) and "value" in c
+        ]
+        cited = CitedResponse(answer=content, citations=citations)
+        tool_sources = _build_tool_sources(ctx.session.state, tool_keys)
+        user_input: str = ctx.session.state.get("temp:user_input", "")
+
+        result = validate_citations(
+            cited,
+            tool_sources,
+            context=user_input,
+            entity_trie=entity_trie,
+        )
+
+        logger.info(
+            "[CITATION_HOOK] route=%s score=%.2f errors=%d",
+            result.route,
+            result.score,
+            len(result.errors),
+        )
+
+        if result.route == "retry":
+            error_lines = [
+                f"- {e.type}: {e.value!r} (source={e.source or 'N/A'})"
+                for e in result.errors
+            ]
+            feedback = "[引用校验失败，请修正回答后重新输出]\n" + "\n".join(error_lines)
+            ctx.session.state.pop("_pending_citations", None)
+            return CallbackResult(
+                halt=True,
+                response=_AgentMessage.user(content=feedback),
+            )
+
+        return None
+
+    return _hook  # type: ignore[return-value]
