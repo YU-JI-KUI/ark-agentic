@@ -1,6 +1,5 @@
 ---
-
-## name: 保险取款
+name: 保险取款
 description: 查询可取金额总览、生成取款方案、调整已有方案，均以 A2UI 卡片展示。用户表达取款意图（无论是否给出金额）均由本技能处理。
 version: "11.0.0"
 invocation_policy: auto
@@ -13,6 +12,7 @@ required_tools:
   - customer_info
   - rule_engine
   - render_a2ui
+---
 
 # 保险取款技能
 

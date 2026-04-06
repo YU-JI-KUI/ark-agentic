@@ -135,22 +135,6 @@ def test_withdraw_summary_extractor_raises_when_rule_engine_result_invalid() -> 
         withdraw_summary_extractor({"_rule_engine_result": "not valid json"}, None)
 
 
-def test_withdraw_summary_extractor_accepts_rule_engine_from_tool_results_by_name() -> None:
-    context = {
-        "_tool_results_by_name": {
-            "rule_engine": {
-                "total_available_excl_loan": 100,
-                "total_available_incl_loan": 200,
-                "options": [
-                    {"product_name": "P", "survival_fund_amt": 100, "bonus_amt": 0, "loan_amt": 100},
-                ],
-            },
-        },
-    }
-    flat = withdraw_summary_extractor(context, None).template_data
-    assert flat["header_value"] == "¥ 200.00"
-    assert flat["zero_cost_items"][0]["value"] == "¥ 100.00"
-
 
 def test_withdraw_summary_extractor_accepts_json_string_rule_engine_result() -> None:
     context = {

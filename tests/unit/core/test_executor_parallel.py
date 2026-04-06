@@ -141,32 +141,3 @@ async def test_parallel_error_in_one_tool_doesnt_block_others() -> None:
     assert results[1].content == {"ok": True}
 
 
-@pytest.mark.asyncio
-async def test_parallel_tool_results_by_name_populated_after() -> None:
-    """_tool_results_by_name is built after all tools complete (not during)."""
-    seen_by_name: list[dict | None] = []
-
-    class _CheckByName(AgentTool):
-        name = "check"
-        description = "check _tool_results_by_name"
-        parameters = []
-
-        async def execute(self, tool_call: ToolCall, context: dict | None = None) -> AgentToolResult:
-            ctx = context or {}
-            seen_by_name.append(dict(ctx.get("_tool_results_by_name", {})))
-            return AgentToolResult.json_result(tool_call.id, {"idx": tool_call.arguments.get("idx")})
-
-    reg = ToolRegistry()
-    reg.register(_CheckByName())
-    ex = ToolExecutor(reg, timeout=5.0, max_calls_per_turn=5)
-
-    calls = [
-        ToolCall.create("check", {"idx": 0}),
-        ToolCall.create("check", {"idx": 1}),
-    ]
-    await ex.execute(calls, {})
-
-    # Both started with empty _tool_results_by_name (parallel snapshot)
-    assert len(seen_by_name) == 2
-    for snapshot in seen_by_name:
-        assert snapshot == {}

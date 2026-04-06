@@ -1,7 +1,7 @@
 """
 Securities preset card extractors.
 
-Each extractor reads data from ``context["_tool_results_by_name"]``,
+Each extractor reads data from ``context`` (populated via ``state_delta``),
 enriches with account info (masked) and titles, then calls
 ``TemplateRenderer`` to produce the frontend-ready payload.
 """
@@ -48,8 +48,7 @@ def _read_source_data(
     context: dict[str, Any], source_tool: str
 ) -> dict[str, Any]:
     """Read and parse the upstream data tool result from context."""
-    tool_results: dict[str, Any] = context.get("_tool_results_by_name") or context
-    source_data = tool_results.get(source_tool) or {}
+    source_data = context.get(source_tool) or {}
 
     if isinstance(source_data, str):
         try:

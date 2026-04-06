@@ -588,12 +588,7 @@ def _collect_raw_data(
     ctx: dict[str, Any],
     state_keys: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    """Collect raw business data from context.
-
-    Merges agent-specific state_delta keys (injected via ``state_keys``)
-    and generic ``_tool_results_by_name`` so transforms can use clean paths
-    like ``identity.name`` or ``options[0].product_name``.
-    """
+    """Collect raw business data from context via state_keys."""
     raw: dict[str, Any] = {}
 
     for key in state_keys:
@@ -607,16 +602,5 @@ def _collect_raw_data(
                 continue
         if isinstance(data, dict):
             raw.update(data)
-
-    by_name = ctx.get("_tool_results_by_name")
-    if isinstance(by_name, dict):
-        for _name, result in by_name.items():
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    continue
-            if isinstance(result, dict):
-                raw.update(result)
 
     return raw

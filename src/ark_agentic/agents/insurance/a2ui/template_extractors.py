@@ -62,9 +62,6 @@ def withdraw_summary_extractor(context: dict[str, Any], card_args: dict[str, Any
     """
     rule_data: Any = context.get("_rule_engine_result")
     if not rule_data:
-        by_name = context.get("_tool_results_by_name") or {}
-        rule_data = by_name.get("rule_engine")
-    if not rule_data:
         raise ValueError("未找到 rule_engine 的数据，请先调用 rule_engine(action='list_options') 获取保单数据。")
     if isinstance(rule_data, str):
         rule_data = json.loads(rule_data)
@@ -376,9 +373,6 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
     """
     rule_data: Any = context.get("_rule_engine_result")
     if not rule_data:
-        by_name = context.get("_tool_results_by_name") or {}
-        rule_data = by_name.get("rule_engine")
-    if not rule_data:
         raise ValueError("未找到 rule_engine 数据，请先调用 rule_engine(action='list_options')。")
     if isinstance(rule_data, str):
         rule_data = json.loads(rule_data)
@@ -473,12 +467,9 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
 def policy_detail_extractor(context: dict[str, Any], card_args: dict[str, Any] | None) -> A2UIOutput:
     """
     保单详情列表卡片：动态展示所有保单的四项金额明细，通过 List 组件渲染。
-    数据源优先读 _rule_engine_result，其次 _tool_results_by_name["policy_query"]。
+    数据源读 _rule_engine_result（由 rule_engine tool 的 state_delta 写入）。
     """
     rule_data: Any = context.get("_rule_engine_result")
-    if not rule_data:
-        by_name = context.get("_tool_results_by_name") or {}
-        rule_data = by_name.get("rule_engine") or by_name.get("policy_query")
     if not rule_data:
         raise ValueError("未找到保单数据，请先调用 rule_engine(action='list_options') 获取保单信息。")
     if isinstance(rule_data, str):
