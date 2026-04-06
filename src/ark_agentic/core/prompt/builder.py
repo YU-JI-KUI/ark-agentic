@@ -11,10 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from ..skills.base import (
-    build_skill_prompt,
-    format_skills_metadata_for_prompt,
-)
+from ..skills.base import SkillConfig, render_skill_section
 from ..tools.base import AgentTool
 from ..types import SkillEntry
 
@@ -44,26 +41,9 @@ class PromptConfig:
     # 工具描述
     include_tool_descriptions: bool = True
 
-    # 技能描述
-    include_skill_descriptions: bool = True
-
-    # 仅注入技能元数据（不注入全文）；模型通过 read_skill 按 id 加载一个技能
-    use_skill_metadata_only: bool = False
-
     # <think>/<final> 标签指引（非空时注入到 system prompt）
     thinking_tag_instructions: str = ""
 
-
-# 动态模式下的 skill 加载说明（对齐 openclaw buildSkillsSection）
-LOAD_ONE_SKILL_INSTRUCTIONS = """\
-## 技能（业务必选协议）
-在回复任何业务相关问题之前，你必须执行以下步骤：
-1. 扫描 <available_skills>，根据 <description> 识别匹配的技能。
-2. 如果某个技能匹配（即使只是部分匹配）：调用 `read_skill` 并传入对应 <id>，然后严格按照返回的指令执行。
-3. 如果多个技能可能适用：选择最具体的那个，调用 `read_skill`。
-4. 仅当用户的问题与所有已列技能完全无关时（如日常寒暄、通用知识问题），才可直接回复而不加载技能。
-重要：业务类问题必须通过技能处理，禁止用通用回答替代技能流程。
-约束：每轮最多读取一个技能；必须先选定再读取。"""
 
 
 class SystemPromptBuilder:
@@ -166,22 +146,13 @@ class SystemPromptBuilder:
         self._sections.append(("tools", content))
         return self
 
-    def add_skills(self, skills: list[SkillEntry]) -> SystemPromptBuilder:
-        """添加技能描述（全文或仅元数据 + 加载说明）。"""
-        if not self.config.include_skill_descriptions or not skills:
-            return self
-
-        if self.config.use_skill_metadata_only:
-            skill_prompt = format_skills_metadata_for_prompt(skills)
-            if skill_prompt:
-                # 强制指令在前，XML 元数据在后（对齐 openclaw buildSkillsSection）
-                combined = LOAD_ONE_SKILL_INSTRUCTIONS.strip() + "\n\n" + skill_prompt
-                self._sections.append(("skills", combined))
-        else:
-            skill_prompt = build_skill_prompt(skills)
-            if skill_prompt:
-                self._sections.append(("skills", skill_prompt))
-
+    def add_skills(
+        self, skills: list[SkillEntry], *, skill_config: SkillConfig | None = None,
+    ) -> SystemPromptBuilder:
+        """添加技能段落，委托 render_skill_section 决定全文/元数据渲染。"""
+        section = render_skill_section(skills, config=skill_config)
+        if section:
+            self._sections.append(("skills", section))
         return self
 
     def add_custom_instructions(
@@ -252,6 +223,7 @@ class SystemPromptBuilder:
         include_tool_params: bool = False,
         include_memory_instructions: bool = False,
         user_profile_content: str = "",
+        skill_config: SkillConfig | None = None,
     ) -> str:
         """快速构建系统提示
 
@@ -263,9 +235,7 @@ class SystemPromptBuilder:
             include_tool_params: 是否在工具描述中包含参数信息
             include_memory_instructions: 是否包含 memory 使用指令
             user_profile_content: 全局用户画像 (USER.md) 内容
-
-        Returns:
-            构建的系统提示
+            skill_config: 技能渲染配置（group 阈值、预算控制等）
         """
         effective_config = config or PromptConfig()
         builder = cls(effective_config)
@@ -279,7 +249,7 @@ class SystemPromptBuilder:
         if tools:
             builder.add_tools(tools, include_params=include_tool_params)
         if skills:
-            builder.add_skills(skills)
+            builder.add_skills(skills, skill_config=skill_config)
         if context:
             builder.add_context(context)
         if effective_config.thinking_tag_instructions:

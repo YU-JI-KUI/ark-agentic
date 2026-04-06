@@ -6,12 +6,17 @@ import tempfile
 from pathlib import Path
 
 from ark_agentic.core.skills.base import (
+    LOAD_ONE_SKILL_INSTRUCTIONS,
+    SKILLS_HEADER,
     SkillConfig,
     _strip_leading_h1,
+    _truncate_description,
     build_skill_prompt,
     check_skill_eligibility,
     format_skills_metadata_for_prompt,
+    render_skill_section,
 )
+from ark_agentic.core.types import SkillLoadMode
 from ark_agentic.core.skills.loader import (
     SkillLoader,
     load_skills_from_directory,
@@ -500,3 +505,136 @@ class TestSkillMatcher:
 
             skill_ids = [s.id for s in result.matched_skills]
             assert set(skill_ids) == {"skill1", "skill3"}
+
+
+def _make_skill(
+    id: str,
+    name: str = "",
+    description: str = "desc",
+    group: str | None = None,
+) -> SkillEntry:
+    return SkillEntry(
+        id=id,
+        path=f"/{id}",
+        content="body",
+        metadata=SkillMetadata(name=name or id, description=description, group=group),
+    )
+
+
+class TestTruncateDescription:
+    def test_short_unchanged(self) -> None:
+        assert _truncate_description("short") == "short"
+
+    def test_exact_boundary(self) -> None:
+        text = "x" * 250
+        assert _truncate_description(text) == text
+
+    def test_over_limit_truncated(self) -> None:
+        text = "x" * 300
+        result = _truncate_description(text)
+        assert len(result) == 250
+        assert result.endswith("...")
+
+
+class TestGroupRendering:
+    def test_flat_below_threshold(self) -> None:
+        skills = [_make_skill(f"s{i}") for i in range(5)]
+        config = SkillConfig(group_render_threshold=10)
+        prompt = format_skills_metadata_for_prompt(skills, config=config)
+        assert "<available_skills>" in prompt
+        assert "<group" not in prompt
+
+    def test_grouped_above_threshold(self) -> None:
+        skills = [
+            _make_skill("a1", group="alpha"),
+            _make_skill("a2", group="alpha"),
+            _make_skill("b1", group="beta"),
+        ]
+        config = SkillConfig(group_render_threshold=2)
+        prompt = format_skills_metadata_for_prompt(skills, config=config)
+        assert '<group name="alpha">' in prompt
+        assert '<group name="beta">' in prompt
+
+    def test_no_group_goes_to_other(self) -> None:
+        skills = [
+            _make_skill("a1", group="alpha"),
+            _make_skill("x1"),  # no group → "other"
+        ]
+        config = SkillConfig(group_render_threshold=1)
+        prompt = format_skills_metadata_for_prompt(skills, config=config)
+        assert '<group name="other">' in prompt
+
+    def test_empty_skills(self) -> None:
+        assert format_skills_metadata_for_prompt([]) == ""
+
+
+class TestBudgetControl:
+    def test_max_count_truncation(self) -> None:
+        skills = [_make_skill(f"s{i}") for i in range(20)]
+        config = SkillConfig(max_skills_in_prompt=5, max_skills_prompt_chars=100_000)
+        prompt = format_skills_metadata_for_prompt(skills, config=config)
+        assert "truncated" in prompt
+        assert "15 more skills not shown" in prompt
+        # only 5 skills should appear as <id> tags
+        assert prompt.count("<id>") == 5
+
+    def test_max_chars_truncation(self) -> None:
+        skills = [_make_skill(f"s{i}", description="d" * 200) for i in range(50)]
+        config = SkillConfig(max_skills_in_prompt=100, max_skills_prompt_chars=500)
+        prompt = format_skills_metadata_for_prompt(skills, config=config)
+        assert "truncated" in prompt
+        # at least 1 skill rendered, but not all 50
+        assert "<id>" in prompt
+        assert prompt.count("<id>") < 50
+
+    def test_within_budget_no_truncation(self) -> None:
+        skills = [_make_skill(f"s{i}") for i in range(3)]
+        config = SkillConfig(max_skills_in_prompt=100, max_skills_prompt_chars=100_000)
+        prompt = format_skills_metadata_for_prompt(skills, config=config)
+        assert "truncated" not in prompt
+        assert prompt.count("<id>") == 3
+
+    def test_description_truncated_in_output(self) -> None:
+        long_desc = "x" * 300
+        skills = [_make_skill("s0", description=long_desc)]
+        prompt = format_skills_metadata_for_prompt(skills)
+        assert long_desc not in prompt
+        assert "..." in prompt
+
+
+class TestSkillsHeader:
+    def test_skills_header_is_chinese(self) -> None:
+        assert "技能" in SKILLS_HEADER
+        assert "read_skill" in SKILLS_HEADER
+
+
+class TestRenderSkillSection:
+    def _make_skill(self, id: str = "s1", content: str = "full body") -> SkillEntry:
+        return SkillEntry(
+            id=id,
+            path=f"/{id}",
+            content=content,
+            metadata=SkillMetadata(name=id, description="desc"),
+        )
+
+    def test_empty_returns_empty(self) -> None:
+        assert render_skill_section([]) == ""
+
+    def test_full_mode_returns_full_content(self) -> None:
+        skill = self._make_skill(content="full body text")
+        result = render_skill_section([skill], config=SkillConfig(load_mode=SkillLoadMode.full))
+        assert "full body text" in result
+        assert "Available Skills" in result
+
+    def test_dynamic_mode_returns_metadata_and_instructions(self) -> None:
+        skill = self._make_skill(content="secret full body")
+        result = render_skill_section([skill], config=SkillConfig(load_mode=SkillLoadMode.dynamic))
+        assert "secret full body" not in result
+        assert "read_skill" in result
+        assert "s1" in result
+        assert LOAD_ONE_SKILL_INSTRUCTIONS.strip()[:20] in result
+
+    def test_default_config_uses_full_mode(self) -> None:
+        skill = self._make_skill(content="full body text")
+        result = render_skill_section([skill])
+        assert "full body text" in result

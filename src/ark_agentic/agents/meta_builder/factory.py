@@ -65,7 +65,7 @@ def create_meta_builder_from_env(
         skill_directories=[str(_SKILLS_DIR)],
         agent_id="meta_builder",
         enable_eligibility_check=False,
-        default_load_mode=SkillLoadMode.full,
+        load_mode=SkillLoadMode.full,
     )
     skill_loader = SkillLoader(skill_config)
     try:

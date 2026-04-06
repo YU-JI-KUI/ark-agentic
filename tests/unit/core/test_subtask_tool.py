@@ -21,20 +21,38 @@ def session_manager(tmp_path: Path) -> SessionManager:
     return SessionManager(tmp_path / "sessions")
 
 
-@pytest.fixture
-def mock_runner(session_manager: SessionManager) -> AgentRunner:
+class _DummyTool(AgentTool):
+    name = "dummy"
+    description = "dummy"
+    parameters = []
+
+    async def execute(self, tool_call: ToolCall, context: dict | None = None) -> AgentToolResult:
+        return AgentToolResult.json_result(tool_call.id, {"result": "ok"})
+
+
+class _AlphaTool(AgentTool):
+    name = "alpha"
+    description = "alpha tool"
+    parameters = []
+
+    async def execute(self, tool_call: ToolCall, context: dict | None = None) -> AgentToolResult:
+        return AgentToolResult.json_result(tool_call.id, {"result": "ok"})
+
+
+class _BraveTool(AgentTool):
+    name = "brave"
+    description = "brave tool"
+    parameters = []
+
+    async def execute(self, tool_call: ToolCall, context: dict | None = None) -> AgentToolResult:
+        return AgentToolResult.json_result(tool_call.id, {"result": "ok"})
+
+
+def _make_mock_runner(session_manager: SessionManager, tools: list[AgentTool] | None = None) -> AgentRunner:
     llm = MagicMock()
     registry = ToolRegistry()
-
-    class _DummyTool(AgentTool):
-        name = "dummy"
-        description = "dummy"
-        parameters = []
-
-        async def execute(self, tool_call: ToolCall, context: dict | None = None) -> AgentToolResult:
-            return AgentToolResult.json_result(tool_call.id, {"result": "ok"})
-
-    registry.register(_DummyTool())
+    for t in (tools or [_DummyTool()]):
+        registry.register(t)
     runner = AgentRunner.__new__(AgentRunner)
     runner.llm = llm
     runner.tool_registry = registry
@@ -48,6 +66,11 @@ def mock_runner(session_manager: SessionManager) -> AgentRunner:
     runner._flusher = None
     runner.skill_matcher = None
     return runner
+
+
+@pytest.fixture
+def mock_runner(session_manager: SessionManager) -> AgentRunner:
+    return _make_mock_runner(session_manager)
 
 
 @pytest.mark.asyncio
@@ -336,3 +359,108 @@ async def test_persist_transcript_in_metadata(session_manager: SessionManager, m
     transcripts = result.metadata.get("transcripts", {}) if result.metadata else {}
     assert "tr" in transcripts
     assert len(transcripts["tr"]) >= 2
+
+
+# ============ tools whitelist (Phase 2) ============
+
+
+@pytest.mark.asyncio
+async def test_tools_whitelist_filters_registry(session_manager: SessionManager) -> None:
+    """When task spec includes 'tools', sub-runner only gets those tools."""
+    runner = _make_mock_runner(session_manager, [_DummyTool(), _AlphaTool(), _BraveTool()])
+    parent_session = session_manager.create_session_sync(
+        session_id="parent-wl1", user_id="u1",
+    )
+
+    captured_registries: list[ToolRegistry] = []
+    original_init = AgentRunner.__init__
+
+    def capture_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        captured_registries.append(self.tool_registry)
+
+    async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        return RunResult(response=AgentMessage.assistant("ok"), turns=1)
+
+    with patch.object(AgentRunner, "__init__", capture_init), \
+         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+        tool = SpawnSubtasksTool(runner, session_manager)
+        tc = ToolCall.create("spawn_subtasks", {
+            "tasks": [{"task": "use alpha only", "label": "wl", "tools": ["alpha"]}],
+        })
+        await tool.execute(tc, {"session_id": "parent-wl1"})
+
+    assert len(captured_registries) >= 1
+    sub_reg = captured_registries[-1]
+    sub_tool_names = {t.name for t in sub_reg.list_all()}
+    assert "alpha" in sub_tool_names
+    assert "brave" not in sub_tool_names
+    assert "dummy" not in sub_tool_names
+
+
+@pytest.mark.asyncio
+async def test_tools_omitted_inherits_all(session_manager: SessionManager) -> None:
+    """When task spec omits 'tools', sub-runner inherits all (minus deny)."""
+    runner = _make_mock_runner(session_manager, [_DummyTool(), _AlphaTool(), _BraveTool()])
+    parent_session = session_manager.create_session_sync(
+        session_id="parent-wl2", user_id="u2",
+    )
+
+    captured_registries: list[ToolRegistry] = []
+    original_init = AgentRunner.__init__
+
+    def capture_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        captured_registries.append(self.tool_registry)
+
+    async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        return RunResult(response=AgentMessage.assistant("ok"), turns=1)
+
+    with patch.object(AgentRunner, "__init__", capture_init), \
+         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+        tool = SpawnSubtasksTool(runner, session_manager)
+        tc = ToolCall.create("spawn_subtasks", {
+            "tasks": [{"task": "inherit all", "label": "inherit"}],
+        })
+        await tool.execute(tc, {"session_id": "parent-wl2"})
+
+    assert len(captured_registries) >= 1
+    sub_reg = captured_registries[-1]
+    sub_tool_names = {t.name for t in sub_reg.list_all()}
+    assert "dummy" in sub_tool_names
+    assert "alpha" in sub_tool_names
+    assert "brave" in sub_tool_names
+    assert "spawn_subtasks" not in sub_tool_names
+
+
+@pytest.mark.asyncio
+async def test_tools_empty_list_inherits_all(session_manager: SessionManager) -> None:
+    """When task spec has 'tools: []', it's treated as omitted → inherit all."""
+    runner = _make_mock_runner(session_manager, [_DummyTool(), _AlphaTool()])
+    parent_session = session_manager.create_session_sync(
+        session_id="parent-wl3", user_id="u3",
+    )
+
+    captured_registries: list[ToolRegistry] = []
+    original_init = AgentRunner.__init__
+
+    def capture_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        captured_registries.append(self.tool_registry)
+
+    async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        return RunResult(response=AgentMessage.assistant("ok"), turns=1)
+
+    with patch.object(AgentRunner, "__init__", capture_init), \
+         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+        tool = SpawnSubtasksTool(runner, session_manager)
+        tc = ToolCall.create("spawn_subtasks", {
+            "tasks": [{"task": "empty tools", "label": "et", "tools": []}],
+        })
+        await tool.execute(tc, {"session_id": "parent-wl3"})
+
+    assert len(captured_registries) >= 1
+    sub_reg = captured_registries[-1]
+    sub_tool_names = {t.name for t in sub_reg.list_all()}
+    assert "dummy" in sub_tool_names
+    assert "alpha" in sub_tool_names

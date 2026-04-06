@@ -5,8 +5,9 @@ from ark_agentic.core.prompt.builder import (
     PromptConfig,
     SystemPromptBuilder,
 )
+from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
-from ark_agentic.core.types import AgentToolResult, SkillEntry, SkillMetadata
+from ark_agentic.core.types import AgentToolResult, SkillEntry, SkillLoadMode, SkillMetadata
 
 
 class MockTool(AgentTool):
@@ -137,9 +138,8 @@ class TestSystemPromptBuilder:
         assert "Use this skill when testing." in prompt
 
     def test_add_skills_metadata_only(self) -> None:
-        """When use_skill_metadata_only=True: metadata list + load-one-skill instructions, no full content."""
-        config = PromptConfig(use_skill_metadata_only=True)
-        builder = SystemPromptBuilder(config)
+        """dynamic mode: metadata list + load-one-skill instructions, no full content."""
+        builder = SystemPromptBuilder()
         skills = [
             SkillEntry(
                 id="test_skill",
@@ -151,7 +151,7 @@ class TestSystemPromptBuilder:
                 ),
             )
         ]
-        builder.add_skills(skills)
+        builder.add_skills(skills, skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic))
         prompt = builder.build()
 
         assert "test_skill" in prompt
@@ -159,24 +159,6 @@ class TestSystemPromptBuilder:
         assert "When user asks for X" in prompt
         assert "read_skill" in prompt
         assert "Full skill body must not appear in prompt." not in prompt
-
-    def test_add_skills_disabled(self) -> None:
-        """Test skills disabled in config."""
-        config = PromptConfig(include_skill_descriptions=False)
-        builder = SystemPromptBuilder(config)
-        skills = [
-            SkillEntry(
-                id="test",
-                path="/test",
-                content="Content",
-                metadata=SkillMetadata(name="Test", description="Test"),
-            )
-        ]
-        builder.add_skills(skills)
-        prompt = builder.build()
-
-        # Skills section should not be added
-        assert "Test Skill" not in prompt
 
     def test_add_custom_instructions(self) -> None:
         """Test adding custom instructions."""
@@ -284,7 +266,7 @@ class TestQuickBuild:
         assert "Skill content" in prompt
 
     def test_quick_build_with_skills_metadata_only(self) -> None:
-        """Test quick build with use_skill_metadata_only: metadata only, no full content."""
+        """dynamic mode via skill_config: metadata only, no full content."""
         skills = [
             SkillEntry(
                 id="s1",
@@ -293,8 +275,10 @@ class TestQuickBuild:
                 metadata=SkillMetadata(name="S1", description="First. When to use: When A"),
             )
         ]
-        config = PromptConfig(use_skill_metadata_only=True)
-        prompt = SystemPromptBuilder.quick_build(skills=skills, config=config)
+        prompt = SystemPromptBuilder.quick_build(
+            skills=skills,
+            skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic),
+        )
         assert "s1" in prompt and "S1" in prompt and "When A" in prompt
         assert "read_skill" in prompt
         assert "Secret body" not in prompt

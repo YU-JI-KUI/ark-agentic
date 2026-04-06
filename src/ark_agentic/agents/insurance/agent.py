@@ -82,7 +82,7 @@ def create_insurance_agent(
         skill_directories=[str(_SKILLS_DIR)],
         agent_id="insurance",
         enable_eligibility_check=True,
-        default_load_mode=SkillLoadMode.full,
+        load_mode=SkillLoadMode.full,
     )
     skill_loader = SkillLoader(skill_config)
     try:

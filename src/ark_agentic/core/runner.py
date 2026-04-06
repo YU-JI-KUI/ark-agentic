@@ -202,7 +202,7 @@ class AgentRunner:
             logger.info("Registered %d memory tools", len(memory_tools))
 
         if skill_loader is not None:
-            if self.config.skill_config.default_load_mode != SkillLoadMode.full:
+            if self.config.skill_config.load_mode != SkillLoadMode.full:
                 from .tools.read_skill import ReadSkillTool
                 self.tool_registry.register(ReadSkillTool(skill_loader))
                 logger.info("Registered read_skill tool for dynamic skill loading")
@@ -305,7 +305,7 @@ class AgentRunner:
         temperature = self.config.temperature
         if run_options and run_options.temperature is not None:
             temperature = run_options.temperature
-        skill_load_mode = self.config.skill_config.default_load_mode.value
+        skill_load_mode = self.config.skill_config.load_mode.value
         return _RunParams(model=model, temperature=temperature, skill_load_mode=skill_load_mode)
 
     async def _prepare_session(
@@ -831,11 +831,7 @@ class AgentRunner:
 
         include_memory = self._memory_manager is not None
 
-        # 技能注入模式：full_inject 全文注入, metadata_only 仅元数据
-        # semantic 模式由 SkillMatcher + SemanticClassifier 处理分组，此处只控制 prompt 渲染
-        base_config = self.config.prompt_config
-        use_skill_metadata_only = skill_load_mode in ("dynamic", "semantic")
-        prompt_config = replace(base_config, use_skill_metadata_only=use_skill_metadata_only)
+        prompt_config = self.config.prompt_config
 
         # 当 enable_thinking_tags=True 且 prompt_config 未自定义指令时，自动填充默认模板
         if self.config.enable_thinking_tags and not prompt_config.thinking_tag_instructions:
@@ -866,6 +862,7 @@ class AgentRunner:
             config=prompt_config,
             include_memory_instructions=include_memory,
             user_profile_content=profile_content,
+            skill_config=self.config.skill_config,
         )
 
     def _build_tools(self) -> list[dict[str, Any]]:

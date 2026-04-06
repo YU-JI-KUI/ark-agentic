@@ -11,7 +11,7 @@ import platform
 import re
 import shutil
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from ..types import SkillEntry, SkillLoadMode
 
@@ -35,8 +35,17 @@ class SkillConfig:
     # 是否允许未知技能
     allow_unknown_skills: bool = False
 
-    # Agent 级别默认加载模式
-    default_load_mode: SkillLoadMode = SkillLoadMode.full
+    # Agent 级别加载模式
+    load_mode: SkillLoadMode = SkillLoadMode.full
+
+    # ≤ 此值扁平渲染, > 此值按 group 分组
+    group_render_threshold: int = 10
+
+    # 最大 skill 条数 (OpenClaw=150)
+    max_skills_in_prompt: int = 100
+
+    # 最大字符数 (≈12,500 token, post-compaction ~10%)
+    max_skills_prompt_chars: int = 50_000
 
 
 def check_skill_eligibility(
@@ -139,35 +148,121 @@ def _escape_xml(text: str) -> str:
     )
 
 
-def format_skills_metadata_for_prompt(skills: list[SkillEntry]) -> str:
-    """格式化技能元数据为 XML 格式（对齐 pi-coding-agent formatSkillsForPrompt）。
+SKILLS_HEADER = (
+    "以下技能提供特定任务的专业指令。\n"
+    "在任务匹配其描述时，使用 read_skill 工具加载技能。\n"
+)
+
+LOAD_ONE_SKILL_INSTRUCTIONS = """\
+## 技能（业务必选协议）
+在回复任何业务相关问题之前，你必须执行以下步骤：
+1. 扫描 <available_skills>，根据 <description> 识别匹配的技能。
+2. 如果某个技能匹配（即使只是部分匹配）：调用 `read_skill` 并传入对应 <id>，然后严格按照返回的指令执行。
+3. 如果多个技能可能适用：选择最具体的那个，调用 `read_skill`。
+4. 仅当用户的问题与所有已列技能完全无关时（如日常寒暄、通用知识问题），才可直接回复而不加载技能。
+重要：业务类问题必须通过技能处理，禁止用通用回答替代技能流程。
+约束：每轮最多读取一个技能；必须先选定再读取。"""
+
+
+def _truncate_description(desc: str, max_chars: int = 250) -> str:
+    """Per-entry cap, 对齐 Claude Code 250 chars."""
+    return desc if len(desc) <= max_chars else desc[: max_chars - 3] + "..."
+
+
+def _render_skill_xml(skill: SkillEntry, indent: str = "  ") -> list[str]:
+    desc = _truncate_description(skill.metadata.description)
+    return [
+        f"{indent}<skill>",
+        f"{indent}  <id>{_escape_xml(skill.id)}</id>",
+        f"{indent}  <name>{_escape_xml(skill.metadata.name)}</name>",
+        f"{indent}  <description>{_escape_xml(desc)}</description>",
+        f"{indent}</skill>",
+    ]
+
+
+def _format_flat_skills(skills: list[SkillEntry]) -> str:
+    """≤ threshold: 扁平 XML."""
+    lines = ["<available_skills>"]
+    for skill in skills:
+        lines.extend(_render_skill_xml(skill))
+    lines.append("</available_skills>")
+    return "\n".join(lines)
+
+
+def _format_grouped_skills(skills: list[SkillEntry]) -> str:
+    """> threshold: 按 metadata.group 分组, 无 group 归入 'other'."""
+    from collections import defaultdict
+
+    groups: dict[str, list[SkillEntry]] = defaultdict(list)
+    for skill in skills:
+        groups[skill.metadata.group or "other"].append(skill)
+
+    lines = ["<available_skills>"]
+    for group_name in sorted(groups):
+        lines.append(f'  <group name="{_escape_xml(group_name)}">')
+        for skill in groups[group_name]:
+            lines.extend(_render_skill_xml(skill, indent="    "))
+        lines.append("  </group>")
+    lines.append("</available_skills>")
+    return "\n".join(lines)
+
+
+def _apply_budget(
+    skills: list[SkillEntry],
+    max_count: int,
+    max_chars: int,
+    formatter: Callable[[list[SkillEntry]], str],
+) -> tuple[str, bool]:
+    """1) max_count 截断  2) 二分搜索 max_chars 前缀  3) 附加 truncation 提示."""
+    truncated = False
+    subset = skills
+    if len(subset) > max_count:
+        subset = subset[:max_count]
+        truncated = True
+
+    text = formatter(subset)
+    if len(text) <= max_chars:
+        if truncated:
+            text += f"\n(truncated: {len(skills) - len(subset)} more skills not shown)"
+        return text, truncated
+
+    lo, hi = 1, len(subset)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        candidate = formatter(subset[:mid])
+        if len(candidate) <= max_chars:
+            lo = mid
+        else:
+            hi = mid - 1
+
+    text = formatter(subset[:lo])
+    hidden = len(skills) - lo
+    if hidden > 0:
+        text += f"\n(truncated: {hidden} more skills not shown)"
+    return text, True
+
+
+def format_skills_metadata_for_prompt(
+    skills: list[SkillEntry],
+    config: SkillConfig | None = None,
+) -> str:
+    """格式化技能元数据为 XML（自适应扁平/分组 + 预算控制）。
 
     用于「仅元数据」模式：模型先看 <available_skills> 列表，
     再通过 read_skill 按需加载正文。
-
-    Args:
-        skills: 技能列表
-
-    Returns:
-        XML 格式的元数据文本，不含 skill.content
     """
     if not skills:
         return ""
-
-    lines = [
-        "The following skills provide specialized instructions for specific tasks.",
-        "Use the read_skill tool to load a skill when the task matches its description.",
-        "",
-        "<available_skills>",
-    ]
-    for skill in skills:
-        lines.append("  <skill>")
-        lines.append(f"    <id>{_escape_xml(skill.id)}</id>")
-        lines.append(f"    <name>{_escape_xml(skill.metadata.name)}</name>")
-        lines.append(f"    <description>{_escape_xml(skill.metadata.description)}</description>")
-        lines.append("  </skill>")
-    lines.append("</available_skills>")
-    return "\n".join(lines)
+    sc = config or SkillConfig()
+    formatter = (
+        _format_flat_skills
+        if len(skills) <= sc.group_render_threshold
+        else _format_grouped_skills
+    )
+    text, _ = _apply_budget(
+        skills, sc.max_skills_in_prompt, sc.max_skills_prompt_chars, formatter,
+    )
+    return SKILLS_HEADER + "\n" + text
 
 
 _LEADING_H1_RE = re.compile(r"^\s*#\s+.+", re.MULTILINE)
@@ -185,6 +280,26 @@ def _strip_leading_h1(content: str) -> str:
     if m:
         stripped = stripped[m.end():].lstrip("\n")
     return stripped
+
+
+def render_skill_section(
+    skills: list[SkillEntry],
+    config: SkillConfig | None = None,
+) -> str:
+    """根据 config.load_mode 渲染 skill 系统提示段落。
+
+    full  → build_skill_prompt（全文注入）
+    其它  → LOAD_ONE_SKILL_INSTRUCTIONS + format_skills_metadata_for_prompt（元数据 + read_skill）
+    """
+    if not skills:
+        return ""
+    sc = config or SkillConfig()
+    if sc.load_mode == SkillLoadMode.full:
+        return build_skill_prompt(skills)
+    metadata = format_skills_metadata_for_prompt(skills, config=sc)
+    if not metadata:
+        return ""
+    return LOAD_ONE_SKILL_INSTRUCTIONS.strip() + "\n\n" + metadata
 
 
 def build_skill_prompt(skills: list[SkillEntry]) -> str:
