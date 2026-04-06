@@ -19,6 +19,9 @@ import logging
 import os
 import sys
 
+from dotenv import load_dotenv
+load_dotenv()
+
 os.environ.setdefault("DATA_SERVICE_MOCK", "true")
 
 from ark_agentic.agents.insurance import create_insurance_agent
