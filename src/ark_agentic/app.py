@@ -27,8 +27,9 @@ for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
     logging.getLogger(_lib).setLevel(logging.WARNING)
 
 if _log_level == logging.DEBUG:
-    from langchain_core.globals import set_debug
-    set_debug(True)
+    # set_debug(True) 会把 LLM 完整输入输出打到 stdout（ConsoleCallbackHandler），噪音过大。
+    # DEBUG 级别的 LangChain 内部日志通过标准 logging 控制，无需开启 LangChain debug 模式。
+    pass
 
 from pathlib import Path
 

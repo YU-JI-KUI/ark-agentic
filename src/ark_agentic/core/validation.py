@@ -36,7 +36,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
-_YEAR_PATTERN = re.compile(r"\d{4}年")
+# 中文日期（从最长到最短，保证 greedy 优先匹配完整形式）：
+#   YYYY年M月D日 | YYYY年M月 | YYYY年
+_CHINESE_DATE_RE = re.compile(r"\d{4}年\d{1,2}月(?:\d{1,2}日)?|\d{4}年")
+# 紧凑型 8 位日期 YYYYMMDD（工具数据常见格式），限定年份范围避免误匹配普通整数
+# TODO(perf): _normalize_tool_source_dates 对每条工具文本做全量 re.sub，
+#             大数据集场景下可改为 lazy 构建（仅在有 tool_ source 的 citation 时触发）
+_YYYYMMDD_RE = re.compile(r"\b((?:19|20)\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b")
 # 中文相对时间表述（顺序从长到短避免子串截断）
 _RELATIVE_TIME_RE = re.compile(
     r"上上个?月|上个?月|上月|本月|这个?月|下个?月|下月"
@@ -45,6 +51,24 @@ _RELATIVE_TIME_RE = re.compile(
     r"|上季度|本季度|上个季度|这个季度"
     r"|去年|今年|明年|前年"
 )
+def _chinese_date_to_iso(text: str) -> str | None:
+    """将中文日期转为 ISO 等价形式，用于 citation 匹配时的跨格式比对。
+
+    2026年3月15日 → 2026-03-15
+    2026年3月    → 2026-03
+    2026年       → 2026
+    """
+    m = re.fullmatch(r"(\d{4})年(?:(\d{1,2})月(?:(\d{1,2})日)?)?", text)
+    if not m:
+        return None
+    year, month, day = m.group(1), m.group(2), m.group(3)
+    if month and day:
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    if month:
+        return f"{year}-{int(month):02d}"
+    return year
+
+
 _MIN_BUSINESS_NUMBER = 100.0
 # 每个校验错误的扣分（score = max(0, 1.0 - penalty * n_errors)）
 _ERROR_PENALTY = 0.2
@@ -177,12 +201,21 @@ def validate_citations(
     cited_values = {c.value for c in cited_response.citations}
 
     # Step2 + Step4：从 answer 提取关键元素，检测未标注（UNCITED）
-    # 时间：YYYY-MM-DD 与 YYYY年（绝对日期）
-    time_elements: set[str] = set(_DATE_RE.findall(answer))
-    time_elements |= {m.group() for m in _YEAR_PATTERN.finditer(answer)}
-    for t in time_elements:
-        if not _is_cited(t, cited_values):
-            errors.append(CitationError(type="UNCITED", value=t))
+    # 时间：ISO 格式 YYYY-MM-DD
+    for iso_date in set(_DATE_RE.findall(answer)):
+        if not _is_cited(iso_date, cited_values):
+            errors.append(CitationError(type="UNCITED", value=iso_date))
+
+    # 时间：中文日期 YYYY年M月D日 / YYYY年M月 / YYYY年
+    # 同时检查中文形式本身及其 ISO 等价形式，避免因格式差异误报 UNCITED
+    for m in _CHINESE_DATE_RE.finditer(answer):
+        chinese_date = m.group()
+        iso_equiv = _chinese_date_to_iso(chinese_date)
+        candidate_forms = {chinese_date}
+        if iso_equiv:
+            candidate_forms.add(iso_equiv)
+        if not any(_is_cited(f, cited_values) for f in candidate_forms):
+            errors.append(CitationError(type="UNCITED", value=chinese_date))
 
     # 时间：中文相对时间表述（上个月、昨天、本周…）
     # 模型应在 citations.value 中使用绝对日期，所以校验时将相对表述解析为等价绝对形式再比对
@@ -216,18 +249,61 @@ def validate_citations(
     return CitationValidationResult(score=score, errors=errors, passed=passed, route=route)
 
 
+def _normalize_tool_source_dates(text: str) -> str:
+    """将 tool source 文本中 YYYYMMDD 格式日期内联替换为 YYYY-MM-DD。
+
+    工具数据通常是 JSON 序列化文本，直接替换后 citation.value（ISO 格式）
+    能在原位命中，无需追加。
+
+    性能说明：对每条工具文本执行全量 re.sub，当工具返回数据量较大时有一定开销。
+    优化方向：可改为 lazy 触发（仅当存在 tool_ source 的 citation 时才归一化）。
+    """
+    return _YYYYMMDD_RE.sub(r"\1-\2-\3", text)
+
+
+def _normalize_context_dates(text: str) -> str:
+    """将 context 文本中所有时间表述展开为等价绝对形式，追加到原文末尾。
+
+    覆盖三类情形：
+    1. 中文绝对日期：2026年3月15日 → 2026-03-15
+    2. 中文相对表述：上个月 / 上周 / 今天 → 所有等价绝对形式（复用 _relative_time_to_forms）
+    3. ISO 日期无需处理，本身已可匹配
+
+    这样 citation.value 填 ISO 日期（如 "2026-03-01"）时，不论用户输入是
+    "2026年3月1日" 还是 "上个月" 都能在 src_text 中命中，避免误报 CITE_NOT_FOUND。
+    """
+    extras: list[str] = []
+
+    # 中文绝对日期 → ISO 等价形式
+    for m in _CHINESE_DATE_RE.finditer(text):
+        iso = _chinese_date_to_iso(m.group())
+        if iso and iso not in text:
+            extras.append(iso)
+
+    # 中文相对表述 → 所有等价绝对形式
+    for rel in set(_RELATIVE_TIME_RE.findall(text)):
+        for form in _relative_time_to_forms(rel):
+            if form not in text and form not in extras:
+                extras.append(form)
+
+    return text + (" " + " ".join(extras) if extras else "")
+
+
 def _resolve_source_text(
     source: str,
     tool_sources: dict[str, str],
     context: str,
 ) -> str | None:
-    """根据 citation.source 解析对应的文本内容。"""
+    """根据 citation.source 解析对应的文本内容，并对各类日期格式做归一化。
+
+    - context 源：中文绝对日期 + 相对表述 → 追加 ISO 等价形式
+    - tool 源：YYYYMMDD → 内联替换为 YYYY-MM-DD
+    """
     if source == "context":
-        return context
-    if source.startswith("tool_"):
-        return tool_sources.get(source[5:])
-    # 兼容不带前缀的 tool_key
-    return tool_sources.get(source)
+        return _normalize_context_dates(context)
+    key = source[5:] if source.startswith("tool_") else source
+    raw = tool_sources.get(key)
+    return _normalize_tool_source_dates(raw) if raw is not None else None
 
 
 def _is_cited(value: str, cited_values: set[str]) -> bool:
@@ -467,6 +543,26 @@ class EntityTrie:
 # ============ 框架级辅助：session.state → 工具文本证据 ============
 
 
+def _build_context_from_session(
+    session: Any,
+    context_turns: int = 3,
+) -> str:
+    """从 session.messages 提取最近 N 轮用户消息，拼接为 context 字符串。
+
+    多轮对话中用户可能引用之前轮次的日期/实体，仅取当前轮会导致跨轮
+    context 引用误报 CITE_NOT_FOUND。
+    """
+    from .types import MessageRole
+
+    user_contents = [
+        msg.content
+        for msg in session.messages
+        if msg.role == MessageRole.USER and msg.content
+    ]
+    recent = user_contents[-context_turns:] if context_turns > 0 else user_contents
+    return "\n".join(recent)
+
+
 def _build_tool_sources(
     state: dict[str, Any],
     tool_keys: set[str],
@@ -487,12 +583,15 @@ def _build_tool_sources(
 def create_citation_validation_hook(
     tool_keys: set[str],
     entity_trie: "EntityTrie | None" = None,
+    *,
+    context_turns: int = 3,
 ) -> "BeforeCompleteCallback":
     """工厂：返回一个 BeforeCompleteCallback，在最终回答落地前校验 citations。
 
     Args:
-        tool_keys:    session.state 中要扫描的工具 key 集合（agent 自定义）
-        entity_trie:  EntityTrie 实体提取器（可选，None 时跳过 ENTITY 校验）
+        tool_keys:     session.state 中要扫描的工具 key 集合（agent 自定义）
+        entity_trie:   EntityTrie 实体提取器（可选，None 时跳过 ENTITY 校验）
+        context_turns: 用于 source="context" 校验的历史用户消息轮数，默认 3
 
     Returns:
         BeforeCompleteCallback — 注入 RunnerCallbacks.before_complete
@@ -519,7 +618,8 @@ def create_citation_validation_hook(
         ]
         cited = CitedResponse(answer=content, citations=citations)
         tool_sources = _build_tool_sources(ctx.session.state, tool_keys)
-        user_input: str = ctx.session.state.get("temp:user_input", "")
+        # 取最近 context_turns 轮用户消息作为 context，覆盖跨轮引用场景
+        user_input: str = _build_context_from_session(ctx.session, context_turns)
 
         result = validate_citations(
             cited,
@@ -528,6 +628,14 @@ def create_citation_validation_hook(
             entity_trie=entity_trie,
         )
 
+        if result.errors:
+            for e in result.errors:
+                logger.warning(
+                    "[CITATION_HOOK] %s value=%r source=%s",
+                    e.type,
+                    e.value,
+                    e.source or "N/A",
+                )
         logger.info(
             "[CITATION_HOOK] route=%s score=%.2f errors=%d",
             result.route,

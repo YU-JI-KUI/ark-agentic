@@ -64,8 +64,8 @@ class RecordCitationsTool(AgentTool):
 
         logger.debug("[RECORD_CITATIONS] recorded %d citations", len(citations))
 
-        return AgentToolResult(
+        return AgentToolResult.json_result(
             tool_call_id=tool_call.id,
-            content="citations recorded",
+            data={"ok": True, "message": "citations recorded"},
             metadata={"state_delta": {"_pending_citations": citations}},
         )
