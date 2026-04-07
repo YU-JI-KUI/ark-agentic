@@ -419,16 +419,10 @@ runner = AgentRunner(..., callbacks=RunnerCallbacks(before_agent=[enrich_context
 
 ```python
 from ark_agentic.core.validation import create_citation_validation_hook, EntityTrie
-from ark_agentic.core.tools.citations import RecordCitationsTool
 
-# 1. 注册轻量记录工具（模型在输出前调用，仅写入 citations 到 session state）
-tool_registry.register(RecordCitationsTool())
-
-# 2. 创建校验 hook（在 before_complete 阶段读取 response.content + citations 进行校验）
 trie = EntityTrie()
 trie.load_from_csv(csv_path)
 citation_hook = create_citation_validation_hook(
-    tool_keys={"account_overview", "cash_assets"},  # 需要校验的工具数据 key
     entity_trie=trie,
 )
 
@@ -436,21 +430,18 @@ runner = AgentRunner(
     ...,
     callbacks=RunnerCallbacks(
         before_agent=[enrich_context],
-        before_complete=[citation_hook],   # 校验通过 → 正常落地；失败 → 注入错误 + 重试
+        before_complete=[citation_hook],   # 通过 → 落地；retry → 注入反馈 + 重入 loop
     ),
 )
 ```
 
-校验失败时的自反思流程：
+校验失败时的自反思流程（无需 `record_citations`）：
 
 ```
-LLM → record_citations(citations=[...]) → "citations recorded"
 LLM → 输出回答（无 tool_calls）
-before_complete 校验 → 失败
-  → 注入 user 消息："[引用校验失败] - CITE_NOT_FOUND: '12345.67' (source=tool_account_overview)"
-  → continue ReAct loop
-LLM → 看到错误反馈 → 修正引用 → record_citations(...) → 重新输出
-before_complete 校验 → 通过 → _finalize_response → 前端收到纯自然语言
+before_complete：从 response.content 提取 claim，与 ``session.messages`` 中本轮 TOOL 消息 + 近期用户消息做 grounding
+  → 失败：注入 user 消息（含 UNGROUNDED 明细）→ continue ReAct loop
+  → 通过：_finalize_response → 前端收到纯自然语言
 ```
 
 ### PA Knowledge API（可选）
@@ -515,7 +506,6 @@ src/ark_agentic/
 │   ├── tools/             # 工具系统
 │   │   ├── base.py        # AgentTool 基类 (282 行)
 │   │   ├── registry.py    # ToolRegistry
-│   │   ├── citations.py   # RecordCitationsTool（citation 记录，配合 before_complete 使用）
 │   │   ├── memory.py      # Memory 工具 (377 行)
 │   │   ├── read_skill.py  # ReadSkill 工具
 │   │   ├── demo_a2ui.py   # A2UI 演示工具
@@ -643,12 +633,11 @@ uv run python script.py
 - Runner 自动合并到 `session.state`
 - 后续工具通过 `context` 读取状态
 
-### 输出验证（Citation 校验）
+### 输出验证（后置 grounding）
 基于 `before_complete` hook 的确定性幻觉检测：
-- 模型在输出前调用 `record_citations` 记录引用来源
-- `before_complete` hook 读取实际 `response.content` 与 `_pending_citations`，运行确定性校验
-- 校验失败时注入纠正反馈并重入 ReAct loop，触发模型自我修正
-- 前端始终收到纯自然语言（无 JSON 格式污染）
+- 模型只输出自然语言；系统从 `response.content` 提取实体（EntityTrie）、日期、业务数值
+- 工具事实从 `session.messages` 中最后一条 USER 之后的 TOOL 消息提取，与最近若干轮用户消息一起做子串命中校验
+- `retry` 路由下注入纠正反馈并重入 ReAct loop；`warn`/`safe` 正常落地
 
 ## TODOs
 - [P0] **存储层解耦**: 实现基于 Redis/Database 的 Session 和 Memory 存储，支持 Cloud-Native 分布式部署

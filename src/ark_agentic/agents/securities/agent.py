@@ -27,11 +27,10 @@ from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
 
-from ark_agentic.core.tools.citations import RecordCitationsTool
 from ark_agentic.core.validation import EntityTrie, create_citation_validation_hook
 
 from .tools import create_securities_tools
-from .validation import CITE_SYSTEM_INSTRUCTION, _SECURITIES_TOOL_KEYS
+from .validation import VALIDATION_SYSTEM_INSTRUCTION
 
 _SKILLS_DIR = Path(__file__).parent / "skills"
 
@@ -62,15 +61,11 @@ def create_securities_agent(
 
     _trie = EntityTrie()
     _trie.load_from_csv(_STOCKS_CSV)
-    _citation_hook = create_citation_validation_hook(
-        tool_keys=_SECURITIES_TOOL_KEYS,
-        entity_trie=_trie,
-    )
+    _citation_hook = create_citation_validation_hook(entity_trie=_trie)
 
     tool_registry = ToolRegistry()
     for tool in create_securities_tools():
         tool_registry.register(tool)
-    tool_registry.register(RecordCitationsTool())
 
     from ark_agentic.core.compaction import LLMSummarizer
 
@@ -102,7 +97,7 @@ def create_securities_agent(
         prompt_config=PromptConfig(
             agent_name="证券资产管理助手",
             agent_description="专业的证券资产查询与分析助手",
-            custom_instructions=CITE_SYSTEM_INSTRUCTION,
+            custom_instructions=VALIDATION_SYSTEM_INSTRUCTION,
         ),
         skill_config=skill_config,
     )

@@ -42,7 +42,6 @@ from .types import (
     ToolLoopAction,
     ToolResultType,
 )
-
 if TYPE_CHECKING:
     from .memory.manager import MemoryManager
 
@@ -350,7 +349,7 @@ class AgentRunner:
                 pre_compact_callback=flush_cb,
             )
 
-        # 供工具（如 SaveCitationsTool）在执行时访问当前用户输入；
+        # 供工具在执行时通过 session.state["temp:user_input"] 访问当前用户输入；
         # strip_temp_state() 在 _finalize_run 中自动清理。
         session.state["temp:user_input"] = user_input
 
@@ -513,7 +512,12 @@ class AgentRunner:
                 response=response,
                 handler=handler,
             )
+            # halt → 注入 response 并重入 loop；若需「每轮只反思一次」由回调自行约束（如 temp:grounding_reflect_used）
             if bc and bc.halt:
+                logger.warning(
+                    "[before_complete] halt retry turns=%s",
+                    ls.turns,
+                )
                 if bc.response:
                     self.session_manager.add_message_sync(session_id, bc.response)
                 continue
