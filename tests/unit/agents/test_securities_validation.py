@@ -122,7 +122,13 @@ async def test_second_before_complete_skips_validation_after_reflect(
 @pytest.mark.asyncio
 async def test_warn_route_does_not_halt(mock_session: SessionEntry) -> None:
     mock_session.add_message(AgentMessage.user("看看账户"))
-    _inject_tool_turn(mock_session, "c1", "account_overview", {"total_assets": 150000})
+    # 工具含 150000/300000，仅 999999 无依据 → 加权分落在 warn 区间，不 halt
+    _inject_tool_turn(
+        mock_session,
+        "c1",
+        "account_overview",
+        {"total_assets": 150000, "profit": 300000},
+    )
     cb = create_citation_validation_hook()
     ctx = CallbackContext(
         user_input="看看账户",
