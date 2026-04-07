@@ -346,6 +346,77 @@ def _match_claim_sources(
     return matched
 
 
+# ============ 二阶段补校验辅助 ============
+
+
+def _recompute_result(
+    all_claims: list[ExtractedClaim],
+    still_ungrounded: list[ExtractedClaim],
+) -> CitationValidationResult:
+    """根据补匹配后剩余的未 grounding claim 重新计算得分与路由。
+
+    避免对整份 answer 重跑 validate_answer_grounding；仅在 ``_fallback_match_ungrounded``
+    之后调用，此时 ``all_claims`` 中已命中的 claim 已更新 ``.sources``。
+
+    Args:
+        all_claims:       全部提取出的 claim（含已命中与仍未命中）。
+        still_ungrounded: 历史补匹配后仍未找到来源的 claim 列表。
+
+    Returns:
+        重新计算的 ``CitationValidationResult``。
+    """
+    total_weight = sum(_grounding_weight_for_claim_type(c.type) for c in all_claims)
+    ungrounded_weight = sum(
+        _grounding_weight_for_claim_type(c.type) for c in still_ungrounded
+    )
+    errors = [
+        CitationError(type="UNGROUNDED", value=c.value, source="fact_corpus")
+        for c in still_ungrounded
+    ]
+    if total_weight <= 0:
+        score = 100.0
+    else:
+        score = max(0.0, min(100.0, 100.0 * (1.0 - ungrounded_weight / total_weight)))
+
+    if score >= _SAFE_THRESHOLD:
+        route, passed = "safe", True
+    elif score >= _WARN_THRESHOLD:
+        route, passed = "warn", True
+    else:
+        route, passed = "retry", False
+
+    return CitationValidationResult(score=score, errors=errors, passed=passed, route=route)
+
+
+def _fallback_match_ungrounded(
+    ungrounded_claims: list[ExtractedClaim],
+    history_sources: dict[str, str],
+    extractors: list[ClaimExtractor],
+) -> list[ExtractedClaim]:
+    """对未命中 claims 在历史语料中补匹配，返回仍未命中的 claim 列表。
+
+    命中的 claim 其 ``.sources`` 被原地更新为 ``["history_cache"]``，
+    以便 ``_recompute_result`` 区分已命中项。
+
+    Args:
+        ungrounded_claims: 阶段1未找到来源的 claim 列表。
+        history_sources:   ``GroundingCache.get_recent`` 返回的合并文本 dict。
+        extractors:        归一化所用提取器链（与阶段1一致）。
+
+    Returns:
+        经历史补匹配后仍未 grounding 的 claim 列表。
+    """
+    history_fact = _build_fact_sources(history_sources, "", extractors)
+    still_ungrounded: list[ExtractedClaim] = []
+    for claim in ungrounded_claims:
+        matched = _match_claim_sources(claim, history_fact)
+        if matched:
+            claim.sources = ["history_cache"]
+        else:
+            still_ungrounded.append(claim)
+    return still_ungrounded
+
+
 # ============ 框架级辅助：session → 工具文本证据 ============
 
 
@@ -425,6 +496,8 @@ def create_citation_validation_hook(
     Returns:
         BeforeCompleteCallback — 注入 RunnerCallbacks.before_complete
     """
+    from .utils.grounding_cache import FactSnapshot, _CACHE as _grounding_cache
+
     _extractors = extractors if extractors is not None else _default_extractors(entity_trie)
     _REFLECT_FLAG = "temp:grounding_reflect_used"
 
@@ -442,16 +515,56 @@ def create_citation_validation_hook(
             )
             return None
 
+        session_id = ctx.session.session_id
         content = response.content or ""
         tool_sources = _build_tool_sources_from_session(ctx.session)
         user_input: str = _build_context_from_session(ctx.session, context_turns)
 
+        # 每轮都写入缓存（空 dict 也写，保留时间戳占位）
+        _grounding_cache.put(session_id, FactSnapshot(tool_sources=tool_sources))
+
+        # ── 阶段1：当前轮 fact_sources + context ──
         result = validate_answer_grounding(
             content,
             tool_sources,
             context=user_input,
             extractors=_extractors,
         )
+
+        logger.info(
+            "[CITATION_HOOK] phase1 route=%s score=%.2f errors=%d",
+            result.route,
+            result.score,
+            len(result.errors),
+        )
+
+        # ── 阶段2：仅在低分时对未命中 claims 做历史补匹配 ──
+        if result.score < _WARN_THRESHOLD:
+            history_sources = _grounding_cache.get_recent(session_id)
+            # 过滤掉当前轮已有的 key，避免重复匹配
+            history_only = {
+                k: v for k, v in history_sources.items() if k not in tool_sources
+            }
+            if history_only:
+                all_claims = extract_claims_from_answer(content, extractors=_extractors)
+                ungrounded = [c for c in all_claims if not c.sources]
+                still_bad = _fallback_match_ungrounded(ungrounded, history_only, _extractors)
+                result = _recompute_result(all_claims, still_bad)
+                logger.info(
+                    "[CITATION_HOOK] phase2 fallback route=%s score=%.2f still_ungrounded=%d",
+                    result.route,
+                    result.score,
+                    len(still_bad),
+                )
+
+        if result.errors:
+            for e in result.errors:
+                logger.warning(
+                    "[CITATION_HOOK] %s value=%r source=%s",
+                    e.type,
+                    e.value,
+                    e.source or "N/A",
+                )
 
         if result.route == "retry":
             ctx.session.state[_REFLECT_FLAG] = True
