@@ -97,6 +97,7 @@ def create_insurance_agent(
         max_tokens=4096,
         max_turns=10,
         enable_thinking_tags=enable_thinking_tags,
+        enable_subtasks=True,
         prompt_config=PromptConfig(
             agent_name="保险智能助手",
             agent_description=(

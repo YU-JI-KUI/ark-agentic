@@ -5,7 +5,6 @@ from .asset_profit_hist_period import AssetProfitHistPeriodTool
 from .asset_profit_hist_range import AssetProfitHistRangeTool
 from .branch_info import BranchInfoTool
 from .cash_assets import CashAssetsTool
-from .display_card import DisplayCardTool
 from .etf_holdings import ETFHoldingsTool
 from .fund_holdings import FundHoldingsTool
 from .hksc_holdings import HKSCHoldingsTool
@@ -21,7 +20,6 @@ __all__ = [
     "AssetProfitHistRangeTool",
     "BranchInfoTool",
     "CashAssetsTool",
-    "DisplayCardTool",
     "ETFHoldingsTool",
     "FundHoldingsTool",
     "HKSCHoldingsTool",
@@ -30,25 +28,4 @@ __all__ = [
     "StockDailyProfitMonthTool",
     "StockDailyProfitRangeTool",
     "StockProfitRankingTool",
-    "create_securities_tools",
 ]
-
-
-def create_securities_tools() -> list:
-    """创建所有证券业务工具。"""
-    return [
-        AccountOverviewTool(),
-        AssetProfitHistPeriodTool(),
-        AssetProfitHistRangeTool(),
-        BranchInfoTool(),
-        CashAssetsTool(),
-        DisplayCardTool(),
-        ETFHoldingsTool(),
-        FundHoldingsTool(),
-        HKSCHoldingsTool(),
-        SecurityDetailTool(),
-        SecurityInfoSearchTool(),
-        StockDailyProfitMonthTool(),
-        StockDailyProfitRangeTool(),
-        StockProfitRankingTool(),
-    ]

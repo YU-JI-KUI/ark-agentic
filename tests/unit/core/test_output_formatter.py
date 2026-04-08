@@ -135,21 +135,27 @@ class TestEnterpriseAGUIFormatter:
         f = EnterpriseAGUIFormatter(source_bu_type="shouxian", app_type="jgj")
         ev = _event(type="run_started", run_content="开始")
         result = f.format(ev)
-        _, data = _parse_sse(result)
-        assert data["protocol"] == "AGUI"
-        assert data["source_bu_type"] == "shouxian"
-        assert data["app_type"] == "jgj"
-        assert data["event"] == "run_started"
-        assert "data" in data
+        blocks = [b for b in result.split("\n\n") if b.strip()]
+        assert len(blocks) == 2
+        etype1, data1 = _parse_sse(blocks[0] + "\n\n")
+        assert etype1 == "run_started"
+        assert data1["protocol"] == "AGUI"
+        assert data1["source_bu_type"] == "shouxian"
+        assert data1["app_type"] == "jgj"
+        etype2, _ = _parse_sse(blocks[1] + "\n\n")
+        assert etype2 == "reasoning_start"
 
     def test_run_started_ui_data_not_none(self) -> None:
         f = EnterpriseAGUIFormatter()
         ev = _event(type="run_started", run_content="初始化")
         result = f.format(ev)
-        _, data = _parse_sse(result)
-        dp = data["data"]
-        assert dp["ui_protocol"] == "text"
-        assert dp["ui_data"] == "初始化"
+        blocks = [b for b in result.split("\n\n") if b.strip()]
+        etype1, data1 = _parse_sse(blocks[0] + "\n\n")
+        assert etype1 == "run_started"
+        assert data1["data"]["ui_protocol"] == "text"
+        assert data1["data"]["ui_data"] == "初始化"
+        etype2, _ = _parse_sse(blocks[1] + "\n\n")
+        assert etype2 == "reasoning_start"
 
     def test_step_started_ui_protocol_json(self) -> None:
         f = EnterpriseAGUIFormatter()
@@ -273,6 +279,56 @@ class TestEnterpriseAGUIFormatter:
         assert len(events) == 1
         etype, _ = _parse_sse(events[0] + "\n\n")
         assert etype == "reasoning_start"
+
+
+class TestEnterpriseReasoningBeforeText:
+    """Integration: reasoning phase always completes before text phase."""
+
+    @staticmethod
+    def _collect_enterprise_event_types(sse_chunks: list[str | None]) -> list[str]:
+        """Extract ordered enterprise event types from formatter output."""
+        types: list[str] = []
+        for chunk in sse_chunks:
+            if chunk is None:
+                continue
+            for block in chunk.split("\n\n"):
+                block = block.strip()
+                if not block:
+                    continue
+                for line in block.split("\n"):
+                    if line.startswith("event: "):
+                        types.append(line[7:])
+        return types
+
+    def test_step_then_text_produces_reasoning_end_before_text_start(self) -> None:
+        """run_started → step_started → text_message_start must yield
+        reasoning_start ... reasoning_end ... text_message_start."""
+        f = EnterpriseAGUIFormatter()
+        chunks = [
+            f.format(_event(type="run_started", run_content="处理中")),
+            f.format(_event(type="step_started", step_name="处理中")),
+            f.format(_event(type="text_message_start", message_id="m1")),
+            f.format(_event(type="text_message_content", delta="你好", message_id="m1")),
+            f.format(_event(type="text_message_end", message_id="m1")),
+            f.format(_event(type="run_finished", message="done", turns=1)),
+        ]
+        types = self._collect_enterprise_event_types(chunks)
+        ri = types.index("reasoning_start")
+        re = types.index("reasoning_end")
+        ti = types.index("text_message_start")
+        assert ri < re < ti
+
+    def test_step_then_another_step_stays_in_reasoning(self) -> None:
+        """Consecutive step_started events keep reasoning open (no reasoning_end between them)."""
+        f = EnterpriseAGUIFormatter()
+        chunks = [
+            f.format(_event(type="run_started", run_content="处理中")),
+            f.format(_event(type="step_started", step_name="初始")),
+            f.format(_event(type="step_started", step_name="查询中")),
+        ]
+        types = self._collect_enterprise_event_types(chunks)
+        assert types.count("reasoning_start") == 1
+        assert "reasoning_end" not in types
 
 
 class TestAloneFormatter:

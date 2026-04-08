@@ -3,6 +3,20 @@
 const API_BASE = '/api/studio'
 const CHAT_URL = '/chat'
 
+// ── Auth helpers ─────────────────────────────────────────────────
+
+const AUTH_STORAGE_KEY = 'ark_studio_user'
+
+export function getAuthUserId(): string | undefined {
+    try {
+        const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+        if (!raw) return undefined
+        return JSON.parse(raw).user_id as string
+    } catch {
+        return undefined
+    }
+}
+
 // ── Chat / SSE Streaming ──────────────────────────────────────────
 
 export interface ChatRequest {
@@ -12,6 +26,7 @@ export interface ChatRequest {
     stream?: boolean
     protocol?: string
     context?: Record<string, string>
+    user_id?: string
 }
 
 export interface AgentStreamEvent {
@@ -42,10 +57,13 @@ export interface AgentStreamEvent {
  * Returns an async generator of parsed AgentStreamEvent objects.
  */
 export async function* streamChat(req: ChatRequest): AsyncGenerator<AgentStreamEvent> {
-    const body: ChatRequest = { ...req, stream: true, protocol: 'agui' }
+    const userId = req.user_id || getAuthUserId()
+    const body = { ...req, stream: true, protocol: 'agui', user_id: userId }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (userId) headers['x-ark-user-id'] = userId
     const response = await fetch(CHAT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body),
     })
     if (!response.ok || !response.body) {

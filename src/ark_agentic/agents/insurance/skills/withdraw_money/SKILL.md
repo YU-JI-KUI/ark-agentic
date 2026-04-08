@@ -25,12 +25,14 @@ required_tools:
 ## 触发条件
 
 以下意图触发本技能：
+
 - "能取多少钱" / "可以取多少" / "总共多少钱" → Case A（总览）
 - "想取钱" / "需要用钱" / "帮我取一些" / 表达取款意图但未给金额 → Case A（总览）
 - "取5万" / "需要10万" / 带金额的取款需求 → Case B（具体方案）
 - "不要贷款" / "换个方案" / "多取一点" → Case C（方案调整，前提是已有推荐方案）
 
 **不触发**：
+
 - 未明确取款意图的闲聊
 
 ## 回复结构
@@ -38,6 +40,7 @@ required_tools:
 `render_a2ui 调用 + [1 句确认引导]`
 
 不需要在卡片前加引导语，直接调用 `render_a2ui`。卡片发出后**禁止**在文字中重复金额、渠道名称、保单号等任何卡片内容。仅允许 1 句引导（≤25字），示例：
+
 - "需要取多少呢？"
 - "需要办理哪个方案？"
 - "确认办理吗？"
@@ -46,23 +49,27 @@ required_tools:
 
 ## 渠道 ID 参考
 
-| 用户说法 | 渠道 ID |
-|---------|---------|
-| 生存金 | `survival_fund` |
-| 红利 | `bonus` |
-| 贷款 | `policy_loan` |
+
+| 用户说法 | 渠道 ID                |
+| ---- | -------------------- |
+| 生存金  | `survival_fund`      |
+| 红利   | `bonus`              |
+| 贷款   | `policy_loan`        |
 | 部分领取 | `partial_withdrawal` |
-| 退保 | `surrender` |
+| 退保   | `surrender`          |
+
 
 ---
 
 ## 可用 Component 类型
 
-| 类型 | 用途 | data |
-|------|------|------|
-| `WithdrawSummaryHeader` | 总览头部（总金额） | `{"sections": [...]}` |
-| `WithdrawSummarySection` | 总览分组（零成本/贷款/退保） | `{"section": "preset_name"}` |
-| `WithdrawPlanCard` | 取款方案卡 | `{"channels": [...], "target": N, "title": "...", "tag_color"?: "...", "button_variant"?: "primary/secondary"}` |
+
+| 类型                       | 用途              | data                                                                                                            |
+| ------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------- |
+| `WithdrawSummaryHeader`  | 总览头部（总金额）       | `{"sections": [...]}`                                                                                           |
+| `WithdrawSummarySection` | 总览分组（零成本/贷款/退保） | `{"section": "preset_name"}`                                                                                    |
+| `WithdrawPlanCard`       | 取款方案卡           | `{"channels": [...], "target": N, "title": "...", "tag_color"?: "...", "button_variant"?: "primary/secondary"}` |
+
 
 Component 内部自动从 context 读取 `rule_engine` 数据并计算金额，LLM 无需硬编码数字。
 
@@ -92,10 +99,12 @@ rule_engine(action="list_options", user_id=用户ID)
 
 ### 动态筛选
 
-| 用户说 | 调整 |
-|-------|------|
+
+| 用户说        | 调整                                      |
+| ---------- | --------------------------------------- |
 | "不算贷款能取多少" | 移除 `loan` section + header 中移除 `"loan"` |
-| "只看零成本的" | 仅保留 `zero_cost` section 和 header |
+| "只看零成本的"   | 仅保留 `zero_cost` section 和 header        |
+
 
 示例（不含贷款）：
 
@@ -109,11 +118,13 @@ rule_engine(action="list_options", user_id=用户ID)
 
 ### Section 预设
 
-| section | 包含渠道 | 标签 |
-|---------|---------|------|
-| `zero_cost` | survival_fund, bonus | 不影响保障 |
-| `loan` | policy_loan | 需支付利息 |
+
+| section             | 包含渠道                          | 标签        |
+| ------------------- | ----------------------------- | --------- |
+| `zero_cost`         | survival_fund, bonus          | 不影响保障     |
+| `loan`              | policy_loan                   | 需支付利息     |
 | `partial_surrender` | partial_withdrawal, surrender | 保障有损失，不建议 |
+
 
 无数据的 section 自动返回空（不显示）。
 
@@ -203,13 +214,15 @@ customer_info(info_type="identity", user_id=用户ID)
 
 ### 调整方式
 
-| 用户说 | 调整 blocks |
-|-------|------------|
-| "多取一点，总共8万" | 更新 target 为 80000 |
-| "不要贷款" | 移除 channels 中 policy_loan 的 PlanCard |
-| "不退保" | 移除含 surrender 的 PlanCard |
-| "只用不影响保障的" | 仅保留 `["survival_fund","bonus"]` channels |
-| "不要POL002" | 添加 `"exclude_policies": ["POL002"]` |
+
+| 用户说         | 调整 blocks                                |
+| ----------- | ---------------------------------------- |
+| "多取一点，总共8万" | 更新 target 为 80000                        |
+| "不要贷款"      | 移除 channels 中 policy_loan 的 PlanCard     |
+| "不退保"       | 移除含 surrender 的 PlanCard                 |
+| "只用不影响保障的"  | 仅保留 `["survival_fund","bonus"]` channels |
+| "不要POL002"  | 添加 `"exclude_policies": ["POL002"]`      |
+
 
 ### 单项精算
 
@@ -251,4 +264,6 @@ rule_engine(
 4. 违反以上任一条等同于任务失败。
 
 **反面示例**（绝对禁止）：
+
 - 用户："还是取10000的方案吧" → ❌ 直接用文字描述"您之前的方案是…" → ✅ 必须重新 `rule_engine(amount=10000)` + `render_a2ui(blocks=...)`
+

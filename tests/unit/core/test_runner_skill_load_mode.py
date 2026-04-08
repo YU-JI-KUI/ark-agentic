@@ -100,13 +100,13 @@ def test_dynamic_mode_contains_read_skill_instruction(
 def test_semantic_mode_falls_back_to_dynamic(
     runner_with_one_skill, caplog
 ) -> None:
-    """skill_load_mode=semantic: falls back to dynamic with warning."""
+    """skill_load_mode=semantic without classifier: falls back to dynamic."""
     runner, session_id = runner_with_one_skill
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         prompt = runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="semantic"
         )
-    assert "not yet implemented" in caplog.text
+    assert "falling back" in caplog.text.lower()
     # should behave like dynamic mode
     assert "read_skill" in prompt
     assert "Full skill body here." not in prompt

@@ -731,6 +731,41 @@ async def test_a2ui_marker_by_name_not_result_type(tmp_sessions_dir: Path) -> No
     assert "surfaceId" not in content
 
 
+class _FakeMemoryManager:
+    """Minimal MemoryManager stand-in for mark_memory_dirty tests."""
+
+    def __init__(self) -> None:
+        self.dirty_count = 0
+
+    def mark_dirty(self) -> None:
+        self.dirty_count += 1
+
+    async def initialize(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
+def test_mark_memory_dirty_noop_without_memory_manager(tmp_sessions_dir: Path) -> None:
+    runner, _ = _make_runner(tmp_sessions_dir)
+    runner.mark_memory_dirty()
+
+
+def test_mark_memory_dirty_calls_memory_manager_mark_dirty(tmp_sessions_dir: Path) -> None:
+    mock_llm = MockChatModel(responses=[])
+    llm = mock_llm  # type: ignore[arg-type]
+    mm = _FakeMemoryManager()
+    session_mgr = SessionManager(tmp_sessions_dir)
+    runner = AgentRunner(
+        llm=llm,
+        session_manager=session_mgr,
+        memory_manager=mm,  # type: ignore[arg-type]
+    )
+    runner.mark_memory_dirty()
+    assert mm.dirty_count == 1, "Studio PUT should surface as mark_dirty on MemoryManager"
+
+
 # ============ after_agent 回调替换 response ============
 
 

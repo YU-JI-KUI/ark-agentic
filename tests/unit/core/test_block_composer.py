@@ -12,11 +12,19 @@ from ark_agentic.core.a2ui.blocks import (
     get_block_types,
     _BLOCK_REGISTRY,
     CARD_BG,
-    PAGE_BG,
 )
 from ark_agentic.core.a2ui.composer import BlockComposer
-from ark_agentic.core.tools.render_a2ui import RenderA2UITool
+from ark_agentic.core.a2ui.theme import A2UITheme
+from ark_agentic.core.tools.render_a2ui import BlocksConfig, RenderA2UITool
 from ark_agentic.core.types import ToolCall
+from ark_agentic.agents.insurance.a2ui.blocks import INSURANCE_BLOCKS as _INS_BLOCKS
+
+_build_section_header = _INS_BLOCKS["SectionHeader"]
+_build_kv_row = _INS_BLOCKS["KVRow"]
+_build_accent_total = _INS_BLOCKS["AccentTotal"]
+_build_hint_text = _INS_BLOCKS["HintText"]
+_build_action_button = _INS_BLOCKS["ActionButton"]
+_build_divider = _INS_BLOCKS["Divider"]
 
 
 # ============ resolve_binding ============
@@ -90,44 +98,37 @@ def _id_gen():
 
 class TestInsuranceBlocks:
     def test_section_header_basic(self):
-        from ark_agentic.agents.insurance.a2ui.blocks import build_section_header
-        comps = build_section_header({"title": "Test"}, _id_gen())
+        comps = _build_section_header({"title": "Test"}, _id_gen())
         assert len(comps) >= 3
         assert "Row" in comps[0]["component"]
 
     def test_section_header_with_tag(self):
-        from ark_agentic.agents.insurance.a2ui.blocks import build_section_header
-        comps = build_section_header({"title": "Test", "tag": "tag1", "tag_color": "#123"}, _id_gen())
+        comps = _build_section_header({"title": "Test", "tag": "tag1", "tag_color": "#123"}, _id_gen())
         tag_comps = [c for c in comps if "Tag" in c.get("component", {})]
         assert len(tag_comps) == 1
 
     def test_kv_row(self):
-        from ark_agentic.agents.insurance.a2ui.blocks import build_kv_row
-        comps = build_kv_row({"label": "L", "value": "V"}, _id_gen())
+        comps = _build_kv_row({"label": "L", "value": "V"}, _id_gen())
         assert len(comps) == 3
         assert "Row" in comps[0]["component"]
 
     def test_accent_total_with_label(self):
-        from ark_agentic.agents.insurance.a2ui.blocks import build_accent_total
-        comps = build_accent_total({"label": "Total", "value": "¥1000"}, _id_gen())
+        comps = _build_accent_total({"label": "Total", "value": "¥1000"}, _id_gen())
         assert len(comps) == 3
         assert "Row" in comps[0]["component"]
 
     def test_accent_total_without_label(self):
-        from ark_agentic.agents.insurance.a2ui.blocks import build_accent_total
-        comps = build_accent_total({"value": "¥1000"}, _id_gen())
+        comps = _build_accent_total({"value": "¥1000"}, _id_gen())
         assert len(comps) == 1
         assert "Text" in comps[0]["component"]
 
     def test_hint_text(self):
-        from ark_agentic.agents.insurance.a2ui.blocks import build_hint_text
-        comps = build_hint_text({"text": "hint"}, _id_gen())
+        comps = _build_hint_text({"text": "hint"}, _id_gen())
         assert len(comps) == 1
         assert "Text" in comps[0]["component"]
 
     def test_action_button(self):
-        from ark_agentic.agents.insurance.a2ui.blocks import build_action_button
-        comps = build_action_button(
+        comps = _build_action_button(
             {"text": "Go", "action": {"name": "query", "args": {"queryMsg": "test"}}},
             _id_gen(),
         )
@@ -137,8 +138,7 @@ class TestInsuranceBlocks:
         assert btn["width"] == 100
 
     def test_divider(self):
-        from ark_agentic.agents.insurance.a2ui.blocks import build_divider
-        comps = build_divider({}, _id_gen())
+        comps = _build_divider({}, _id_gen())
         assert len(comps) == 1
         assert "Divider" in comps[0]["component"]
 
@@ -160,7 +160,8 @@ class TestBlockComposer:
 
     def test_root_gap_and_padding(self):
         composer = BlockComposer()
-        payload = composer.compose([], {}, root_gap=16, root_padding=[16, 32, 16, 16])
+        theme = A2UITheme(root_gap=16, root_padding=[16, 32, 16, 16])
+        payload = composer.compose([], {}, theme=theme)
         col = payload["components"][0]["component"]["Column"]
         assert col["gap"] == 16
         assert col["padding"] == [16, 32, 16, 16]
@@ -172,7 +173,7 @@ class TestBlockComposer:
 class TestRenderA2UITool:
     @pytest.fixture
     def tool(self):
-        return RenderA2UITool()
+        return RenderA2UITool(blocks=BlocksConfig())
 
     @pytest.mark.asyncio
     async def test_invalid_blocks_json(self, tool):

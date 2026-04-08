@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.tools.render_a2ui import RenderA2UITool
+from ark_agentic.core.a2ui import A2UIOutput, A2UITheme, PresetRegistry
+from ark_agentic.core.tools.render_a2ui import BlocksConfig, RenderA2UITool, TemplateConfig
 from ark_agentic.core.types import ToolCall, ToolResultType
 
 
@@ -95,16 +96,39 @@ def _mock_extractor(context: dict, card_args: dict | None) -> A2UIOutput:
 def full_tool() -> RenderA2UITool:
     """Tool with both blocks and card_type support."""
     return RenderA2UITool(
-        template_root=_template_root(),
-        extractors={"withdraw_summary": _mock_extractor},
+        blocks=BlocksConfig(),
+        template=TemplateConfig(
+            template_root=_template_root(),
+            extractors={"withdraw_summary": _mock_extractor},
+        ),
         group="insurance",
     )
 
 
 @pytest.fixture
+def preset_tool() -> RenderA2UITool:
+    """Tool with only preset_type support."""
+
+    def _demo_extractor(
+        context: dict, card_args: dict | None
+    ) -> A2UIOutput:
+        return A2UIOutput(
+            template_data={
+                "template": "demo_card",
+                "from_ctx": context.get("session_id", ""),
+                "x": (card_args or {}).get("x", 0),
+            },
+            llm_digest="preset-digest",
+        )
+
+    reg = PresetRegistry().register("demo", _demo_extractor)
+    return RenderA2UITool(preset=reg, group="test")
+
+
+@pytest.fixture
 def blocks_only_tool() -> RenderA2UITool:
     """Tool with only blocks support (no template_root)."""
-    return RenderA2UITool(group="insurance")
+    return RenderA2UITool(blocks=BlocksConfig(), group="insurance")
 
 
 @pytest.fixture
@@ -144,12 +168,15 @@ def agent_tool() -> RenderA2UITool:
     """Tool with insurance agent blocks and components."""
     from ark_agentic.agents.insurance.a2ui import INSURANCE_BLOCKS, INSURANCE_COMPONENTS
     return RenderA2UITool(
-        template_root=_template_root(),
-        extractors={"withdraw_summary": _mock_extractor},
-        agent_blocks=INSURANCE_BLOCKS,
-        agent_components=INSURANCE_COMPONENTS,
-        root_gap=16,
-        root_padding=[16, 32, 16, 16],
+        blocks=BlocksConfig(
+            agent_blocks=INSURANCE_BLOCKS,
+            agent_components=INSURANCE_COMPONENTS,
+            theme=A2UITheme(root_gap=16, root_padding=[16, 32, 16, 16]),
+        ),
+        template=TemplateConfig(
+            template_root=_template_root(),
+            extractors={"withdraw_summary": _mock_extractor},
+        ),
         group="insurance",
         state_keys=("_rule_engine_result",),
     )
@@ -278,8 +305,10 @@ async def test_card_type_extractor_raises():
         raise ValueError("no data")
 
     tool = RenderA2UITool(
-        template_root=_template_root(),
-        extractors={"withdraw_summary": failing},
+        template=TemplateConfig(
+            template_root=_template_root(),
+            extractors={"withdraw_summary": failing},
+        ),
     )
     tc = ToolCall.create("render_a2ui", {"card_type": "withdraw_summary"})
     result = await tool.execute(tc, {"session_id": "s1"})
@@ -293,6 +322,83 @@ async def test_card_type_empty_args_ok(full_tool):
     result = await full_tool.execute(tc, {"session_id": "s1"})
     assert not result.is_error
     assert result.content["data"]["advice_text_1"] == "a1"
+
+
+# ---- preset_type path ----
+
+
+@pytest.mark.asyncio
+async def test_preset_success_returns_template_data_as_content(preset_tool):
+    tc = ToolCall.create(
+        "render_a2ui",
+        {"preset_type": "demo", "card_args": '{"x": 42}'},
+    )
+    result = await preset_tool.execute(tc, {"session_id": "sess-1"})
+    assert not result.is_error
+    assert result.result_type == ToolResultType.A2UI
+    assert result.content["template"] == "demo_card"
+    assert result.content["from_ctx"] == "sess-1"
+    assert result.content["x"] == 42
+    assert result.metadata.get("llm_digest") == "preset-digest"
+
+
+@pytest.mark.asyncio
+async def test_preset_invalid_type_returns_error(preset_tool):
+    tc = ToolCall.create("render_a2ui", {"preset_type": "unknown"})
+    result = await preset_tool.execute(tc, {})
+    assert result.is_error
+    assert "不支持的预设类型" in str(result.content)
+    assert "demo" in str(result.content)
+
+
+@pytest.mark.asyncio
+async def test_preset_invalid_card_args_json(preset_tool):
+    tc = ToolCall.create(
+        "render_a2ui",
+        {"preset_type": "demo", "card_args": "{bad"},
+    )
+    result = await preset_tool.execute(tc, {})
+    assert result.is_error
+    assert "JSON" in str(result.content)
+
+
+@pytest.mark.asyncio
+async def test_preset_extractor_raises_returns_error():
+    def _fail(_ctx, _args):
+        raise RuntimeError("boom")
+
+    reg = PresetRegistry().register("bad", _fail)
+    tool = RenderA2UITool(preset=reg)
+    tc = ToolCall.create("render_a2ui", {"preset_type": "bad"})
+    result = await tool.execute(tc, {})
+    assert result.is_error
+    assert "数据提取失败" in str(result.content)
+
+
+@pytest.mark.asyncio
+async def test_preset_blocks_mutually_exclusive():
+    reg = PresetRegistry().register(
+        "p",
+        lambda _c, _a: A2UIOutput(template_data={"ok": True}),
+    )
+    tool = RenderA2UITool(blocks=BlocksConfig(), preset=reg)
+    tc = ToolCall.create(
+        "render_a2ui",
+        {"preset_type": "p", "blocks": "[]"},
+    )
+    result = await tool.execute(tc, {})
+    assert result.is_error
+    assert "互斥" in str(result.content)
+
+
+def test_preset_only_schema_has_preset_type_not_surface_id(preset_tool):
+    schema = preset_tool.get_json_schema()
+    props = schema["function"]["parameters"]["properties"]
+    assert "preset_type" in props
+    assert props["preset_type"].get("enum") == ["demo"]
+    assert "card_type" not in props
+    assert "blocks" not in props
+    assert "surface_id" not in props
 
 
 # ---- validation ----

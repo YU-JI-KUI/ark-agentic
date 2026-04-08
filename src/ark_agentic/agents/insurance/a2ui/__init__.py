@@ -5,8 +5,8 @@ from .template_extractors import (
     withdraw_plan_extractor,
     withdraw_summary_extractor,
 )
-from .blocks import INSURANCE_BLOCKS
-from .components import INSURANCE_COMPONENTS
+from .blocks import INSURANCE_BLOCKS, create_insurance_blocks
+from .components import INSURANCE_COMPONENTS, create_insurance_components
 
 __all__ = [
     "withdraw_summary_extractor",
@@ -14,4 +14,6 @@ __all__ = [
     "policy_detail_extractor",
     "INSURANCE_BLOCKS",
     "INSURANCE_COMPONENTS",
+    "create_insurance_blocks",
+    "create_insurance_components",
 ]

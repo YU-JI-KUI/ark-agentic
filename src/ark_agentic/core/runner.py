@@ -77,6 +77,9 @@ class RunnerConfig:
     # 技能配置
     skill_config: SkillConfig = field(default_factory=SkillConfig)
 
+    # 子任务（启用后自动注册 spawn_subtasks 工具）
+    enable_subtasks: bool = False
+
     # 外部历史合并（agent 级开关）
     accept_external_history: bool = True
 
@@ -203,7 +206,16 @@ class AgentRunner:
                 self.tool_registry.register(ReadSkillTool(skill_loader))
                 logger.info("Registered read_skill tool for dynamic skill loading")
 
-        self.skill_matcher = SkillMatcher(skill_loader) if skill_loader else None
+        self.skill_matcher = (
+            SkillMatcher(skill_loader) if skill_loader else None
+        )
+
+        if self.config.enable_subtasks:
+            from .subtask import create_subtask_tool
+            self.tool_registry.register(
+                create_subtask_tool(self, self.session_manager)
+            )
+            logger.info("Registered spawn_subtasks tool")
 
     def _get_memory_for_user(self, user_id: str) -> "MemoryManager | None":
         """返回共享 MemoryManager（所有用户共用一个实例）。"""
@@ -213,6 +225,11 @@ class AgentRunner:
         """预加载 embedding 模型并初始化 Memory 系统（供 lifespan 阶段调用）。"""
         if self._memory_manager is not None:
             await self._memory_manager.initialize()
+
+    def mark_memory_dirty(self) -> None:
+        """标记 memory 索引需要刷新（供 Studio 写操作后调用）。"""
+        if self._memory_manager:
+            self._memory_manager.mark_dirty()
 
     async def close_memory(self) -> None:
         """释放 Memory 资源（供 lifespan shutdown 调用）。"""
@@ -267,6 +284,23 @@ class AgentRunner:
 
         await self._finalize_run(session_id, user_id, result, cb_ctx, handler)
         return result
+
+    async def run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        """无持久化的 ReAct 循环，用于 ephemeral 子任务。
+
+        调用方负责 session 创建和清理。跳过 _prepare_session / _finalize_run
+        的持久化、hooks、compaction 生命周期。
+        """
+        user_message = AgentMessage.user(user_input)
+        self.session_manager.add_message_sync(session_id, user_message)
+        params = self._resolve_run_params(None)
+        return await self._run_loop(
+            session_id,
+            use_streaming=False,
+            model_override=params.model,
+            temperature_override=params.temperature,
+            skill_load_mode=params.skill_load_mode,
+        )
 
     # ---- run() lifecycle phases ----
 
@@ -884,30 +918,18 @@ class AgentRunner:
         skills = []
         if self.skill_matcher:
             match_result = self.skill_matcher.match(
-                query=user_query, context=skill_context
+                query=user_query, context=skill_context,
+                skill_load_mode=skill_load_mode,
             )
             skills = match_result.matched_skills
 
         include_memory = self._memory_manager is not None
 
-        # 技能注入模式
+        # 技能注入模式：full_inject 全文注入, metadata_only 仅元数据
+        # semantic 模式由 SkillMatcher + SemanticClassifier 处理分组，此处只控制 prompt 渲染
         base_config = self.config.prompt_config
-        if skill_load_mode == "full":
-            use_skill_metadata_only = False
-        elif skill_load_mode == "dynamic":
-            use_skill_metadata_only = True
-        elif skill_load_mode == "semantic":
-            # 占位: 未来通过 SemanticSkillMatcher 预匹配后，
-            # 高置信 skill 全文注入，低置信 skill 走 metadata
-            logger.warning(
-                "Semantic skill loading not yet implemented, falling back to 'dynamic'"
-            )
-            use_skill_metadata_only = True
-        else:
-            use_skill_metadata_only = False
-        prompt_config = replace(
-            base_config, use_skill_metadata_only=use_skill_metadata_only
-        )
+        use_skill_metadata_only = skill_load_mode in ("dynamic", "semantic")
+        prompt_config = replace(base_config, use_skill_metadata_only=use_skill_metadata_only)
 
         # 当 enable_thinking_tags=True 且 prompt_config 未自定义指令时，自动填充默认模板
         if (

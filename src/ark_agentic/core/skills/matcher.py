@@ -2,6 +2,9 @@
 技能匹配器
 
 参考: openclaw-main/src/agents/skills/workspace.ts
+
+与 base.check_skill_eligibility / should_include_skill 统一：先策略与资格过滤，
+再按 SkillLoadMode（full/dynamic/semantic）决定 full_inject 与 metadata_only 分组。
 """
 
 from __future__ import annotations
@@ -17,22 +20,32 @@ from .base import (
     should_include_skill,
 )
 from .loader import SkillLoader
+from .classifier import SemanticClassifier
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class SkillMatchResult:
-    """技能匹配结果"""
+    """技能匹配结果
 
-    # 匹配到的技能列表
-    matched_skills: list[SkillEntry] = field(default_factory=list)
+    按注入方式分为 full_inject（全文注入 prompt）与 metadata_only（仅元数据 + read_skill）。
+    matched_skills 为二者合并，用于向后兼容。
+    """
 
-    # 因资格不满足而排除的技能
+    full_inject: list[SkillEntry] = field(default_factory=list)
+    """全文注入 system prompt 的技能"""
+
+    metadata_only: list[SkillEntry] = field(default_factory=list)
+    """仅注入元数据，由 LLM 通过 read_skill 按需加载"""
+
     ineligible_skills: list[tuple[SkillEntry, list[str]]] = field(default_factory=list)
-
-    # 因策略排除的技能
     excluded_skills: list[SkillEntry] = field(default_factory=list)
+
+    @property
+    def matched_skills(self) -> list[SkillEntry]:
+        """匹配的技能列表（full_inject + metadata_only），向后兼容"""
+        return self.full_inject + self.metadata_only
 
     @property
     def skill_ids(self) -> list[str]:
@@ -43,11 +56,17 @@ class SkillMatchResult:
 class SkillMatcher:
     """技能匹配器
 
-    根据上下文匹配可用技能，执行资格检查和策略过滤。
+    根据上下文匹配可用技能：策略过滤、资格检查，再按 skill_load_mode 决定注入方式。
+    semantic 模式下依赖 SemanticClassifier 做 full / metadata 分组。
     """
 
-    def __init__(self, loader: SkillLoader) -> None:
+    def __init__(
+        self,
+        loader: SkillLoader,
+        semantic_classifier: SemanticClassifier | None = None,
+    ) -> None:
         self.loader = loader
+        self.semantic_classifier = semantic_classifier
 
     def match(
         self,
@@ -55,22 +74,24 @@ class SkillMatcher:
         context: dict[str, Any] | None = None,
         skill_ids: list[str] | None = None,
         check_eligibility: bool = True,
+        skill_load_mode: str = "full",
     ) -> SkillMatchResult:
-        """匹配技能
+        """匹配技能并按 mode 分配 full_inject / metadata_only
 
         Args:
-            query: 用户查询（用于相关性判断）
+            query: 用户查询（用于相关性/语义分类）
             context: 执行上下文
             skill_ids: 指定的技能 ID 列表（None 表示全部）
             check_eligibility: 是否检查资格
+            skill_load_mode: full | dynamic | semantic
 
         Returns:
-            匹配结果
+            SkillMatchResult（full_inject + metadata_only）
         """
         result = SkillMatchResult()
         context = context or {}
+        matched: list[SkillEntry] = []
 
-        # 获取候选技能
         if skill_ids:
             candidates = [
                 self.loader.get_skill(sid)
@@ -84,12 +105,10 @@ class SkillMatcher:
             if skill is None:
                 continue
 
-            # 1. 检查是否应包含（策略过滤）
             if not should_include_skill(skill, query, context):
                 result.excluded_skills.append(skill)
                 continue
 
-            # 2. 检查资格
             if check_eligibility:
                 is_eligible, reasons = check_skill_eligibility(skill, context)
                 if not is_eligible:
@@ -97,11 +116,33 @@ class SkillMatcher:
                     logger.debug(f"Skill {skill.id} ineligible: {reasons}")
                     continue
 
-            # 3. 匹配成功
-            result.matched_skills.append(skill)
+            matched.append(skill)
+
+        if skill_load_mode == "full":
+            result.full_inject = list(matched)
+            result.metadata_only = []
+        elif skill_load_mode == "dynamic":
+            result.full_inject = []
+            result.metadata_only = list(matched)
+        elif skill_load_mode == "semantic" and self.semantic_classifier is not None:
+            full, meta = self.semantic_classifier.classify(query or "", matched)
+            result.full_inject = full
+            result.metadata_only = meta
+            logger.info(
+                f"Semantic: full_inject={len(full)} metadata_only={len(meta)}"
+            )
+        else:
+            if skill_load_mode == "semantic":
+                logger.info(
+                    "skill_load_mode='semantic' but no semantic_classifier, "
+                    "falling back to 'dynamic'"
+                )
+            result.full_inject = []
+            result.metadata_only = list(matched)
 
         logger.info(
-            f"Matched {len(result.matched_skills)} skills, "
+            f"Matched {len(result.matched_skills)} skills "
+            f"(full={len(result.full_inject)} meta={len(result.metadata_only)}), "
             f"{len(result.ineligible_skills)} ineligible, "
             f"{len(result.excluded_skills)} excluded"
         )
@@ -113,15 +154,7 @@ class SkillMatcher:
         query: str | None = None,
         context: dict[str, Any] | None = None,
     ) -> str:
-        """匹配技能并生成提示文本
-
-        Args:
-            query: 用户查询
-            context: 执行上下文
-
-        Returns:
-            技能提示文本（可直接注入系统提示）
-        """
+        """匹配技能并生成提示文本"""
         result = self.match(query=query, context=context)
         return build_skill_prompt(result.matched_skills)
 

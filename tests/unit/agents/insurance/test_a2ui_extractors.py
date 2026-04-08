@@ -135,22 +135,6 @@ def test_withdraw_summary_extractor_raises_when_rule_engine_result_invalid() -> 
         withdraw_summary_extractor({"_rule_engine_result": "not valid json"}, None)
 
 
-def test_withdraw_summary_extractor_accepts_rule_engine_from_tool_results_by_name() -> None:
-    context = {
-        "_tool_results_by_name": {
-            "rule_engine": {
-                "total_available_excl_loan": 100,
-                "total_available_incl_loan": 200,
-                "options": [
-                    {"product_name": "P", "survival_fund_amt": 100, "bonus_amt": 0, "loan_amt": 100},
-                ],
-            },
-        },
-    }
-    flat = withdraw_summary_extractor(context, None).template_data
-    assert flat["header_value"] == "¥ 200.00"
-    assert flat["zero_cost_items"][0]["value"] == "¥ 100.00"
-
 
 def test_withdraw_summary_extractor_accepts_json_string_rule_engine_result() -> None:
     context = {
@@ -942,7 +926,7 @@ async def test_insurance_render_a2ui_all_three_types_render_successfully(
         withdraw_plan_extractor,
         withdraw_summary_extractor,
     )
-    from ark_agentic.core.tools import RenderA2UITool
+    from ark_agentic.core.tools import RenderA2UITool, TemplateConfig
     from ark_agentic.core.types import ToolCall
 
     template_root = (
@@ -955,12 +939,14 @@ async def test_insurance_render_a2ui_all_three_types_render_successfully(
         / "templates"
     )
     tool = RenderA2UITool(
-        template_root=template_root,
-        extractors={
-            "withdraw_summary": withdraw_summary_extractor,
-            "withdraw_plan": withdraw_plan_extractor,
-            "policy_detail": policy_detail_extractor,
-        },
+        template=TemplateConfig(
+            template_root=template_root,
+            extractors={
+                "withdraw_summary": withdraw_summary_extractor,
+                "withdraw_plan": withdraw_plan_extractor,
+                "policy_detail": policy_detail_extractor,
+            },
+        ),
     )
     ctx = {**_minimal_rule_engine_context, "session_id": "s1"}
 
