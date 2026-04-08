@@ -15,7 +15,6 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from ark_agentic.api.deps import get_registry
-from ark_agentic.core.paths import get_memory_base_dir
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +55,7 @@ def _scan_memory_files(workspace_dir: Path) -> list[MemoryFileItem]:
     files: list[MemoryFileItem] = []
     base = workspace_dir
 
-    global_mem = _file_item(base / "MEMORY.md", "", "agent_memory", base)
+    global_mem = _file_item(base / "MEMORY.md", "", "memory", base)
     if global_mem:
         files.append(global_mem)
 
@@ -72,19 +71,9 @@ def _scan_memory_files(workspace_dir: Path) -> list[MemoryFileItem]:
             if not user_dir.is_dir() or user_dir.name.startswith((".", "_")):
                 continue
             user_id = user_dir.name
-            user_mem = _file_item(user_dir / "MEMORY.md", user_id, "agent_memory", base)
+            user_mem = _file_item(user_dir / "MEMORY.md", user_id, "memory", base)
             if user_mem:
                 files.append(user_mem)
-
-    profiles_dir = get_memory_base_dir() / "_profiles"
-    if profiles_dir.is_dir():
-        for profile_dir in sorted(profiles_dir.iterdir()):
-            if not profile_dir.is_dir():
-                continue
-            uid = profile_dir.name
-            profile_file = _file_item(profile_dir / "MEMORY.md", uid, "profile", profiles_dir.parent)
-            if profile_file:
-                files.append(profile_file)
 
     return files
 
@@ -93,13 +82,8 @@ def _scan_memory_files(workspace_dir: Path) -> list[MemoryFileItem]:
 
 def _resolve_memory_path(workspace: Path, file_path: str) -> Path:
     """Resolve a relative file_path to an absolute path with traversal guard."""
-    if file_path.startswith("_profiles/"):
-        resolved = get_memory_base_dir() / file_path
-    else:
-        resolved = workspace / file_path
-    resolved = resolved.resolve()
-    allowed = [workspace.resolve(), get_memory_base_dir().resolve()]
-    if not any(str(resolved).startswith(str(r)) for r in allowed):
+    resolved = (workspace / file_path).resolve()
+    if not str(resolved).startswith(str(workspace.resolve())):
         raise HTTPException(status_code=403, detail="Path traversal denied")
     return resolved
 
@@ -171,11 +155,5 @@ async def put_memory_content(
 
     body = await request.body()
     resolved.write_text(body.decode("utf-8"), encoding="utf-8")
-
-    try:
-        runner = get_registry().get(agent_id)
-        runner.mark_memory_dirty()
-    except KeyError:
-        pass
 
     return {"status": "saved"}

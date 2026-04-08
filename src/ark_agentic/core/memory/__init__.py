@@ -1,22 +1,11 @@
-"""
-Memory 模块 - 记忆系统
+"""Memory 模块 — 用户记忆生命周期管理
 
-提供 SQLite 后端的向量存储、FTS5 关键词搜索、混合检索等功能。
+Session JSONL (raw) → MEMORY.md (distilled) → System Prompt (consumption)。
 """
 
-from .types import MemoryChunk, MemorySearchResult
-from .sqlite_store import SQLiteMemoryStore, SQLiteStoreConfig
-from .chunker import MarkdownChunker
-from .embeddings import BGEEmbedding
 from .manager import MemoryManager, MemoryConfig
 
 __all__ = [
-    "MemoryChunk",
-    "MemorySearchResult",
     "MemoryConfig",
-    "SQLiteMemoryStore",
-    "SQLiteStoreConfig",
-    "MarkdownChunker",
-    "BGEEmbedding",
     "MemoryManager",
 ]

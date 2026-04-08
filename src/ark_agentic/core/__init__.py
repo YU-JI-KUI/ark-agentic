@@ -4,7 +4,7 @@ Public API surface — 外部项目应仅使用此模块及子模块 __all__ 中
 
 子模块:
     core.tools   — AgentTool, ToolRegistry 等
-    core.memory  — MemoryManager, SQLiteMemoryStore 等
+    core.memory  — MemoryManager, Dream 等
     core.skills  — SkillLoader, SkillMatcher 等
     core.stream  — StreamAssembler, StreamEventBus 等
     core.prompt  — SystemPromptBuilder, PromptConfig

@@ -1,341 +1,170 @@
-"""Tests for memory tools (memory_search, memory_get, memory_write)."""
+"""Tests for memory_write tool (upsert + empty=delete semantics)."""
 
-from dataclasses import dataclass
+import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from ark_agentic.core.memory.manager import MemoryManager, MemoryConfig
 from ark_agentic.core.tools.memory import (
-    MemorySearchTool,
-    MemoryGetTool,
+    MemoryWriteTool,
     create_memory_tools,
     MemoryProvider,
 )
 from ark_agentic.core.types import ToolCall
 
 
-@dataclass
-class MockMemorySearchResult:
-    path: str
-    start_line: int
-    end_line: int
-    score: float
-    snippet: str
-    citation: str | None = None
+def _make_manager(workspace_dir: str) -> MemoryManager:
+    return MemoryManager(MemoryConfig(workspace_dir=workspace_dir))
 
 
-@dataclass
-class MockChunk:
-    """Minimal chunk for MemoryGetTool (DB get_chunks_by_location)."""
-    start_line: int
-    end_line: int
-    text: str
+def _provider(mgr: MemoryManager) -> MemoryProvider:
+    return lambda uid: mgr
 
 
-@dataclass
-class MockMemoryConfig:
-    workspace_dir: str = ""
-    index_dir: str = ""
+CTX = {"user:id": "test_user"}
 
 
-class MockMemoryManager:
-    def __init__(self, workspace_dir: str = "") -> None:
-        self.config = MockMemoryConfig(workspace_dir=workspace_dir)
-        self._initialized = True
-        self._dirty = False
-        self.search = AsyncMock(return_value=[])
-        self._store = MagicMock()
-
-    async def initialize(self) -> None:
-        self._initialized = True
-
-    def mark_dirty(self) -> None:
-        self._dirty = True
-
-
-TEST_CONTEXT = {"user:id": "test_user"}
-
-
-def _make_provider(manager: MockMemoryManager) -> MemoryProvider:
-    return lambda user_id: manager
-
-
-class TestMemorySearchTool:
+class TestMemoryWriteTool:
     def test_tool_metadata(self) -> None:
-        tool = MemorySearchTool(_make_provider(MockMemoryManager()))
-        assert tool.name == "memory_search"
-        assert "语义搜索" in tool.description
-        assert len(tool.parameters) == 3
+        with tempfile.TemporaryDirectory() as ws:
+            tool = MemoryWriteTool(_provider(_make_manager(ws)))
+            assert tool.name == "memory_write"
+            assert len(tool.parameters) == 1
 
-    def test_get_json_schema(self) -> None:
-        tool = MemorySearchTool(_make_provider(MockMemoryManager()))
-        schema = tool.get_json_schema()
-
-        assert schema["type"] == "function"
-        func = schema["function"]
-        assert func["name"] == "memory_search"
-        assert "query" in func["parameters"]["properties"]
-        assert "max_results" in func["parameters"]["properties"]
-        assert "min_score" in func["parameters"]["properties"]
+    def test_description_mentions_upsert(self) -> None:
+        with tempfile.TemporaryDirectory() as ws:
+            tool = MemoryWriteTool(_provider(_make_manager(ws)))
+            assert "增量" in tool.description
 
     @pytest.mark.asyncio
-    async def test_search_success(self) -> None:
-        manager = MockMemoryManager()
-        manager.search.return_value = [
-            MockMemorySearchResult(
-                path="MEMORY.md",
-                start_line=10,
-                end_line=15,
-                score=0.85,
-                snippet="Some relevant content",
-                citation="MEMORY.md#L10-15",
+    async def test_write_returns_current_headings(self) -> None:
+        with tempfile.TemporaryDirectory() as ws:
+            tool = MemoryWriteTool(_provider(_make_manager(ws)))
+            call = ToolCall(
+                id="c1", name="memory_write",
+                arguments={"content": "## 风险偏好\n保守型\n\n## 回复风格\n简洁"},
             )
-        ]
-        tool = MemorySearchTool(_make_provider(manager))
-        call = ToolCall(id="call_1", name="memory_search", arguments={"query": "test"})
+            result = await tool.execute(call, CTX)
+            assert result.content["saved"] is True
+            assert "风险偏好" in result.content["current_headings"]
+            assert "回复风格" in result.content["current_headings"]
 
-        result = await tool.execute(call, TEST_CONTEXT)
-
-        assert result.tool_call_id == "call_1"
-        content = result.content
-        assert content["query"] == "test"
-        assert content["total"] == 1
-        assert len(content["results"]) == 1
-        assert content["results"][0]["path"] == "MEMORY.md"
-        assert content["results"][0]["score"] == 0.85
+            mem = Path(ws) / "test_user" / "MEMORY.md"
+            assert mem.exists()
+            assert "保守型" in mem.read_text(encoding="utf-8")
 
     @pytest.mark.asyncio
-    async def test_search_empty_query(self) -> None:
-        tool = MemorySearchTool(_make_provider(MockMemoryManager()))
-        call = ToolCall(id="call_1", name="memory_search", arguments={"query": ""})
-
-        result = await tool.execute(call, TEST_CONTEXT)
-
-        assert "error" in result.content
-        assert result.content["results"] == []
+    async def test_write_empty_content(self) -> None:
+        with tempfile.TemporaryDirectory() as ws:
+            tool = MemoryWriteTool(_provider(_make_manager(ws)))
+            call = ToolCall(id="c1", name="memory_write", arguments={"content": ""})
+            result = await tool.execute(call, CTX)
+            assert result.content["saved"] is False
 
     @pytest.mark.asyncio
-    async def test_search_no_query(self) -> None:
-        tool = MemorySearchTool(_make_provider(MockMemoryManager()))
-        call = ToolCall(id="call_1", name="memory_search", arguments={})
-
-        result = await tool.execute(call, TEST_CONTEXT)
-
-        assert "error" in result.content
-
-    @pytest.mark.asyncio
-    async def test_search_with_params(self) -> None:
-        manager = MockMemoryManager()
-        manager.search.return_value = []
-        tool = MemorySearchTool(_make_provider(manager))
-        call = ToolCall(
-            id="call_1",
-            name="memory_search",
-            arguments={"query": "test", "max_results": 10, "min_score": 0.5},
-        )
-
-        await tool.execute(call, TEST_CONTEXT)
-
-        manager.search.assert_called_once_with(
-            query="test", max_results=10, min_score=0.5
-        )
+    async def test_write_no_heading_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as ws:
+            tool = MemoryWriteTool(_provider(_make_manager(ws)))
+            call = ToolCall(
+                id="c1", name="memory_write",
+                arguments={"content": "plain text no heading"},
+            )
+            result = await tool.execute(call, CTX)
+            assert result.content["saved"] is False
+            assert "heading" in result.content["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_search_uses_defaults(self) -> None:
-        manager = MockMemoryManager()
-        manager.search.return_value = []
-        tool = MemorySearchTool(_make_provider(manager))
-        call = ToolCall(id="call_1", name="memory_search", arguments={"query": "test"})
-
-        await tool.execute(call, TEST_CONTEXT)
-
-        manager.search.assert_called_once_with(query="test", max_results=6, min_score=0.35)
+    async def test_write_missing_user_id(self) -> None:
+        with tempfile.TemporaryDirectory() as ws:
+            tool = MemoryWriteTool(_provider(_make_manager(ws)))
+            call = ToolCall(id="c1", name="memory_write", arguments={"content": "## X\nY"})
+            result = await tool.execute(call, {})
+            assert result.content["saved"] is False
+            assert "user:id" in result.content["error"]
 
     @pytest.mark.asyncio
-    async def test_search_initializes_if_needed(self) -> None:
-        manager = MockMemoryManager()
-        manager._initialized = False
-        manager.initialize = AsyncMock()
-        manager.search.return_value = []
-        tool = MemorySearchTool(_make_provider(manager))
-        call = ToolCall(id="call_1", name="memory_search", arguments={"query": "test"})
+    async def test_upsert_preserves_other_headings(self) -> None:
+        """Upsert: writing new headings does NOT remove existing ones."""
+        with tempfile.TemporaryDirectory() as ws:
+            tool = MemoryWriteTool(_provider(_make_manager(ws)))
 
-        await tool.execute(call, TEST_CONTEXT)
+            call1 = ToolCall(
+                id="c1", name="memory_write",
+                arguments={"content": "## A\nval_a\n\n## B\nval_b"},
+            )
+            r1 = await tool.execute(call1, CTX)
+            assert set(r1.content["current_headings"]) == {"A", "B"}
 
-        manager.initialize.assert_called_once()
+            call2 = ToolCall(
+                id="c2", name="memory_write",
+                arguments={"content": "## A\nval_a_updated\n\n## C\nval_c"},
+            )
+            r2 = await tool.execute(call2, CTX)
+            assert set(r2.content["current_headings"]) == {"A", "B", "C"}
+            assert "dropped_headings" not in r2.content
 
-    @pytest.mark.asyncio
-    async def test_search_handles_error(self) -> None:
-        manager = MockMemoryManager()
-        manager.search.side_effect = Exception("Search failed")
-        tool = MemorySearchTool(_make_provider(manager))
-        call = ToolCall(id="call_1", name="memory_search", arguments={"query": "test"})
-
-        result = await tool.execute(call, TEST_CONTEXT)
-
-        assert "error" in result.content
-        assert "Search failed" in result.content["error"]
-        assert result.content["results"] == []
-
-    @pytest.mark.asyncio
-    async def test_search_missing_user_id(self) -> None:
-        tool = MemorySearchTool(_make_provider(MockMemoryManager()))
-        call = ToolCall(id="call_1", name="memory_search", arguments={"query": "test"})
-
-        result = await tool.execute(call, {})
-
-        assert "error" in result.content
-        assert "user:id" in result.content["error"]
-
-
-class TestMemoryGetTool:
-    def test_tool_metadata(self) -> None:
-        tool = MemoryGetTool(_make_provider(MockMemoryManager()))
-        assert tool.name == "memory_get"
-        assert "MEMORY.md" in tool.description or "记忆" in tool.description
-        assert len(tool.parameters) == 3
-
-    def test_get_json_schema(self) -> None:
-        tool = MemoryGetTool(_make_provider(MockMemoryManager()))
-        schema = tool.get_json_schema()
-
-        assert schema["type"] == "function"
-        func = schema["function"]
-        assert func["name"] == "memory_get"
-        assert "path" in func["parameters"]["properties"]
-        assert "from_line" in func["parameters"]["properties"]
-        assert "lines" in func["parameters"]["properties"]
+            mem = Path(ws) / "test_user" / "MEMORY.md"
+            text = mem.read_text(encoding="utf-8")
+            assert "val_a_updated" in text
+            assert "val_b" in text
+            assert "val_c" in text
 
     @pytest.mark.asyncio
-    async def test_get_success(self) -> None:
-        manager = MockMemoryManager()
-        manager._store.get_chunks_by_location.return_value = [
-            MockChunk(start_line=1, end_line=10, text="Line 1\nLine 2\n...\nLine 10"),
-        ]
-        tool = MemoryGetTool(_make_provider(manager))
-        call = ToolCall(
-            id="call_1", name="memory_get", arguments={"path": "MEMORY.md"}
-        )
+    async def test_empty_body_deletes_heading(self) -> None:
+        """Writing a heading with empty body deletes it."""
+        with tempfile.TemporaryDirectory() as ws:
+            tool = MemoryWriteTool(_provider(_make_manager(ws)))
 
-        result = await tool.execute(call, TEST_CONTEXT)
+            call1 = ToolCall(
+                id="c1", name="memory_write",
+                arguments={"content": "## 贷款偏好\n不显示退保方案\n\n## 回复风格\n简洁"},
+            )
+            await tool.execute(call1, CTX)
 
-        assert result.tool_call_id == "call_1"
-        content = result.content
-        assert content["path"] == "MEMORY.md"
-        assert content["from_line"] == 1
-        assert content["to_line"] == 10
-        assert content["total_chunks"] == 1
-        assert "Line 1" in content["text"]
+            call2 = ToolCall(
+                id="c2", name="memory_write",
+                arguments={"content": "## 贷款偏好\n\n## 取款偏好\n不显示贷款方案"},
+            )
+            r2 = await tool.execute(call2, CTX)
+            assert "取款偏好" in r2.content["current_headings"]
+            assert "回复风格" in r2.content["current_headings"]
+            assert "贷款偏好" not in r2.content["current_headings"]
+            assert r2.content["dropped_headings"] == ["贷款偏好"]
 
-    @pytest.mark.asyncio
-    async def test_get_with_range(self) -> None:
-        manager = MockMemoryManager()
-        manager._store.get_chunks_by_location.return_value = [
-            MockChunk(start_line=10, end_line=14, text="Line 10\nLine 11\nLine 12\nLine 13\nLine 14"),
-        ]
-        tool = MemoryGetTool(_make_provider(manager))
-        call = ToolCall(
-            id="call_1",
-            name="memory_get",
-            arguments={"path": "MEMORY.md", "from_line": 10, "lines": 5},
-        )
-
-        result = await tool.execute(call, TEST_CONTEXT)
-
-        content = result.content
-        assert content["from_line"] == 10
-        assert content["to_line"] == 14
-        assert "Line 10" in content["text"]
-        assert "Line 14" in content["text"]
-        manager._store.get_chunks_by_location.assert_called_once()
-        call_kw = manager._store.get_chunks_by_location.call_args[1]
-        assert call_kw["from_line"] == 10
-        assert call_kw["limit"] == 5
+            mem = Path(ws) / "test_user" / "MEMORY.md"
+            text = mem.read_text(encoding="utf-8")
+            assert "贷款偏好" not in text
+            assert "取款偏好" in text
+            assert "回复风格" in text
 
     @pytest.mark.asyncio
-    async def test_get_empty_path(self) -> None:
-        tool = MemoryGetTool(_make_provider(MockMemoryManager()))
-        call = ToolCall(id="call_1", name="memory_get", arguments={"path": ""})
+    async def test_upsert_does_not_lose_unrelated_headings(self) -> None:
+        """Core safety: adding one heading never loses another."""
+        with tempfile.TemporaryDirectory() as ws:
+            mgr = _make_manager(ws)
+            mem = Path(ws) / "test_user" / "MEMORY.md"
+            mem.parent.mkdir(parents=True)
+            mem.write_text("## 身份信息\n张经理\n\n## 回复风格\n简洁\n", encoding="utf-8")
 
-        result = await tool.execute(call, TEST_CONTEXT)
+            tool = MemoryWriteTool(_provider(mgr))
+            call = ToolCall(
+                id="c1", name="memory_write",
+                arguments={"content": "## 业务偏好\n不显示贷款方案"},
+            )
+            r = await tool.execute(call, CTX)
+            assert set(r.content["current_headings"]) == {"身份信息", "回复风格", "业务偏好"}
+            assert "dropped_headings" not in r.content
 
-        assert "error" in result.content
-        assert "Path is required" in result.content["error"]
-
-    @pytest.mark.asyncio
-    async def test_get_file_not_found(self) -> None:
-        manager = MockMemoryManager()
-        manager._store.get_chunks_by_location.return_value = []
-        tool = MemoryGetTool(_make_provider(manager))
-        call = ToolCall(
-            id="call_1", name="memory_get", arguments={"path": "nonexistent.md"}
-        )
-
-        result = await tool.execute(call, TEST_CONTEXT)
-
-        assert "error" in result.content
-        assert "No chunks found" in result.content["error"] or "not found" in result.content["error"].lower()
-
-    @pytest.mark.asyncio
-    async def test_get_limits_lines(self) -> None:
-        manager = MockMemoryManager()
-        manager._store.get_chunks_by_location.return_value = [
-            MockChunk(start_line=1, end_line=50, text="chunk one"),
-            MockChunk(start_line=51, end_line=100, text="chunk two"),
-        ]
-        tool = MemoryGetTool(_make_provider(manager))
-        call = ToolCall(
-            id="call_1",
-            name="memory_get",
-            arguments={"path": "MEMORY.md", "lines": 500},
-        )
-
-        result = await tool.execute(call, TEST_CONTEXT)
-
-        content = result.content
-        assert content["to_line"] <= 200 or content["total_chunks"] <= 200
-        call_kw = manager._store.get_chunks_by_location.call_args[1]
-        assert call_kw["limit"] == 200
-
-    @pytest.mark.asyncio
-    async def test_get_nested_path(self) -> None:
-        manager = MockMemoryManager()
-        manager._store.get_chunks_by_location.return_value = [
-            MockChunk(start_line=1, end_line=5, text="Project memory content"),
-        ]
-        tool = MemoryGetTool(_make_provider(manager))
-        call = ToolCall(
-            id="call_1",
-            name="memory_get",
-            arguments={"path": "memory/project.md"},
-        )
-
-        result = await tool.execute(call, TEST_CONTEXT)
-
-        assert "error" not in result.content or result.content.get("error") is None
-        assert "Project memory content" in result.content["text"]
+            text = mem.read_text(encoding="utf-8")
+            assert "张经理" in text
+            assert "简洁" in text
+            assert "不显示贷款方案" in text
 
 
 class TestCreateMemoryTools:
-    def test_creates_all_tools(self) -> None:
-        provider = _make_provider(MockMemoryManager())
-        tools = create_memory_tools(provider)
-
-        assert len(tools) == 3
-        names = [t.name for t in tools]
-        assert "memory_search" in names
-        assert "memory_get" in names
-        assert "memory_write" in names
-
-    def test_tools_share_provider(self) -> None:
-        provider = _make_provider(MockMemoryManager())
-        tools = create_memory_tools(provider)
-
-        search_tool = next(t for t in tools if t.name == "memory_search")
-        get_tool = next(t for t in tools if t.name == "memory_get")
-        write_tool = next(t for t in tools if t.name == "memory_write")
-
-        assert search_tool._provider is provider
-        assert get_tool._provider is provider
-        assert write_tool._provider is provider
+    def test_only_write_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as ws:
+            tools = create_memory_tools(_provider(_make_manager(ws)))
+            assert len(tools) == 1
+            assert tools[0].name == "memory_write"

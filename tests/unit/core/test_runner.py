@@ -599,7 +599,8 @@ def test_mark_memory_dirty_noop_without_memory_manager(tmp_sessions_dir: Path) -
     runner.mark_memory_dirty()
 
 
-def test_mark_memory_dirty_calls_memory_manager_mark_dirty(tmp_sessions_dir: Path) -> None:
+def test_mark_memory_dirty_is_noop_after_redesign(tmp_sessions_dir: Path) -> None:
+    """mark_memory_dirty is a no-op after SQLite removal — kept for API compat."""
     mock_llm = MockChatModel(responses=[])
     llm = mock_llm  # type: ignore[arg-type]
     mm = _FakeMemoryManager()
@@ -610,4 +611,4 @@ def test_mark_memory_dirty_calls_memory_manager_mark_dirty(tmp_sessions_dir: Pat
         memory_manager=mm,  # type: ignore[arg-type]
     )
     runner.mark_memory_dirty()
-    assert mm.dirty_count == 1, "Studio PUT should surface as mark_dirty on MemoryManager"
+    assert mm.dirty_count == 0, "mark_memory_dirty should be a no-op (no SQLite index)"

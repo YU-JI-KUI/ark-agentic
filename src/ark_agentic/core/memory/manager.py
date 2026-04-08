@@ -1,433 +1,91 @@
-"""
-Memory 管理器
+"""Memory 管理器 — 精简版
 
-统一管理 SQLiteMemoryStore、文档同步和搜索。
-共享实例设计：单个 MemoryManager 实例通过 user_id 分区支持多用户。
-
-参考: openclaw-main/src/memory/manager.ts
+仅提供 workspace 路径管理和 MEMORY.md 读写。
+SQLite/向量搜索/embedding 已移除；MEMORY.md 是唯一 source of truth。
 """
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime
+import tempfile
 from pathlib import Path
-from typing import Any, Callable
 
-from .chunker import ChunkConfig, MarkdownChunker
-from .embeddings import BGEConfig, BGEEmbedding, infer_device
-from .sqlite_store import IndexMeta, SQLiteMemoryStore, SQLiteStoreConfig
-from .types import (
-    MemoryChunk,
-    MemorySearchResult,
-    MemorySource,
-    MemoryStatus,
-    MemorySyncProgress,
-)
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class MemoryConfig:
+class MemoryConfig(BaseModel):
     """Memory 系统配置"""
 
     workspace_dir: str = ""
-    index_dir: str = ""
-
-    memory_paths: list[str] = field(
-        default_factory=lambda: ["MEMORY.md", "memory/"]
-    )
-
-    embedding: BGEConfig = field(default_factory=BGEConfig)
-    store: SQLiteStoreConfig = field(default_factory=SQLiteStoreConfig)
-    chunk: ChunkConfig = field(default_factory=ChunkConfig)
-
-    auto_sync: bool = True
-    sync_on_init: bool = True
-    watch_files: bool = False
 
 
 class MemoryManager:
-    """Memory 管理器
+    """轻量 Memory 管理器
 
-    提供统一的记忆管理接口，包括：
-    - 文档索引和同步（SQLite 后端）
-    - 向量/关键词/混合搜索
-    - 持久化存储
+    职责：
+    - 按 user_id 定位 MEMORY.md 路径
+    - 提供 read / write 便捷方法
+    - 作为 runner / tools / extractor 的统一依赖入口
     """
 
-    def __init__(
-        self,
-        config: MemoryConfig,
-        *,
-        shared_embedding: BGEEmbedding | None = None,
-    ) -> None:
+    def __init__(self, config: MemoryConfig) -> None:
         self.config = config
         self._workspace_dir = Path(config.workspace_dir)
-        self._index_dir = (
-            Path(config.index_dir)
-            if config.index_dir
-            else self._workspace_dir / ".memory"
-        )
 
-        self._shared_embedding = shared_embedding
-        self._embedding: BGEEmbedding | None = None
-        self._store: SQLiteMemoryStore | None = None
-        self._chunker: MarkdownChunker | None = None
+    def memory_path(self, user_id: str) -> Path:
+        """返回用户记忆文件路径: {workspace}/{user_id}/MEMORY.md"""
+        return self._workspace_dir / user_id / "MEMORY.md"
 
-        self._initialized = False
-        self._dirty = False
-        self._last_sync: datetime | None = None
-        self._syncing: asyncio.Task[None] | None = None
+    def read_memory(self, user_id: str) -> str:
+        p = self.memory_path(user_id)
+        return p.read_text(encoding="utf-8") if p.exists() else ""
 
-    async def initialize(self) -> None:
-        if self._initialized:
-            return
+    def write_memory(self, user_id: str, content: str) -> tuple[list[str], list[str]]:
+        """Heading-level upsert. Returns (current_headings, dropped_headings).
 
-        await self._initialize_file_engine()
+        Empty-body headings trigger deletion (format drops them via ``if c``).
+        Returns ``([], [])`` if content contains no ``##`` headings.
+        """
+        from .user_profile import parse_heading_sections, format_heading_sections
 
-        self._initialized = True
-        logger.info("Memory system initialized")
+        p = self.memory_path(user_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
 
-    def mark_dirty(self) -> None:
-        """Mark index as stale so the next ``search()`` triggers a sync."""
-        self._dirty = True
+        existing = p.read_text(encoding="utf-8") if p.exists() else ""
+        prev_preamble, prev_sections = parse_heading_sections(existing)
+        _, incoming = parse_heading_sections(content)
 
-    async def _initialize_file_engine(self) -> None:
-        logger.info("Initializing Memory system at %s", self._workspace_dir)
+        if not incoming:
+            return [], []
 
-        self._index_dir.mkdir(parents=True, exist_ok=True)
-        self._embedding = self._shared_embedding or BGEEmbedding(self.config.embedding)
+        merged = {**prev_sections, **incoming}
+        p.write_text(format_heading_sections(prev_preamble, merged), encoding="utf-8")
 
-        dimensions = self._embedding.dimensions
-        if dimensions == 0:
-            _ = await self._embedding.embed_query("test")
-            dimensions = self._embedding.dimensions
-
-        db_path = str(self._index_dir / self.config.store.db_name)
-        self._store = SQLiteMemoryStore(db_path, self.config.store, dimensions)
-        self._store._ensure_vector_table(dimensions)
-
-        self._chunker = MarkdownChunker(self.config.chunk)
-
-        if self.config.sync_on_init:
-            self._initialized = True
-            await self.sync()
-
-    def _build_current_meta(self) -> IndexMeta:
-        return IndexMeta(
-            model=self.config.embedding.model_name,
-            dims=self._embedding.dimensions if self._embedding else 0,
-            chunk_size=self.config.chunk.chunk_size,
-            chunk_overlap=self.config.chunk.chunk_overlap,
-        )
-
-    def _needs_full_reindex(self, current_meta: IndexMeta) -> bool:
-        stored = self._store.read_meta()
-        if stored is None:
-            return True
-        return (
-            stored.model != current_meta.model
-            or stored.dims != current_meta.dims
-            or stored.chunk_size != current_meta.chunk_size
-            or stored.chunk_overlap != current_meta.chunk_overlap
-        )
-
-    def _resolve_user_workspace(self, user_id: str) -> Path:
-        """按 user_id 定位文件目录: {workspace_dir}/{user_id}。"""
-        if user_id:
-            return self._workspace_dir / user_id
-        return self._workspace_dir
-
-    async def sync(
-        self,
-        force: bool = False,
-        progress_callback: Callable[[MemorySyncProgress], None] | None = None,
-        user_id: str = "",
-    ) -> None:
-        if not self._initialized and not force:
-            await self.initialize()
-            return
-
-        # Sync mutex
-        if self._syncing is not None:
-            try:
-                await self._syncing
-            except Exception:
-                pass
-            return
-
-        self._syncing = asyncio.ensure_future(
-            self._run_sync(force, progress_callback, user_id)
-        )
-        try:
-            await self._syncing
-        finally:
-            self._syncing = None
-
-    async def _run_sync(
-        self,
-        force: bool = False,
-        progress_callback: Callable[[MemorySyncProgress], None] | None = None,
-        user_id: str = "",
-    ) -> None:
-        logger.info("Syncing memory index (force=%s, user_id=%s)", force, user_id)
-
-        user_workspace = self._resolve_user_workspace(user_id)
-        current_meta = self._build_current_meta()
-        need_full = force or self._needs_full_reindex(current_meta)
-
-        files_to_index: list[tuple[Path, MemorySource]] = []
-        for memory_path in self.config.memory_paths:
-            full_path = user_workspace / memory_path
-            if full_path.is_file():
-                files_to_index.append((full_path, MemorySource.MEMORY))
-            elif full_path.is_dir():
-                for file_path in full_path.rglob("*.md"):
-                    files_to_index.append((file_path, MemorySource.MEMORY))
-
-        total = len(files_to_index)
-        if progress_callback:
-            progress_callback(MemorySyncProgress(0, total, "Scanning files"))
-
-        new_chunks: list[MemoryChunk] = []
-        changed_paths: list[str] = []
-
-        for i, (file_path, source) in enumerate(files_to_index):
-            try:
-                content = file_path.read_text(encoding="utf-8")
-                content_hash = hashlib.md5(content.encode()).hexdigest()
-            except Exception as e:
-                logger.warning("Failed to read %s: %s", file_path, e)
-                continue
-
-            rel_path = str(file_path.relative_to(user_workspace))
-
-            if not need_full:
-                old_hash = self._store.get_file_hash(rel_path, user_id)
-                if old_hash == content_hash:
-                    continue
-
-            chunks = self._chunker.chunk_text(content, rel_path, source)
-            for c in chunks:
-                c.user_id = user_id
-            new_chunks.extend(chunks)
-            changed_paths.append(rel_path)
-
-            stat = file_path.stat()
-            self._store.set_file_hash(
-                rel_path, content_hash, source.value,
-                mtime_ms=stat.st_mtime * 1000, size=stat.st_size,
-                user_id=user_id,
-            )
-
-            if progress_callback:
-                progress_callback(
-                    MemorySyncProgress(i + 1, total, f"Processing {file_path.name}")
-                )
-
-        if not new_chunks:
-            if need_full:
-                self._store.write_meta(current_meta)
-            logger.info("No changes detected")
-            return
-
-        logger.info("Indexing %d chunks from %d files", len(new_chunks), len(changed_paths))
-
-        if progress_callback:
-            progress_callback(
-                MemorySyncProgress(0, len(new_chunks), "Generating embeddings")
-            )
-
-        model_name = self.config.embedding.model_name
-        content_hashes = [c.content_hash for c in new_chunks]
-        cached = self._store.get_cached_embeddings(model_name, content_hashes)
-
-        uncached_indices: list[int] = []
-        for idx, chunk in enumerate(new_chunks):
-            h = chunk.content_hash
-            if h in cached:
-                chunk.embedding = cached[h]
-            else:
-                uncached_indices.append(idx)
-
-        if uncached_indices:
-            texts = [new_chunks[i].text for i in uncached_indices]
-            embeddings = await self._embedding.embed_batch(texts)
-            cache_entries: list[tuple[str, list[float]]] = []
-            for j, idx in enumerate(uncached_indices):
-                new_chunks[idx].embedding = embeddings[j]
-                cache_entries.append((new_chunks[idx].content_hash, embeddings[j]))
-            self._store.set_cached_embeddings(model_name, cache_entries)
-
-        if need_full:
-            self._store.safe_reindex(new_chunks, current_meta, user_id)
-        else:
-            for path in changed_paths:
-                self._store.delete_by_path(path, user_id)
-            self._store.add(new_chunks, user_id)
-            self._store.write_meta(current_meta)
-
-        self._last_sync = datetime.now()
-        logger.info(
-            "Sync complete: %d chunks, store size=%d",
-            len(new_chunks), self._store.size,
-        )
-
-    async def search(
-        self,
-        query: str,
-        max_results: int = 10,
-        min_score: float = 0.0,
-        sources: list[MemorySource] | None = None,
-        search_mode: str = "hybrid",
-        user_id: str = "",
-    ) -> list[MemorySearchResult]:
-        if not self._initialized:
-            await self.initialize()
-
-        if self._dirty:
-            await self.sync(user_id=user_id)
-            self._dirty = False
-
-        query_embedding = await self._embedding.embed_query(query)
-
-        if search_mode == "vector":
-            raw = self._store.vector_search(query_embedding, max_results, user_id)
-            results = [
-                MemorySearchResult.from_chunk(chunk, score, vector_score=score)
-                for chunk, score in raw
-            ]
-        elif search_mode == "keyword":
-            raw = self._store.keyword_search(query, max_results, user_id)
-            results = [
-                MemorySearchResult.from_chunk(chunk, score, keyword_score=score)
-                for chunk, score in raw
-            ]
-        else:
-            results = self._store.hybrid_search(
-                query, query_embedding,
-                top_k=max_results, min_score=min_score, user_id=user_id,
-            )
-
-        if sources:
-            results = [r for r in results if r.source in sources]
-
-        return results[:max_results]
-
-    def status(self) -> MemoryStatus:
-        source_counts: dict[str, int] = {}
-
-        if self._store:
-            for chunk in self._store.get_all_chunks():
-                source = chunk.source.value
-                source_counts[source] = source_counts.get(source, 0) + 1
-
-        return MemoryStatus(
-            workspace_dir=str(self._workspace_dir),
-            index_path=str(self._index_dir),
-            total_files=0,
-            total_chunks=self._store.chunk_count if self._store else 0,
-            embedding_model=self.config.embedding.model_name,
-            embedding_dims=self._embedding.dimensions if self._embedding else 0,
-            vector_enabled=True,
-            vector_backend="sqlite-vec",
-            keyword_enabled=True,
-            keyword_backend="fts5+jieba",
-            source_counts=source_counts,
-            last_sync_at=self._last_sync,
-        )
-
-    async def add_document(
-        self,
-        content: str,
-        path: str,
-        source: MemorySource = MemorySource.MEMORY,
-        user_id: str = "",
-    ) -> int:
-        if not self._initialized:
-            await self.initialize()
-
-        chunks = self._chunker.chunk_text(content, path, source)
-        if not chunks:
-            return 0
-
-        for c in chunks:
-            c.user_id = user_id
-
-        texts = [c.text for c in chunks]
-        embeddings = await self._embedding.embed_batch(texts)
-
-        for chunk, embedding in zip(chunks, embeddings):
-            chunk.embedding = embedding
-
-        self._store.add(chunks, user_id)
-
-        logger.info("Added %d chunks from %s (user=%s)", len(chunks), path, user_id)
-        return len(chunks)
-
-    async def close(self) -> None:
-        if self._store:
-            self._store.close()
-
-        self._initialized = False
-        logger.info("Memory system closed")
-
-
-# ============ 便捷函数 ============
+        current = [k for k, v in merged.items() if v]
+        dropped = sorted(set(prev_sections) - set(current))
+        logger.info("write_memory for %s: headings=%s, dropped=%s", user_id, current, dropped)
+        return current, dropped
 
 
 def build_memory_manager(memory_dir: str | Path | None = None) -> MemoryManager:
-    """Build a MemoryManager with directory setup and MEMORY.md seed.
-
-    Falls back to a temp directory if memory_dir is None.
-    """
-    import tempfile
-
+    """构建 MemoryManager，兼容旧签名。"""
     if memory_dir is None:
         memory_dir = Path(tempfile.gettempdir()) / "ark_memory"
     memory_dir = Path(memory_dir)
     memory_dir.mkdir(parents=True, exist_ok=True)
 
-    seed_file = memory_dir / "MEMORY.md"
-    if not seed_file.exists():
-        seed_file.write_text(
-            "# Agent Memory\n\n此文件用于存储跨会话的长期记忆。\n",
-            encoding="utf-8",
+    _warn_orphaned_index(memory_dir)
+
+    return MemoryManager(MemoryConfig(workspace_dir=str(memory_dir)))
+
+
+def _warn_orphaned_index(workspace: Path) -> None:
+    idx_dir = workspace / ".memory"
+    if idx_dir.is_dir():
+        logger.warning(
+            "Orphaned SQLite index directory found at %s — "
+            "it is no longer used and can be safely deleted.",
+            idx_dir,
         )
-
-    # index_dir intentionally omitted: MemoryManager defaults to workspace_dir/.memory,
-    # which allows _get_memory_for_user to correctly scope per-user DBs.
-    config = MemoryConfig(workspace_dir=str(memory_dir))
-    logger.info("Memory enabled: workspace=%s", memory_dir)
-    return MemoryManager(config)
-
-
-def create_memory_manager(
-    workspace_dir: str,
-    embedding_model: str = "",
-    device: str | None = None,
-) -> MemoryManager:
-    config = MemoryConfig(
-        workspace_dir=workspace_dir,
-        embedding=BGEConfig(model_name=embedding_model, device=device or infer_device()),
-    )
-    return MemoryManager(config)
-
-
-async def quick_search(
-    workspace_dir: str,
-    query: str,
-    max_results: int = 10,
-) -> list[MemorySearchResult]:
-    manager = create_memory_manager(workspace_dir)
-    await manager.initialize()
-
-    try:
-        return await manager.search(query, max_results=max_results)
-    finally:
-        await manager.close()

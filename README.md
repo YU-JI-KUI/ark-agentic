@@ -1,6 +1,6 @@
 # ark-agentic
 
-轻量级 ReAct Agent 框架，支持工具调用、技能系统、会话管理、流式输出和向量记忆。
+轻量级 ReAct Agent 框架，支持工具调用、技能系统、会话管理、流式输出和用户记忆。
 
 ## 特性
 
@@ -8,7 +8,7 @@
 - **多 LLM 支持**: DeepSeek, PA 内部模型 (JT/SX 系列), OpenAI 兼容端点
 - **技能系统**: Markdown 格式可复用指令集，支持 full/dynamic/semantic 三种加载模式
 - **会话管理**: JSONL 持久化 + 智能上下文压缩（LLM 摘要）+ Session State 状态管理
-- **向量记忆**: FAISS + Sentence-Transformers 语义搜索 + 混合检索（RRF）
+- **用户记忆**: 文件级 MEMORY.md + heading-based upsert + Dream 周期蒸馏 + system prompt 全量注入
 - **AG-UI 流式协议**: 完整的 17 种事件类型，支持 4 种输出格式（agui/internal/enterprise/alone）
 - **A2UI 组件**: 支持富交互前端组件渲染（卡片、按钮、表单等）
 - **输出验证**: 自动检测 LLM 输出与工具结果的数值一致性，防止幻觉
@@ -26,20 +26,17 @@ uv pip install -e .
 ### 可选依赖
 
 ```bash
-# Memory：向量记忆（FAISS + Sentence-Transformers）
-uv add 'ark-agentic[memory]'
-
 # PA-JT 系列模型（需要 RSA 签名）
 uv add 'ark-agentic[pa-jt]'
 
 # 开发环境（包含测试工具）
 uv add 'ark-agentic[dev]'
 
-# 全部依赖（含 memory + PA-JT + dev）
+# 全部依赖（含 PA-JT + dev）
 uv add 'ark-agentic[all]'
 ```
 
-**注意**: 默认安装不包含 Memory 相关的大型依赖（FAISS / Sentence-Transformers），只有在显式启用 `ark-agentic[memory]` 时才会安装；PA-SX 系列和 DeepSeek 模型无需额外依赖，只有 PA-JT 系列模型需要 `pycryptodome` 进行 RSA 签名。
+**注意**: Memory 系统使用纯文件存储（MEMORY.md），无需额外依赖；PA-SX 系列和 DeepSeek 模型无需额外依赖，只有 PA-JT 系列模型需要 `pycryptodome` 进行 RSA 签名。
 
 ## 快速开始
 
@@ -325,19 +322,18 @@ class GetPreferenceTool(AgentTool):
         )
 ```
 
-### 向量记忆
+### 用户记忆系统
+
+三层记忆生命周期：**Session JSONL (raw) → MEMORY.md (distilled) → System Prompt (consumption)**。
+
+#### 启用
 
 ```python
-from ark_agentic.core.memory import MemoryManager, MemoryConfig
+from ark_agentic.core.memory.manager import build_memory_manager
 
-memory_manager = MemoryManager(
-    MemoryConfig(
-        workspace_dir="./data/memory",
-        index_dir="./data/memory/.index",
-    )
-)
+memory_manager = build_memory_manager("./data/memory")
 
-# 自动注册 memory_search 和 memory_get 工具
+# 自动注册 memory_write 工具
 agent = AgentRunner(
     llm=llm,
     tool_registry=tool_registry,
@@ -345,6 +341,43 @@ agent = AgentRunner(
     memory_manager=memory_manager,
 )
 ```
+
+#### 存储结构
+
+```
+data/memory/
+└── {user_id}/
+    ├── MEMORY.md      # 蒸馏后的用户记忆（heading-based markdown）
+    └── .last_dream    # Dream 最后执行时间戳
+```
+
+每个用户的记忆是一个 Markdown 文件，使用 `## heading` 结构化，同名标题自动覆盖（upsert 语义）。
+
+#### 记忆生命周期
+
+| 阶段 | 触发时机 | 机制 |
+|------|----------|------|
+| **Write** | 对话中 | Agent 主动调用 `memory_write`（用户表达偏好/身份/决策时） |
+| **Flush** | 上下文压缩前 | `MemoryFlusher` 用 LLM 从完整对话提取新增记忆 → heading upsert |
+| **Read** | 每轮对话开始 | System prompt 自动注入用户 `MEMORY.md` 全文 |
+| **Dream** | 后台周期触发 | 读取近期 session + 当前记忆 → LLM 蒸馏 → optimistic merge 回写 |
+
+```
+# Agent 写记忆示例
+memory_write(content="## 风险偏好\n保守型，不接受本金亏损")
+```
+
+#### Dream 记忆蒸馏
+
+Dream 在每轮对话结束后自动检查触发条件（距上次 dream ≥ 24h 且新增 ≥ 3 个 session），满足则在后台异步执行：
+
+- 读取近期 session JSONL（user + assistant 消息，skip tool noise）
+- 结合当前 MEMORY.md + 当前日期 + 容量约束
+- LLM 单次调用蒸馏：合并语义相近标题、删除过期信息、提取潜在需求
+- **Optimistic merge** 回写：保留 dream 期间 memory_write 新增的标题，不丢失并发写入
+- `.bak` 备份保护
+
+Dream 是**保守操作**：有疑问时保留信息，不会删除可能仍然有效的内容。多用户并发时各 user 的 dream 独立运行，同一 user 不会重复触发。
 
 ### PA Knowledge API（可选）
 
@@ -417,14 +450,12 @@ src/ark_agentic/
 │   │   ├── loader.py
 │   │   ├── matcher.py
 │   │   └── semantic_matcher.py
-│   ├── memory/            # 向量记忆
-│   │   ├── manager.py     # MemoryManager (416 行)
-│   │   ├── embeddings.py
-│   │   ├── vector_store.py  # FAISS 向量存储 (318 行)
-│   │   ├── hybrid.py      # 混合检索 (RRF)
-│   │   ├── keyword_search.py  # 关键词搜索 (251 行)
-│   │   ├── chunker.py     # 文档分块 (345 行)
-│   │   └── types.py
+│   ├── memory/            # 用户记忆系统 (文件级, 无 DB 依赖)
+│   │   ├── manager.py     # MemoryManager (路径管理 + read/write)
+│   │   ├── user_profile.py  # heading-based upsert / preamble 保护
+│   │   ├── extractor.py   # MemoryFlusher (压缩前 LLM 提取)
+│   │   ├── dream.py       # MemoryDreamer (session reader + 周期蒸馏 + optimistic merge)
+│   │   └── types.py       # 类型定义
 │   ├── stream/            # AG-UI 流式协议
 │   │   ├── events.py      # 17 种 AG-UI 事件类型
 │   │   ├── event_bus.py   # StreamEventBus (208 行)
@@ -499,8 +530,7 @@ uv run python script.py
 - **并行工具调用**: LLM 返回多个工具调用时，使用 `asyncio.gather()` 并行执行
 - **AG-UI 流式协议**: 事件驱动架构，支持细粒度流式推送（17 种事件类型）
 - **多协议适配**: 单一内部实现，输出层适配 4 种协议格式
-- **FAISS 索引**: 向量检索支持百万级文档
-- **混合检索**: RRF 融合向量 + 关键词搜索结果
+- **零 DB 记忆**: 纯文件 MEMORY.md，无 SQLite/向量库依赖，启动即用
 - **会话压缩**: 自动总结历史消息，保持上下文窗口稳定
 - **输出验证**: 自动检测数值幻觉，提升输出可靠性
 
@@ -539,6 +569,14 @@ uv run python script.py
 - 提取 LLM 输出中的数字
 - 对比工具返回的数值
 - 检测幻觉并记录警告
+
+### 用户记忆系统
+三层生命周期模型，详见 [docs/core/memory.md](docs/core/memory.md)：
+- **Session JSONL = raw layer**：原始对话记录，append-only
+- **MEMORY.md = distilled truth**：每用户一个文件，heading-based upsert
+- **System Prompt = consumption**：每轮全量注入，Agent 无需手动检索
+- **Dream 蒸馏**：后台周期性读取 session + memory → LLM 合并去重 → optimistic merge 回写
+- **零 DB 依赖**：纯文件存储，无 SQLite/向量库/embedding 模型
 
 ## TODOs
 - [P0] **存储层解耦**: 实现基于 Redis/Database 的 Session 和 Memory 存储，支持 Cloud-Native 分布式部署

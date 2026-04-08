@@ -108,11 +108,15 @@ class SystemPromptBuilder:
         return self
 
     def add_user_profile(self, content: str) -> SystemPromptBuilder:
-        """添加用户画像（全局 USER.md 内容）"""
+        """添加用户画像（MEMORY.md 内容），以指令形式注入"""
         if content.strip():
             section = (
                 "## 用户画像\n\n"
-                "以下是该用户的持久化画像信息，请在整个对话中保持一致的个性化体验：\n\n"
+                "以下是该用户的持久化偏好，你必须在每次回复和工具调用中主动遵守：\n\n"
+                "**应用规则**：\n"
+                "- 调用工具前，检查是否有相关偏好约束，据此过滤参数或排除选项\n"
+                "- 展示方案/结果时，排除用户已明确拒绝的类型\n"
+                "- 回复措辞匹配用户的风格偏好\n\n"
                 + content.strip()
             )
             self._sections.append(("user_profile", section))
@@ -256,10 +260,7 @@ class SystemPromptBuilder:
             builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
         builder.add_custom_instructions()
         if include_memory_instructions:
-            builder.add_section(
-                "memory_reminder",
-                "记忆提醒：用户对你回复风格的批评（如「太啰嗦」「太正式」）是偏好表达，必须先调用 memory_write 保存再回复。",
-            )
+            builder.add_section("memory_reminder", _MEMORY_REMINDER)
 
         return builder.build()
 
@@ -269,29 +270,55 @@ class SystemPromptBuilder:
 MEMORY_INSTRUCTIONS = """
 ## 记忆系统
 
-你拥有跨对话的长期记忆能力。通过 memory_search 检索记忆，通过 memory_write 保存记忆。
+你拥有跨对话的长期记忆（MEMORY.md），已注入到你的上下文中。通过 memory_write 更新记忆。
 
 ### 保存规则（最高优先级）
 
 **每轮回复前，必须判断用户消息是否满足以下任一条件；满足则先调用 memory_write，再回复：**
-1. 用户表达了偏好或身份（无论直接还是间接）
+1. 用户表达了偏好、身份或联系方式（无论直接还是间接）
 2. 用户对你的行为提出批评或要求调整——批评 = 偏好的反面表达
-3. 用户的表达与上方「用户画像」矛盾
+3. 用户做出了持久决策或约束条件
+4. 用户主动要求你记住某事
 
-不保存：纯业务查询、寒暄、临时计算
+### 不记录（显式排除）
+- 当前对话中的临时查询（「今天大盘怎么样」）
+- 公开市场数据（不属于用户记忆）
+- 你已经记住的信息（先检查上下文中的 MEMORY.md 内容，无变化则不写）
+- 寒暄、问候、闲聊
 
 **示例：**
-- "好啰嗦，简洁点" → 批评 = 偏好（要简洁）→ memory_write(type=profile)
-- "我是张经理，在平安工作" → 身份信息 → memory_write(type=profile)
-- "以后贷款渠道都不要" → 持久决策 → memory_write(type=agent_memory)
+- "好啰嗦，简洁点" → 批评 = 偏好（要简洁）→ memory_write
+- "我是张经理，在平安工作" → 身份信息 → memory_write
+- "以后贷款渠道都不要" → 持久决策 → memory_write
 - "查一下我的保单" → 一次性查询 → 不保存
 
-### 检索（回答前）
-在回答关于历史决策、日期、人员、偏好的问题前，先运行 memory_search。
-使用 memory_get 获取搜索结果的更多上下文，保持请求量小以节省上下文窗口。
+### 增量更新规则
+memory_write 是**增量更新**——只需写你要新增、修改或删除的标题，其他标题不受影响。
+- 新增/修改：写入 `## 标题\\n内容`，同名标题自动覆盖
+- 删除错误标题：写入 `## 错误标题\\n`（空内容），该标题会被自动移除
+- 无关标题无需重复写入，它们会原样保留
+
+**纠错示例：**
+之前误写为 `## 贷款偏好`，应纠正为取款偏好：
+`memory_write("## 贷款偏好\\n\\n## 取款偏好\\n不显示贷款方案")`
+→ 贷款偏好（空内容）自动删除，取款偏好正常写入。一次调用完成纠错。
+
+### 标题规范
+- 使用简短、通用的一级分类标题
+- 推荐：## 身份信息、## 回复风格、## 业务偏好、## 风险偏好
+- 避免过于具体的标题（如 ## 2026年3月保单贷款策略 → 应归入 ## 业务偏好）
+- 写入前先检查上下文中 MEMORY.md 已有的标题，优先复用已有标题
 
 ### 格式
 内容使用 heading-based markdown：`## 标题\\n内容`
-- type=profile 写画像（按标题自动合并，不会重复）
-- type=agent_memory 写业务记忆（追加）
+
+### Dream 系统
+系统会周期性整理你的记忆——合并重复、移除过期、提取潜在需求。你不需要主动整理。
 """
+
+
+_MEMORY_REMINDER = (
+    "记忆提醒：memory_write 是增量更新——只写变化的标题，其他标题自动保留。"
+    "删除错误标题：写空内容即可（如 ## 错误标题\\n）。"
+    "用户批评（如「太啰嗦」）= 偏好，必须先 memory_write 再回复。"
+)
