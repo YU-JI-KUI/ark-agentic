@@ -346,6 +346,104 @@ agent = AgentRunner(
 )
 ```
 
+### Runner 生命周期回调
+
+`RunnerCallbacks` 提供 **7 个 hook**，覆盖 Agent 执行的完整生命周期。所有 hook 均为 `async`，返回 `CallbackResult | None`。
+
+#### 生命周期时序
+
+```
+run()
+ │
+ ├─ [before_agent]          # Agent 级，仅触发一次（请求预处理/权限拦截）
+ │
+ └─ ReAct Loop ──────────────────────────────────────────────────────┐
+     │                                                               │
+     ├─ [before_model]       # 每轮 LLM 调用前（可注入消息/短路）        │
+     ├─  LLM call                                                    │
+     ├─ [after_model]        # 每轮 LLM 响应后，持久化前（可替换响应）    │
+     │                                                               │
+     ├─ 有 tool_calls?                                               │
+     │   ├─ [before_tool]    # 每轮工具批执行前（可拦截/mock）           │
+     │   ├─  tool execute                                            │
+     │   └─ [after_tool]     # 每轮工具执行后（可替换工具结果）           │
+     │                                                               │
+     └─ 无 tool_calls（最终回答轮）                                    │
+         ├─ [before_complete] # 最终回答落地前（可校验/拒绝并重入 loop）  │
+         │   halt=True ──────────────────────────────────────────────┘
+         └─ _finalize_response → 返回给调用方
+ │
+ └─ [after_agent]            # Agent 级，仅触发一次（后处理/日志）
+```
+
+#### Hook 速查
+
+| Hook | 触发时机 | `halt=True` 的语义 | 常见用途 |
+|------|---------|-------------------|---------|
+| `before_agent` | 进入 loop 前，一次 | 拒绝请求，直接返回 response | 鉴权、输入过滤 |
+| `after_agent` | loop 结束后，一次 | — | 日志、后处理 |
+| `before_model` | 每轮 LLM 调用前 | 跳过 LLM，使用 `response` 作为输出 | mock、注入上下文 |
+| `after_model` | 每轮 LLM 响应后 | — | 响应过滤、内容替换 |
+| `before_tool` | 每轮工具批执行前 | 跳过真实工具，使用 `tool_results` | 工具 mock、权限检查 |
+| `after_tool` | 每轮工具执行后 | — | 结果增强、审计 |
+| `before_complete` | 最终回答（无工具调用）落地前 | 注入纠正消息并 **continue loop**（触发模型自反思） | 输出校验、引用验证 |
+
+#### CallbackResult 字段
+
+```python
+@dataclass
+class CallbackResult:
+    halt: bool = False                      # 触发 halt 语义（含义因 hook 而异）
+    response: AgentMessage | None = None    # 替换或注入的消息
+    tool_results: list[...] | None = None   # 替换工具结果（before/after_tool）
+    context_updates: dict | None = None     # 合并到 input_context
+    event: CallbackEvent | None = None      # 向前端推送自定义事件
+```
+
+#### 示例：上下文预处理（before_agent）
+
+```python
+from ark_agentic.core.callbacks import CallbackContext, CallbackResult, RunnerCallbacks
+
+async def enrich_context(ctx: CallbackContext) -> CallbackResult | None:
+    return CallbackResult(
+        context_updates={"user:name": fetch_user_name(ctx.input_context.get("user:id"))}
+    )
+
+runner = AgentRunner(..., callbacks=RunnerCallbacks(before_agent=[enrich_context]))
+```
+
+#### 示例：输出引用校验（before_complete）
+
+`before_complete` 是专为输出质量校验设计的 hook。`halt=True` 不是终止 run，而是将纠正消息注入 session 后重入 ReAct loop，让模型自我修正后再次输出。
+
+```python
+from ark_agentic.core.validation import create_citation_validation_hook, EntityTrie
+
+trie = EntityTrie()
+trie.load_from_csv(csv_path)
+citation_hook = create_citation_validation_hook(
+    entity_trie=trie,
+)
+
+runner = AgentRunner(
+    ...,
+    callbacks=RunnerCallbacks(
+        before_agent=[enrich_context],
+        before_complete=[citation_hook],   # 通过 → 落地；retry → 注入反馈 + 重入 loop
+    ),
+)
+```
+
+校验失败时的自反思流程（无需 `record_citations`）：
+
+```
+LLM → 输出回答（无 tool_calls）
+before_complete：从 response.content 提取 claim，与 ``session.messages`` 中本轮 TOOL 消息 + 近期用户消息做 grounding
+  → 失败：注入 user 消息（含 UNGROUNDED 明细）→ continue ReAct loop
+  → 通过：_finalize_response → 前端收到纯自然语言
+```
+
 ### PA Knowledge API（可选）
 
 ```python
@@ -397,7 +495,8 @@ src/ark_agentic/
 │   ├── session.py         # SessionManager (会话管理, 452 行)
 │   ├── compaction.py      # 上下文压缩 (714 行, LLM 摘要)
 │   ├── persistence.py     # JSONL 持久化 (711 行)
-│   ├── validation.py      # 输出验证（幻觉检测）
+│   ├── callbacks.py       # 7 个生命周期 hook 协议 + RunnerCallbacks
+│   ├── validation.py      # 输出验证（幻觉检测）+ create_citation_validation_hook
 │   ├── types.py           # 核心类型定义 (358 行)
 │   ├── llm/               # LLM 客户端 (LangChain-based)
 │   │   ├── factory.py     # create_chat_model()
@@ -534,11 +633,11 @@ uv run python script.py
 - Runner 自动合并到 `session.state`
 - 后续工具通过 `context` 读取状态
 
-### 输出验证
-自动检测 LLM 输出与工具结果的数值一致性：
-- 提取 LLM 输出中的数字
-- 对比工具返回的数值
-- 检测幻觉并记录警告
+### 输出验证（后置 grounding）
+基于 `before_complete` hook 的确定性幻觉检测：
+- 模型只输出自然语言；系统从 `response.content` 提取实体（EntityTrie）、日期、业务数值
+- 工具事实从 `session.messages` 中最后一条 USER 之后的 TOOL 消息提取，与最近若干轮用户消息一起做子串命中校验
+- `retry` 路由下注入纠正反馈并重入 ReAct loop；`warn`/`safe` 正常落地
 
 ## TODOs
 - [P0] **存储层解耦**: 实现基于 Redis/Database 的 Session 和 Memory 存储，支持 Cloud-Native 分布式部署

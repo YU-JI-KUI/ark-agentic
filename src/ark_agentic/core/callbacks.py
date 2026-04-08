@@ -1,12 +1,15 @@
 """Runner 生命周期回调
 
-6 个 hook 覆盖 Agent 执行全生命周期:
+7 个 hook 覆盖 Agent 执行全生命周期:
 
   Agent 级 (run 方法, 各触发一次):
     before_agent → after_agent
 
   ReAct Loop 级 (每轮触发):
     before_model → after_model → before_tool → after_tool
+
+  ReAct Loop 级 (仅在最终 response 轮触发，一次或多次):
+    before_complete
 
 所有 hook 返回 CallbackResult | None。
 Callbacks produce, Runner applies.
@@ -114,6 +117,17 @@ class AfterToolCallback(Protocol):
     async def __call__(self, ctx: CallbackContext, *, turn: int, results: list["AgentToolResult"]) -> CallbackResult | None: ...
 
 
+class BeforeCompleteCallback(Protocol):
+    """before_complete: fires when the model produces a final (non-tool-call) response,
+    just before _finalize_response is called.
+
+    halt=True + response=feedback_msg → inject feedback_msg into session as a user
+    message and continue the ReAct loop, allowing the model to self-correct.
+    halt=False / None → proceed to _finalize_response normally.
+    """
+    async def __call__(self, ctx: CallbackContext, *, response: "AgentMessage") -> CallbackResult | None: ...
+
+
 # ============ Callbacks Container ============
 
 
@@ -126,3 +140,4 @@ class RunnerCallbacks:
     after_model: list[AfterModelCallback] = field(default_factory=list)
     before_tool: list[BeforeToolCallback] = field(default_factory=list)
     after_tool: list[AfterToolCallback] = field(default_factory=list)
+    before_complete: list[BeforeCompleteCallback] = field(default_factory=list)
