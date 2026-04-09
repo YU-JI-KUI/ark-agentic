@@ -752,7 +752,8 @@ def test_mark_memory_dirty_noop_without_memory_manager(tmp_sessions_dir: Path) -
     runner.mark_memory_dirty()
 
 
-def test_mark_memory_dirty_calls_memory_manager_mark_dirty(tmp_sessions_dir: Path) -> None:
+def test_mark_memory_dirty_is_noop_after_redesign(tmp_sessions_dir: Path) -> None:
+    """mark_memory_dirty is a no-op after SQLite removal — kept for API compat."""
     mock_llm = MockChatModel(responses=[])
     llm = mock_llm  # type: ignore[arg-type]
     mm = _FakeMemoryManager()
@@ -763,34 +764,4 @@ def test_mark_memory_dirty_calls_memory_manager_mark_dirty(tmp_sessions_dir: Pat
         memory_manager=mm,  # type: ignore[arg-type]
     )
     runner.mark_memory_dirty()
-    assert mm.dirty_count == 1, "Studio PUT should surface as mark_dirty on MemoryManager"
-
-
-# ============ after_agent 回调替换 response ============
-
-
-@pytest.mark.asyncio
-async def test_after_agent_callback_can_replace_response(
-    tmp_sessions_dir: Path,
-) -> None:
-    """after_agent 回调返回 CallbackResult(response=...) 时，runner 应使用替换后的 response。"""
-    replaced_content = "校验后替换的回答"
-
-    async def _replace_response(
-        ctx: CallbackContext, *, response: AgentMessage
-    ) -> CallbackResult:
-        return CallbackResult(response=AgentMessage.assistant(content=replaced_content))
-
-    responses = [AIMessage(content="原始回答")]
-    runner, _ = _make_runner(
-        tmp_sessions_dir,
-        responses=responses,
-        callbacks=RunnerCallbacks(after_agent=[_replace_response]),
-    )
-    session = runner.session_manager.create_session_sync()
-
-    result = await runner.run(
-        session.session_id, "测试问题", user_id="test_user", stream=False
-    )
-
-    assert result.response.content == replaced_content
+    assert mm.dirty_count == 0, "mark_memory_dirty should be a no-op (no SQLite index)"

@@ -195,10 +195,14 @@ class TestStockLoader:
 
     def test_mock_mode_dividend(self):
         loader = StockLoader(mock_mode=True)
-        div = loader.get_dividend_info("600519")
+        # mock_data/dividends/default.json 当前仅含 601318
+        div = loader.get_dividend_info("601318")
         assert div is not None
-        assert div.dividend_per_share is not None
-        assert div.dividend_yield is not None
+        assert div.stock_code == "601318"
+        assert len(div.dividend_list) >= 1
+        first = div.dividend_list[0]
+        assert first.plan is not None
+        assert first.cash_amount is not None
 
     def test_mock_mode_unknown_code_returns_empty_dividend(self):
         loader = StockLoader(mock_mode=True)

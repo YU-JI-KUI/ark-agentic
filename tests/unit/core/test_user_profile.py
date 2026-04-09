@@ -7,14 +7,11 @@ import pytest
 
 from ark_agentic.core.memory.user_profile import (
     _PROFILES_DIR,
-    ensure_user_profile,
     format_heading_sections,
     get_profile_path,
-    load_user_profile,
     parse_heading_sections,
     truncate_profile,
     upsert_profile_by_heading,
-    write_profile,
 )
 from ark_agentic.core.paths import get_memory_base_dir
 from ark_agentic.core.prompt.builder import SystemPromptBuilder
@@ -25,35 +22,55 @@ from ark_agentic.core.prompt.builder import SystemPromptBuilder
 
 class TestParseHeadingSections:
     def test_empty_string(self) -> None:
-        assert parse_heading_sections("") == {}
+        preamble, sections = parse_heading_sections("")
+        assert preamble == ""
+        assert sections == {}
 
     def test_single_heading(self) -> None:
-        result = parse_heading_sections("## 姓名\n张三")
-        assert result == {"姓名": "张三"}
+        preamble, sections = parse_heading_sections("## 姓名\n张三")
+        assert preamble == ""
+        assert sections == {"姓名": "张三"}
 
     def test_multiple_headings(self) -> None:
         text = "## 姓名\n张三\n\n## 偏好\n简洁"
-        result = parse_heading_sections(text)
-        assert result == {"姓名": "张三", "偏好": "简洁"}
+        preamble, sections = parse_heading_sections(text)
+        assert preamble == ""
+        assert sections == {"姓名": "张三", "偏好": "简洁"}
 
     def test_multiline_content(self) -> None:
         text = "## 基本信息\n姓名: 张三\n角色: 开发者\n\n## 偏好\n简洁"
-        result = parse_heading_sections(text)
-        assert result["基本信息"] == "姓名: 张三\n角色: 开发者"
+        _, sections = parse_heading_sections(text)
+        assert sections["基本信息"] == "姓名: 张三\n角色: 开发者"
 
     def test_no_headings(self) -> None:
-        assert parse_heading_sections("just plain text") == {}
+        preamble, sections = parse_heading_sections("just plain text")
+        assert preamble == "just plain text"
+        assert sections == {}
+
+    def test_preamble_preserved(self) -> None:
+        text = "# Agent Memory\n\n此文件用于存储长期记忆。\n\n## 偏好\n简洁"
+        preamble, sections = parse_heading_sections(text)
+        assert preamble == "# Agent Memory\n\n此文件用于存储长期记忆。"
+        assert sections == {"偏好": "简洁"}
 
 
 class TestFormatHeadingSections:
     def test_roundtrip(self) -> None:
         sections = {"姓名": "张三", "偏好": "简洁"}
-        text = format_heading_sections(sections)
-        parsed = parse_heading_sections(text)
+        text = format_heading_sections("", sections)
+        _, parsed = parse_heading_sections(text)
         assert parsed == sections
 
     def test_empty_dict(self) -> None:
-        assert format_heading_sections({}) == ""
+        assert format_heading_sections("", {}) == ""
+
+    def test_preamble_roundtrip(self) -> None:
+        preamble = "# Agent Memory\n\n描述"
+        sections = {"偏好": "简洁"}
+        text = format_heading_sections(preamble, sections)
+        p2, s2 = parse_heading_sections(text)
+        assert p2 == preamble
+        assert s2 == sections
 
 
 # ============ get_profile_path ============
@@ -74,58 +91,6 @@ class TestGetProfilePath:
         assert not str(profile).startswith(str(agent_dir))
 
 
-# ============ load_user_profile ============
-
-
-class TestLoadUserProfile:
-    def test_returns_empty_when_not_exists(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            content = load_user_profile(Path(tmpdir), "nonexistent_user")
-            assert content == ""
-
-    def test_reads_existing_profile(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            profile_dir = base / _PROFILES_DIR / "user1"
-            profile_dir.mkdir(parents=True)
-            p = profile_dir / "MEMORY.md"
-            p.write_text("## 偏好\npython\n", encoding="utf-8")
-
-            content = load_user_profile(base, "user1")
-            assert "python" in content
-
-    def test_empty_file_returns_empty(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            profile_dir = base / _PROFILES_DIR / "user1"
-            profile_dir.mkdir(parents=True)
-            (profile_dir / "MEMORY.md").write_text("", encoding="utf-8")
-            assert load_user_profile(base, "user1") == ""
-
-
-# ============ ensure_user_profile ============
-
-
-class TestEnsureUserProfile:
-    def test_creates_empty_file_when_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            path = ensure_user_profile(base, "new_user")
-            assert path.exists()
-            assert path.read_text(encoding="utf-8") == ""
-
-    def test_does_not_overwrite_existing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            profile_dir = base / _PROFILES_DIR / "user1"
-            profile_dir.mkdir(parents=True)
-            existing = "## 姓名\n张三\n"
-            (profile_dir / "MEMORY.md").write_text(existing, encoding="utf-8")
-
-            path = ensure_user_profile(base, "user1")
-            assert path.read_text(encoding="utf-8") == existing
-
-
 # ============ upsert_profile_by_heading ============
 
 
@@ -135,7 +100,7 @@ class TestUpsertProfileByHeading:
             p = Path(tmpdir) / "MEMORY.md"
             p.write_text("## 姓名\n张三\n", encoding="utf-8")
             upsert_profile_by_heading(p, "## 偏好\n简洁")
-            sections = parse_heading_sections(p.read_text(encoding="utf-8"))
+            _, sections = parse_heading_sections(p.read_text(encoding="utf-8"))
             assert sections == {"姓名": "张三", "偏好": "简洁"}
 
     def test_replace_existing_heading(self) -> None:
@@ -143,7 +108,7 @@ class TestUpsertProfileByHeading:
             p = Path(tmpdir) / "MEMORY.md"
             p.write_text("## 姓名\n张三\n\n## 偏好\n简洁\n", encoding="utf-8")
             upsert_profile_by_heading(p, "## 偏好\n详细")
-            sections = parse_heading_sections(p.read_text(encoding="utf-8"))
+            _, sections = parse_heading_sections(p.read_text(encoding="utf-8"))
             assert sections["姓名"] == "张三"
             assert sections["偏好"] == "详细"
 
@@ -152,7 +117,7 @@ class TestUpsertProfileByHeading:
             p = Path(tmpdir) / "MEMORY.md"
             p.write_text("", encoding="utf-8")
             upsert_profile_by_heading(p, "## 姓名\n张三\n\n## 角色\n开发者")
-            sections = parse_heading_sections(p.read_text(encoding="utf-8"))
+            _, sections = parse_heading_sections(p.read_text(encoding="utf-8"))
             assert sections == {"姓名": "张三", "角色": "开发者"}
 
     def test_creates_file_if_missing(self) -> None:
@@ -160,7 +125,7 @@ class TestUpsertProfileByHeading:
             p = Path(tmpdir) / "sub" / "MEMORY.md"
             upsert_profile_by_heading(p, "## 姓名\n张三")
             assert p.exists()
-            sections = parse_heading_sections(p.read_text(encoding="utf-8"))
+            _, sections = parse_heading_sections(p.read_text(encoding="utf-8"))
             assert sections["姓名"] == "张三"
 
     def test_no_heading_content_skips(self) -> None:
@@ -171,19 +136,16 @@ class TestUpsertProfileByHeading:
             content = p.read_text(encoding="utf-8")
             assert "张三" in content
 
-
-# ============ write_profile ============
-
-
-class TestWriteProfile:
-    def test_overwrites_content(self) -> None:
+    def test_preserves_preamble(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            ensure_user_profile(base, "u1")
-            new_content = "## 基本信息\n姓名: Bob\n"
-            write_profile(base, "u1", new_content)
-            raw = get_profile_path(base, "u1").read_text(encoding="utf-8")
-            assert "姓名: Bob" in raw
+            p = Path(tmpdir) / "MEMORY.md"
+            p.write_text("# Agent Memory\n\n此文件存储长期记忆。\n\n## 姓名\n张三\n", encoding="utf-8")
+            upsert_profile_by_heading(p, "## 偏好\n简洁")
+            content = p.read_text(encoding="utf-8")
+            assert "# Agent Memory" in content
+            assert "此文件存储长期记忆" in content
+            _, sections = parse_heading_sections(content)
+            assert sections == {"姓名": "张三", "偏好": "简洁"}
 
 
 # ============ truncate_profile ============
@@ -225,7 +187,8 @@ class TestBuilderUserProfile:
         builder = SystemPromptBuilder()
         builder.add_user_profile("## 偏好\n中文回复\n## 技术水平\n专家")
         prompt = builder.build()
-        assert "用户画像" in prompt
+        assert "<memory>" in prompt
+        assert "</memory>" in prompt
         assert "中文回复" in prompt
         assert "专家" in prompt
 
@@ -238,26 +201,24 @@ class TestBuilderUserProfile:
         prompt = SystemPromptBuilder.quick_build(
             user_profile_content="## 时区\nAsia/Shanghai"
         )
-        assert "用户画像" in prompt
+        assert "<memory>" in prompt
         assert "Asia/Shanghai" in prompt
 
     def test_quick_build_without_profile(self) -> None:
         prompt = SystemPromptBuilder.quick_build()
-        assert "用户画像" not in prompt
+        assert "<memory>" not in prompt
 
     def test_profile_section_order(self) -> None:
         builder = SystemPromptBuilder()
         builder.add_identity(name="Bot")
         builder.add_runtime_info()
         builder.add_user_profile("## 画像\ncontent")
-        builder.add_tools([])
-        builder.add_memory_instructions()
-        prompt = builder.build()
+        builder.build()
 
         sections = [name for name, _ in builder._sections]
-        profile_idx = sections.index("user_profile")
+        memory_idx = sections.index("memory")
         identity_idx = sections.index("identity")
-        assert profile_idx > identity_idx
+        assert memory_idx > identity_idx
 
         runtime_idx = sections.index("runtime")
-        assert profile_idx > runtime_idx
+        assert memory_idx > runtime_idx

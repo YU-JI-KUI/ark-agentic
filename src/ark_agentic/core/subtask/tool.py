@@ -79,6 +79,11 @@ class SpawnSubtasksTool(AgentTool):
                 "properties": {
                     "task": {"type": "string", "description": "子任务完整描述"},
                     "label": {"type": "string", "description": "标识标签（用于日志和结果标识）"},
+                    "tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "可选：工具白名单。省略则继承父级全部。不需要包含 read_skill。",
+                    },
                 },
                 "required": ["task"],
             },
@@ -165,6 +170,7 @@ class SpawnSubtasksTool(AgentTool):
     ) -> dict[str, Any]:
         task: str = task_spec.get("task", "")
         label: str = task_spec.get("label", "")
+        tools_allow: list[str] | None = task_spec.get("tools") or None
 
         if not task.strip():
             return {"payload": {"status": "error", "label": label, "error": "empty task"}, "label": label}
@@ -175,7 +181,10 @@ class SpawnSubtasksTool(AgentTool):
         async with self._semaphore:
             try:
                 return await asyncio.wait_for(
-                    self._execute_subtask(parent_session_id, sub_session_id, task, label, log_prefix, context),
+                    self._execute_subtask(
+                        parent_session_id, sub_session_id, task, label, log_prefix, context,
+                        tools_allow=tools_allow,
+                    ),
                     timeout=self._config.timeout_seconds,
                 )
             except asyncio.TimeoutError:
@@ -194,6 +203,7 @@ class SpawnSubtasksTool(AgentTool):
         label: str,
         log_prefix: str,
         context: dict[str, Any],
+        tools_allow: list[str] | None = None,
     ) -> dict[str, Any]:
         from ..runner import AgentRunner, RunnerConfig
 
@@ -213,7 +223,11 @@ class SpawnSubtasksTool(AgentTool):
         )
 
         deny = {self.name, *self._config.tools_deny}
-        allowed_tools = self._runner.tool_registry.filter(deny=list(deny))
+        if tools_allow:
+            allow_set = {t for t in tools_allow if t not in deny}
+            allowed_tools = self._runner.tool_registry.filter(allow=list(allow_set))
+        else:
+            allowed_tools = self._runner.tool_registry.filter(deny=list(deny))
         sub_registry = ToolRegistry()
         sub_registry.register_all(allowed_tools)
 

@@ -5,10 +5,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any, NamedTuple, TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -178,6 +180,8 @@ class AgentRunner:
 
         self._memory_manager = memory_manager
         self._flusher = None
+        self._dreamer = None
+        self._dream_tasks: dict[str, asyncio.Task[Any]] = {}
 
         # LLMCaller / ToolExecutor (SRP)
         self._llm_caller = LLMCaller(
@@ -191,16 +195,18 @@ class AgentRunner:
         )
 
         if memory_manager is not None:
+            from .memory.dream import MemoryDreamer
             from .memory.extractor import MemoryFlusher
 
             self._flusher = MemoryFlusher(self._llm_caller.get_llm)
+            self._dreamer = MemoryDreamer(self._llm_caller.get_llm)
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
             logger.info("Registered %d memory tools", len(memory_tools))
 
         if skill_loader is not None:
-            if self.config.skill_config.default_load_mode != SkillLoadMode.full:
+            if self.config.skill_config.load_mode != SkillLoadMode.full:
                 from .tools.read_skill import ReadSkillTool
 
                 self.tool_registry.register(ReadSkillTool(skill_loader))
@@ -222,19 +228,13 @@ class AgentRunner:
         return self._memory_manager
 
     async def warmup(self) -> None:
-        """预加载 embedding 模型并初始化 Memory 系统（供 lifespan 阶段调用）。"""
-        if self._memory_manager is not None:
-            await self._memory_manager.initialize()
+        """保留接口兼容 — Memory 系统不再需要预热。"""
 
     def mark_memory_dirty(self) -> None:
-        """标记 memory 索引需要刷新（供 Studio 写操作后调用）。"""
-        if self._memory_manager:
-            self._memory_manager.mark_dirty()
+        """保留接口兼容 — 无 SQLite 索引，无需刷新标记。"""
 
     async def close_memory(self) -> None:
-        """释放 Memory 资源（供 lifespan shutdown 调用）。"""
-        if self._memory_manager:
-            await self._memory_manager.close()
+        """保留接口兼容 — 无需释放资源。"""
 
     async def run(
         self,
@@ -310,10 +310,8 @@ class AgentRunner:
         temperature = self.config.temperature
         if run_options and run_options.temperature is not None:
             temperature = run_options.temperature
-        skill_load_mode = self.config.skill_config.default_load_mode.value
-        return _RunParams(
-            model=model, temperature=temperature, skill_load_mode=skill_load_mode
-        )
+        skill_load_mode = self.config.skill_config.load_mode.value
+        return _RunParams(model=model, temperature=temperature, skill_load_mode=skill_load_mode)
 
     async def _prepare_session(
         self,
@@ -330,9 +328,6 @@ class AgentRunner:
 
         Returns RunResult on halt (early exit), CallbackContext on success.
         """
-        if self._memory_manager and not self._memory_manager._initialized:
-            await self._memory_manager.initialize()
-
         session = self.session_manager.get_session_required(session_id)
         cb_ctx = CallbackContext(
             user_input=user_input, input_context=input_context, session=session
@@ -410,6 +405,45 @@ class AgentRunner:
             result.response = cb_result.response
         cb_ctx.session.strip_temp_state()
         await self.session_manager.sync_session_state(session_id, user_id)
+
+        self._maybe_trigger_dream(user_id)
+
+    def _maybe_trigger_dream(self, user_id: str) -> None:
+        """Check dream gate and launch background task if thresholds met."""
+        if not self._dreamer or not self._memory_manager:
+            return
+
+        task = self._dream_tasks.get(user_id)
+        if task is not None and not task.done():
+            return
+
+        from .memory.dream import should_dream
+
+        workspace = Path(self._memory_manager.config.workspace_dir)
+        sessions_dir = Path(self.session_manager._transcript_manager.sessions_dir)
+
+        try:
+            if not should_dream(user_id, workspace, sessions_dir):
+                return
+        except Exception:
+            logger.debug("Dream gate check failed for user %s", user_id, exc_info=True)
+            return
+
+        memory_path = self._memory_manager.memory_path(user_id)
+        self._dream_tasks[user_id] = asyncio.create_task(
+            self._run_dream(user_id, memory_path, sessions_dir)
+        )
+        logger.info("Dream triggered for user %s", user_id)
+
+    async def _run_dream(
+        self, user_id: str, memory_path: Path, sessions_dir: Path,
+    ) -> None:
+        """Background dream cycle with error handling."""
+        try:
+            result = await self._dreamer.run(memory_path, sessions_dir, user_id)
+            logger.info("Dream completed for user %s: %s", user_id, result.changes)
+        except Exception:
+            logger.warning("Dream failed for user %s", user_id, exc_info=True)
 
     @staticmethod
     def _merge_input_context(
@@ -923,13 +957,7 @@ class AgentRunner:
             )
             skills = match_result.matched_skills
 
-        include_memory = self._memory_manager is not None
-
-        # 技能注入模式：full_inject 全文注入, metadata_only 仅元数据
-        # semantic 模式由 SkillMatcher + SemanticClassifier 处理分组，此处只控制 prompt 渲染
-        base_config = self.config.prompt_config
-        use_skill_metadata_only = skill_load_mode in ("dynamic", "semantic")
-        prompt_config = replace(base_config, use_skill_metadata_only=use_skill_metadata_only)
+        prompt_config = self.config.prompt_config
 
         # 当 enable_thinking_tags=True 且 prompt_config 未自定义指令时，自动填充默认模板
         if (
@@ -946,25 +974,25 @@ class AgentRunner:
         # 默认只注入 user: 前缀的状态到提示词，减少噪声
         user_state = {k: v for k, v in state.items() if k.startswith("user:")}
 
-        # 加载全局用户画像 (USER.md)
         profile_content = ""
-        if include_memory:
+        if self._memory_manager:
             user_id = state.get("user:id")
             if user_id:
-                from .memory.user_profile import load_user_profile, truncate_profile
-                from .paths import get_memory_base_dir
-
-                profile_content = truncate_profile(
-                    load_user_profile(get_memory_base_dir(), str(user_id))
-                )
+                from .memory.user_profile import truncate_profile
+                try:
+                    profile_content = truncate_profile(
+                        self._memory_manager.read_memory(str(user_id))
+                    )
+                except Exception:
+                    pass
 
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
             context=user_state,
             config=prompt_config,
-            include_memory_instructions=include_memory,
             user_profile_content=profile_content,
+            skill_config=self.config.skill_config,
         )
 
     def _build_tools(self) -> list[dict[str, Any]]:

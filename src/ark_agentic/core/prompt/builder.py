@@ -11,10 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from ..skills.base import (
-    build_skill_prompt,
-    format_skills_metadata_for_prompt,
-)
+from ..skills.base import SkillConfig, render_skill_section
 from ..tools.base import AgentTool
 from ..types import SkillEntry
 
@@ -38,32 +35,21 @@ class PromptConfig:
     include_model_info: bool = False
     model_name: str = ""
 
+    # 全局协议（identity/runtime 之后、user_profile 之前注入）
+    system_protocol: str = ""
+
     # 自定义指令
     custom_instructions: str = ""
 
     # 工具描述
-    include_tool_descriptions: bool = True
-
-    # 技能描述
-    include_skill_descriptions: bool = True
-
-    # 仅注入技能元数据（不注入全文）；模型通过 read_skill 按 id 加载一个技能
-    use_skill_metadata_only: bool = False
+    include_tool_descriptions: bool = False
 
     # <think>/<final> 标签指引（非空时注入到 system prompt）
     thinking_tag_instructions: str = ""
 
 
-# 动态模式下的 skill 加载说明（对齐 openclaw buildSkillsSection）
-LOAD_ONE_SKILL_INSTRUCTIONS = """\
-## 技能（业务必选协议）
-在回复任何业务相关问题之前，你必须执行以下步骤：
-1. 扫描 <available_skills>，根据 <description> 识别匹配的技能。
-2. 如果某个技能匹配（即使只是部分匹配）：调用 `read_skill` 并传入对应 <id>，然后严格按照返回的指令执行。
-3. 如果多个技能可能适用：选择最具体的那个，调用 `read_skill`。
-4. 仅当用户的问题与所有已列技能完全无关时（如日常寒暄、通用知识问题），才可直接回复而不加载技能。
-重要：业务类问题必须通过技能处理，禁止用通用回答替代技能流程。
-约束：每轮最多读取一个技能；必须先选定再读取。"""
+_UNWRAPPED_SECTIONS = frozenset({"identity"})
+
 
 
 class SystemPromptBuilder:
@@ -101,7 +87,7 @@ class SystemPromptBuilder:
         agent_name = name or self.config.agent_name
         agent_desc = description or self.config.agent_description
 
-        content = f"You are {agent_name}. {agent_desc}"
+        content = f"你是{agent_name}. {agent_desc}"
         self._sections.append(("identity", content))
         return self
 
@@ -123,19 +109,22 @@ class SystemPromptBuilder:
 
         if parts:
             content = "\n".join(parts)
-            self._sections.append(("runtime", f"## Runtime Information\n\n{content}"))
+            self._sections.append(("runtime", content))
 
         return self
 
     def add_user_profile(self, content: str) -> SystemPromptBuilder:
-        """添加用户画像（全局 USER.md 内容）"""
+        """添加用户画像（MEMORY.md 内容），以指令形式注入"""
         if content.strip():
             section = (
-                "## 用户画像\n\n"
-                "以下是该用户的持久化画像信息，请在整个对话中保持一致的个性化体验：\n\n"
+                "以下是该用户的持久化记忆。每次回复和工具调用时主动遵守。\n\n"
+                "**读取**：调用工具前检查偏好约束；展示结果时排除用户拒绝的选项；措辞匹配风格偏好。\n\n"
+                "**写入**（memory_write，先写后回复）：\n"
+                "保存 → 偏好表达、身份信息、纠正/批评、持久决策、用户要求记住的\n"
+                "不保存 → 临时查询、已存在的信息、寒暄、可从上下文推导的事实\n\n"
                 + content.strip()
             )
-            self._sections.append(("user_profile", section))
+            self._sections.append(("memory", section))
         return self
 
     def add_tools(
@@ -160,28 +149,19 @@ class SystemPromptBuilder:
                 desc += f" [参数: {', '.join(params)}]"
             tool_descriptions.append(desc)
 
-        content = "## Available Tools\n\n" + "\n".join(tool_descriptions)
+        content = "\n".join(tool_descriptions)
         content += "\n\nUse these tools when appropriate to help the user."
 
         self._sections.append(("tools", content))
         return self
 
-    def add_skills(self, skills: list[SkillEntry]) -> SystemPromptBuilder:
-        """添加技能描述（全文或仅元数据 + 加载说明）。"""
-        if not self.config.include_skill_descriptions or not skills:
-            return self
-
-        if self.config.use_skill_metadata_only:
-            skill_prompt = format_skills_metadata_for_prompt(skills)
-            if skill_prompt:
-                # 强制指令在前，XML 元数据在后（对齐 openclaw buildSkillsSection）
-                combined = LOAD_ONE_SKILL_INSTRUCTIONS.strip() + "\n\n" + skill_prompt
-                self._sections.append(("skills", combined))
-        else:
-            skill_prompt = build_skill_prompt(skills)
-            if skill_prompt:
-                self._sections.append(("skills", skill_prompt))
-
+    def add_skills(
+        self, skills: list[SkillEntry], *, skill_config: SkillConfig | None = None,
+    ) -> SystemPromptBuilder:
+        """添加技能段落，委托 render_skill_section 决定全文/元数据渲染。"""
+        section = render_skill_section(skills, config=skill_config)
+        if section:
+            self._sections.append(("skills", section))
         return self
 
     def add_custom_instructions(
@@ -190,7 +170,7 @@ class SystemPromptBuilder:
         """添加自定义指令"""
         custom = instructions or self.config.custom_instructions
         if custom.strip():
-            self._sections.append(("custom", f"## Instructions\n\n{custom}"))
+            self._sections.append(("instructions", custom))
         return self
 
     def add_context(self, context: dict[str, Any]) -> SystemPromptBuilder:
@@ -216,31 +196,26 @@ class SystemPromptBuilder:
                 parts.append(f"**{key}**: {value}")
 
         if parts:
-            content = "## Context\n\n" + "\n\n".join(parts)
+            content = "\n\n".join(parts)
             self._sections.append(("context", content))
 
-        return self
-
-    def add_memory_instructions(self) -> SystemPromptBuilder:
-        """添加 Memory 使用指令
-
-        当 Agent 配置了 memory_search/memory_get 工具时调用。
-        指导 LLM 在回答历史相关问题前先搜索 memory。
-        """
-        self._sections.append(("memory", MEMORY_INSTRUCTIONS.strip()))
         return self
 
     def build(self) -> str:
         """构建最终的系统提示"""
         if not self._sections:
-            # 默认构建
             self.add_identity()
             self.add_runtime_info()
             if self.config.custom_instructions:
                 self.add_custom_instructions()
 
-        parts = [content for _, content in self._sections]
-        return "\n\n---\n\n".join(parts)
+        parts: list[str] = []
+        for name, content in self._sections:
+            if name in _UNWRAPPED_SECTIONS:
+                parts.append(content)
+            else:
+                parts.append(f"<{name}>\n{content}\n</{name}>")
+        return "\n\n".join(parts)
 
     @classmethod
     def quick_build(
@@ -250,8 +225,8 @@ class SystemPromptBuilder:
         context: dict[str, Any] | None = None,
         config: PromptConfig | None = None,
         include_tool_params: bool = False,
-        include_memory_instructions: bool = False,
         user_profile_content: str = "",
+        skill_config: SkillConfig | None = None,
     ) -> str:
         """快速构建系统提示
 
@@ -261,67 +236,29 @@ class SystemPromptBuilder:
             context: 上下文信息
             config: 提示配置（含 custom_instructions 等）
             include_tool_params: 是否在工具描述中包含参数信息
-            include_memory_instructions: 是否包含 memory 使用指令
             user_profile_content: 全局用户画像 (USER.md) 内容
-
-        Returns:
-            构建的系统提示
+            skill_config: 技能渲染配置（group 阈值、预算控制等）
         """
         effective_config = config or PromptConfig()
         builder = cls(effective_config)
         builder.add_identity()
         builder.add_runtime_info()
 
+        if effective_config.system_protocol:
+            builder.add_section("system_protocol", effective_config.system_protocol)
+
         if user_profile_content:
             builder.add_user_profile(user_profile_content)
-        if include_memory_instructions:
-            builder.add_memory_instructions()
         if tools:
             builder.add_tools(tools, include_params=include_tool_params)
         if skills:
-            builder.add_skills(skills)
+            builder.add_skills(skills, skill_config=skill_config)
         if context:
             builder.add_context(context)
         if effective_config.thinking_tag_instructions:
             builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
         builder.add_custom_instructions()
-        if include_memory_instructions:
-            builder.add_section(
-                "memory_reminder",
-                "记忆提醒：用户对你回复风格的批评（如「太啰嗦」「太正式」）是偏好表达，必须先调用 memory_write 保存再回复。",
-            )
 
         return builder.build()
 
 
-# ============ Memory 提示模板 ============
-
-MEMORY_INSTRUCTIONS = """
-## 记忆系统
-
-你拥有跨对话的长期记忆能力。通过 memory_search 检索记忆，通过 memory_write 保存记忆。
-
-### 保存规则（最高优先级）
-
-**每轮回复前，必须判断用户消息是否满足以下任一条件；满足则先调用 memory_write，再回复：**
-1. 用户表达了偏好或身份（无论直接还是间接）
-2. 用户对你的行为提出批评或要求调整——批评 = 偏好的反面表达
-3. 用户的表达与上方「用户画像」矛盾
-
-不保存：纯业务查询、寒暄、临时计算
-
-**示例：**
-- "好啰嗦，简洁点" → 批评 = 偏好（要简洁）→ memory_write(type=profile)
-- "我是张经理，在平安工作" → 身份信息 → memory_write(type=profile)
-- "以后贷款渠道都不要" → 持久决策 → memory_write(type=agent_memory)
-- "查一下我的保单" → 一次性查询 → 不保存
-
-### 检索（回答前）
-在回答关于历史决策、日期、人员、偏好的问题前，先运行 memory_search。
-使用 memory_get 获取搜索结果的更多上下文，保持请求量小以节省上下文窗口。
-
-### 格式
-内容使用 heading-based markdown：`## 标题\\n内容`
-- type=profile 写画像（按标题自动合并，不会重复）
-- type=agent_memory 写业务记忆（追加）
-"""

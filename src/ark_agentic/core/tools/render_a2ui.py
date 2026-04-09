@@ -120,7 +120,7 @@ class RenderA2UITool(AgentTool):
     """
 
     name = "render_a2ui"
-    description = "渲染 A2UI 卡片。"
+    description = "生成A2UI卡片内容,供UI渲染。"
     thinking_hint = "正在生成内容卡片..."
 
     group: str | None = None
@@ -163,10 +163,10 @@ class RenderA2UITool(AgentTool):
         if self._preset:
             modes.append("preset_type 模式（预设卡片）")
         if not modes:
-            return "渲染 A2UI 卡片。"
+            return "[UI渲染] 渲染 A2UI 卡片。"
         suffix = "；".join(modes)
         exclusive = "互斥，每次只传其一。" if len(modes) > 1 else ""
-        return f"渲染 A2UI 卡片。{suffix}。{exclusive}"
+        return f"{self.description}。{suffix}。{exclusive}"
 
     def _build_parameters(self) -> list[ToolParameter]:
         params: list[ToolParameter] = []

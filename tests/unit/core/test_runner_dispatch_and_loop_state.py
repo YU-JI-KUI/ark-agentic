@@ -59,7 +59,7 @@ class TestRunHooksEventDispatch:
     @pytest.fixture
     def minimal_runner(self) -> AgentRunner:
         config = RunnerConfig(
-            skill_config=SkillConfig(default_load_mode=SkillLoadMode.full),
+            skill_config=SkillConfig(load_mode=SkillLoadMode.full),
         )
         runner = AgentRunner(
             llm=Mock(),

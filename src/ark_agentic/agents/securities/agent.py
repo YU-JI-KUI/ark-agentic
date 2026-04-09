@@ -83,7 +83,7 @@ def create_securities_agent(
         skill_directories=[str(_SKILLS_DIR)],
         agent_id="securities",
         enable_eligibility_check=True,
-        default_load_mode=SkillLoadMode.dynamic,
+        load_mode=SkillLoadMode.dynamic,
     )
     skill_loader = SkillLoader(skill_config)
     try:

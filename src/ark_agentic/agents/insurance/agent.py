@@ -34,10 +34,12 @@ logger = logging.getLogger(__name__)
 _AGENT_DIR = Path(__file__).resolve().parent
 _SKILLS_DIR = _AGENT_DIR / "skills"
 
-_INSURANCE_INSTRUCTIONS = """\
-取款数据展示协议（最高优先级）：
-- 查询总览、生成方案、调整方案 → 必须调用 render_a2ui 渲染卡片，禁止文字替代。
-- 办理确认（用户明确要求执行取款操作）→ 纯文字回复，禁止调用 render_a2ui。"""
+_INSURANCE_PROTOCOL = """\
+### 工具调用
+- 调用工具时只生成 tool_call，不要附带额外文本
+
+### 输出风格
+- 对敏感操作给出风险提示"""
 
 
 def create_insurance_agent(
@@ -82,7 +84,7 @@ def create_insurance_agent(
         skill_directories=[str(_SKILLS_DIR)],
         agent_id="insurance",
         enable_eligibility_check=True,
-        default_load_mode=SkillLoadMode.full,
+        load_mode=SkillLoadMode.full,
     )
     skill_loader = SkillLoader(skill_config)
     try:
@@ -100,11 +102,8 @@ def create_insurance_agent(
         enable_subtasks=True,
         prompt_config=PromptConfig(
             agent_name="保险智能助手",
-            agent_description=(
-                "专业的保险咨询和业务处理助手。"
-                "展示取款数据时必须调用 render_a2ui 渲染卡片，严禁文字替代。"
-            ),
-            custom_instructions=_INSURANCE_INSTRUCTIONS,
+            agent_description="专业的保险咨询和业务处理助手。",
+            system_protocol=_INSURANCE_PROTOCOL,
         ),
         skill_config=skill_config,
     )
@@ -117,7 +116,7 @@ def create_insurance_agent(
         config=runner_config,
         memory_manager=memory_manager,
         callbacks=RunnerCallbacks(
-            before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],
+            # before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],
         ),
     )
 

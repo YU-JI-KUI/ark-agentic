@@ -4,7 +4,7 @@
 参考: openclaw-main/src/agents/skills/workspace.ts
 
 与 base.check_skill_eligibility / should_include_skill 统一：先策略与资格过滤，
-再按 SkillLoadMode（full/dynamic/semantic）决定 full_inject 与 metadata_only 分组。
+再按 SkillLoadMode（full/dynamic）决定 full_inject 与 metadata_only 分组。
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from .base import (
     should_include_skill,
 )
 from .loader import SkillLoader
-from .classifier import SemanticClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ logger = logging.getLogger(__name__)
 class SkillMatchResult:
     """技能匹配结果
 
-    按注入方式分为 full_inject（全文注入 prompt）与 metadata_only（仅元数据 + read_skill）。
+    full_inject 与 metadata_only 互斥：full 模式全部进 full_inject，其余模式全部进 metadata_only。
     matched_skills 为二者合并，用于向后兼容。
     """
 
@@ -57,16 +56,10 @@ class SkillMatcher:
     """技能匹配器
 
     根据上下文匹配可用技能：策略过滤、资格检查，再按 skill_load_mode 决定注入方式。
-    semantic 模式下依赖 SemanticClassifier 做 full / metadata 分组。
     """
 
-    def __init__(
-        self,
-        loader: SkillLoader,
-        semantic_classifier: SemanticClassifier | None = None,
-    ) -> None:
+    def __init__(self, loader: SkillLoader) -> None:
         self.loader = loader
-        self.semantic_classifier = semantic_classifier
 
     def match(
         self,
@@ -83,7 +76,7 @@ class SkillMatcher:
             context: 执行上下文
             skill_ids: 指定的技能 ID 列表（None 表示全部）
             check_eligibility: 是否检查资格
-            skill_load_mode: full | dynamic | semantic
+            skill_load_mode: full | dynamic
 
         Returns:
             SkillMatchResult（full_inject + metadata_only）
@@ -120,24 +113,7 @@ class SkillMatcher:
 
         if skill_load_mode == "full":
             result.full_inject = list(matched)
-            result.metadata_only = []
-        elif skill_load_mode == "dynamic":
-            result.full_inject = []
-            result.metadata_only = list(matched)
-        elif skill_load_mode == "semantic" and self.semantic_classifier is not None:
-            full, meta = self.semantic_classifier.classify(query or "", matched)
-            result.full_inject = full
-            result.metadata_only = meta
-            logger.info(
-                f"Semantic: full_inject={len(full)} metadata_only={len(meta)}"
-            )
         else:
-            if skill_load_mode == "semantic":
-                logger.info(
-                    "skill_load_mode='semantic' but no semantic_classifier, "
-                    "falling back to 'dynamic'"
-                )
-            result.full_inject = []
             result.metadata_only = list(matched)
 
         logger.info(

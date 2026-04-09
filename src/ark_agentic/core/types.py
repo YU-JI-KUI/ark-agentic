@@ -296,7 +296,6 @@ class SkillLoadMode(str, Enum):
 
     full = "full"
     dynamic = "dynamic"
-    semantic = "semantic"
 
 
 class RunOptions(_PydanticBaseModel):

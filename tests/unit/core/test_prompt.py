@@ -5,8 +5,9 @@ from ark_agentic.core.prompt.builder import (
     PromptConfig,
     SystemPromptBuilder,
 )
+from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
-from ark_agentic.core.types import AgentToolResult, SkillEntry, SkillMetadata
+from ark_agentic.core.types import AgentToolResult, SkillEntry, SkillLoadMode, SkillMetadata
 
 
 class MockTool(AgentTool):
@@ -77,7 +78,8 @@ class TestSystemPromptBuilder:
         builder.add_runtime_info()
         prompt = builder.build()
 
-        assert "Runtime Information" in prompt
+        assert "<runtime>" in prompt
+        assert "</runtime>" in prompt
         assert "UTC" in prompt
 
     def test_add_runtime_info_disabled(self) -> None:
@@ -87,37 +89,38 @@ class TestSystemPromptBuilder:
         builder.add_runtime_info()
         prompt = builder.build()
 
-        # Should not have runtime section
-        assert "Runtime Information" not in prompt
+        assert "<runtime>" not in prompt
 
     def test_add_tools(self) -> None:
-        """Test adding tools section."""
-        builder = SystemPromptBuilder()
+        """Test adding tools section (opt-in)."""
+        config = PromptConfig(include_tool_descriptions=True)
+        builder = SystemPromptBuilder(config)
         tools = [MockTool()]
         builder.add_tools(tools)
         prompt = builder.build()
 
-        assert "Available Tools" in prompt
+        assert "<tools>" in prompt
+        assert "</tools>" in prompt
         assert "mock_tool" in prompt
         assert "A mock tool for testing" in prompt
 
     def test_add_tools_with_params(self) -> None:
         """Test adding tools with parameter info."""
-        builder = SystemPromptBuilder()
+        config = PromptConfig(include_tool_descriptions=True)
+        builder = SystemPromptBuilder(config)
         tools = [MockTool()]
         builder.add_tools(tools, include_params=True)
         prompt = builder.build()
 
         assert "query(string)" in prompt
 
-    def test_add_tools_disabled(self) -> None:
-        """Test tools disabled in config."""
-        config = PromptConfig(include_tool_descriptions=False)
-        builder = SystemPromptBuilder(config)
+    def test_add_tools_default_off(self) -> None:
+        """Test tools disabled by default (function calling provides schema)."""
+        builder = SystemPromptBuilder()
         builder.add_tools([MockTool()])
         prompt = builder.build()
 
-        assert "Available Tools" not in prompt
+        assert "<tools>" not in prompt
 
     def test_add_skills(self) -> None:
         """Test adding skills section (full content by default)."""
@@ -137,9 +140,8 @@ class TestSystemPromptBuilder:
         assert "Use this skill when testing." in prompt
 
     def test_add_skills_metadata_only(self) -> None:
-        """When use_skill_metadata_only=True: metadata list + load-one-skill instructions, no full content."""
-        config = PromptConfig(use_skill_metadata_only=True)
-        builder = SystemPromptBuilder(config)
+        """dynamic mode: metadata list + load-one-skill instructions, no full content."""
+        builder = SystemPromptBuilder()
         skills = [
             SkillEntry(
                 id="test_skill",
@@ -151,7 +153,7 @@ class TestSystemPromptBuilder:
                 ),
             )
         ]
-        builder.add_skills(skills)
+        builder.add_skills(skills, skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic))
         prompt = builder.build()
 
         assert "test_skill" in prompt
@@ -160,31 +162,14 @@ class TestSystemPromptBuilder:
         assert "read_skill" in prompt
         assert "Full skill body must not appear in prompt." not in prompt
 
-    def test_add_skills_disabled(self) -> None:
-        """Test skills disabled in config."""
-        config = PromptConfig(include_skill_descriptions=False)
-        builder = SystemPromptBuilder(config)
-        skills = [
-            SkillEntry(
-                id="test",
-                path="/test",
-                content="Content",
-                metadata=SkillMetadata(name="Test", description="Test"),
-            )
-        ]
-        builder.add_skills(skills)
-        prompt = builder.build()
-
-        # Skills section should not be added
-        assert "Test Skill" not in prompt
-
     def test_add_custom_instructions(self) -> None:
         """Test adding custom instructions."""
         builder = SystemPromptBuilder()
         builder.add_custom_instructions("Always be polite.")
         prompt = builder.build()
 
-        assert "Instructions" in prompt
+        assert "<instructions>" in prompt
+        assert "</instructions>" in prompt
         assert "Always be polite." in prompt
 
     def test_add_custom_instructions_from_config(self) -> None:
@@ -207,7 +192,8 @@ class TestSystemPromptBuilder:
         builder.add_context(context)
         prompt = builder.build()
 
-        assert "Context" in prompt
+        assert "<context>" in prompt
+        assert "</context>" in prompt
         assert "user_name" in prompt
         assert "John" in prompt
         assert "dark" in prompt
@@ -244,15 +230,17 @@ class TestSystemPromptBuilder:
         # Should have identity and runtime by default
         assert "Assistant" in prompt
 
-    def test_section_separator(self) -> None:
-        """Test sections are separated."""
+    def test_section_xml_wrapping(self) -> None:
+        """Test non-identity sections are XML-wrapped, identity is unwrapped."""
         builder = SystemPromptBuilder()
         builder.add_identity()
         builder.add_custom_instructions("Be helpful.")
         prompt = builder.build()
 
-        # Sections should be separated by ---
-        assert "---" in prompt
+        assert "---" not in prompt
+        assert "<identity>" not in prompt
+        assert "<instructions>" in prompt
+        assert "</instructions>" in prompt
 
 
 class TestQuickBuild:
@@ -264,11 +252,17 @@ class TestQuickBuild:
         assert "Assistant" in prompt
 
     def test_quick_build_with_tools(self) -> None:
-        """Test quick build with tools."""
+        """Test quick build with tools (opt-in via config)."""
         prompt = SystemPromptBuilder.quick_build(
-            tools=[MockTool()]
+            tools=[MockTool()],
+            config=PromptConfig(include_tool_descriptions=True),
         )
         assert "mock_tool" in prompt
+
+    def test_quick_build_tools_default_off(self) -> None:
+        """Test quick build omits tools section by default."""
+        prompt = SystemPromptBuilder.quick_build(tools=[MockTool()])
+        assert "<tools>" not in prompt
 
     def test_quick_build_with_skills(self) -> None:
         """Test quick build with skills (full content by default)."""
@@ -284,7 +278,7 @@ class TestQuickBuild:
         assert "Skill content" in prompt
 
     def test_quick_build_with_skills_metadata_only(self) -> None:
-        """Test quick build with use_skill_metadata_only: metadata only, no full content."""
+        """dynamic mode via skill_config: metadata only, no full content."""
         skills = [
             SkillEntry(
                 id="s1",
@@ -293,8 +287,10 @@ class TestQuickBuild:
                 metadata=SkillMetadata(name="S1", description="First. When to use: When A"),
             )
         ]
-        config = PromptConfig(use_skill_metadata_only=True)
-        prompt = SystemPromptBuilder.quick_build(skills=skills, config=config)
+        prompt = SystemPromptBuilder.quick_build(
+            skills=skills,
+            skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic),
+        )
         assert "s1" in prompt and "S1" in prompt and "When A" in prompt
         assert "read_skill" in prompt
         assert "Secret body" not in prompt
@@ -315,10 +311,11 @@ class TestQuickBuild:
         assert "Follow these rules." in prompt
 
     def test_quick_build_with_tool_params(self) -> None:
-        """Test quick build with tool params."""
+        """Test quick build with tool params (opt-in)."""
         prompt = SystemPromptBuilder.quick_build(
             tools=[MockTool()],
-            include_tool_params=True
+            include_tool_params=True,
+            config=PromptConfig(include_tool_descriptions=True),
         )
         assert "query(string)" in prompt
 

@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 server = [
+    "bcrypt>=4.0.0",
     "fastapi>=0.128.0",
     "uvicorn[standard]>=0.40.0",
 ]
@@ -34,13 +35,8 @@ dev = [
 pa-jt = [
     "pycryptodome>=3.20.0",
 ]
-memory = [
-    "sqlite-vec>=0.1.6",
-    "jieba>=0.42.1",
-    "sentence-transformers>=3.3.0",
-]
 all = [
-    "ark-agentic[dev,pa-jt,memory]",
+    "ark-agentic[dev,pa-jt]",
 ]
 
 [project.scripts]
