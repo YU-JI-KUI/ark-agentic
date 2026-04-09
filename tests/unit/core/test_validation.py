@@ -242,6 +242,20 @@ class TestExtractClaimsFromAnswer:
         assert ("TIME", "上个月") in pairs
         assert ("NUMBER", "5000") in pairs
 
+    def test_same_value_deduped_by_priority(self) -> None:
+        """同一字面值被多个 extractor 命中时，仅保留优先级最高的 type（TIME > NUMBER）。"""
+        # "2026" 同时被 DateClaimExtractor（YYYYMMDD → 年份过滤）和 NumberClaimExtractor 处理；
+        # 含完整 ISO 日期 2026-04-01 的字符串：DATE_RE 和 NUMBER 都会抽取 "2026-04-01" 中的年份部分；
+        # 最直接的场景：YYYYMMDD "20260401" 同时被 DATE extractor(TIME) 和 NUMBER extractor 命中。
+        claims = extract_claims_from_answer("起息日 20260401 金额 150000")
+        values = [c.value for c in claims]
+        # 20260401 应只出现一次（TIME 优先于 NUMBER）
+        assert values.count("20260401") <= 1
+        # 若存在，其 type 应为 TIME
+        for c in claims:
+            if c.value == "20260401":
+                assert c.type == "TIME"
+
 
 # ============ 相对时间辅助 ============
 

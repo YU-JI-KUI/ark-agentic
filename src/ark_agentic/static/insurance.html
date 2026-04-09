@@ -1089,6 +1089,7 @@
         const payload = {
           message: text,
           stream: isStreaming,
+          protocol: 'enterprise',
           agent_id: selectedAgent,
           user_id: selectedUserId,
           context: {
@@ -1135,6 +1136,8 @@
       }
 
       // ---- Streaming ----
+      // enterprise 协议：AGUIEnvelope 结构
+      // { protocol:"AGUI", id, event, data:{ ui_protocol, ui_data, conversation_id, turn, ... } }
       async function sendStreaming(payload) {
         const resp = await fetch('/chat', {
           method: 'POST',
@@ -1183,39 +1186,21 @@
             const jsonStr = trimmed.slice(5).trim();
             if (!jsonStr) continue;
 
-            let event;
-            try { event = JSON.parse(jsonStr); } catch { continue; }
+            let envelope;
+            try { envelope = JSON.parse(jsonStr); } catch { continue; }
 
-            const EVENT_ALIASES = {
-              'run_started': 'response.created',
-              'step_started': 'response.step',
-              'step_finished': 'response.step.done',
-              'text_message_content': 'response.content.delta',
-              'text_message_start': '_skip',
-              'text_message_end': '_skip',
-              'tool_call_start': 'response.tool_call.start',
-              'tool_call_args': '_skip',
-              'tool_call_end': '_skip',
-              'tool_call_result': 'response.tool_call.result',
-              'custom': 'response.ui.component',
-              'run_finished': 'response.completed',
-              'run_error': 'response.failed',
-            };
-
-            const rawType = event.type || currentEventType || '';
-            const eventType = EVENT_ALIASES[rawType] || rawType;
+            const eventType = envelope.event || currentEventType || '';
+            const d = envelope.data || {};
             currentEventType = null;
 
-            if (eventType === '_skip') continue;
-
-            if (event.session_id && !sessionId) {
-              sessionId = event.session_id;
+            if (d.conversation_id && !sessionId) {
+              sessionId = d.conversation_id;
               sessionStorage.setItem('ark_session_id', sessionId);
             }
 
             switch (eventType) {
-              case 'response.created': {
-                const text = event.content || event.run_content || '';
+              case 'run_started': {
+                const text = typeof d.ui_data === 'string' ? d.ui_data : '';
                 if (text) {
                   hadThinkingContent = true;
                   thinkCard.style.display = '';
@@ -1231,14 +1216,14 @@
                 break;
               }
 
-              case 'response.step': {
+              case 'step_started': {
                 hadThinkingContent = true;
                 thinkCard.style.display = '';
                 if (currentStepEl) {
                   currentStepEl.classList.remove('active');
                   currentStepEl.classList.add('done');
                 }
-                const stepText = event.content || event.step_name || '';
+                const stepText = (d.ui_data && d.ui_data.think) || '';
                 const step = document.createElement('div');
                 step.className = 'think-step active';
                 step.innerHTML = '<div class="ts-header"><span class="ts-icon"></span><span>' + escHtml(stepText) + '</span></div>';
@@ -1250,7 +1235,7 @@
                 break;
               }
 
-              case 'response.step.done': {
+              case 'step_finished': {
                 if (currentStepEl) {
                   currentStepEl.classList.remove('active');
                   currentStepEl.classList.add('done');
@@ -1258,66 +1243,74 @@
                 break;
               }
 
-              case 'response.content.delta': {
-                const turn = Number(event.turn) || 1;
-                if (turn !== currentTurn) {
-                  if (currentTurn !== 0 && finalText.trim()) {
-                    hadThinkingContent = true;
-                    thinkCard.style.display = '';
-                    const prevBlock = document.createElement('div');
-                    prevBlock.className = 'turn-output';
-                    prevBlock.innerHTML = md(finalText);
-                    thinkContent.appendChild(prevBlock);
-                  }
-                  currentTurn = turn;
-                  finalText = '';
-                }
-                answerBubble.classList.remove('hidden');
-                finalText += event.delta || '';
-                answerBubble.innerHTML = md(finalText);
-                scrollToBottom();
+              case 'text_message_start':
+              case 'text_message_end':
+              case 'tool_call_start':
+              case 'tool_call_args':
+              case 'tool_call_end':
+              case 'tool_call_result': {
                 break;
               }
 
-              case 'response.ui.component': {
-                const comp = event.ui_component;
-                if (comp && comp.relevant === 0) {
-                  thinkCard.style.display = 'none';
-                  answerBubble.textContent = '抱歉，该问题不在我的服务范围内。';
-                  answerBubble.classList.remove('hidden');
-                  answerBubble.classList.remove('typing-cursor');
-                  scrollToBottom();
-                  break;
-                }
-                if (comp && a2uiContainer) {
-                  a2uiContainer.classList.remove('hidden');
-                  try {
-                    A2UIRenderer.render(a2uiContainer, comp, {
-                      onAction: function(name, args) {
-                        if (name === 'query') {
-                          var query = typeof args === 'object' ? (args.queryMsg || '') : String(args);
-                          if (query) { $input.value = query; sendMessage(); }
-                        } else if (name === 'openLink') {
-                          var url = typeof args === 'object' ? (args.url || '') : String(args);
-                          if (url) window.open(url, '_blank', 'noopener');
-                        } else {
-                          console.log('[A2UI action]', name, args);
+              case 'text_message_content': {
+                if (d.ui_protocol === 'A2UI') {
+                  const comp = d.ui_data;
+                  if (comp && comp.relevant === 0) {
+                    thinkCard.style.display = 'none';
+                    answerBubble.textContent = '抱歉，该问题不在我的服务范围内。';
+                    answerBubble.classList.remove('hidden');
+                    answerBubble.classList.remove('typing-cursor');
+                    scrollToBottom();
+                    break;
+                  }
+                  if (comp && a2uiContainer) {
+                    a2uiContainer.classList.remove('hidden');
+                    try {
+                      A2UIRenderer.render(a2uiContainer, comp, {
+                        onAction: function(name, args) {
+                          if (name === 'query') {
+                            var query = typeof args === 'object' ? (args.queryMsg || '') : String(args);
+                            if (query) { $input.value = query; sendMessage(); }
+                          } else if (name === 'openLink') {
+                            var url = typeof args === 'object' ? (args.url || '') : String(args);
+                            if (url) window.open(url, '_blank', 'noopener');
+                          } else {
+                            console.log('[A2UI action]', name, args);
+                          }
                         }
-                      }
-                    });
-                  } catch (err) {
-                    console.error('[A2UI] render error:', err);
-                    var pre = document.createElement('pre');
-                    pre.className = 'a2ui-fallback';
-                    pre.textContent = JSON.stringify(comp, null, 2);
-                    a2uiContainer.appendChild(pre);
+                      });
+                    } catch (err) {
+                      console.error('[A2UI] render error:', err);
+                      var pre = document.createElement('pre');
+                      pre.className = 'a2ui-fallback';
+                      pre.textContent = JSON.stringify(comp, null, 2);
+                      a2uiContainer.appendChild(pre);
+                    }
+                    scrollToBottom();
                   }
+                } else {
+                  const turn = Number(d.turn) || 1;
+                  if (turn !== currentTurn) {
+                    if (currentTurn !== 0 && finalText.trim()) {
+                      hadThinkingContent = true;
+                      thinkCard.style.display = '';
+                      const prevBlock = document.createElement('div');
+                      prevBlock.className = 'turn-output';
+                      prevBlock.innerHTML = md(finalText);
+                      thinkContent.appendChild(prevBlock);
+                    }
+                    currentTurn = turn;
+                    finalText = '';
+                  }
+                  answerBubble.classList.remove('hidden');
+                  finalText += (typeof d.ui_data === 'string' ? d.ui_data : '');
+                  answerBubble.innerHTML = md(finalText);
                   scrollToBottom();
                 }
                 break;
               }
 
-              case 'response.completed': {
+              case 'run_finished': {
                 if (currentStepEl) {
                   currentStepEl.classList.remove('active');
                   currentStepEl.classList.add('done');
@@ -1331,24 +1324,20 @@
                   thinkCard.style.display = 'none';
                 }
                 answerBubble.classList.remove('typing-cursor');
-                if (event.usage) {
-                  const inp = event.usage.prompt_tokens || 0;
-                  const out = event.usage.completion_tokens || 0;
-                  metaEl.textContent = (event.turns || '-') + ' 轮 · ' + (inp + out) + ' tokens';
-                  metaEl.classList.remove('hidden');
-                }
-                if (event.session_id) {
-                  sessionId = event.session_id;
-                  sessionStorage.setItem('ark_session_id', sessionId);
+                // 兜底：answerBubble 仍为空时从 run_finished 取文案渲染
+                const finishedMsg = typeof d.ui_data === 'string' ? d.ui_data.trim() : '';
+                if (finishedMsg && !answerBubble.textContent.trim()) {
+                  answerBubble.classList.remove('hidden');
+                  answerBubble.innerHTML = md(finishedMsg);
                 }
                 $statusText.textContent = '';
                 scrollToBottom();
                 break;
               }
 
-              case 'response.failed': {
+              case 'run_error': {
                 thinkCard.style.display = 'none';
-                appendErrorMessage(event.error_message || '未知错误');
+                appendErrorMessage((typeof d.ui_data === 'string' ? d.ui_data : '') || '未知错误');
                 $statusText.textContent = '';
                 break;
               }
