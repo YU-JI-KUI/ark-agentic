@@ -122,6 +122,6 @@ def create_securities_agent(
         memory_manager=memory_manager,
         callbacks=RunnerCallbacks(
             before_agent=[_enrich_context],
-            before_complete=[_citation_hook],
+            before_loop_end=[_citation_hook],
         ),
     )

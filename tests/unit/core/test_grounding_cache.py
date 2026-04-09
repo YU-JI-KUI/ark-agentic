@@ -4,7 +4,7 @@
   - GroundingCache.put / get_recent / evict_expired：TTL 过期、多 session 隔离、同名工具合并
   - _recompute_result：重新计算 score/route
   - _fallback_match_ungrounded：历史补匹配
-  - create_citation_validation_hook：二阶段降级（当前轮无工具命中 → 历史缓存中找到 → warn 不 halt）
+  - create_citation_validation_hook：二阶段降级（当前轮无工具命中 → 历史缓存中找到 → warn 不 retry）
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 
 from ark_agentic.core.types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
-from ark_agentic.core.callbacks import CallbackContext
+from ark_agentic.core.callbacks import CallbackContext, HookAction
 from ark_agentic.core.utils.grounding_cache import FactSnapshot, GroundingCache
 from ark_agentic.core.validation import (
     ExtractedClaim,
@@ -166,7 +166,7 @@ def trie(csv_path: Path) -> EntityTrie:
 async def test_no_current_tool_fallback_to_history_downgrades_to_not_retry(
     trie: EntityTrie,
 ) -> None:
-    """当前轮无工具调用，但历史缓存含事实语料 → 二阶段后 score 升至 warn/safe，不 halt。"""
+    """当前轮无工具调用，但历史缓存含事实语料 → 二阶段后 score 升至 warn/safe，不 retry。"""
     from ark_agentic.core.utils import grounding_cache as _gc_module
 
     isolated_cache = GroundingCache()
@@ -182,7 +182,7 @@ async def test_no_current_tool_fallback_to_history_downgrades_to_not_retry(
         # answer 只含 150000，来自历史缓存
         response = AgentMessage.assistant(content="您的总资产为 150000 元")
         result = await cb(ctx, response=response)
-        assert result is None  # 历史补匹配后 score>=WARN，不 halt
+        assert result is None  # 历史补匹配后 score>=WARN，不 retry
 
 
 @pytest.mark.asyncio
@@ -204,7 +204,7 @@ async def test_phase2_does_not_trigger_when_phase1_passes() -> None:
 
 @pytest.mark.asyncio
 async def test_phase2_still_retries_when_history_also_misses() -> None:
-    """当前轮和历史缓存均无法 grounding → 仍 halt=True。"""
+    """当前轮和历史缓存均无法 grounding → 仍 action=RETRY。"""
     from ark_agentic.core.utils import grounding_cache as _gc_module
 
     isolated_cache = GroundingCache()
@@ -221,4 +221,4 @@ async def test_phase2_still_retries_when_history_also_misses() -> None:
         )
         result = await cb(ctx, response=response)
         assert result is not None
-        assert result.halt is True
+        assert result.action == HookAction.RETRY

@@ -12,7 +12,7 @@
 兼容：`validate_citations(CitedResponse, ...)` 仅读取 `.answer`，委托 `validate_answer_grounding`；`parse_cited_response` 供旧格式解析。
 
 框架级扩展：
-  - create_citation_validation_hook: BeforeCompleteCallback 工厂，
+  - create_citation_validation_hook: BeforeLoopEndCallback 工厂，
     从 session.messages 中最后一条 USER 之后的 TOOL 消息提取工具事实语料
 """
 
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from .callbacks import BeforeCompleteCallback, CallbackContext, CallbackResult
+    from .callbacks import BeforeLoopEndCallback, CallbackContext, CallbackResult
     from .types import AgentMessage
 
 # 向后兼容 re-export：外部 import 路径保持 from ark_agentic.core.validation import ...
@@ -480,8 +480,8 @@ def create_citation_validation_hook(
     *,
     extractors: "list[ClaimExtractor] | None" = None,
     context_turns: int = 3,
-) -> "BeforeCompleteCallback":
-    """工厂：返回 BeforeCompleteCallback，在最终回答落地前做后置 grounding 校验。
+) -> "BeforeLoopEndCallback":
+    """工厂：返回 BeforeLoopEndCallback，在最终回答落地前做后置 grounding 校验。
 
     事实语料中的工具侧数据从 ``session.messages`` 中最后一条 USER 之后的 TOOL 消息提取，
     无需 Runner 额外注入或 agent 侧枚举 state key。
@@ -494,7 +494,7 @@ def create_citation_validation_hook(
         context_turns: 参与校验的最近用户消息轮数
 
     Returns:
-        BeforeCompleteCallback — 注入 RunnerCallbacks.before_complete
+        BeforeLoopEndCallback — 注入 RunnerCallbacks.before_loop_end
     """
     from .utils.grounding_cache import FactSnapshot, _CACHE as _grounding_cache
 
@@ -575,8 +575,9 @@ def create_citation_validation_hook(
             feedback = "[回答事实出现偏差，请检查回答内容与工具信息是否一致]\n" + "\n".join(
                 error_lines
             )
+            from .callbacks import HookAction
             return CallbackResult(
-                halt=True,
+                action=HookAction.RETRY,
                 response=_AgentMessage.user(content=feedback),
             )
 

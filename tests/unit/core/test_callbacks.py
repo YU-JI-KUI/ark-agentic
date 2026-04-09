@@ -6,6 +6,7 @@ from ark_agentic.core.callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
+    HookAction,
     RunnerCallbacks,
 )
 from ark_agentic.core.types import SessionEntry
@@ -35,7 +36,7 @@ def test_runner_callbacks_default_lists() -> None:
 
 def test_callback_result_defaults() -> None:
     r = CallbackResult()
-    assert r.halt is False
+    assert r.action == HookAction.PASS
     assert r.response is None
     assert r.tool_results is None
     assert r.context_updates is None

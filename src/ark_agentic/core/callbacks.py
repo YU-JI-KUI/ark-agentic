@@ -9,15 +9,20 @@
     before_model → after_model → before_tool → after_tool
 
   ReAct Loop 级 (仅在最终 response 轮触发，一次或多次):
-    before_complete
+    before_loop_end
 
 所有 hook 返回 CallbackResult | None。
-Callbacks produce, Runner applies.
+CallbackResult.action (HookAction enum) 声明回调的意图：
+  PASS     — 不干预，走默认流程
+  ABORT    — before_agent: 拒绝请求，退出 run
+  OVERRIDE — before_model / before_tool: 替换默认输出
+  RETRY    — before_loop_end: 注入反馈，让模型重试
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -25,6 +30,14 @@ if TYPE_CHECKING:
 
 
 # ============ Result Types ============
+
+
+class HookAction(str, Enum):
+    """回调声明的动作意图 — 由 runner 按 hook 上下文执行。"""
+    PASS = "pass"
+    ABORT = "abort"
+    OVERRIDE = "override"
+    RETRY = "retry"
 
 
 @dataclass
@@ -41,7 +54,7 @@ class CallbackResult:
     Callbacks produce this; the runner consumes and applies.
     None-valued fields = no change for that aspect.
     """
-    halt: bool = False
+    action: HookAction = HookAction.PASS
     response: "AgentMessage | None" = None
     tool_results: "list[AgentToolResult] | None" = None
     context_updates: dict[str, Any] | None = None
@@ -71,7 +84,7 @@ class CallbackContext:
 class BeforeAgentCallback(Protocol):
     """before_agent: fires once before the ReAct loop.
 
-    halt + response → reject request, return response as reply.
+    action=ABORT + response → reject request, return response as reply.
     context_updates → merge into input_context before loop entry.
     event → runner dispatches via handler.
     """
@@ -86,7 +99,7 @@ class AfterAgentCallback(Protocol):
 class BeforeModelCallback(Protocol):
     """before_model: fires before each LLM call.
 
-    halt + response → skip LLM call, use response as model output.
+    action=OVERRIDE + response → skip LLM call, use response as model output.
     Does NOT fire on LLMError turns.
     """
     async def __call__(self, ctx: CallbackContext, *, turn: int, messages: list[dict[str, Any]]) -> CallbackResult | None: ...
@@ -104,7 +117,7 @@ class AfterModelCallback(Protocol):
 class BeforeToolCallback(Protocol):
     """before_tool: fires before tool execution batch (once per turn).
 
-    halt + tool_results → skip tool execution, use these results.
+    action=OVERRIDE + tool_results → skip tool execution, use these results.
     """
     async def __call__(self, ctx: CallbackContext, *, turn: int, tool_calls: list["ToolCall"]) -> CallbackResult | None: ...
 
@@ -117,13 +130,13 @@ class AfterToolCallback(Protocol):
     async def __call__(self, ctx: CallbackContext, *, turn: int, results: list["AgentToolResult"]) -> CallbackResult | None: ...
 
 
-class BeforeCompleteCallback(Protocol):
-    """before_complete: fires when the model produces a final (non-tool-call) response,
+class BeforeLoopEndCallback(Protocol):
+    """before_loop_end: fires when the model produces a final (non-tool-call) response,
     just before _finalize_response is called.
 
-    halt=True + response=feedback_msg → inject feedback_msg into session as a user
+    action=RETRY + response=feedback_msg → inject feedback_msg into session as a user
     message and continue the ReAct loop, allowing the model to self-correct.
-    halt=False / None → proceed to _finalize_response normally.
+    action=PASS / None → proceed to _finalize_response normally.
     """
     async def __call__(self, ctx: CallbackContext, *, response: "AgentMessage") -> CallbackResult | None: ...
 
@@ -140,4 +153,4 @@ class RunnerCallbacks:
     after_model: list[AfterModelCallback] = field(default_factory=list)
     before_tool: list[BeforeToolCallback] = field(default_factory=list)
     after_tool: list[AfterToolCallback] = field(default_factory=list)
-    before_complete: list[BeforeCompleteCallback] = field(default_factory=list)
+    before_loop_end: list[BeforeLoopEndCallback] = field(default_factory=list)

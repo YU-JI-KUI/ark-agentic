@@ -1,4 +1,4 @@
-"""证券智能体 before_complete 事实校验回调 — 单元测试"""
+"""证券智能体 before_loop_end 事实校验回调 — 单元测试"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.callbacks import CallbackContext
+from ark_agentic.core.callbacks import CallbackContext, HookAction
 from ark_agentic.core.types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
 from ark_agentic.core.validation import EntityTrie, create_citation_validation_hook
 
@@ -84,7 +84,7 @@ async def test_ungrounded_answer_requests_retry(
 
     result = await cb(ctx, response=response)
     assert result is not None
-    assert result.halt is True
+    assert result.action == HookAction.RETRY
     assert result.response is not None
     assert result.response.role.value == "user"
     assert "回答事实出现偏差" in (result.response.content or "")
@@ -92,11 +92,11 @@ async def test_ungrounded_answer_requests_retry(
 
 
 @pytest.mark.asyncio
-async def test_second_before_complete_skips_validation_after_reflect(
+async def test_second_before_loop_end_skips_validation_after_reflect(
     trie: EntityTrie,
     mock_session: SessionEntry,
 ) -> None:
-    """每用户轮仅允许一次校验反思；第二次 before_complete 不再跑 grounding。"""
+    """每用户轮仅允许一次校验反思；第二次 before_loop_end 不再跑 grounding。"""
     mock_session.add_message(AgentMessage.user("看看平安银行"))
     _inject_tool_turn(mock_session, "call_sd1", "security_detail", {"stock_name": "平安银行", "market_value": 150000})
     cb = create_citation_validation_hook(entity_trie=trie)
@@ -109,7 +109,7 @@ async def test_second_before_complete_skips_validation_after_reflect(
         content="招商银行市值 200000 元，截至 2026-04-01 收益 300000 元"
     )
     first = await cb(ctx, response=bad)
-    assert first is not None and first.halt
+    assert first is not None and first.action == HookAction.RETRY
     assert mock_session.state.get("temp:grounding_reflect_used") is True
 
     still_bad = AgentMessage.assistant(
@@ -120,9 +120,9 @@ async def test_second_before_complete_skips_validation_after_reflect(
 
 
 @pytest.mark.asyncio
-async def test_warn_route_does_not_halt(mock_session: SessionEntry) -> None:
+async def test_warn_route_does_not_retry(mock_session: SessionEntry) -> None:
     mock_session.add_message(AgentMessage.user("看看账户"))
-    # 工具含 150000/300000，仅 999999 无依据 → 加权分落在 warn 区间，不 halt
+    # 工具含 150000/300000，仅 999999 无依据 → 加权分落在 warn 区间，不 retry
     _inject_tool_turn(
         mock_session,
         "c1",

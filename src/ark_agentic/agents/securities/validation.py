@@ -3,7 +3,7 @@
 提供 VALIDATION_SYSTEM_INSTRUCTION（注入 system prompt，约束回答仅基于工具与上下文）。
 
 事实校验由 core 框架完成：Runner 累积本轮工具返回至 ``temp:grounding_tool_outputs_by_name``，
-create_citation_validation_hook 在 before_complete 做后置 grounding（无需枚举业务 state key）。
+create_citation_validation_hook 在 before_loop_end 做后置 grounding（无需枚举业务 state key）。
 """
 
 from __future__ import annotations

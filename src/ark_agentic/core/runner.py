@@ -19,6 +19,7 @@ from .callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
+    HookAction,
     RunnerCallbacks,
 )
 from .llm.caller import LLMCaller
@@ -339,7 +340,7 @@ class AgentRunner:
             context=input_context,
             handler=handler,
         )
-        if r and r.halt:
+        if r and r.action == HookAction.ABORT:
             self._merge_input_context(session, input_context)
             user_message = AgentMessage.user(user_input, metadata=input_context)
             self.session_manager.add_message_sync(session_id, user_message)
@@ -494,7 +495,7 @@ class AgentRunner:
     ) -> CallbackResult | None:
         """Run hooks in order. Apply context_updates/event for each non-None result.
 
-        Returns first result with halt=True (remaining hooks skipped),
+        Returns first result with action != PASS (remaining hooks skipped),
         or last non-None result, or None.
         """
         if not hooks or cb_ctx is None:
@@ -509,7 +510,7 @@ class AgentRunner:
             if r.event and handler:
                 self._dispatch_event(handler, r.event)
             last = r
-            if r.halt:
+            if r.action != HookAction.PASS:
                 return r
         return last
 
@@ -574,28 +575,13 @@ class AgentRunner:
                     return stop
                 continue
 
-            bc = await self._run_hooks(
-                self._callbacks.before_complete,
-                cb_ctx,
-                response=response,
-                handler=handler,
+            result = await self._complete_phase(
+                session_id, ls, response, state,
+                handler=handler, cb_ctx=cb_ctx,
             )
-            # halt → 注入 response 并重入 loop；若需「每轮只反思一次」由回调自行约束（如 temp:grounding_reflect_used）
-            if bc and bc.halt:
-                logger.warning(
-                    "[before_complete] halt retry turns=%s",
-                    ls.turns,
-                )
-                if bc.response:
-                    self.session_manager.add_message_sync(session_id, bc.response)
+            if result is None:
                 continue
-
-            return await self._finalize_response(
-                ls,
-                response,
-                session_id=session_id,
-                handler=handler,
-            )
+            return result
 
         logger.warning(
             "[RUN_LIMIT] session=%s max_turns=%d", session_id[:8], self.config.max_turns
@@ -608,6 +594,32 @@ class AgentRunner:
         return ls.make_result(last_assistant, stopped_by_limit=True)
 
     # ---- Phase methods (SRP: each handles one phase of a ReAct turn) ----
+
+    async def _complete_phase(
+        self,
+        session_id: str,
+        ls: _LoopState,
+        response: AgentMessage,
+        state: dict[str, Any],
+        *,
+        handler: AgentEventHandler | None,
+        cb_ctx: CallbackContext | None,
+    ) -> RunResult | None:
+        """before_loop_end → finalize.  Returns None on RETRY."""
+        bc = await self._run_hooks(
+            self._callbacks.before_loop_end,
+            cb_ctx,
+            response=response,
+            handler=handler,
+        )
+        if bc and bc.action == HookAction.RETRY:
+            logger.info("[before_loop_end] retry turns=%s", ls.turns)
+            if bc.response:
+                self.session_manager.add_message_sync(session_id, bc.response)
+            return None
+        return await self._finalize_response(
+            ls, response, session_id=session_id, handler=handler,
+        )
 
     async def _model_phase(
         self,
@@ -632,7 +644,7 @@ class AgentRunner:
             context=state,
             handler=handler,
         )
-        if bm and bm.halt and bm.response:
+        if bm and bm.action == HookAction.OVERRIDE and bm.response:
             response = bm.response
         else:
             turn = ls.turns
@@ -750,7 +762,7 @@ class AgentRunner:
             context=state,
             handler=handler,
         )
-        if bt and bt.halt and bt.tool_results is not None:
+        if bt and bt.action == HookAction.OVERRIDE and bt.tool_results is not None:
             tool_results = bt.tool_results
         else:
             tool_results = await self._tool_executor.execute(
