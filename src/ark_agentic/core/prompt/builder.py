@@ -35,14 +35,20 @@ class PromptConfig:
     include_model_info: bool = False
     model_name: str = ""
 
+    # 全局协议（identity/runtime 之后、user_profile 之前注入）
+    system_protocol: str = ""
+
     # 自定义指令
     custom_instructions: str = ""
 
     # 工具描述
-    include_tool_descriptions: bool = True
+    include_tool_descriptions: bool = False
 
     # <think>/<final> 标签指引（非空时注入到 system prompt）
     thinking_tag_instructions: str = ""
+
+
+_UNWRAPPED_SECTIONS = frozenset({"identity"})
 
 
 
@@ -81,7 +87,7 @@ class SystemPromptBuilder:
         agent_name = name or self.config.agent_name
         agent_desc = description or self.config.agent_description
 
-        content = f"You are {agent_name}. {agent_desc}"
+        content = f"你是{agent_name}. {agent_desc}"
         self._sections.append(("identity", content))
         return self
 
@@ -103,7 +109,7 @@ class SystemPromptBuilder:
 
         if parts:
             content = "\n".join(parts)
-            self._sections.append(("runtime", f"## Runtime Information\n\n{content}"))
+            self._sections.append(("runtime", content))
 
         return self
 
@@ -111,15 +117,14 @@ class SystemPromptBuilder:
         """添加用户画像（MEMORY.md 内容），以指令形式注入"""
         if content.strip():
             section = (
-                "## 用户画像\n\n"
-                "以下是该用户的持久化偏好，你必须在每次回复和工具调用中主动遵守：\n\n"
-                "**应用规则**：\n"
-                "- 调用工具前，检查是否有相关偏好约束，据此过滤参数或排除选项\n"
-                "- 展示方案/结果时，排除用户已明确拒绝的类型\n"
-                "- 回复措辞匹配用户的风格偏好\n\n"
+                "以下是该用户的持久化记忆。每次回复和工具调用时主动遵守。\n\n"
+                "**读取**：调用工具前检查偏好约束；展示结果时排除用户拒绝的选项；措辞匹配风格偏好。\n\n"
+                "**写入**（memory_write，先写后回复）：\n"
+                "保存 → 偏好表达、身份信息、纠正/批评、持久决策、用户要求记住的\n"
+                "不保存 → 临时查询、已存在的信息、寒暄、可从上下文推导的事实\n\n"
                 + content.strip()
             )
-            self._sections.append(("user_profile", section))
+            self._sections.append(("memory", section))
         return self
 
     def add_tools(
@@ -144,7 +149,7 @@ class SystemPromptBuilder:
                 desc += f" [参数: {', '.join(params)}]"
             tool_descriptions.append(desc)
 
-        content = "## Available Tools\n\n" + "\n".join(tool_descriptions)
+        content = "\n".join(tool_descriptions)
         content += "\n\nUse these tools when appropriate to help the user."
 
         self._sections.append(("tools", content))
@@ -165,7 +170,7 @@ class SystemPromptBuilder:
         """添加自定义指令"""
         custom = instructions or self.config.custom_instructions
         if custom.strip():
-            self._sections.append(("custom", f"## Instructions\n\n{custom}"))
+            self._sections.append(("instructions", custom))
         return self
 
     def add_context(self, context: dict[str, Any]) -> SystemPromptBuilder:
@@ -191,31 +196,26 @@ class SystemPromptBuilder:
                 parts.append(f"**{key}**: {value}")
 
         if parts:
-            content = "## Context\n\n" + "\n\n".join(parts)
+            content = "\n\n".join(parts)
             self._sections.append(("context", content))
 
-        return self
-
-    def add_memory_instructions(self) -> SystemPromptBuilder:
-        """添加 Memory 使用指令
-
-        当 Agent 配置了 memory_search/memory_get 工具时调用。
-        指导 LLM 在回答历史相关问题前先搜索 memory。
-        """
-        self._sections.append(("memory", MEMORY_INSTRUCTIONS.strip()))
         return self
 
     def build(self) -> str:
         """构建最终的系统提示"""
         if not self._sections:
-            # 默认构建
             self.add_identity()
             self.add_runtime_info()
             if self.config.custom_instructions:
                 self.add_custom_instructions()
 
-        parts = [content for _, content in self._sections]
-        return "\n\n---\n\n".join(parts)
+        parts: list[str] = []
+        for name, content in self._sections:
+            if name in _UNWRAPPED_SECTIONS:
+                parts.append(content)
+            else:
+                parts.append(f"<{name}>\n{content}\n</{name}>")
+        return "\n\n".join(parts)
 
     @classmethod
     def quick_build(
@@ -225,7 +225,6 @@ class SystemPromptBuilder:
         context: dict[str, Any] | None = None,
         config: PromptConfig | None = None,
         include_tool_params: bool = False,
-        include_memory_instructions: bool = False,
         user_profile_content: str = "",
         skill_config: SkillConfig | None = None,
     ) -> str:
@@ -237,7 +236,6 @@ class SystemPromptBuilder:
             context: 上下文信息
             config: 提示配置（含 custom_instructions 等）
             include_tool_params: 是否在工具描述中包含参数信息
-            include_memory_instructions: 是否包含 memory 使用指令
             user_profile_content: 全局用户画像 (USER.md) 内容
             skill_config: 技能渲染配置（group 阈值、预算控制等）
         """
@@ -246,10 +244,11 @@ class SystemPromptBuilder:
         builder.add_identity()
         builder.add_runtime_info()
 
+        if effective_config.system_protocol:
+            builder.add_section("system_protocol", effective_config.system_protocol)
+
         if user_profile_content:
             builder.add_user_profile(user_profile_content)
-        if include_memory_instructions:
-            builder.add_memory_instructions()
         if tools:
             builder.add_tools(tools, include_params=include_tool_params)
         if skills:
@@ -259,66 +258,7 @@ class SystemPromptBuilder:
         if effective_config.thinking_tag_instructions:
             builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
         builder.add_custom_instructions()
-        if include_memory_instructions:
-            builder.add_section("memory_reminder", _MEMORY_REMINDER)
 
         return builder.build()
 
 
-# ============ Memory 提示模板 ============
-
-MEMORY_INSTRUCTIONS = """
-## 记忆系统
-
-你拥有跨对话的长期记忆（MEMORY.md），已注入到你的上下文中。通过 memory_write 更新记忆。
-
-### 保存规则（最高优先级）
-
-**每轮回复前，必须判断用户消息是否满足以下任一条件；满足则先调用 memory_write，再回复：**
-1. 用户表达了偏好、身份或联系方式（无论直接还是间接）
-2. 用户对你的行为提出批评或要求调整——批评 = 偏好的反面表达
-3. 用户做出了持久决策或约束条件
-4. 用户主动要求你记住某事
-
-### 不记录（显式排除）
-- 当前对话中的临时查询（「今天大盘怎么样」）
-- 公开市场数据（不属于用户记忆）
-- 你已经记住的信息（先检查上下文中的 MEMORY.md 内容，无变化则不写）
-- 寒暄、问候、闲聊
-
-**示例：**
-- "好啰嗦，简洁点" → 批评 = 偏好（要简洁）→ memory_write
-- "我是张经理，在平安工作" → 身份信息 → memory_write
-- "以后贷款渠道都不要" → 持久决策 → memory_write
-- "查一下我的保单" → 一次性查询 → 不保存
-
-### 增量更新规则
-memory_write 是**增量更新**——只需写你要新增、修改或删除的标题，其他标题不受影响。
-- 新增/修改：写入 `## 标题\\n内容`，同名标题自动覆盖
-- 删除错误标题：写入 `## 错误标题\\n`（空内容），该标题会被自动移除
-- 无关标题无需重复写入，它们会原样保留
-
-**纠错示例：**
-之前误写为 `## 贷款偏好`，应纠正为取款偏好：
-`memory_write("## 贷款偏好\\n\\n## 取款偏好\\n不显示贷款方案")`
-→ 贷款偏好（空内容）自动删除，取款偏好正常写入。一次调用完成纠错。
-
-### 标题规范
-- 使用简短、通用的一级分类标题
-- 推荐：## 身份信息、## 回复风格、## 业务偏好、## 风险偏好
-- 避免过于具体的标题（如 ## 2026年3月保单贷款策略 → 应归入 ## 业务偏好）
-- 写入前先检查上下文中 MEMORY.md 已有的标题，优先复用已有标题
-
-### 格式
-内容使用 heading-based markdown：`## 标题\\n内容`
-
-### Dream 系统
-系统会周期性整理你的记忆——合并重复、移除过期、提取潜在需求。你不需要主动整理。
-"""
-
-
-_MEMORY_REMINDER = (
-    "记忆提醒：memory_write 是增量更新——只写变化的标题，其他标题自动保留。"
-    "删除错误标题：写空内容即可（如 ## 错误标题\\n）。"
-    "用户批评（如「太啰嗦」）= 偏好，必须先 memory_write 再回复。"
-)

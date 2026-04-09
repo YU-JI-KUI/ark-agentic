@@ -93,7 +93,7 @@ def upsert_profile_by_heading(file_path: Path, new_content: str) -> bool:
     return True
 
 
-def truncate_profile(content: str, max_tokens: int = 1000) -> str:
+def truncate_profile(content: str, max_tokens: int = 2000) -> str:
     """当预估 token 数超出 max_tokens 时截断。"""
     if not content:
         return content

@@ -42,9 +42,9 @@ class MemoryWriteTool(AgentTool):
     name = "memory_write"
     thinking_hint = "正在保存记忆…"
     description = (
-        "增量更新长期记忆。只需写你要新增、修改或删除的标题，其他标题不受影响。"
-        "同名标题自动覆盖。删除错误标题：写入空内容（如 '## 错误标题\\n'）即可自动移除。"
-        "写入前先检查上下文中 MEMORY.md 已有标题，避免创建语义重复的新标题。"
+        "[持久写入] 增量更新长期记忆。只写变化的标题，其他自动保留。"
+        "同名覆盖；空内容删除（如 '## 标题\\n'）。"
+        "写入前检查已有标题，优先复用。"
     )
     parameters = [
         ToolParameter(

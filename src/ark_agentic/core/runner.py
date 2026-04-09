@@ -865,8 +865,6 @@ class AgentRunner:
             )
             skills = match_result.matched_skills
 
-        include_memory = self._memory_manager is not None
-
         prompt_config = self.config.prompt_config
 
         # 当 enable_thinking_tags=True 且 prompt_config 未自定义指令时，自动填充默认模板
@@ -881,7 +879,7 @@ class AgentRunner:
         user_state = {k: v for k, v in state.items() if k.startswith("user:")}
 
         profile_content = ""
-        if include_memory and self._memory_manager:
+        if self._memory_manager:
             user_id = state.get("user:id")
             if user_id:
                 from .memory.user_profile import truncate_profile
@@ -897,7 +895,6 @@ class AgentRunner:
             skills=skills,
             context=user_state,
             config=prompt_config,
-            include_memory_instructions=include_memory,
             user_profile_content=profile_content,
             skill_config=self.config.skill_config,
         )

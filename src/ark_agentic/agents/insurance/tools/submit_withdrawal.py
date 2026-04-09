@@ -118,7 +118,8 @@ def _build_stop_message(
 class SubmitWithdrawalTool(AgentTool):
     name = "submit_withdrawal"
     description = (
-        "用户明确确认办理取款操作后调用。提交取款请求并触发业务流程。"
+        "[STOP] 用户明确确认办理取款操作后调用。"
+        "调用后不可再发言，所有文字通过 text 参数传递。"
         "只需传 operation_type，保单和金额自动从方案数据中获取。"
     )
     thinking_hint = "正在提交办理请求…"

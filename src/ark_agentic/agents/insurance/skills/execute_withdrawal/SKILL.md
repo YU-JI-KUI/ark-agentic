@@ -132,13 +132,6 @@ digest: 方案: 保单贷款 | channels: ["policy_loan"] | 总额: ¥20,000.00
   → submit_withdrawal(operation_type="loan", text="正在帮您办理保单贷款")
 ```
 
-### 例 4：按钮触发（结构化消息）
-
-```
-用户: "办理生存金领取，POL001，12000.00"
-助手（按钮已含渠道，直接 STEP 2，不输出文字）:
-  → submit_withdrawal(operation_type="shengcunjin", text="正在帮您办理生存金领取")
-```
 
 ## 反例（禁止）
 

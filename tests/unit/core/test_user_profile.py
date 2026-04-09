@@ -187,7 +187,8 @@ class TestBuilderUserProfile:
         builder = SystemPromptBuilder()
         builder.add_user_profile("## 偏好\n中文回复\n## 技术水平\n专家")
         prompt = builder.build()
-        assert "用户画像" in prompt
+        assert "<memory>" in prompt
+        assert "</memory>" in prompt
         assert "中文回复" in prompt
         assert "专家" in prompt
 
@@ -200,26 +201,24 @@ class TestBuilderUserProfile:
         prompt = SystemPromptBuilder.quick_build(
             user_profile_content="## 时区\nAsia/Shanghai"
         )
-        assert "用户画像" in prompt
+        assert "<memory>" in prompt
         assert "Asia/Shanghai" in prompt
 
     def test_quick_build_without_profile(self) -> None:
         prompt = SystemPromptBuilder.quick_build()
-        assert "用户画像" not in prompt
+        assert "<memory>" not in prompt
 
     def test_profile_section_order(self) -> None:
         builder = SystemPromptBuilder()
         builder.add_identity(name="Bot")
         builder.add_runtime_info()
         builder.add_user_profile("## 画像\ncontent")
-        builder.add_tools([])
-        builder.add_memory_instructions()
-        prompt = builder.build()
+        builder.build()
 
         sections = [name for name, _ in builder._sections]
-        profile_idx = sections.index("user_profile")
+        memory_idx = sections.index("memory")
         identity_idx = sections.index("identity")
-        assert profile_idx > identity_idx
+        assert memory_idx > identity_idx
 
         runtime_idx = sections.index("runtime")
-        assert profile_idx > runtime_idx
+        assert memory_idx > runtime_idx

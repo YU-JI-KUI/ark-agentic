@@ -311,7 +311,7 @@ def build_skill_prompt(skills: list[SkillEntry]) -> str:
     if not skills:
         return ""
 
-    sections = ["## Available Skills\n"]
+    sections: list[str] = []
 
     for skill in skills:
         sections.append(
