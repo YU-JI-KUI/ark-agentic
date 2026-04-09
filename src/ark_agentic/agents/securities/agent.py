@@ -27,9 +27,10 @@ from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
 
-from .tools import create_securities_tools
+from ark_agentic.core.validation import EntityTrie, create_citation_validation_hook
 
-logger = logging.getLogger(__name__)
+from .tools import create_securities_tools
+from .validation import VALIDATION_SYSTEM_INSTRUCTION
 
 _SKILLS_DIR = Path(__file__).parent / "skills"
 
@@ -55,6 +56,12 @@ def create_securities_agent(
     memory_dir: Path | None = None
     if enable_memory:
         memory_dir = get_memory_base_dir() / "securities"
+
+    _STOCKS_CSV = Path(__file__).parent / "mock_data" / "stocks" / "a_shares_seed.csv"
+
+    _trie = EntityTrie()
+    _trie.load_from_csv(_STOCKS_CSV)
+    _citation_hook = create_citation_validation_hook(entity_trie=_trie)
 
     tool_registry = ToolRegistry()
     for tool in create_securities_tools():
@@ -90,6 +97,7 @@ def create_securities_agent(
         prompt_config=PromptConfig(
             agent_name="证券资产管理助手",
             agent_description="专业的证券资产查询与分析助手",
+            custom_instructions=VALIDATION_SYSTEM_INSTRUCTION,
         ),
         skill_config=skill_config,
     )
@@ -114,5 +122,6 @@ def create_securities_agent(
         memory_manager=memory_manager,
         callbacks=RunnerCallbacks(
             before_agent=[_enrich_context],
+            before_complete=[_citation_hook],
         ),
     )

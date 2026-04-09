@@ -44,8 +44,6 @@ from .types import (
     ToolLoopAction,
     ToolResultType,
 )
-from .validation import validate_response_against_tools
-
 if TYPE_CHECKING:
     from .memory.manager import MemoryManager
 
@@ -74,9 +72,6 @@ class RunnerConfig:
 
     # 自动压缩
     auto_compact: bool = True
-
-    # 输出验证（检查 LLM 输出数值与工具结果的一致性）
-    enable_output_validation: bool = True
 
     # 提示配置
     prompt_config: PromptConfig = field(default_factory=PromptConfig)
@@ -121,6 +116,7 @@ class RunResult:
 
 class _RunParams(NamedTuple):
     """Resolved per-run parameters (pure computation result)."""
+
     model: str | None
     temperature: float
     skill_load_mode: str
@@ -189,7 +185,8 @@ class AgentRunner:
 
         # LLMCaller / ToolExecutor (SRP)
         self._llm_caller = LLMCaller(
-            llm, enable_thinking_tags=self.config.enable_thinking_tags,
+            llm,
+            enable_thinking_tags=self.config.enable_thinking_tags,
         )
         self._tool_executor = ToolExecutor(
             self.tool_registry,
@@ -200,6 +197,7 @@ class AgentRunner:
         if memory_manager is not None:
             from .memory.dream import MemoryDreamer
             from .memory.extractor import MemoryFlusher
+
             self._flusher = MemoryFlusher(self._llm_caller.get_llm)
             self._dreamer = MemoryDreamer(self._llm_caller.get_llm)
             memory_tools = create_memory_tools(self._get_memory_for_user)
@@ -210,6 +208,7 @@ class AgentRunner:
         if skill_loader is not None:
             if self.config.skill_config.load_mode != SkillLoadMode.full:
                 from .tools.read_skill import ReadSkillTool
+
                 self.tool_registry.register(ReadSkillTool(skill_loader))
                 logger.info("Registered read_skill tool for dynamic skill loading")
 
@@ -258,8 +257,13 @@ class AgentRunner:
         params = self._resolve_run_params(run_options)
 
         prepared = await self._prepare_session(
-            session_id, user_id, user_input, input_context,
-            handler=handler, history=history, use_history=use_history,
+            session_id,
+            user_id,
+            user_input,
+            input_context,
+            handler=handler,
+            history=history,
+            use_history=use_history,
         )
         if isinstance(prepared, RunResult):
             return prepared
@@ -272,7 +276,8 @@ class AgentRunner:
                 model_override=params.model,
                 temperature_override=params.temperature,
                 skill_load_mode=params.skill_load_mode,
-                handler=handler, cb_ctx=cb_ctx,
+                handler=handler,
+                cb_ctx=cb_ctx,
             )
         finally:
             await self.session_manager.sync_pending_messages(session_id, user_id)
@@ -324,11 +329,15 @@ class AgentRunner:
         Returns RunResult on halt (early exit), CallbackContext on success.
         """
         session = self.session_manager.get_session_required(session_id)
-        cb_ctx = CallbackContext(user_input=user_input, input_context=input_context, session=session)
+        cb_ctx = CallbackContext(
+            user_input=user_input, input_context=input_context, session=session
+        )
 
         r = await self._run_hooks(
-            self._callbacks.before_agent, cb_ctx,
-            context=input_context, handler=handler,
+            self._callbacks.before_agent,
+            cb_ctx,
+            context=input_context,
+            handler=handler,
         )
         if r and r.halt:
             self._merge_input_context(session, input_context)
@@ -344,6 +353,7 @@ class AgentRunner:
 
         if history and self.config.accept_external_history and use_history:
             from .history_merge import merge_external_history
+
             ops = merge_external_history(session.messages, history)
             if ops:
                 self.session_manager.inject_messages(session_id, ops)
@@ -355,14 +365,22 @@ class AgentRunner:
         if self.config.auto_compact:
             flush_cb = (
                 self._flusher.make_pre_compact_callback(
-                    user_id, self.config.prompt_config, self._memory_manager,
+                    user_id,
+                    self.config.prompt_config,
+                    self._memory_manager,
                 )
                 if self._flusher and self._memory_manager
                 else None
             )
             await self.session_manager.auto_compact_if_needed(
-                session_id, user_id, pre_compact_callback=flush_cb,
+                session_id,
+                user_id,
+                pre_compact_callback=flush_cb,
             )
+
+        # 供工具在执行时通过 session.state["temp:user_input"] 访问当前用户输入；
+        # strip_temp_state() 在 _finalize_run 中自动清理。
+        session.state["temp:user_input"] = user_input
 
         return cb_ctx
 
@@ -374,12 +392,17 @@ class AgentRunner:
         cb_ctx: CallbackContext,
         handler: AgentEventHandler | None,
     ) -> None:
-        """after_agent hooks + session state cleanup + dream trigger."""
-        await self._run_hooks(
-            self._callbacks.after_agent, cb_ctx,
+        """after_agent hooks + session state cleanup."""
+        cb_result = await self._run_hooks(
+            self._callbacks.after_agent,
+            cb_ctx,
             response=result.response,
-            context=cb_ctx.input_context, handler=handler,
+            context=cb_ctx.input_context,
+            handler=handler,
         )
+        # 支持 after_agent 回调替换最终 response
+        if cb_result and cb_result.response is not None:
+            result.response = cb_result.response
         cb_ctx.session.strip_temp_state()
         await self.session_manager.sync_session_state(session_id, user_id)
 
@@ -423,7 +446,9 @@ class AgentRunner:
             logger.warning("Dream failed for user %s", user_id, exc_info=True)
 
     @staticmethod
-    def _merge_input_context(session: SessionEntry, input_context: dict[str, Any]) -> None:
+    def _merge_input_context(
+        session: SessionEntry, input_context: dict[str, Any]
+    ) -> None:
         """将 input_context 合并到 session.state，所有键始终覆盖已有值。"""
         for k, v in input_context.items():
             session.state[k] = v
@@ -507,19 +532,29 @@ class AgentRunner:
         while ls.turns < self.config.max_turns:
             ls.turns += 1
             state = session.state
-            messages = self._build_messages(session_id, state, skill_load_mode=skill_load_mode)
+            messages = self._build_messages(
+                session_id, state, skill_load_mode=skill_load_mode
+            )
             tools = self._build_tools()
             logger.info(
                 "Turn %d | messages=%d tools=%d model=%s",
-                ls.turns, len(messages), len(tools), model_override or self.config.model,
+                ls.turns,
+                len(messages),
+                len(tools),
+                model_override or self.config.model,
             )
 
             model_result = await self._model_phase(
-                session_id, ls, messages, tools, state,
+                session_id,
+                ls,
+                messages,
+                tools,
+                state,
                 use_streaming=use_streaming,
                 model_override=model_override,
                 temperature_override=temperature_override,
-                handler=handler, cb_ctx=cb_ctx,
+                handler=handler,
+                cb_ctx=cb_ctx,
             )
             if isinstance(model_result, RunResult):
                 return model_result
@@ -527,18 +562,44 @@ class AgentRunner:
             response = model_result
             if response.tool_calls:
                 stop = await self._tool_phase(
-                    session_id, ls, response, session, state,
-                    handler=handler, cb_ctx=cb_ctx,
+                    session_id,
+                    ls,
+                    response,
+                    session,
+                    state,
+                    handler=handler,
+                    cb_ctx=cb_ctx,
                 )
                 if stop is not None:
                     return stop
                 continue
 
-            return self._finalize_response(
-                ls, response, session_id=session_id, handler=handler,
+            bc = await self._run_hooks(
+                self._callbacks.before_complete,
+                cb_ctx,
+                response=response,
+                handler=handler,
+            )
+            # halt → 注入 response 并重入 loop；若需「每轮只反思一次」由回调自行约束（如 temp:grounding_reflect_used）
+            if bc and bc.halt:
+                logger.warning(
+                    "[before_complete] halt retry turns=%s",
+                    ls.turns,
+                )
+                if bc.response:
+                    self.session_manager.add_message_sync(session_id, bc.response)
+                continue
+
+            return await self._finalize_response(
+                ls,
+                response,
+                session_id=session_id,
+                handler=handler,
             )
 
-        logger.warning("[RUN_LIMIT] session=%s max_turns=%d", session_id[:8], self.config.max_turns)
+        logger.warning(
+            "[RUN_LIMIT] session=%s max_turns=%d", session_id[:8], self.config.max_turns
+        )
         session = self.session_manager.get_session_required(session_id)
         last_assistant = next(
             (m for m in reversed(session.messages) if m.role == MessageRole.ASSISTANT),
@@ -564,9 +625,12 @@ class AgentRunner:
     ) -> AgentMessage | RunResult:
         """before_model → LLM call → after_model → persist → tokens → finish_reason."""
         bm = await self._run_hooks(
-            self._callbacks.before_model, cb_ctx,
-            turn=ls.turns, messages=messages,
-            context=state, handler=handler,
+            self._callbacks.before_model,
+            cb_ctx,
+            turn=ls.turns,
+            messages=messages,
+            context=state,
+            handler=handler,
         )
         if bm and bm.halt and bm.response:
             response = bm.response
@@ -584,7 +648,8 @@ class AgentRunner:
             try:
                 if use_streaming:
                     response = await self._llm_caller.call_streaming(
-                        messages, tools,
+                        messages,
+                        tools,
                         model_override=model_override,
                         temperature_override=temperature_override,
                         content_callback=_on_content,
@@ -592,12 +657,18 @@ class AgentRunner:
                     )
                 else:
                     response = await self._llm_caller.call(
-                        messages, tools,
+                        messages,
+                        tools,
                         model_override=model_override,
                         temperature_override=temperature_override,
                     )
             except LLMError as e:
-                logger.error("[LLM_ERROR] turn=%d reason=%s retryable=%s", ls.turns, e.reason.value, e.retryable)
+                logger.error(
+                    "[LLM_ERROR] turn=%d reason=%s retryable=%s",
+                    ls.turns,
+                    e.reason.value,
+                    e.retryable,
+                )
                 user_message = self._get_user_friendly_error_message(e)
                 error_response = AgentMessage.assistant(content=user_message)
                 error_response.metadata["error"] = {
@@ -611,9 +682,12 @@ class AgentRunner:
                 return ls.make_result(error_response, stopped_by_limit=False)
 
         am = await self._run_hooks(
-            self._callbacks.after_model, cb_ctx,
-            turn=ls.turns, response=response,
-            context=state, handler=handler,
+            self._callbacks.after_model,
+            cb_ctx,
+            turn=ls.turns,
+            response=response,
+            context=state,
+            handler=handler,
         )
         if am and am.response:
             response = am.response
@@ -626,12 +700,18 @@ class AgentRunner:
         finish_reason = response.metadata.get("finish_reason")
         logger.info(
             "Turn %d | finish_reason=%s content_len=%d tool_calls=%d tokens=+%d/%d",
-            ls.turns, finish_reason, len(response.content or ""),
-            len(response.tool_calls or []), turn_prompt, turn_completion,
+            ls.turns,
+            finish_reason,
+            len(response.content or ""),
+            len(response.tool_calls or []),
+            turn_prompt,
+            turn_completion,
         )
 
         self.session_manager.update_token_usage(
-            session_id, prompt_tokens=turn_prompt, completion_tokens=turn_completion,
+            session_id,
+            prompt_tokens=turn_prompt,
+            completion_tokens=turn_completion,
         )
         self.session_manager.add_message_sync(session_id, response)
 
@@ -656,21 +736,27 @@ class AgentRunner:
         tool_calls = response.tool_calls or []
         logger.info(
             "[TOOLS] turn=%d count=%d names=%s",
-            ls.turns, len(tool_calls),
+            ls.turns,
+            len(tool_calls),
             [tc.name for tc in tool_calls],
         )
         ls.all_tool_calls.extend(tool_calls)
 
         bt = await self._run_hooks(
-            self._callbacks.before_tool, cb_ctx,
-            turn=ls.turns, tool_calls=tool_calls,
-            context=state, handler=handler,
+            self._callbacks.before_tool,
+            cb_ctx,
+            turn=ls.turns,
+            tool_calls=tool_calls,
+            context=state,
+            handler=handler,
         )
         if bt and bt.halt and bt.tool_results is not None:
             tool_results = bt.tool_results
         else:
             tool_results = await self._tool_executor.execute(
-                tool_calls, {**state, "session_id": session_id}, handler=handler,
+                tool_calls,
+                {**state, "session_id": session_id},
+                handler=handler,
             )
 
         ls.total_tool_calls += len(tool_calls)
@@ -682,9 +768,12 @@ class AgentRunner:
                 session.update_state(state_delta)
 
         at = await self._run_hooks(
-            self._callbacks.after_tool, cb_ctx,
-            turn=ls.turns, results=tool_results,
-            context=state, handler=handler,
+            self._callbacks.after_tool,
+            cb_ctx,
+            turn=ls.turns,
+            results=tool_results,
+            context=state,
+            handler=handler,
         )
         if at and at.tool_results is not None:
             tool_results = at.tool_results
@@ -692,17 +781,20 @@ class AgentRunner:
         tool_message = AgentMessage.tool(tool_results)
         self.session_manager.add_message_sync(session_id, tool_message)
 
-        stop_results = [tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP]
+        stop_results = [
+            tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP
+        ]
         if stop_results:
             stop_content_parts = [
-                str(tr.content) for tr in stop_results
-                if tr.content and not tr.is_error
+                str(tr.content) for tr in stop_results if tr.content and not tr.is_error
             ]
             stop_content = "\n".join(stop_content_parts)
             if stop_content and handler:
                 handler.on_content_delta(stop_content, ls.turns)
             if not stop_content and not any(tr.events for tr in stop_results):
-                logger.warning("[TOOL_STOP] tool signaled STOP but both content and events are empty")
+                logger.warning(
+                    "[TOOL_STOP] tool signaled STOP but both content and events are empty"
+                )
             stop_response = AgentMessage.assistant(content=stop_content or "")
             self.session_manager.add_message_sync(session_id, stop_response)
             return ls.make_result(stop_response)
@@ -715,7 +807,7 @@ class AgentRunner:
 
         return None
 
-    def _finalize_response(
+    async def _finalize_response(
         self,
         ls: _LoopState,
         response: AgentMessage,
@@ -723,26 +815,15 @@ class AgentRunner:
         session_id: str,
         handler: AgentEventHandler | None,
     ) -> RunResult:
-        """Final turn: output validation + thinking-tags fallback."""
+        """Final turn: thinking-tags fallback."""
         logger.info(
             "[RUN_END] session=%s turns=%d tool_calls=%d tokens=%d/%d",
-            session_id[:8], ls.turns, ls.total_tool_calls,
-            ls.total_prompt_tokens, ls.total_completion_tokens,
+            session_id[:8],
+            ls.turns,
+            ls.total_tool_calls,
+            ls.total_prompt_tokens,
+            ls.total_completion_tokens,
         )
-        if self.config.enable_output_validation and ls.all_tool_results and response.content:
-            validation = validate_response_against_tools(response.content, ls.all_tool_results)
-            if validation.issues:
-                logger.warning("Output validation: %d issue(s) detected", len(validation.issues))
-                response.metadata["validation_issues"] = [
-                    {
-                        "severity": i.severity,
-                        "field": i.field,
-                        "llm_value": i.llm_value,
-                        "tool_value": i.tool_value,
-                        "message": i.message,
-                    }
-                    for i in validation.issues
-                ]
 
         if self.config.enable_thinking_tags and handler:
             fallback = response.metadata.get("thinking_fallback_content")
@@ -766,7 +847,9 @@ class AgentRunner:
 
         # 系统提示
         system_prompt = self._build_system_prompt(
-            state, session_id=session_id, skill_load_mode=skill_load_mode,
+            state,
+            session_id=session_id,
+            skill_load_mode=skill_load_mode,
         )
         messages.append({"role": "system", "content": system_prompt})
 
@@ -793,7 +876,10 @@ class AgentRunner:
                 messages.append({"role": "user", "content": msg.content})
 
             elif msg.role == MessageRole.ASSISTANT:
-                assistant_msg: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+                assistant_msg: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": msg.content or "",
+                }
                 if msg.tool_calls:
                     assistant_msg["tool_calls"] = [
                         {
@@ -801,7 +887,9 @@ class AgentRunner:
                             "type": "function",
                             "function": {
                                 "name": tc.name,
-                                "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                                "arguments": json.dumps(
+                                    tc.arguments, ensure_ascii=False
+                                ),
                             },
                         }
                         for tc in msg.tool_calls
@@ -812,7 +900,9 @@ class AgentRunner:
                 if msg.tool_results:
                     for tr in msg.tool_results:
                         if tr.tool_call_id in a2ui_tc_ids:
-                            digest = tr.metadata.get("llm_digest") if tr.metadata else None
+                            digest = (
+                                tr.metadata.get("llm_digest") if tr.metadata else None
+                            )
                             if digest:
                                 content = f"[已向用户展示卡片] {digest}"
                             else:
@@ -825,11 +915,13 @@ class AgentRunner:
                                 content = json.dumps(content, ensure_ascii=False)
                             else:
                                 content = str(content)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tr.tool_call_id,
-                            "content": content,
-                        })
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tr.tool_call_id,
+                                "content": content,
+                            }
+                        )
 
         return messages
 
@@ -868,8 +960,12 @@ class AgentRunner:
         prompt_config = self.config.prompt_config
 
         # 当 enable_thinking_tags=True 且 prompt_config 未自定义指令时，自动填充默认模板
-        if self.config.enable_thinking_tags and not prompt_config.thinking_tag_instructions:
+        if (
+            self.config.enable_thinking_tags
+            and not prompt_config.thinking_tag_instructions
+        ):
             from .stream.thinking_tag_parser import DEFAULT_THINKING_TAG_INSTRUCTIONS
+
             prompt_config = replace(
                 prompt_config,
                 thinking_tag_instructions=DEFAULT_THINKING_TAG_INSTRUCTIONS,
@@ -903,7 +999,11 @@ class AgentRunner:
         """构建工具定义"""
         return [tool.get_json_schema() for tool in self.tool_registry.list_all()]
 
-    def _get_llm(self, model_override: str | None = None, temperature_override: float | None = None) -> BaseChatModel:
+    def _get_llm(
+        self,
+        model_override: str | None = None,
+        temperature_override: float | None = None,
+    ) -> BaseChatModel:
         """向后兼容 — 委托给 LLMCaller.get_llm。"""
         return self._llm_caller.get_llm(model_override, temperature_override)
 
