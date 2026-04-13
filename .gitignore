@@ -44,3 +44,5 @@ data/ark_sessions
 docs/plans
 node_modules/
 models/
+
+.DS_Store

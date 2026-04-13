@@ -292,25 +292,43 @@ def validate_answer_grounding(
     )
 
 
+_CLAIM_TYPE_PRIORITY: dict[str, int] = {"ENTITY": 0, "TIME": 1, "NUMBER": 2}
+
+
 def extract_claims_from_answer(
     answer: str,
     *,
     entity_trie: EntityTrie | None = None,
     extractors: list[ClaimExtractor] | None = None,
 ) -> list[ExtractedClaim]:
-    """从回答中提取需要做 grounding 的 claim。"""
+    """从回答中提取需要做 grounding 的 claim。
+
+    去重规则：同一字面值（value）可能被多个 extractor 提取为不同 type（如 "2026" 同时
+    命中 TIME 和 NUMBER），若不去重则该 value 被重复计权扣分。此处按优先级保留最高
+    优先级的 claim：ENTITY > TIME > NUMBER（越具体优先级越高）。
+    同 type 同 value 的重复项始终忽略。
+    """
     if extractors is None:
         extractors = _default_extractors(entity_trie)
 
-    claims: list[ExtractedClaim] = []
-    seen: set[tuple[str, str]] = set()
+    # value → 当前已收录的最高优先级 claim
+    by_value: dict[str, ExtractedClaim] = {}
+    # 保留插入顺序
+    order: list[str] = []
+
     for ext in extractors:
         for claim in ext.extract_claims(answer):
-            key = (claim.type, claim.value)
-            if key not in seen:
-                seen.add(key)
-                claims.append(claim)
-    return claims
+            v = claim.value
+            existing = by_value.get(v)
+            new_prio = _CLAIM_TYPE_PRIORITY.get(claim.type, 99)
+            if existing is None:
+                by_value[v] = claim
+                order.append(v)
+            elif new_prio < _CLAIM_TYPE_PRIORITY.get(existing.type, 99):
+                # 新 claim 优先级更高，替换（保持原位置）
+                by_value[v] = claim
+
+    return [by_value[v] for v in order]
 
 
 def _build_fact_sources(
