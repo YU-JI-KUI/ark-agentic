@@ -34,6 +34,7 @@ from .tools.base import AgentTool
 from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
+from .guardrails.channels import resolve_llm_visible_content
 from .types import (
     AgentMessage,
     AgentToolResult,
@@ -447,6 +448,17 @@ class AgentRunner:
             logger.warning("Dream failed for user %s", user_id, exc_info=True)
 
     @staticmethod
+    def _merge_tool_state_deltas(
+        session: SessionEntry,
+        tool_results: list[AgentToolResult],
+    ) -> None:
+        # guardrails 可能在 after_tool 阶段重写 tool_results，因此前后都需要合并一次 state_delta。
+        for tr in tool_results:
+            state_delta = tr.metadata.get("state_delta")
+            if state_delta and isinstance(state_delta, dict):
+                session.update_state(state_delta)
+
+    @staticmethod
     def _merge_input_context(
         session: SessionEntry, input_context: dict[str, Any]
     ) -> None:
@@ -774,10 +786,7 @@ class AgentRunner:
         ls.total_tool_calls += len(tool_calls)
         ls.all_tool_results.extend(tool_results)
 
-        for tr in tool_results:
-            state_delta = tr.metadata.get("state_delta")
-            if state_delta and isinstance(state_delta, dict):
-                session.update_state(state_delta)
+        self._merge_tool_state_deltas(session, tool_results)
 
         at = await self._run_hooks(
             self._callbacks.after_tool,
@@ -789,6 +798,7 @@ class AgentRunner:
         )
         if at and at.tool_results is not None:
             tool_results = at.tool_results
+            self._merge_tool_state_deltas(session, tool_results)
 
         tool_message = AgentMessage.tool(tool_results)
         self.session_manager.add_message_sync(session_id, tool_message)
@@ -911,7 +921,17 @@ class AgentRunner:
             elif msg.role == MessageRole.TOOL:
                 if msg.tool_results:
                     for tr in msg.tool_results:
-                        if tr.tool_call_id in a2ui_tc_ids:
+                        llm_visible = resolve_llm_visible_content(
+                            tr.content, tr.metadata,
+                        )
+                        if llm_visible is not tr.content:
+                            # 若 guardrails 已提供模型可见副本，则优先把脱敏后的内容送入上下文。
+                            content = llm_visible
+                            if isinstance(content, (dict, list)):
+                                content = json.dumps(content, ensure_ascii=False)
+                            else:
+                                content = str(content)
+                        elif tr.tool_call_id in a2ui_tc_ids:
                             digest = (
                                 tr.metadata.get("llm_digest") if tr.metadata else None
                             )

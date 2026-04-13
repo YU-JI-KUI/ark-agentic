@@ -27,6 +27,10 @@ from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
 
+from ark_agentic.core.guardrails import (
+    create_guardrails_callbacks,
+    merge_runner_callbacks,
+)
 from ark_agentic.core.validation import EntityTrie, create_citation_validation_hook
 
 from .tools import create_securities_tools
@@ -113,6 +117,12 @@ def create_securities_agent(
             context_updates=enrich_securities_context(ctx.input_context),
         )
 
+    guardrails_callbacks = create_guardrails_callbacks(agent_id="securities")
+    existing_callbacks = RunnerCallbacks(
+        before_agent=[_enrich_context],
+        before_loop_end=[_citation_hook],
+    )
+
     return AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
@@ -120,8 +130,5 @@ def create_securities_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
-        callbacks=RunnerCallbacks(
-            before_agent=[_enrich_context],
-            before_loop_end=[_citation_hook],
-        ),
+        callbacks=merge_runner_callbacks(existing_callbacks, guardrails_callbacks),
     )
