@@ -43,6 +43,7 @@ from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
 from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
+from ark_agentic.core.observability import init_phoenix, shutdown_phoenix
 from ark_agentic.studio import setup_studio_from_env
 from ark_agentic.agents.securities.tools.service.mock_mode import get_mock_mode
 
@@ -57,6 +58,8 @@ def _env_flag(name: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_phoenix(service_name="ark-agentic-api")
+
     _registry.register("insurance", create_insurance_agent(
         enable_memory=_env_flag("ENABLE_MEMORY"),
         enable_thinking_tags=_env_flag("ENABLE_THINKING_TAGS"),
@@ -78,6 +81,7 @@ async def lifespan(app: FastAPI):
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
         await runner.close_memory()
+    shutdown_phoenix()
     logger.info("Unified API shutting down")
 
 

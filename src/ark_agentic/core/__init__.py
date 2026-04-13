@@ -67,6 +67,12 @@ from .llm import (
     LLMError,
     LLMErrorReason,
 )
+from .observability import (
+    get_tracer,
+    init_phoenix,
+    shutdown_phoenix,
+    start_span,
+)
 
 __all__ = [
     # Types
@@ -124,4 +130,9 @@ __all__ = [
     "create_chat_model_from_env",
     "LLMError",
     "LLMErrorReason",
+    # Observability
+    "get_tracer",
+    "init_phoenix",
+    "shutdown_phoenix",
+    "start_span",
 ]
