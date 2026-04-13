@@ -1,7 +1,7 @@
 ---
 name: 取款执行
 description: 仅当对话中已展示过取款方案卡片（render_a2ui WithdrawPlanCard）且用户明确选择了某个渠道要办理时，才使用本技能调用 submit_withdrawal 提交。如果尚未展示方案卡片，本技能不适用，应使用「保险取款」技能。
-version: "6.0.0"
+version: "7.0.0"
 invocation_policy: auto
 group: insurance
 tags:
@@ -19,7 +19,10 @@ required_tools:
 
 ## 前置条件（不满足则跳过本技能）
 
-对话中**必须已展示过取款方案卡片**（即已调用过 `render_a2ui` 渲染 `WithdrawPlanCard`）。
+对话中**必须已展示过取款方案卡片**（即已调用过 `render_a2ui` 渲染 `WithdrawPlanCard`），**且用户所指的渠道在该方案的 digest `channels` 字段中存在**。
+
+- 用户说"领生存金"，digest channels 含 `survival_fund` → 触发本技能
+- 用户说"领红利"，digest channels 不含 `bonus` → **不触发**，fall back 到「保险取款」技能
 
 > **不满足时：本技能完全不适用。** 不要输出任何提示语，不要停止对话，直接按「保险取款」技能的流程为用户查询可取额度、生成方案。
 
@@ -47,15 +50,19 @@ required_tools:
 
 查看对话历史中**最近的 `submit_withdrawal` 工具结果**。
 
-- 如果结果包含"还有{X}待办理"：主动询问用户是否继续
+- 结果包含"还有{X}待办理" **且之后没有新的 PlanCard 渲染记录**：主动询问用户是否继续
   > "上次已办理了生存金领取，还有红利领取(¥5,200.00)，需要继续办理吗？"
   - 用户同意 → 跳到 **STEP 2**
   - 用户拒绝 → 结束
-- 没有此类结果 → 进入 **STEP 1**
+- 结果不含续办信息，**或之后出现了新的 PlanCard**（`[已向用户展示卡片] 方案: ...`） → 续办已过期，进入 **STEP 1**
+
+> **过期判断**：如果续办提示之后出现了新的方案 digest，说明用户已换了方案，旧续办信息失效。
 
 ### STEP 1 — 渠道计数
 
 读取 `render_a2ui` 工具结果中的方案摘要（digest），找到用户选择的方案，**数 `channels` 字段的数量**。
+
+> **注意**：`channels` 字段已与实际分配保持一致。如果 digest 中某渠道在 channels 里但明细中没有对应金额，说明该渠道无可用额度，不要列出。
 
 digest 格式示例：
 ```

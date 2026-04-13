@@ -153,9 +153,19 @@ class SubmitWithdrawalTool(AgentTool):
 
         policies = _resolve_policies_from_state(operation_type, ctx)
         if not policies:
+            channel = _OP_TO_CHANNEL.get(operation_type, operation_type)
+            plan_allocs: list[dict] = ctx.get("_plan_allocations") or []
+            available: set[str] = set()
+            for p in plan_allocs:
+                for a in p.get("allocations", []):
+                    ch = a.get("channel")
+                    if ch:
+                        available.add(ch)
             return AgentToolResult.error_result(
                 tool_call.id,
-                "未找到匹配的保单数据，请先通过取款方案查询可用额度。",
+                f"渠道 '{channel}' 在当前方案中没有分配额度。"
+                f"可用渠道: {', '.join(sorted(available)) if available else '无'}。"
+                f"请先通过取款方案确认该渠道的可取额度。",
             )
 
         channel = _OP_TO_CHANNEL[operation_type]

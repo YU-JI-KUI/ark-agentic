@@ -116,7 +116,7 @@ def create_insurance_agent(
         config=runner_config,
         memory_manager=memory_manager,
         callbacks=RunnerCallbacks(
-            # before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],
+            before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],
         ),
     )
 

@@ -381,23 +381,28 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "children": {"explicitList": [col_id]},
         })
 
+        # Derive channels from actual allocations (single source of truth)
+        actual_channels = list(dict.fromkeys(ch for _, ch, _ in allocs))
         alloc_summary = {
             "title": title,
-            "channels": channels,
+            "channels": actual_channels,
             "allocations": [
                 {"channel": ch, "policy_no": pid, "amount": amt}
                 for pid, ch, amt in allocs
             ],
         }
         detail = "; ".join(f"{pid}({ch}) ¥{amt:,.2f}" for pid, ch, amt in allocs)
-        digest = f"方案: {title} | channels: {channels} | 总额: ¥{actual_total:,.2f}"
+        digest = f"方案: {title} | channels: {actual_channels} | 总额: ¥{actual_total:,.2f}"
         if detail:
             digest += f" | 明细: {detail}"
 
         return A2UIOutput(
             components=[card, col] + comps,
             llm_digest=digest,
-            state_delta={"_plan_allocations": [alloc_summary]},
+            state_delta={
+                "_plan_allocations": [alloc_summary],
+                "_submitted_channels": [],
+            },
         )
 
     return {
