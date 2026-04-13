@@ -9,7 +9,7 @@
 - **技能系统**: Markdown 格式可复用指令集，支持 full/dynamic/semantic 三种加载模式
 - **会话管理**: JSONL 持久化 + 智能上下文压缩（LLM 摘要）+ Session State 状态管理
 - **用户记忆**: 文件级 MEMORY.md + heading-based upsert + Dream 周期蒸馏 + system prompt 全量注入
-- **AG-UI 流式协议**: 完整的 17 种事件类型，支持 4 种输出格式（agui/internal/enterprise/alone）
+- **AG-UI 流式协议**: 完整的 20 种事件类型，支持 4 种输出格式（agui/internal/enterprise/alone）
 - **A2UI 组件**: 支持富交互前端组件渲染（卡片、按钮、表单等）
 - **输出验证**: 自动检测 LLM 输出与工具结果的数值一致性，防止幻觉
 - **FastAPI 服务**: 生产就绪的 HTTP API，支持多协议 SSE 流式输出
@@ -81,7 +81,10 @@ Content-Type: application/json
   "stream": true,
   "user_id": "U001",
   "context": {"custom_key": "value"},
-  "idempotency_key": "req-12345"
+  "idempotency_key": "req-12345",
+  "history": [{"role": "user", "content": "历史消息"}],
+  "use_history": true,
+  "run_options": {"model": "gpt-4o", "temperature": 0.5}
 }
 ```
 
@@ -101,7 +104,7 @@ curl -X POST http://localhost:8080/chat \
 
 **协议类型**:
 - `internal` (默认): 旧版 response.* 格式，向后兼容现有前端
-- `agui`: AG-UI 原生事件（17 种事件类型）
+- `agui`: AG-UI 原生事件（20 种事件类型）
 - `enterprise`: 企业 AGUI 信封格式（带 source_bu_type/app_type）
 - `alone`: ALONE 协议（sa_* 事件）
 
@@ -119,13 +122,14 @@ curl -X POST http://localhost:8080/chat \
 }
 ```
 
-*完整事件类型: `run_started`, `run_finished`, `run_error`, `step_started`, `step_finished`, `text_message_start`, `text_message_content`, `text_message_end`, `tool_call_start`, `tool_call_args`, `tool_call_end`, `tool_call_result`, `state_snapshot`, `state_delta`, `messages_snapshot`, `custom`, `raw`*
+*完整事件类型: `run_started`, `run_finished`, `run_error`, `step_started`, `step_finished`, `text_message_start`, `text_message_content`, `text_message_end`, `tool_call_start`, `tool_call_args`, `tool_call_end`, `tool_call_result`, `state_snapshot`, `state_delta`, `messages_snapshot`, `thinking_message_start`, `thinking_message_content`, `thinking_message_end`, `custom`, `raw`*
 
 **自定义 Headers**:
 ```
 x-ark-session-key: 会话ID前缀
 x-ark-user-id: 用户ID
 x-ark-trace-id: 追踪ID
+x-ark-message-id: 消息ID
 ```
 
 ## Docker
@@ -136,6 +140,8 @@ docker build -t ark-agentic .
 docker run -d \
   -p 8080:8080 \
   -e API_KEY=sk-xxx \
+  -e SESSIONS_DIR=/data/sessions \
+  -e MEMORY_DIR=/data/memory \
   -v ark-sessions:/data/sessions \
   -v ark-memory:/data/memory \
   ark-agentic
@@ -167,13 +173,13 @@ cd /home/willis/codebase/ark-agentic-space/ark-agentic
 # 查看帮助
 uv run ark-agentic --help
 
-# 初始化新项目（默认 deepseek）
+# 初始化新项目（默认 openai）
 uv run ark-agentic init my-agent
 
 # 指定 LLM 提供商
-uv run ark-agentic init my-openai-agent --llm-provider deepseek
+uv run ark-agentic init my-openai-agent --llm-provider openai
 # 添加FastAPI，chat API支持流式和非流式
-uv run ark-agentic init my-pa-agent --llm-provider deepseek --api
+uv run ark-agentic init my-pa-agent --llm-provider pa-sx --api
 
 # 在已生成项目中添加新的业务智能体
 cd my-agent
@@ -189,29 +195,32 @@ uv run ark-agentic add-agent risk-engine
 
 其中 `.env-sample` 的 LLM 部分示例：
 
-- 当 `--llm-provider=deepseek`（默认）:
-
-  ```bash
-  LLM_PROVIDER=deepseek
-  API_KEY=sk-xxx
-  # LLM_BASE_URL=https://api.deepseek.com/v1
-  ```
-
-- 当 `--llm-provider=openai`:
+- 当 `--llm-provider=openai`（默认）:
 
   ```bash
   LLM_PROVIDER=openai
+  MODEL_NAME=gpt-4o
   API_KEY=sk-xxx
   # LLM_BASE_URL=https://api.openai.com/v1
   ```
 
-- 当 `--llm-provider=pa`:
+- 当 `--llm-provider=pa-sx`:
 
   ```bash
   LLM_PROVIDER=pa
   MODEL_NAME=PA-SX-80B
-  # PA_SX_BASE_URL=https://pa-sx.example.com
-  # PA_JT_BASE_URL=https://pa-jt.example.com
+  API_KEY=your-sx-api-key
+  LLM_BASE_URL=https://pa-sx.example.com
+  ```
+
+- 当 `--llm-provider=pa-jt`:
+
+  ```bash
+  LLM_PROVIDER=pa
+  MODEL_NAME=PA-JT-80B
+  API_KEY=
+  LLM_BASE_URL=https://pa-jt.example.com
+  # PA-JT 签名必填
   ```
 
 ## 核心概念
@@ -322,6 +331,34 @@ class GetPreferenceTool(AgentTool):
         )
 ```
 
+### 并行子任务系统
+
+`SpawnSubtasksTool` 支持在单次对话中并行执行多个独立子任务，适用于用户一句话包含多个独立意图的场景。
+
+```python
+from ark_agentic.core.subtask.tool import SpawnSubtasksTool, SubtaskConfig
+
+# 配置子任务参数
+subtask_config = SubtaskConfig(
+    max_concurrent=4,        # 最大并发数
+    timeout_seconds=300.0,   # 单任务超时
+    tools_deny={"memory_write"},  # 禁用的工具
+    keep_session=False,      # 完成后删除子会话
+    max_turns=5,             # 子任务最大轮次
+)
+
+# 注册到 runner
+runner.register_tool(SpawnSubtasksTool(runner, session_manager, subtask_config))
+```
+
+**使用示例**：用户说 "我要理赔，同时查查能领多少钱"
+
+工具会自动：
+1. 创建隔离的子会话
+2. 并行执行两个子任务
+3. 汇总结果并回传 state_delta
+4. 清理临时会话
+
 ### 用户记忆系统
 
 三层记忆生命周期：**Session JSONL (raw) → MEMORY.md (distilled) → System Prompt (consumption)**。
@@ -365,8 +402,8 @@ run()
      │   └─ [after_tool]     # 每轮工具执行后（可替换工具结果）           │
      │                                                               │
      └─ 无 tool_calls（最终回答轮）                                    │
-         ├─ [before_complete] # 最终回答落地前（可校验/拒绝并重入 loop）  │
-         │   halt=True ──────────────────────────────────────────────┘
+         ├─ [before_loop_end] # 最终回答落地前（可校验/拒绝并重入 loop）  │
+         │   action=RETRY ──────────────────────────────────────────────┘
          └─ _finalize_response → 返回给调用方
  │
  └─ [after_agent]            # Agent 级，仅触发一次（后处理/日志）
@@ -374,22 +411,32 @@ run()
 
 #### Hook 速查
 
-| Hook | 触发时机 | `halt=True` 的语义 | 常见用途 |
-|------|---------|-------------------|---------|
-| `before_agent` | 进入 loop 前，一次 | 拒绝请求，直接返回 response | 鉴权、输入过滤 |
+| Hook | 触发时机 | `action` 语义 | 常见用途 |
+|------|---------|--------------|----------|
+| `before_agent` | 进入 loop 前，一次 | `ABORT` → 拒绝请求，直接返回 response | 鉴权、输入过滤 |
 | `after_agent` | loop 结束后，一次 | — | 日志、后处理 |
-| `before_model` | 每轮 LLM 调用前 | 跳过 LLM，使用 `response` 作为输出 | mock、注入上下文 |
+| `before_model` | 每轮 LLM 调用前 | `OVERRIDE` → 跳过 LLM，使用 `response` 作为输出 | mock、注入上下文 |
 | `after_model` | 每轮 LLM 响应后 | — | 响应过滤、内容替换 |
-| `before_tool` | 每轮工具批执行前 | 跳过真实工具，使用 `tool_results` | 工具 mock、权限检查 |
+| `before_tool` | 每轮工具批执行前 | `OVERRIDE` → 跳过真实工具，使用 `tool_results` | 工具 mock、权限检查 |
 | `after_tool` | 每轮工具执行后 | — | 结果增强、审计 |
-| `before_complete` | 最终回答（无工具调用）落地前 | 注入纠正消息并 **continue loop**（触发模型自反思） | 输出校验、引用验证 |
+| `before_loop_end` | 最终回答（无工具调用）落地前 | `RETRY` → 注入纠正消息并 **continue loop**（触发模型自反思） | 输出校验、引用验证 |
+
+#### HookAction 枚举
+
+```python
+class HookAction(str, Enum):
+    PASS = "pass"      # 不干预，走默认流程
+    ABORT = "abort"    # before_agent: 拒绝请求，退出 run
+    OVERRIDE = "override"  # before_model / before_tool: 替换默认输出
+    RETRY = "retry"    # before_loop_end: 注入反馈，让模型重试
+```
 
 #### CallbackResult 字段
 
 ```python
 @dataclass
 class CallbackResult:
-    halt: bool = False                      # 触发 halt 语义（含义因 hook 而异）
+    action: HookAction = HookAction.PASS    # 声明回调意图
     response: AgentMessage | None = None    # 替换或注入的消息
     tool_results: list[...] | None = None   # 替换工具结果（before/after_tool）
     context_updates: dict | None = None     # 合并到 input_context
@@ -409,9 +456,9 @@ async def enrich_context(ctx: CallbackContext) -> CallbackResult | None:
 runner = AgentRunner(..., callbacks=RunnerCallbacks(before_agent=[enrich_context]))
 ```
 
-#### 示例：输出引用校验（before_complete）
+#### 示例：输出引用校验（before_loop_end）
 
-`before_complete` 是专为输出质量校验设计的 hook。`halt=True` 不是终止 run，而是将纠正消息注入 session 后重入 ReAct loop，让模型自我修正后再次输出。
+`before_loop_end` 是专为输出质量校验设计的 hook。`action=RETRY` 不是终止 run，而是将纠正消息注入 session 后重入 ReAct loop，让模型自我修正后再次输出。
 
 ```python
 from ark_agentic.core.validation import create_citation_validation_hook, EntityTrie
@@ -426,7 +473,7 @@ runner = AgentRunner(
     ...,
     callbacks=RunnerCallbacks(
         before_agent=[enrich_context],
-        before_complete=[citation_hook],   # 通过 → 落地；retry → 注入反馈 + 重入 loop
+        before_loop_end=[citation_hook],   # 通过 → 落地；retry → 注入反馈 + 重入 loop
     ),
 )
 ```
@@ -435,7 +482,7 @@ runner = AgentRunner(
 
 ```
 LLM → 输出回答（无 tool_calls）
-before_complete：从 response.content 提取 claim，与 ``session.messages`` 中本轮 TOOL 消息 + 近期用户消息做 grounding
+before_loop_end：从 response.content 提取 claim，与 ``session.messages`` 中本轮 TOOL 消息 + 近期用户消息做 grounding
   → 失败：注入 user 消息（含 UNGROUNDED 明细）→ continue ReAct loop
   → 通过：_finalize_response → 前端收到纯自然语言
 ```
@@ -523,22 +570,24 @@ llm = create_chat_model(
 ```
 src/ark_agentic/
 ├── core/
-│   ├── runner.py          # AgentRunner (ReAct 主循环, 877 行)
-│   ├── session.py         # SessionManager (会话管理, 452 行)
-│   ├── compaction.py      # 上下文压缩 (714 行, LLM 摘要)
-│   ├── persistence.py     # JSONL 持久化 (711 行)
+│   ├── runner.py          # AgentRunner (ReAct 主循环, ~912 行)
+│   ├── session.py         # SessionManager (会话管理, ~405 行)
+│   ├── compaction.py      # 上下文压缩 (~547 行, LLM 摘要)
+│   ├── persistence.py     # JSONL 持久化 (~645 行)
 │   ├── callbacks.py       # 7 个生命周期 hook 协议 + RunnerCallbacks
 │   ├── validation.py      # 输出验证（幻觉检测）+ create_citation_validation_hook
-│   ├── types.py           # 核心类型定义 (358 行)
+│   ├── types.py           # 核心类型定义 (~315 行)
 │   ├── llm/               # LLM 客户端 (LangChain-based)
 │   │   ├── factory.py     # create_chat_model()
 │   │   ├── pa_jt_llm.py   # PA-JT 系列支持
 │   │   ├── pa_sx_llm.py   # PA-SX 系列支持
 │   │   └── errors.py      # 错误分类
 │   ├── tools/             # 工具系统
-│   │   ├── base.py        # AgentTool 基类 (282 行)
+│   │   ├── base.py        # AgentTool 基类 (~227 行)
 │   │   ├── registry.py    # ToolRegistry
-│   │   ├── memory.py      # Memory 工具 (377 行)
+│   │   ├── executor.py    # 工具执行器
+│   │   ├── render_a2ui.py # A2UI 渲染工具
+│   │   ├── memory.py      # Memory 工具 (~88 行)
 │   │   ├── read_skill.py  # ReadSkill 工具
 │   │   ├── demo_a2ui.py   # A2UI 演示工具
 │   │   ├── demo_state.py  # State 演示工具
@@ -555,43 +604,129 @@ src/ark_agentic/
 │   │   ├── dream.py       # MemoryDreamer (session reader + 周期蒸馏 + optimistic merge)
 │   │   └── types.py       # 类型定义
 │   ├── stream/            # AG-UI 流式协议
-│   │   ├── events.py      # 17 种 AG-UI 事件类型
-│   │   ├── event_bus.py   # StreamEventBus (208 行)
-│   │   ├── output_formatter.py  # 4 种输出协议 (300 行)
+│   │   ├── events.py      # 20 种 AG-UI 事件类型
+│   │   ├── event_bus.py   # StreamEventBus
+│   │   ├── output_formatter.py  # 4 种输出协议
 │   │   ├── agui_models.py # 企业 AGUI 信封
-│   │   └── assembler.py   # 流式组装器 (397 行)
+│   │   ├── assembler.py   # 流式组装器
+│   │   └── thinking_tag_parser.py  # 思考标签解析器
+│   ├── subtask/           # 并行子任务系统
+│   │   └── tool.py        # SpawnSubtasksTool
+│   ├── utils/             # 工具函数
+│   │   ├── dates.py       # 日期处理
+│   │   ├── entities.py    # 实体识别
+│   │   ├── numbers.py     # 数值处理
+│   │   ├── grounding_cache.py  # Grounding 缓存
+│   │   └── env.py         # 环境变量
+│   ├── a2ui/              # A2UI 组件系统
+│   │   ├── blocks.py      # 区块定义
+│   │   ├── composer.py    # 组件组合器
+│   │   ├── renderer.py    # 渲染器
+│   │   ├── validator.py   # 验证器
+│   │   ├── flattener.py   # 扁平化处理
+│   │   ├── transforms.py  # 变换逻辑
+│   │   ├── contract_models.py  # 契约模型
+│   │   ├── guard.py       # 守卫逻辑
+│   │   ├── theme.py       # 主题配置
+│   │   └── preset_registry.py  # 预设注册表
 │   └── prompt/            # 提示词构建
-│       └── builder.py     # SystemPromptBuilder (300 行)
+│       └── builder.py     # SystemPromptBuilder
 ├── agents/
-│   └── insurance/         # 保险智能体示例
-│       ├── agent.py       # 入口 (428 行)
-│       ├── api.py         # 工厂函数
-│       ├── tools/         # 业务工具
-│       │   ├── policy_query.py
-│       │   ├── customer_info.py
-│       │   ├── data_service.py  # 模拟数据服务 (617 行)
-│       │   └── rule_engine.py   # 规则引擎 (399 行)
-│       └── skills/        # 业务技能
-│           ├── withdraw_money/
-│           ├── clarify_need/
-│           └── rewrite_plan/
-├── app.py                 # FastAPI 应用 (372 行)
+│   ├── insurance/         # 保险智能体示例
+│   │   ├── agent.py       # 入口
+│   │   ├── api.py         # 工厂函数
+│   │   ├── tools/         # 业务工具
+│   │   │   ├── policy_query.py
+│   │   │   ├── customer_info.py
+│   │   │   ├── data_service.py
+│   │   │   └── rule_engine.py
+│   │   └── skills/        # 业务技能
+│   │       ├── withdraw_money/
+│   │       ├── clarify_need/
+│   │       └── rewrite_plan/
+│   ├── securities/        # 证券智能体
+│   │   ├── agent.py
+│   │   ├── tools/
+│   │   └── skills/
+│   └── meta_builder/      # Meta 构建器智能体
+│       ├── agent.py
+│       └── tools/
+├── studio/                # 管理控制台（可选）
+│   ├── api/               # REST API
+│   │   ├── agents.py
+│   │   ├── skills.py
+│   │   ├── tools.py
+│   │   ├── sessions.py
+│   │   └── memory.py
+│   ├── frontend/          # React 前端
+│   └── services/          # 服务层
+├── api/                   # FastAPI 路由
+│   ├── chat.py
+│   ├── deps.py
+│   └── models.py
+├── cli/                   # CLI 工具
+│   ├── main.py
+│   └── templates.py
+├── app.py                 # FastAPI 应用
 └── static/                # Web UI
 
-总计: ~24K 行代码（53 个 Python 文件）
+总计: ~30K+ 行代码（70+ Python 文件）
 ```
 
 ## 环境变量
 
+### 核心配置
+
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
+| `LLM_PROVIDER` | LLM 提供商 (openai/pa) | `pa` |
 | `API_KEY` | OpenAI 兼容端点 API Key | - |
-| `MODEL_NAME` | 模型 id（PA 时为 PA-SX-80B 等，兼容时为 deepseek-chat / gpt-4o 等） | - |
+| `MODEL_NAME` | 模型 id（PA 时为 PA-SX-80B 等，兼容时为 gpt-4o 等） | - |
+| `LLM_BASE_URL` | LLM API 基础 URL（非 OpenAI 时必填） | - |
 | `DEFAULT_TEMPERATURE` | LLM 温度 | `0.7` |
 | `API_HOST` | API 监听地址 | `0.0.0.0` |
 | `API_PORT` | API 端口 | `8080` |
-| `SESSIONS_DIR` | 会话存储目录 | `/data/sessions` |
-| `MEMORY_DIR` | Memory 数据目录 | `/data/memory` |
+
+### 存储配置
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `SESSIONS_DIR` | 会话存储目录 | `data/ark_sessions` |
+| `MEMORY_DIR` | Memory 数据目录 | `data/ark_memory` |
+
+### 功能开关
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `ENABLE_STUDIO` | 启用 Studio 管理界面 | `false` |
+| `ENABLE_THINKING_TAGS` | 启用思考标签解析（<think>/<final> 流式区分思考态与最终回答） | `false` |
+| `LOG_LEVEL` | 日志级别 | `INFO` |
+| `EMBEDDING_MODEL_PATH` | Embedding 模型路径（记忆/检索） | - |
+| `AGENTS_ROOT` | 自定义 Agent 根目录 | - |
+
+### 保险数据服务配置
+
+| 变量 | 说明 |
+|------|------|
+| `DATA_SERVICE_MOCK` | 是否使用 Mock 数据 |
+| `DATA_SERVICE_URL` | 数据服务 URL |
+| `DATA_SERVICE_AUTH_URL` | 认证 URL |
+| `DATA_SERVICE_APP_ID` | 应用 ID |
+| `DATA_SERVICE_CLIENT_ID` | 客户端 ID |
+| `DATA_SERVICE_CLIENT_SECRET` | 客户端密钥 |
+
+### 证券服务配置
+
+| 变量 | 说明 |
+|------|------|
+| `SECURITIES_SERVICE_MOCK` | 是否使用 Mock 数据 |
+| `SECURITIES_ACCOUNT_TYPE` | 账户类型 |
+| `SECURITIES_ACCOUNT_OVERVIEW_URL` | 账户概览 API |
+| `SECURITIES_ETF_HOLDINGS_URL` | ETF 持仓 API |
+| `SECURITIES_HKSC_HOLDINGS_URL` | 港股通持仓 API |
+| `SECURITIES_FUND_HOLDINGS_URL` | 基金持仓 API |
+
+**注意**: PA 模型专用变量（PA_SX_80B_APP_ID、PA_JT_OPEN_API_CODE 等）详见 `.env-sample`。
 
 ## 测试
 
@@ -626,7 +761,7 @@ uv run python script.py
 ## 性能优化
 
 - **并行工具调用**: LLM 返回多个工具调用时，使用 `asyncio.gather()` 并行执行
-- **AG-UI 流式协议**: 事件驱动架构，支持细粒度流式推送（17 种事件类型）
+- **AG-UI 流式协议**: 事件驱动架构，支持细粒度流式推送（20 种事件类型）
 - **多协议适配**: 单一内部实现，输出层适配 4 种协议格式
 - **零 DB 记忆**: 纯文件 MEMORY.md，无 SQLite/向量库依赖，启动即用
 - **会话压缩**: 自动总结历史消息，保持上下文窗口稳定
@@ -635,10 +770,11 @@ uv run python script.py
 ## 架构亮点
 
 ### AG-UI 流式协议
-完整实现 AG-UI 标准的 17 种事件类型，支持：
+完整实现 AG-UI 标准的 20 种事件类型，支持：
 - **生命周期事件**: run_started, run_finished, run_error
 - **步骤事件**: step_started, step_finished
 - **文本流**: text_message_start, text_message_content, text_message_end
+- **思考流**: thinking_message_start, thinking_message_content, thinking_message_end（需启用 `ENABLE_THINKING_TAGS=true`）
 - **工具调用**: tool_call_start, tool_call_args, tool_call_end, tool_call_result
 - **状态同步**: state_snapshot, state_delta, messages_snapshot
 - **自定义扩展**: custom, raw
@@ -663,7 +799,7 @@ uv run python script.py
 - 后续工具通过 `context` 读取状态
 
 ### 输出验证（后置 grounding）
-基于 `before_complete` hook 的确定性幻觉检测：
+基于 `before_loop_end` hook 的确定性幻觉检测：
 - 模型只输出自然语言；系统从 `response.content` 提取实体（EntityTrie）、日期、业务数值
 - 工具事实从 `session.messages` 中最后一条 USER 之后的 TOOL 消息提取，与最近若干轮用户消息一起做子串命中校验
 - `retry` 路由下注入纠正反馈并重入 ReAct loop；`warn`/`safe` 正常落地
@@ -676,10 +812,31 @@ uv run python script.py
 - **Dream 蒸馏**：后台周期性读取 session + memory → LLM 合并去重 → optimistic merge 回写
 - **零 DB 依赖**：纯文件存储，无 SQLite/向量库/embedding 模型
 
+## Studio 管理控制台
+
+通过 `ENABLE_STUDIO=true` 环境变量启用 Studio 管理界面。
+
+### 功能
+- **Agent 管理**: 查看、测试已注册的 Agent
+- **Skill 管理**: 浏览、编辑技能模板
+- **Tool 管理**: 查看可用工具列表
+- **Session 管理**: 查看会话历史、调试对话
+- **Memory 管理**: 查看、编辑用户记忆
+
+### 访问
+启用后访问 `/studio` 路径即可进入管理界面。
+
+```bash
+# 启用 Studio
+export ENABLE_STUDIO=true
+ark-agentic-api
+
+# 访问 http://localhost:8080/studio
+```
+
 ## TODOs
 - [P0] **存储层解耦**: 实现基于 Redis/Database 的 Session 和 Memory 存储，支持 Cloud-Native 分布式部署
 - [P1] **SubAgent 支持**: 参考 openclaw-main 实现子智能体注册、生命周期管理、结果公告机制
-- [P1] **CLI 工具 (ark-cli)**: 开发命令行工具，支持一键生成 Agent 骨架，降低上手门槛
 - [P2] **Auth Profile / Failover**: 多 API Key 轮换、自动模型降级
 - [P2] **会话写锁**: 防止并发写入冲突
 - [P2] **远程嵌入支持**: OpenAI/Gemini Batch API 批量处理

@@ -25,6 +25,8 @@ node_modules/
 data/ark_securities
 data/ark_sessions
 
+.qoder/
+
 
 # Claude
 CLAUDE.md

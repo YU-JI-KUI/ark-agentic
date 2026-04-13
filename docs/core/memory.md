@@ -1,72 +1,173 @@
 # Memory 系统
 
+## 设计理念
+
+从"存储组件"到"生命周期模型"：**Session JSONL (raw) → MEMORY.md (distilled) → System Prompt (consumption)**。
+
+零 DB 依赖：无 SQLite、无向量库、无 embedding 模型。纯文件存储 + LLM 蒸馏。
+
 ## 模块结构
 
 ```
 core/memory/
-├── types.py          # MemoryChunk / MemorySearchResult / 协议定义
-├── manager.py        # MemoryManager 门面 + MemoryConfig
-├── sqlite_store.py   # SQLiteMemoryStore：vec + FTS5 + cache + 文件追踪
-├── embeddings.py     # BGEEmbedding（BGE 系列，支持 cpu/cuda/mps）
-├── chunker.py        # MarkdownChunker（标题边界优先分块）
-├── extractor.py      # MemoryFlusher（LLM 驱动结构化提取）
-├── user_profile.py   # 用户画像 heading-based upsert
-└── tools/memory.py   # memory_search / memory_get / memory_set
+├── manager.py         # MemoryManager（路径管理 + read/write）
+├── user_profile.py    # heading-based upsert / parse / format / preamble 保护
+├── extractor.py       # MemoryFlusher（压缩前 LLM 提取）+ parse_llm_json
+├── dream.py           # MemoryDreamer（session reader + 周期蒸馏 + optimistic merge）
+└── types.py           # 类型定义
+
+core/tools/memory.py   # memory_write Agent 工具
 ```
 
 ## 架构
 
 ```mermaid
 flowchart TD
-    AgentRunner -->|"enable_memory=True"| MemoryManager
-    AgentRunner --> MemoryTools["memory_search / memory_get / memory_set"]
-    MemoryTools --> MemoryManager
-
-    subgraph MemoryManager_core [MemoryManager]
-        MemoryManager --> SQLiteMemoryStore
-        MemoryManager --> MarkdownChunker
-        MemoryManager --> BGEEmbedding
-        MemoryManager --> MemoryFlusher
+    subgraph raw ["Layer 1: Raw (existing, untouched)"]
+        sessions["Session JSONL<br/>{sessions_dir}/{user_id}/{sid}.jsonl<br/>append-only, ms timestamps"]
     end
 
-    subgraph SQLiteMemoryStore_tables [SQLiteMemoryStore — memory.db]
-        chunks["chunks（文本 + embedding）"]
-        chunks_vec["chunks_vec（sqlite-vec 虚拟表）"]
-        chunks_fts["chunks_fts（FTS5 + jieba）"]
-        embedding_cache["embedding_cache（content_hash 缓存）"]
+    subgraph distilled ["Layer 2: Distilled (single file)"]
+        md["MEMORY.md<br/>{workspace}/{user_id}/MEMORY.md<br/>heading-based, structured"]
     end
 
-    SQLiteMemoryStore --> SQLiteMemoryStore_tables
-
-    subgraph storage [文件目录]
-        workspace["{workspace_dir}/{user_id}/MEMORY.md"]
-        profile["{memory_base_dir}/_profiles/{user_id}/MEMORY.md"]
-    end
-
-    MarkdownChunker --> workspace
-    MemoryFlusher --> profile
-    MemoryFlusher --> workspace
+    write["memory_write tool"] -->|"heading upsert"| md
+    flush["Flush (pre-compact)"] -->|"LLM extract → heading upsert"| md
+    sessions -->|"read recent"| dream["Dream (periodic)"]
+    md -->|"read current"| dream
+    dream -->|".bak → optimistic merge"| md
+    md -->|"read → truncate"| prompt["System Prompt<br/>(every turn)"]
 ```
 
-## 核心技术
+## 存储结构
 
-- **存储**：单 `memory.db` 文件，四张表（`chunks` / `chunks_vec` / `chunks_fts` / `embedding_cache`），WAL 模式。
-- **向量检索**：sqlite-vec 扩展余弦搜索；扩展不可用时自动降级为 numpy cosine 全扫描。
-- **关键词检索**：FTS5 虚拟表 + jieba 分词；BM25 打分归一化为 `score / (1 + score)`。
-- **混合检索**：`final = 0.7 × vector_score + 0.3 × keyword_score`，按 `content_hash` 去重。
-- **增量同步**：MD5 文件 hash 比对，未变化文件跳过；embedding 按 `content_hash` 写入 `embedding_cache`，重建时直接命中，不重复计算。
-- **原子重建**：`safe_reindex()` 写临时 `.db` 再文件级 swap，防止重建中断导致索引损坏。
-- **用户隔离**：所有表含 `user_id` 列，`sync()` / `search()` 全部接收 `user_id`；文件目录分区到 `{workspace_dir}/{user_id}/`。
-- **记忆提取**：compaction 前 `MemoryFlusher` 调用 LLM 结构化提取，分流写入全局 user profile（heading-based upsert）和 agent memory。
+```
+{workspace_dir}/
+└── {user_id}/
+    ├── MEMORY.md      # 蒸馏后的用户记忆（heading-based markdown）
+    │   ## 沟通偏好
+    │   简洁直接，不要废话
+    │
+    │   ## 渠道偏好
+    │   不要保单贷款渠道
+    │
+    │   ## 潜在需求
+    │   可能考虑子女教育金规划
+    └── .last_dream    # Dream 最后执行时间戳
+```
 
-## 工具接口
+## 记忆生命周期
 
-由 `create_memory_tools(get_memory_fn)` 工厂创建，注入 `ToolRegistry`。
+### Write（对话中）
+Agent 调用 `memory_write(content)` → `upsert_profile_by_heading` → MEMORY.md
+
+### Flush（上下文压缩前）
+`MemoryFlusher` 用 LLM 从完整对话提取新增/变更记忆 → heading upsert → MEMORY.md
+
+### Read（每轮对话）
+`runner._build_system_prompt` 读取 MEMORY.md → 截断到 token 限制 → 注入 system prompt
+
+### Dream（后台周期触发）
+
+Dream 是 session 到 memory 的桥梁：
+
+1. **Gate check**：距上次 dream ≥ 24h 且新增 ≥ 3 个 session
+2. **Read**：近期 session JSONL（user + assistant 消息，skip tool noise，token budget 6000）+ 当前 MEMORY.md
+3. **Distill**：单次 LLM 调用，合并重复、删除过时、提取新信息和潜在需求
+4. **Apply**：Optimistic merge — 保留 dream 期间 memory_write 新增的标题，`.bak` 备份
+5. **Update**：写入 `.last_dream` 时间戳
+
+## 写入格式
+
+`MEMORY.md` 使用 `## 标题 + 内容` 的 heading-based markdown：
+
+```markdown
+# 用户记忆
+
+## 身份信息
+姓名: 张经理
+所在公司: 平安保险
+
+## 风险偏好
+保守型，不接受本金亏损
+
+## 回复风格
+简洁直接，不要废话
+
+## 潜在需求
+多次询问子女保障，可能考虑教育金规划
+```
+
+- **同名标题自动合并**（最新内容覆盖旧内容）
+- **`# Title` 行（preamble）永远保留**，不被覆盖
+- **标题规范**：使用简短、通用的一级分类（如 `## 风险偏好`），避免过于具体的标题
+
+## Agent 工具
 
 | 工具 | 参数 | 用途 |
 |------|------|------|
-| `memory_search` | `query`, `max_results`, `min_score`, `search_mode` | 混合/向量/关键词检索 |
-| `memory_get` | `path`, `from_line`, `lines` | 按文件路径和行号读取原文 |
-| `memory_set` | `path`, `content`, `section` | 追加写入，写后触发 `sync()` |
+| `memory_write` | `content` (heading-based markdown) | 保存/更新记忆，heading upsert |
 
-`search_mode` 可选 `hybrid`（默认）/ `vector` / `keyword`。
+MEMORY.md 全文已注入 system prompt，Agent 无需 search/get 工具即可读取全部记忆。
+
+**写入时机规则**（注入 system prompt）：
+- 用户身份信息（姓名、职业、家庭结构）
+- 明确偏好（风险偏好、投资风格、回复风格）
+- 重要决策（买入、卖出、配置调整及理由）
+- 对你的批评或纠正（批评 = 偏好的反面表达）
+- 用户主动要求记住的事项
+
+**不记录**：临时查询、公开市场数据、已记住的信息、寒暄闲聊。
+
+## Concurrency Model
+
+`AgentRunner` 是共享 singleton。Dream per-user 独立，需处理两种并发场景：
+
+**不同用户**：无冲突，文件按 user_id 隔离。
+
+**同一用户（dream + memory_write race）**：
+
+```
+Dream (background)    Agent Turn N+1       MEMORY.md
+───────────────────   ──────────────────   ─────────
+read (snapshot)                            v1
+     │
+  LLM distill (~5-10s)
+     │                memory_write(新偏好)  v2 (v1 + 新偏好)
+     │
+  apply() ─── re-read ────────────────────→ v2
+  detect: "新偏好" is new since snapshot
+  merge: distilled + "新偏好"
+  write ──────────────────────────────────→ v3 (distilled + 新偏好)
+```
+
+Solution: **Optimistic merge in `apply()`** + `_dream_tasks: dict[str, asyncio.Task]` 防重复。
+
+## 配置
+
+```python
+from ark_agentic.core.memory.manager import build_memory_manager
+
+memory_manager = build_memory_manager("./data/memory")
+
+agent = AgentRunner(
+    llm=llm,
+    session_manager=session_manager,
+    memory_manager=memory_manager,
+)
+```
+
+## 多用户支持
+
+单个 `MemoryManager` 实例通过 `user_id` 分区支持多用户：
+
+```python
+# 文件路径：{workspace_dir}/{user_id}/MEMORY.md
+memory_manager.read_memory("U001")    # 读取用户记忆
+memory_manager.write_memory("U001", "## 偏好\n简洁")  # heading upsert
+```
+
+## Migration
+
+- 现有 `MEMORY.md` 文件：无需迁移，直接兼容
+- 旧版 `.memory/` SQLite 目录：已废弃，启动时打印 warning，可安全删除
