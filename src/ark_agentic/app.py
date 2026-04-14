@@ -41,6 +41,7 @@ from fastapi.staticfiles import StaticFiles
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
+from ark_agentic.api import notifications as notifications_api
 from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
 from ark_agentic.studio import setup_studio_from_env
@@ -72,8 +73,53 @@ async def lifespan(app: FastAPI):
         await runner.warmup()
         logger.info("Agent '%s' warmed up", agent_id)
 
+    # ── Job Manager & 通知系统 ────────────────────────────────────────────
+    if _env_flag("ENABLE_JOB_MANAGER"):
+        from ark_agentic.core.notifications.store import NotificationStore
+        from ark_agentic.core.notifications.delivery import NotificationDelivery
+        from ark_agentic.core.jobs.manager import JobManager
+        from ark_agentic.core.jobs.scanner import UserShardScanner
+        from ark_agentic.core.jobs.proactive_service import ProactiveServiceJob
+        from ark_agentic.core.memory.manager import build_memory_manager
+
+        notifications_dir = Path(os.getenv("NOTIFICATIONS_DIR", "data/ark_notifications"))
+        memory_dir = os.getenv("MEMORY_DIR", "data/ark_memory")
+
+        notification_store = NotificationStore(base_dir=notifications_dir)
+        notification_delivery = NotificationDelivery()
+        app.state.notification_store = notification_store
+        app.state.notification_delivery = notification_delivery
+
+        memory_manager = build_memory_manager(memory_dir)
+        scanner = UserShardScanner(
+            memory_manager=memory_manager,
+            max_concurrent=int(os.getenv("JOB_MAX_CONCURRENT", "50")),
+            batch_size=int(os.getenv("JOB_BATCH_SIZE", "500")),
+            shard_index=int(os.getenv("JOB_SHARD_INDEX", "0")),
+            total_shards=int(os.getenv("JOB_TOTAL_SHARDS", "1")),
+        )
+
+        securities_runner = _registry.get("securities")
+        job_manager = JobManager(
+            notification_store=notification_store,
+            delivery=notification_delivery,
+            scanner=scanner,
+        )
+        job_manager.register(ProactiveServiceJob(
+            llm_factory=securities_runner._llm_caller.get_llm,
+            tool_registry=securities_runner.tool_registry,
+        ))
+
+        await job_manager.start()
+        app.state.job_manager = job_manager
+        logger.info("JobManager started")
+
     logger.info("Unified API started with agents: %s", _registry.list_ids())
     yield
+
+    if hasattr(app.state, "job_manager"):
+        await app.state.job_manager.stop()
+        logger.info("JobManager stopped")
 
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
@@ -98,6 +144,7 @@ app.add_middleware(
 
 # ---- 挂载路由 ----
 app.include_router(chat_api.router)
+app.include_router(notifications_api.router)
 setup_studio_from_env(app, registry=_registry)
 
 # ---- 静态文件 & 测试 UI ----
