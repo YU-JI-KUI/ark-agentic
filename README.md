@@ -68,6 +68,22 @@ export API_KEY=sk-xxx
 ark-agentic-api
 ```
 
+### Phoenix 可观测性
+
+项目支持把 LangChain/Agent 链路发送到 Arize Phoenix。
+
+```bash
+export ENABLE_PHOENIX=true
+export PHOENIX_COLLECTOR_ENDPOINT=http://localhost:4317
+export PHOENIX_PROJECT_NAME=ark-agentic
+
+# 可选
+export PHOENIX_AUTO_INSTRUMENT=true
+export PHOENIX_BATCH=true
+```
+
+服务启动后会在 FastAPI lifespan 中自动初始化 Phoenix，并在退出时执行 shutdown 以 flush traces。
+
 ### 端点
 
 ```http
@@ -840,4 +856,3 @@ ark-agentic-api
 - [P2] **Auth Profile / Failover**: 多 API Key 轮换、自动模型降级
 - [P2] **会话写锁**: 防止并发写入冲突
 - [P2] **远程嵌入支持**: OpenAI/Gemini Batch API 批量处理
-

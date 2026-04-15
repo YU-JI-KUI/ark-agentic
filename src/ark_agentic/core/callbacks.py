@@ -72,10 +72,12 @@ class CallbackContext:
         user_input: 原始用户输入
         input_context: 请求级上下文 dict（通过 CallbackResult.context_updates 修改）
         session: 当前 SessionEntry（只读引用）
+        runtime: 当前 run 的临时运行态，仅在本次执行期间可见，不会持久化
     """
     user_input: str
     input_context: dict[str, Any]
     session: "SessionEntry"
+    runtime: dict[str, Any] = field(default_factory=dict)
 
 
 # ============ Hook Protocols ============
@@ -154,3 +156,17 @@ class RunnerCallbacks:
     before_tool: list[BeforeToolCallback] = field(default_factory=list)
     after_tool: list[AfterToolCallback] = field(default_factory=list)
     before_loop_end: list[BeforeLoopEndCallback] = field(default_factory=list)
+
+
+def merge_runner_callbacks(*items: RunnerCallbacks) -> RunnerCallbacks:
+    """Merge callback containers by appending hooks in argument order."""
+    merged = RunnerCallbacks()
+    for item in items:
+        merged.before_agent.extend(item.before_agent)
+        merged.after_agent.extend(item.after_agent)
+        merged.before_model.extend(item.before_model)
+        merged.after_model.extend(item.after_model)
+        merged.before_tool.extend(item.before_tool)
+        merged.after_tool.extend(item.after_tool)
+        merged.before_loop_end.extend(item.before_loop_end)
+    return merged

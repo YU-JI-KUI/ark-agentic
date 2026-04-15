@@ -35,6 +35,7 @@ from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
 from .guardrails.channels import resolve_llm_visible_content
+from .observability import create_tracing_callbacks, phoenix_callbacks_enabled
 from .types import (
     AgentMessage,
     AgentToolResult,
@@ -51,6 +52,38 @@ if TYPE_CHECKING:
     from .jobs.proactive_service import ProactiveServiceJob
 
 logger = logging.getLogger(__name__)
+
+
+def _compose_runner_callbacks(
+    internal: RunnerCallbacks,
+    external: RunnerCallbacks | None,
+) -> RunnerCallbacks:
+    external = external or RunnerCallbacks()
+    return RunnerCallbacks(
+        before_agent=[*internal.before_agent, *external.before_agent],
+        after_agent=[*external.after_agent, *internal.after_agent],
+        before_model=[*internal.before_model, *external.before_model],
+        after_model=[*external.after_model, *internal.after_model],
+        before_tool=[*internal.before_tool, *external.before_tool],
+        after_tool=[*external.after_tool, *internal.after_tool],
+        before_loop_end=[*external.before_loop_end, *internal.before_loop_end],
+    )
+
+
+def _build_runner_callbacks(
+    *,
+    config: RunnerConfig,
+    callbacks: RunnerCallbacks | None,
+) -> RunnerCallbacks:
+    if not phoenix_callbacks_enabled():
+        return callbacks or RunnerCallbacks()
+    return _compose_runner_callbacks(
+        create_tracing_callbacks(
+            agent_id=config.skill_config.agent_id,
+            agent_name=config.prompt_config.agent_name,
+        ),
+        callbacks,
+    )
 
 
 # ============ Runner Config ============
@@ -180,7 +213,10 @@ class AgentRunner:
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
 
-        self._callbacks = callbacks or RunnerCallbacks()
+        self._callbacks = _build_runner_callbacks(
+            config=self.config,
+            callbacks=callbacks,
+        )
 
         self._memory_manager = memory_manager
         self._proactive_job = proactive_job
@@ -274,7 +310,6 @@ class AgentRunner:
         """
         input_context = input_context or {}
         params = self._resolve_run_params(run_options)
-
         prepared = await self._prepare_session(
             session_id,
             user_id,
@@ -283,6 +318,16 @@ class AgentRunner:
             handler=handler,
             history=history,
             use_history=use_history,
+            runtime={
+                "run": {
+                "user_id": user_id,
+                "stream": stream,
+                "model": params.model,
+                "skill_load_mode": params.skill_load_mode,
+                "agent_id": self.config.skill_config.agent_id,
+                "agent_name": self.config.prompt_config.agent_name,
+            }
+        },
         )
         if isinstance(prepared, RunResult):
             return prepared
@@ -301,6 +346,7 @@ class AgentRunner:
         finally:
             await self.session_manager.sync_pending_messages(session_id, user_id)
 
+        cb_ctx.runtime["run_result"] = result
         await self._finalize_run(session_id, user_id, result, cb_ctx, handler)
         return result
 
@@ -342,14 +388,19 @@ class AgentRunner:
         handler: AgentEventHandler | None,
         history: list[dict[str, Any]] | None,
         use_history: bool,
+        runtime: dict[str, Any] | None = None,
     ) -> RunResult | CallbackContext:
         """Lazy init, before_agent hooks, context merge, history merge, record user message, auto-compact.
 
         Returns RunResult on halt (early exit), CallbackContext on success.
         """
         session = self.session_manager.get_session_required(session_id)
+        session.user_id = user_id
         cb_ctx = CallbackContext(
-            user_input=user_input, input_context=input_context, session=session
+            user_input=user_input,
+            input_context=input_context,
+            session=session,
+            runtime=runtime or {},
         )
 
         r = await self._run_hooks(
@@ -365,7 +416,18 @@ class AgentRunner:
             resp = r.response or AgentMessage.assistant("")
             self.session_manager.add_message_sync(session_id, resp)
             await self.session_manager.sync_pending_messages(session_id, user_id)
-            return RunResult(response=resp)
+            result = RunResult(response=resp)
+            cb_ctx.runtime["run_result"] = result
+            cb_result = await self._run_hooks(
+                self._callbacks.after_agent,
+                cb_ctx,
+                response=result.response,
+                context=cb_ctx.input_context,
+                handler=handler,
+            )
+            if cb_result and cb_result.response is not None:
+                result.response = cb_result.response
+            return result
 
         input_context = cb_ctx.input_context
         self._merge_input_context(session, input_context)
@@ -665,6 +727,12 @@ class AgentRunner:
         cb_ctx: CallbackContext | None,
     ) -> AgentMessage | RunResult:
         """before_model → LLM call → after_model → persist → tokens → finish_reason."""
+        if cb_ctx is not None:
+            cb_ctx.runtime["model_phase"] = {
+                "streaming": use_streaming,
+                "tool_schema_count": len(tools),
+                "model_override": model_override or self.config.model,
+            }
         bm = await self._run_hooks(
             self._callbacks.before_model,
             cb_ctx,
@@ -704,6 +772,8 @@ class AgentRunner:
                         temperature_override=temperature_override,
                     )
             except LLMError as e:
+                if cb_ctx is not None:
+                    cb_ctx.runtime["model_error"] = e
                 logger.error(
                     "[LLM_ERROR] turn=%d reason=%s retryable=%s",
                     ls.turns,
