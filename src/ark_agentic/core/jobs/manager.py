@@ -23,6 +23,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# 全局单例：app.py 启动时设置，AgentRunner.warmup() 时取用
+_global_job_manager: "JobManager | None" = None
+
+
+def get_job_manager() -> "JobManager | None":
+    """返回全局 JobManager 实例，未初始化时返回 None。"""
+    return _global_job_manager
+
+
+def set_job_manager(manager: "JobManager") -> None:
+    """由 app.py lifespan 设置全局实例。"""
+    global _global_job_manager
+    _global_job_manager = manager
+
 
 class JobManager:
     """统一 Job 调度管理器"""
@@ -31,17 +45,13 @@ class JobManager:
         self,
         notification_store: "NotificationStore",
         delivery: "NotificationDelivery",
-        scanner: "UserShardScanner | None" = None,
+        scanner: "UserShardScanner",
     ) -> None:
         self._store = notification_store
         self._delivery = delivery
-        self._scanner = scanner  # 延迟注入，start() 时若仍为 None 则报错
+        self._scanner = scanner
         self._jobs: dict[str, "BaseJob"] = {}
         self._scheduler = AsyncIOScheduler()
-
-    def set_scanner(self, scanner: "UserShardScanner") -> None:
-        """注入 UserShardScanner（用于解决循环依赖）。"""
-        self._scanner = scanner
 
     def register(self, job: "BaseJob") -> None:
         """注册一个 Job。"""
@@ -69,9 +79,7 @@ class JobManager:
         )
 
     async def start(self) -> None:
-        """启动调度器（在 FastAPI lifespan 中调用）。"""
-        if self._scanner is None:
-            raise RuntimeError("UserShardScanner not set. Call set_scanner() before start().")
+        """启动调度器（在 FastAPI lifespan 中调用，需在所有 agent warmup 之后）。"""
         self._scheduler.start()
         logger.info("JobManager started with jobs: %s", list(self._jobs.keys()))
 
@@ -108,7 +116,7 @@ class JobManager:
 
         logger.info("Starting job '%s'", job_id)
         try:
-            stats = await self._scanner.scan(job, self._store, self._delivery)
+            stats = await self._scanner.scan(job, self._delivery)
             logger.info("Job '%s' completed: %s", job_id, stats.summary())
         except Exception as e:
             logger.error("Job '%s' failed: %s", job_id, e, exc_info=True)

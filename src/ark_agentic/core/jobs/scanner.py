@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..memory.manager import MemoryManager
     from ..notifications.delivery import NotificationDelivery
     from ..notifications.store import NotificationStore
     from .base import BaseJob, JobRunStats
@@ -33,18 +32,22 @@ def _chunks(lst: list, n: int):
 
 
 class UserShardScanner:
-    """大规模用户分片扫描器"""
+    """大规模用户分片扫描器
+
+    不持有全局 MemoryManager——每次 scan() 时从 job.memory_manager 取，
+    这样每个 Agent 的 Job 都能正确扫到自己的子目录：
+      insurance job → data/ark_memory/insurance/{user_id}/MEMORY.md
+      securities job → data/ark_memory/securities/{user_id}/MEMORY.md
+    """
 
     def __init__(
         self,
-        memory_manager: "MemoryManager",
         max_concurrent: int = 50,
         batch_size: int = 500,
         user_timeout: float = 30.0,
         shard_index: int = 0,
         total_shards: int = 1,
     ) -> None:
-        self._memory_manager = memory_manager
         self._max_concurrent = max_concurrent
         self._batch_size = batch_size
         self._user_timeout = user_timeout
@@ -54,8 +57,8 @@ class UserShardScanner:
     async def scan(
         self,
         job: "BaseJob",
-        store: "NotificationStore",
         delivery: "NotificationDelivery",
+        store: "NotificationStore | None" = None,
     ) -> "JobRunStats":
         """扫描所有用户，对有意图的用户调用 Job 处理逻辑。"""
         from .base import JobRunStats
@@ -63,7 +66,12 @@ class UserShardScanner:
         stats = JobRunStats()
         semaphore = asyncio.Semaphore(self._max_concurrent)
 
-        memory_base = Path(self._memory_manager.config.workspace_dir)
+        # 优先使用 job 自己的 notification_store（按 agent 隔离），
+        # store 参数保留作后备（兼容测试场景直接传入）
+        effective_store = store if store is not None else job.notification_store
+
+        # 从 job 自身取 memory 根目录（每个 Agent 子目录不同）
+        memory_base = Path(job.memory_manager.config.workspace_dir)
 
         # 目录列举放线程池，避免阻塞事件循环
         all_users = await asyncio.to_thread(self._list_and_sort_users, memory_base)
@@ -72,7 +80,7 @@ class UserShardScanner:
 
         async def _process_one(user_id: str) -> None:
             async with semaphore:
-                await self._process_user_safe(user_id, job, store, delivery, stats)
+                await self._process_user_safe(user_id, job, effective_store, delivery, stats)
 
         for batch in _chunks(all_users, self._batch_size):
             tasks = [_process_one(uid) for uid in batch]
@@ -121,7 +129,7 @@ class UserShardScanner:
     ) -> None:
         """带超时、异常隔离的单用户处理。"""
         try:
-            memory = self._memory_manager.read_memory(user_id)
+            memory = job.memory_manager.read_memory(user_id)
             if not memory:
                 stats.skipped += 1
                 return
@@ -132,7 +140,7 @@ class UserShardScanner:
                 return
 
             # 幂等检查：本次 Job 运行已处理过此用户则跳过
-            if self._is_already_processed_today(user_id, job.meta.job_id):
+            if self._is_already_processed_today(user_id, job):
                 stats.skipped += 1
                 return
 
@@ -149,7 +157,7 @@ class UserShardScanner:
                 stats.skipped += 1
 
             # 更新处理时间戳（幂等保护）
-            self._touch_last_job(user_id, job.meta.job_id)
+            self._touch_last_job(user_id, job)
 
         except asyncio.TimeoutError:
             stats.timed_out += 1
@@ -158,13 +166,14 @@ class UserShardScanner:
             stats.errors += 1
             logger.error("Job %s error for user %s: %s", job.meta.job_id, user_id, e, exc_info=True)
 
-    def _last_job_path(self, user_id: str, job_id: str) -> Path:
-        base = Path(self._memory_manager.config.workspace_dir)
-        return base / user_id / f".last_job_{job_id}"
+    def _last_job_path(self, user_id: str, job: "BaseJob") -> Path:
+        # 幂等文件存在 job 自己的 memory 子目录下，与 Agent 隔离
+        base = Path(job.memory_manager.config.workspace_dir)
+        return base / user_id / f".last_job_{job.meta.job_id}"
 
-    def _is_already_processed_today(self, user_id: str, job_id: str) -> bool:
+    def _is_already_processed_today(self, user_id: str, job: "BaseJob") -> bool:
         """检查今天是否已经处理过（防止 Job 重启后重复处理）。"""
-        p = self._last_job_path(user_id, job_id)
+        p = self._last_job_path(user_id, job)
         if not p.exists():
             return False
         try:
@@ -174,9 +183,9 @@ class UserShardScanner:
         except (ValueError, OSError):
             return False
 
-    def _touch_last_job(self, user_id: str, job_id: str) -> None:
+    def _touch_last_job(self, user_id: str, job: "BaseJob") -> None:
         """写入当前时间戳作为最后处理时间。"""
-        p = self._last_job_path(user_id, job_id)
+        p = self._last_job_path(user_id, job)
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(str(time.time()), encoding="utf-8")
