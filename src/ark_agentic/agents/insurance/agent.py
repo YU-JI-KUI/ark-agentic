@@ -15,12 +15,14 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+# from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard, make_before_agent_callback  # DEBUG: 暂时禁用准入拦截
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.guardrails import create_guardrails_callbacks
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
+from ark_agentic.core.callbacks import RunnerCallbacks
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
@@ -46,6 +48,7 @@ def create_insurance_agent(
     *,
     enable_memory: bool = False,
     enable_thinking_tags: bool = False,
+    proactive_cron: str = "26 23 * * *",
 ) -> AgentRunner:
     """创建保险智能体
 
@@ -107,6 +110,20 @@ def create_insurance_agent(
         skill_config=skill_config,
     )
 
+    # 构建保险专属主动服务 Job（memory 启用时），随 runner 一起交给框架调度
+    proactive_job = None
+    if memory_manager is not None:
+        assert llm is not None  # llm 在函数入口已初始化，此处不可能为 None
+        from .proactive_job import InsuranceProactiveJob
+        _llm = llm  # 收窄类型：BaseChatModel | None → BaseChatModel
+        proactive_job = InsuranceProactiveJob(
+            job_id="proactive_service_insurance",
+            llm_factory=lambda: _llm,
+            tool_registry=tool_registry,
+            memory_manager=memory_manager,
+            cron=proactive_cron,
+        )
+
     return AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
@@ -114,5 +131,8 @@ def create_insurance_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
-        callbacks=create_guardrails_callbacks(agent_id="insurance"),
+        callbacks=RunnerCallbacks(
+            # before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],  # DEBUG: 暂时禁用准入拦截
+        ),
+        proactive_job=proactive_job,
     )

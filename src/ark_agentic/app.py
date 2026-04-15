@@ -41,6 +41,7 @@ from fastapi.staticfiles import StaticFiles
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
+from ark_agentic.api import notifications as notifications_api
 from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
 from ark_agentic.core.observability import (
@@ -62,10 +63,39 @@ def _env_flag(name: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── Step 1: 先初始化 JobManager 全局单例（如果启用）────────────────────
+    # 必须在 agent warmup 之前设置，因为 warmup 时会自动向 JobManager 注册 Job
+    if _env_flag("ENABLE_JOB_MANAGER"):
+        from ark_agentic.core.notifications.store import NotificationStore
+        from ark_agentic.core.notifications.delivery import NotificationDelivery
+        from ark_agentic.core.jobs.manager import JobManager, set_job_manager
+        from ark_agentic.core.jobs.scanner import UserShardScanner
+        from ark_agentic.core.paths import get_notifications_base_dir
+
+        notification_store = NotificationStore(base_dir=get_notifications_base_dir())
+        notification_delivery = NotificationDelivery()
+        app.state.notification_store = notification_store
+        app.state.notification_delivery = notification_delivery
+
+        scanner = UserShardScanner(
+            max_concurrent=int(os.getenv("JOB_MAX_CONCURRENT", "50")),
+            batch_size=int(os.getenv("JOB_BATCH_SIZE", "500")),
+            shard_index=int(os.getenv("JOB_SHARD_INDEX", "0")),
+            total_shards=int(os.getenv("JOB_TOTAL_SHARDS", "1")),
+        )
+        job_manager = JobManager(
+            notification_store=notification_store,
+            delivery=notification_delivery,
+            scanner=scanner,
+        )
+        set_job_manager(job_manager)  # 设置全局单例
+        app.state.job_manager = job_manager
+
     phoenix_enabled = phoenix_callbacks_enabled()
     if phoenix_enabled:
         init_phoenix(service_name="ark-agentic-api")
 
+    # ── Step 2: 创建并注册 Agents ────────────────────────────────────────
     _registry.register("insurance", create_insurance_agent(
         enable_memory=_env_flag("ENABLE_MEMORY"),
         enable_thinking_tags=_env_flag("ENABLE_THINKING_TAGS"),
@@ -76,13 +106,23 @@ async def lifespan(app: FastAPI):
 
     api_deps.init_registry(_registry)
 
+    # ── Step 3: warmup 各 Agent（memory 已启用的会自动注册 Job）─────────────
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
         await runner.warmup()
         logger.info("Agent '%s' warmed up", agent_id)
 
+    # ── Step 4: 所有 Job 注册完毕，启动调度器 ─────────────────────────────
+    if hasattr(app.state, "job_manager"):
+        await app.state.job_manager.start()
+        logger.info("JobManager started")
+
     logger.info("Unified API started with agents: %s", _registry.list_ids())
     yield
+
+    if hasattr(app.state, "job_manager"):
+        await app.state.job_manager.stop()
+        logger.info("JobManager stopped")
 
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
@@ -109,6 +149,7 @@ app.add_middleware(
 
 # ---- 挂载路由 ----
 app.include_router(chat_api.router)
+app.include_router(notifications_api.router)
 setup_studio_from_env(app, registry=_registry)
 
 # ---- 静态文件 & 测试 UI ----

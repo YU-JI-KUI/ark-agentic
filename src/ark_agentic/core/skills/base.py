@@ -148,19 +148,12 @@ def _escape_xml(text: str) -> str:
     )
 
 
-SKILLS_HEADER = (
-    "以下技能提供特定任务的专业指令。\n"
-    "在任务匹配其描述时，使用 read_skill 工具加载技能。\n"
-)
-
 LOAD_ONE_SKILL_INSTRUCTIONS = """\
-## 技能（业务必选协议）
-在回复任何业务相关问题之前，你必须执行以下步骤：
-1. 扫描 <available_skills>，根据 <description> 识别匹配的技能。
-2. 如果某个技能匹配（即使只是部分匹配）：调用 `read_skill` 并传入对应 <id>，然后严格按照返回的指令执行。
-3. 如果多个技能可能适用：选择最具体的那个，调用 `read_skill`。
-4. 仅当用户的问题与所有已列技能完全无关时（如日常寒暄、通用知识问题），才可直接回复而不加载技能。
-重要：业务类问题必须通过技能处理，禁止用通用回答替代技能流程。
+## 技能（mandatory）
+回复前扫描 <available_skills> 中每个技能的 <description>。
+- 恰好一个技能匹配（即使只是部分匹配）：调用 `read_skill` 加载该技能，然后严格按返回的指令执行。
+- 多个技能可能匹配：选择最具体的，调用 `read_skill` 后执行。
+- 仅当用户问题与所有已列技能完全无关时（如日常寒暄、通用知识），才可直接回复。
 约束：每轮最多读取一个技能；必须先选定再读取。"""
 
 
@@ -262,7 +255,7 @@ def format_skills_metadata_for_prompt(
     text, _ = _apply_budget(
         skills, sc.max_skills_in_prompt, sc.max_skills_prompt_chars, formatter,
     )
-    return SKILLS_HEADER + "\n" + text
+    return text
 
 
 _LEADING_H1_RE = re.compile(r"^\s*#\s+.+", re.MULTILINE)

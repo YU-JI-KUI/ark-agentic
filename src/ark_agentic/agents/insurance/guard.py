@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -19,11 +20,19 @@ from ark_agentic.core.callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
+    HookAction,
 )
 from ark_agentic.core.guard import GuardResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 logger = logging.getLogger(__name__)
+
+_ADJUST_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"只看|不要|不算|不含|换个|多取|少取|调整|零成本|不影响保障"),
+    re.compile(r"^(好的|继续|确认|就这样|算了|再看看|第[一二三]个|方案[一二三123])"),
+]
+
+_NEGATIVE_AMOUNT_RE: re.Pattern[str] = re.compile(r"-\s*\d+")
 
 _SYSTEM_PROMPT = """你是保险取款业务准入分类器。根据对话上下文，判断最新一条用户输入是否属于受理范围。
 
@@ -49,6 +58,9 @@ _SYSTEM_PROMPT = """你是保险取款业务准入分类器。根据对话上下
 用户：怎么理赔 → {"accepted":false,"message":"理赔非取款业务范围"}
 用户：我要交保费 → {"accepted":false,"message":"保费非取款业务范围"}
 用户：今天天气怎么样 → {"accepted":false,"message":"非保险业务范围"}
+用户：只看零成本 → {"accepted":true}（方案筛选调整）
+用户：不要贷款的方案 → {"accepted":true}（方案调整）
+用户：取-10000 → {"accepted":true}（金额由业务层校验）
 
 受理返回 {"accepted":true}，拒绝返回 {"accepted":false,"message":"<简短拒绝原因>"}。
 只返回 JSON，不要任何其他内容。""".strip()
@@ -69,12 +81,34 @@ class InsuranceIntakeGuard:
         else:
             self._llm = llm
 
+    def _pre_check(
+        self,
+        user_input: str,
+        history: list[AgentMessage] | None,
+    ) -> GuardResult | None:
+        """Deterministic pre-check: returns result if conclusive, None to defer to LLM."""
+        stripped = user_input.strip()
+
+        # Negative amount → let through, downstream tool validates
+        if _NEGATIVE_AMOUNT_RE.search(stripped):
+            return GuardResult(accepted=True)
+
+        # If there's conversation history (context exists), accept adjustment phrases
+        if history and any(p.search(stripped) for p in _ADJUST_PATTERNS):
+            return GuardResult(accepted=True)
+
+        return None
+
     async def check(
         self,
         user_input: str,
         context: dict[str, Any] | None = None,
         history: list[AgentMessage] | None = None,
     ) -> GuardResult:
+        pre = self._pre_check(user_input, history)
+        if pre is not None:
+            return pre
+
         messages: list[BaseMessage] = [SystemMessage(content=_SYSTEM_PROMPT)]
         if history:
             relevant = [
@@ -117,7 +151,7 @@ def make_before_agent_callback(
         if not result.accepted:
             logger.info("Intake guard rejected: %s", result.message)
             return CallbackResult(
-                halt=True,
+                action=HookAction.ABORT,
                 response=AgentMessage.assistant(result.message or ""),
                 event=CallbackEvent(
                     type="intake_rejected",

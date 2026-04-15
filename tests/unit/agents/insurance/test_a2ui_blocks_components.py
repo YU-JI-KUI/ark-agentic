@@ -274,6 +274,13 @@ class TestWithdrawPlanCard:
         for btn in buttons:
             assert btn["component"]["Button"]["type"] == "secondary"
 
+    def test_state_delta_clears_submitted_channels(self):
+        output = build_withdraw_plan_card(
+            {"channels": ["survival_fund", "bonus"], "target": 10000, "title": "T"},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        assert output.state_delta["_submitted_channels"] == []
+
 
 # ============ Agent Pipeline (Card expansion) ============
 
@@ -381,6 +388,18 @@ class TestAgentPipeline:
         root = result.content["components"][0]
         root_children = root["component"]["Column"]["children"]["explicitList"]
         assert len(root_children) == 3
+
+    @pytest.mark.asyncio
+    async def test_plan_card_pipeline_clears_submitted_channels(self, tool, ctx):
+        blocks = json.dumps([
+            {"type": "WithdrawPlanCard", "data": {
+                "channels": ["survival_fund", "bonus"], "target": 10000, "title": "Zero-cost",
+            }},
+        ])
+        tc = ToolCall.create("render_a2ui", {"blocks": blocks})
+        result = await tool.execute(tc, context=ctx)
+        assert not result.is_error
+        assert result.metadata["state_delta"]["_submitted_channels"] == []
 
     @pytest.mark.asyncio
     async def test_transform_resolution_in_card_children(self, tool, ctx):

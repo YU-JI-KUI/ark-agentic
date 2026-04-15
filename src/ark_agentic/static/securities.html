@@ -131,6 +131,124 @@
       background: rgba(255, 255, 255, 0.38);
     }
 
+    /* Notification bell */
+    .notif-btn {
+      position: relative;
+      background: rgba(255, 255, 255, 0.22);
+      border: none;
+      color: var(--white);
+      border-radius: 8px;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .notif-btn:hover { background: rgba(255, 255, 255, 0.38); }
+    .notif-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      background: #ff4d4f;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      min-width: 16px;
+      height: 16px;
+      border-radius: 8px;
+      padding: 0 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      pointer-events: none;
+    }
+    .notif-badge.hidden { display: none; }
+
+    /* Notification dropdown */
+    .notif-dropdown {
+      position: absolute;
+      top: 48px;
+      right: 12px;
+      width: 320px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      z-index: 999;
+      overflow: hidden;
+      display: none;
+    }
+    .notif-dropdown.open { display: block; }
+    .notif-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px 10px;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+    }
+    .notif-mark-all {
+      font-size: 11px;
+      font-weight: 400;
+      color: #7c3aed;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .notif-mark-all:hover { text-decoration: underline; }
+    .notif-list { max-height: 360px; overflow-y: auto; }
+    .notif-item {
+      display: flex;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid #f7f7f7;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .notif-item:last-child { border-bottom: none; }
+    .notif-item:hover { background: #fafafa; }
+    .notif-item.unread { background: #f5f3ff; }
+    .notif-item.unread:hover { background: #ede9fe; }
+    .notif-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #7c3aed;
+      flex-shrink: 0;
+      margin-top: 5px;
+    }
+    .notif-item.read .notif-dot { background: transparent; }
+    .notif-body { flex: 1; min-width: 0; }
+    .notif-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 2px;
+    }
+    .notif-text {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .notif-time {
+      font-size: 10px;
+      color: #aaa;
+      margin-top: 3px;
+    }
+    .notif-empty {
+      padding: 32px 16px;
+      text-align: center;
+      font-size: 13px;
+      color: #bbb;
+    }
+
     /* User selector */
     .user-select {
       background: rgba(255, 255, 255, 0.22);
@@ -1648,6 +1766,25 @@
           <span>证券服务</span>
         </div>
         <div class="header-right">
+        <!-- Notification Bell -->
+        <button class="notif-btn" id="notifBtn" title="通知">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          <span class="notif-badge hidden" id="notifBadge">0</span>
+        </button>
+        <!-- Notification Dropdown -->
+        <div class="notif-dropdown" id="notifDropdown">
+          <div class="notif-header">
+            <span>通知</span>
+            <button class="notif-mark-all" id="notifMarkAll">全部标为已读</button>
+          </div>
+          <div class="notif-list" id="notifList">
+            <div class="notif-empty">暂无通知</div>
+          </div>
+        </div>
         <select class="user-select" id="agentSelect">
           <option value="insurance">保险</option>
           <option value="securities" selected>证券</option>
@@ -2001,6 +2138,153 @@
       const $ctxMockDesc = document.getElementById('ctxMockDesc');
       let ctxMockEnabled = true; // 本地暂存，Apply 时提交
 
+      // ---- Notification system (SSE + REST) ----
+      const $notifBtn = document.getElementById('notifBtn');
+      const $notifBadge = document.getElementById('notifBadge');
+      const $notifDropdown = document.getElementById('notifDropdown');
+      const $notifList = document.getElementById('notifList');
+      const $notifMarkAll = document.getElementById('notifMarkAll');
+
+      let notifications = [];
+
+      function formatTime(ts) {
+        const diff = Math.floor((Date.now() - ts) / 1000);
+        if (diff < 60) return '刚刚';
+        if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+        if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+        return Math.floor(diff / 86400) + ' 天前';
+      }
+
+      function renderNotifications() {
+        const unread = notifications.filter(n => !n.read).length;
+        if (unread > 0) {
+          $notifBadge.textContent = unread > 99 ? '99+' : unread;
+          $notifBadge.classList.remove('hidden');
+        } else {
+          $notifBadge.classList.add('hidden');
+        }
+        if (notifications.length === 0) {
+          $notifList.innerHTML = '<div class="notif-empty">暂无通知</div>';
+          return;
+        }
+        $notifList.innerHTML = notifications.map(n => `
+          <div class="notif-item ${n.read ? 'read' : 'unread'}" data-id="${n.id}">
+            <div class="notif-dot"></div>
+            <div class="notif-body">
+              <div class="notif-title">${n.title}</div>
+              <div class="notif-text">${n.body}</div>
+              <div class="notif-time">${formatTime(n.time)}</div>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      async function markReadRemote(userId, ids) {
+        try {
+          await fetch(`/api/notifications/securities/${userId}/read`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+          });
+        } catch (_) {}
+      }
+
+      function markRead(id) {
+        const n = notifications.find(n => n.id === id);
+        if (n && !n.read) {
+          n.read = true;
+          renderNotifications();
+          markReadRemote(selectedUserId, [id]);
+        }
+      }
+
+      function markAllRead() {
+        const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+        notifications.forEach(n => n.read = true);
+        renderNotifications();
+        if (unreadIds.length > 0) markReadRemote(selectedUserId, unreadIds);
+      }
+
+      function injectNotification(notif) {
+        notifications.unshift({ ...notif, read: false, time: Date.now() });
+        renderNotifications();
+        $notifBtn.animate([
+          { transform: 'rotate(0deg)' },
+          { transform: 'rotate(-15deg)' },
+          { transform: 'rotate(15deg)' },
+          { transform: 'rotate(-10deg)' },
+          { transform: 'rotate(10deg)' },
+          { transform: 'rotate(0deg)' },
+        ], { duration: 500, easing: 'ease-in-out' });
+      }
+
+      async function fetchNotifications(userId) {
+        try {
+          const res = await fetch(`/api/notifications/securities/${userId}?limit=50`);
+          if (!res.ok) return;
+          const data = await res.json();
+          notifications = (data.notifications || []).map(n => ({
+            id: n.notification_id,
+            title: n.title,
+            body: n.body,
+            time: n.created_at * 1000,
+            read: n.read,
+          }));
+          renderNotifications();
+        } catch (_) {}
+      }
+
+      function connectNotifStream(userId) {
+        if (window._notifEvtSource) {
+          window._notifEvtSource.close();
+        }
+        notifications = [];
+        renderNotifications();
+        fetchNotifications(userId);
+
+        const src = new EventSource(`/api/notifications/securities/${userId}/stream`);
+        src.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'new_notification') {
+              injectNotification({
+                id: msg.data.notification_id,
+                title: msg.data.title,
+                body: msg.data.body,
+                time: msg.data.created_at * 1000,
+              });
+            }
+          } catch (_) {}
+        };
+        src.onerror = () => src.close();
+        window._notifEvtSource = src;
+      }
+
+      // Toggle dropdown
+      $notifBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        $notifDropdown.classList.toggle('open');
+      });
+
+      // 点击通知条目 → 标为已读
+      $notifList.addEventListener('click', (e) => {
+        const item = e.target.closest('.notif-item');
+        if (item) markRead(item.dataset.id);
+      });
+
+      $notifMarkAll.addEventListener('click', markAllRead);
+
+      // 点击外部关闭
+      document.addEventListener('click', (e) => {
+        if (!$notifBtn.contains(e.target) && !$notifDropdown.contains(e.target)) {
+          $notifDropdown.classList.remove('open');
+        }
+      });
+
+      // 初始化：渲染 + 连接 SSE
+      renderNotifications();
+      connectNotifStream(selectedUserId);
+
       // ---- Init user selector ----
       $userSelect.value = selectedUserId;
       if ($userSelect.value !== selectedUserId) {
@@ -2026,6 +2310,7 @@
           selectedUserId = $userSelect.value;
         }
         sessionStorage.setItem('ark_user_id', selectedUserId);
+        connectNotifStream(selectedUserId);
       });
 
       // ---- Agent selector → 整页跳转 ----

@@ -35,7 +35,7 @@ class PromptConfig:
     include_model_info: bool = False
     model_name: str = ""
 
-    # 全局协议（identity/runtime 之后、user_profile 之前注入）
+    # 全局协议（identity/runtime 之后注入）
     system_protocol: str = ""
 
     # 自定义指令
@@ -49,6 +49,29 @@ class PromptConfig:
 
 
 _UNWRAPPED_SECTIONS = frozenset({"identity"})
+
+MEMORY_WRITE_PROTOCOL = """\
+你拥有持久化记忆能力（memory_write 工具），可增量更新用户长期偏好。
+
+### 保存规则
+回复前判断：偏好/身份/批评/持久决策/用户要求记住 → 先 memory_write 再回复。
+不记录：临时查询、公开数据、已存在的信息、寒暄。
+
+**示例：**
+- "好啰嗦，简洁点" → 批评 = 偏好（要简洁）→ memory_write
+- "我是张经理，在平安工作" → 身份信息 → memory_write
+- "以后贷款渠道都不要" → 持久决策 → memory_write
+- "查一下我的保单" → 一次性查询 → 不保存
+
+### 增量更新
+memory_write 只写变化的标题，其他自动保留。
+- 新增/修改：`## 标题\\n内容`（同名覆盖）
+- 删除：`## 标题\\n`（空内容自动移除）
+
+### 标题规范
+简短通用分类：## 身份信息、## 回复风格、## 业务偏好、## 风险偏好
+避免过于具体的标题（如 ## 2026年3月保单贷款策略 → 应归入 ## 业务偏好）
+写入前检查已有标题，优先复用。"""
 
 
 
@@ -113,18 +136,22 @@ class SystemPromptBuilder:
 
         return self
 
+    def add_memory_instructions(self) -> SystemPromptBuilder:
+        """添加 memory 写入协议（always-on，无需 profile 数据）"""
+        self._sections.append(("memory", MEMORY_WRITE_PROTOCOL))
+        return self
+
     def add_user_profile(self, content: str) -> SystemPromptBuilder:
-        """添加用户画像（MEMORY.md 内容），以指令形式注入"""
+        """添加用户画像（MEMORY.md 内容），仅含读取/应用规则 + 数据"""
         if content.strip():
             section = (
-                "以下是该用户的持久化记忆。每次回复和工具调用时主动遵守。\n\n"
-                "**读取**：调用工具前检查偏好约束；展示结果时排除用户拒绝的选项；措辞匹配风格偏好。\n\n"
-                "**写入**（memory_write，先写后回复）：\n"
-                "保存 → 偏好表达、身份信息、纠正/批评、持久决策、用户要求记住的\n"
-                "不保存 → 临时查询、已存在的信息、寒暄、可从上下文推导的事实\n\n"
+                "以下是该用户的持久化偏好，每次回复和工具调用时主动遵守：\n"
+                "- 调用工具前，检查是否有相关偏好约束，据此过滤参数或排除选项\n"
+                "- 展示结果时，排除用户已明确拒绝的类型\n"
+                "- 措辞匹配用户的风格偏好\n\n"
                 + content.strip()
             )
-            self._sections.append(("memory", section))
+            self._sections.append(("user_profile", section))
         return self
 
     def add_tools(
@@ -247,8 +274,7 @@ class SystemPromptBuilder:
         if effective_config.system_protocol:
             builder.add_section("system_protocol", effective_config.system_protocol)
 
-        if user_profile_content:
-            builder.add_user_profile(user_profile_content)
+        builder.add_memory_instructions()
         if tools:
             builder.add_tools(tools, include_params=include_tool_params)
         if skills:
@@ -257,6 +283,8 @@ class SystemPromptBuilder:
             builder.add_context(context)
         if effective_config.thinking_tag_instructions:
             builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
+        if user_profile_content:
+            builder.add_user_profile(user_profile_content)
         builder.add_custom_instructions()
 
         return builder.build()

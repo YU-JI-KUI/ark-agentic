@@ -236,6 +236,8 @@ def _plans_from_spec(
                 actual_total = sum(a for _, _, a in allocs)
 
         policies, buttons = _allocs_to_plan_parts(allocs)
+        # Derive channels from actual allocations (single source of truth)
+        actual_channels = list(dict.fromkeys(ch for _, ch, _ in allocs))
         plans.append({
             "title": spec.get("title") or "",
             "tag": spec.get("tag") or "",
@@ -243,7 +245,7 @@ def _plans_from_spec(
             "reason": spec.get("reason") or "",
             "policies": policies,
             "buttons": buttons,
-            "channels": channels,
+            "channels": actual_channels,
             "allocs": allocs,
         })
     return plans
@@ -304,21 +306,23 @@ def _generate_plans(
     if target <= 0:
         allocs = _allocate_to_target(options, all_total, active)
         policies, buttons = _allocs_to_plan_parts(allocs)
+        used_channels = list(dict.fromkeys(ch for _, ch, _ in allocs))
         plans.append({"title": "全部可用渠道", "tag": "", "total": all_total,
                        "reason": "以下为所有可用的取款渠道及金额。",
                        "policies": policies, "buttons": buttons,
-                       "channels": list(active), "allocs": allocs})
+                       "channels": used_channels, "allocs": allocs})
         return plans
 
     if all_total < target:
         allocs = _allocate_to_target(options, all_total, active)
         policies, buttons = _allocs_to_plan_parts(allocs)
+        used_channels = list(dict.fromkeys(ch for _, ch, _ in allocs))
         plans.append({
             "title": f"最大可取（不足目标 {_fmt(target)}）", "tag": "",
             "total": all_total,
             "reason": f"所有渠道合计 {_fmt(all_total)}，无法满足目标 {_fmt(target)}。",
             "policies": policies, "buttons": buttons,
-            "channels": list(active), "allocs": allocs,
+            "channels": used_channels, "allocs": allocs,
         })
         return plans
 
@@ -352,10 +356,11 @@ def _generate_plans(
             alt_allocs = _allocate_to_target(options, target, cat_channels)
             alt_policies, alt_buttons = _allocs_to_plan_parts(alt_allocs)
             alt_name, alt_tag, alt_reason = _CAT_META[cat]
+            alt_used_channels = list(dict.fromkeys(ch for _, ch, _ in alt_allocs))
             plans.append({
                 "title": alt_name, "tag": alt_tag, "total": target,
                 "reason": alt_reason, "policies": alt_policies, "buttons": alt_buttons,
-                "channels": list(cat_channels), "allocs": alt_allocs,
+                "channels": alt_used_channels, "allocs": alt_allocs,
             })
 
     return plans
@@ -382,6 +387,12 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
     options: list[dict[str, Any]] = rule_data.get("options", [])
     args = card_args or {}
     requested_amount = float(rule_data.get("requested_amount") or 0)
+    if requested_amount < 0:
+        return A2UIOutput(
+            template_data={},
+            llm_digest="输入金额无效：取款金额必须为正数，请重新输入。",
+            state_delta=None,
+        )
 
     exclude_pids = set(args.get("exclude_policies") or [])
     if exclude_pids:
@@ -440,7 +451,8 @@ def withdraw_plan_extractor(context: dict[str, Any], card_args: dict[str, Any] |
     plan_allocations: list[dict[str, Any]] = []
     for plan in plans:
         allocs = plan.get("allocs", [])
-        channels = plan.get("channels", [])
+        # Derive channels from actual allocations (single source of truth)
+        channels = list(dict.fromkeys(ch for _, ch, _ in allocs))
         title = plan["title"]
         total = plan["total"]
         detail = "; ".join(f"{pid}({ch}) ¥{amt:,.2f}" for pid, ch, amt in allocs)

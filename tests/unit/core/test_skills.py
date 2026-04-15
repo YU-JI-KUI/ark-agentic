@@ -7,7 +7,6 @@ from pathlib import Path
 
 from ark_agentic.core.skills.base import (
     LOAD_ONE_SKILL_INSTRUCTIONS,
-    SKILLS_HEADER,
     SkillConfig,
     _strip_leading_h1,
     _truncate_description,
@@ -198,7 +197,6 @@ class TestBuildSkillPrompt:
             ),
         ]
         prompt = build_skill_prompt(skills)
-        assert prompt.startswith("## Available Skills\n")
         assert '<skill name="Skill A" description="Desc A">' in prompt
         assert '<skill name="Skill B" description="Desc B">' in prompt
         assert prompt.count("</skill>") == 2
@@ -602,12 +600,6 @@ class TestBudgetControl:
         assert "..." in prompt
 
 
-class TestSkillsHeader:
-    def test_skills_header_is_chinese(self) -> None:
-        assert "技能" in SKILLS_HEADER
-        assert "read_skill" in SKILLS_HEADER
-
-
 class TestRenderSkillSection:
     def _make_skill(self, id: str = "s1", content: str = "full body") -> SkillEntry:
         return SkillEntry(
@@ -624,7 +616,7 @@ class TestRenderSkillSection:
         skill = self._make_skill(content="full body text")
         result = render_skill_section([skill], config=SkillConfig(load_mode=SkillLoadMode.full))
         assert "full body text" in result
-        assert "Available Skills" in result
+        assert "<skill" in result
 
     def test_dynamic_mode_returns_metadata_and_instructions(self) -> None:
         skill = self._make_skill(content="secret full body")
