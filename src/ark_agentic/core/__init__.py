@@ -41,6 +41,7 @@ from .callbacks import (
     BeforeToolCallback,
     AfterToolCallback,
     RunnerCallbacks,
+    merge_runner_callbacks,
 )
 from .runner import AgentRunner, RunnerConfig, RunResult
 from .session import SessionManager
@@ -66,6 +67,14 @@ from .llm import (
     create_chat_model_from_env,
     LLMError,
     LLMErrorReason,
+)
+from .observability import (
+    create_tracing_callbacks,
+    get_tracer,
+    init_phoenix,
+    phoenix_callbacks_enabled,
+    shutdown_phoenix,
+    start_span,
 )
 
 __all__ = [
@@ -98,6 +107,7 @@ __all__ = [
     "BeforeToolCallback",
     "AfterToolCallback",
     "RunnerCallbacks",
+    "merge_runner_callbacks",
     # Runner
     "AgentRunner",
     "RunnerConfig",
@@ -124,4 +134,11 @@ __all__ = [
     "create_chat_model_from_env",
     "LLMError",
     "LLMErrorReason",
+    # Observability
+    "create_tracing_callbacks",
+    "get_tracer",
+    "init_phoenix",
+    "phoenix_callbacks_enabled",
+    "shutdown_phoenix",
+    "start_span",
 ]

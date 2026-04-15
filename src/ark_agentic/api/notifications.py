@@ -1,11 +1,14 @@
 """通知 API — REST + SSE
 
 端点：
-  GET  /api/notifications/{user_id}            — 拉取历史通知（支持 unread=true 过滤）
-  POST /api/notifications/{user_id}/read       — 标记已读
-  GET  /api/notifications/{user_id}/stream     — SSE 实时推送端点
-  POST /api/jobs/{job_id}/dispatch             — 手动触发 Job（管理/测试用）
-  GET  /api/jobs                               — 列出所有已注册 Job
+  GET  /api/notifications/{agent_id}/{user_id}         — 拉取历史通知（支持 unread=true 过滤）
+  POST /api/notifications/{agent_id}/{user_id}/read    — 标记已读
+  GET  /api/notifications/{agent_id}/{user_id}/stream  — SSE 实时推送端点
+  POST /api/jobs/{job_id}/dispatch                     — 手动触发 Job（管理/测试用）
+  GET  /api/jobs                                       — 列出所有已注册 Job
+
+通知按 agent 隔离子目录：
+  data/ark_notifications/{agent_id}/{user_id}/notifications.jsonl
 """
 
 from __future__ import annotations
@@ -33,45 +36,48 @@ class MarkReadRequest(BaseModel):
 
 # ── 通知 REST 端点 ─────────────────────────────────────────────────────────
 
-@router.get("/notifications/{user_id}")
+@router.get("/notifications/{agent_id}/{user_id}")
 async def get_notifications(
+    agent_id: str,
     user_id: str,
     request: Request,
     limit: int = 50,
     unread: bool = False,
 ):
-    """拉取用户通知列表。
+    """拉取用户通知列表（按 agent 隔离）。
 
     用户上线时调用，获取历史（未读）通知。
     """
-    store = _get_store(request)
+    store = _get_agent_store(request, agent_id)
     result = await store.list_recent(user_id, limit=limit, unread_only=unread)
     return result.model_dump()
 
 
-@router.post("/notifications/{user_id}/read")
-async def mark_read(user_id: str, body: MarkReadRequest, request: Request):
+@router.post("/notifications/{agent_id}/{user_id}/read")
+async def mark_read(agent_id: str, user_id: str, body: MarkReadRequest, request: Request):
     """标记通知为已读。"""
-    store = _get_store(request)
+    store = _get_agent_store(request, agent_id)
     await store.mark_read(user_id, body.ids)
     return {"ok": True, "marked": len(body.ids)}
 
 
 # ── SSE 实时推送端点 ────────────────────────────────────────────────────────
 
-@router.get("/notifications/{user_id}/stream")
-async def notification_stream(user_id: str, request: Request):
-    """SSE 实时通知流。
+@router.get("/notifications/{agent_id}/{user_id}/stream")
+async def notification_stream(agent_id: str, user_id: str, request: Request):
+    """SSE 实时通知流（按 agent 隔离）。
 
     用户在线时建立此连接，Job 产生通知时可实时推送。
     断开时自动注销，无内存泄漏。
     """
     delivery = _get_delivery(request)
     queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-    delivery.register_user_online(user_id, queue)
+    # SSE key 加上 agent_id，避免不同 agent 的同一个 user_id 互相覆盖
+    stream_key = f"{agent_id}:{user_id}"
+    delivery.register_user_online(stream_key, queue)
 
     # 连接建立时，先推送未读通知数量（告知前端有多少待读）
-    store = _get_store(request)
+    store = _get_agent_store(request, agent_id)
     result = await store.list_recent(user_id, limit=1, unread_only=True)
     initial_event = {
         "type": "connected",
@@ -93,8 +99,8 @@ async def notification_stream(user_id: str, request: Request):
                     # 心跳，保持连接活跃
                     yield ": keepalive\n\n"
         finally:
-            delivery.unregister_user(user_id)
-            logger.debug("User %s disconnected from notification stream", user_id)
+            delivery.unregister_user(stream_key)
+            logger.debug("User %s (agent=%s) disconnected from notification stream", user_id, agent_id)
 
     return StreamingResponse(
         event_gen(),
@@ -132,10 +138,17 @@ async def dispatch_job(job_id: str, request: Request):
 
 # ── 依赖辅助 ──────────────────────────────────────────────────────────────
 
-def _get_store(request: Request):
-    store = getattr(request.app.state, "notification_store", None)
+def _get_agent_store(request: Request, agent_id: str):
+    """按 agent_id 返回隔离的 NotificationStore 实例（懒创建，带缓存）。"""
+    from ark_agentic.core.notifications.store import NotificationStore
+    from ark_agentic.core.paths import get_notifications_base_dir
+
+    # 用 app.state 做简单的实例缓存，避免每次请求都创建新对象
+    cache_key = f"_notif_store_{agent_id}"
+    store = getattr(request.app.state, cache_key, None)
     if store is None:
-        raise HTTPException(status_code=503, detail="NotificationStore not initialized")
+        store = NotificationStore(base_dir=get_notifications_base_dir() / agent_id)
+        setattr(request.app.state, cache_key, store)
     return store
 
 

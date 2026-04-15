@@ -119,6 +119,36 @@ def _make_runner(
     return runner, tool
 
 
+def test_runner_skips_tracing_callbacks_when_phoenix_disabled(
+    tmp_sessions_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ENABLE_PHOENIX", raising=False)
+    runner, _ = _make_runner(tmp_sessions_dir)
+
+    assert runner._callbacks.before_agent == []
+    assert runner._callbacks.after_agent == []
+    assert runner._callbacks.before_model == []
+    assert runner._callbacks.after_model == []
+    assert runner._callbacks.before_tool == []
+    assert runner._callbacks.after_tool == []
+
+
+def test_runner_adds_tracing_callbacks_when_phoenix_enabled(
+    tmp_sessions_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_PHOENIX", "true")
+    runner, _ = _make_runner(tmp_sessions_dir)
+
+    assert len(runner._callbacks.before_agent) == 1
+    assert len(runner._callbacks.after_agent) == 1
+    assert len(runner._callbacks.before_model) == 1
+    assert len(runner._callbacks.after_model) == 1
+    assert len(runner._callbacks.before_tool) == 1
+    assert len(runner._callbacks.after_tool) == 1
+
+
 # ============ Tests ============
 
 

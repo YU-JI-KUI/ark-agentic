@@ -54,17 +54,24 @@ class NotificationDelivery:
         await store.save(notification)
 
         # 2. 尝试实时推送
-        queue = self._online_queues.get(notification.user_id)
+        # stream_key 格式："{agent_id}:{user_id}"（与 SSE 注册时保持一致）
+        # 若 agent_id 为空（旧数据兼容），退回到只用 user_id
+        stream_key = (
+            f"{notification.agent_id}:{notification.user_id}"
+            if notification.agent_id
+            else notification.user_id
+        )
+        queue = self._online_queues.get(stream_key)
         if queue is not None:
             try:
                 queue.put_nowait({
                     "type": "new_notification",
                     "data": notification.model_dump(),
                 })
-                logger.debug("Pushed notification %s to online user %s", notification.notification_id, notification.user_id)
+                logger.debug("Pushed notification %s to online user %s", notification.notification_id, stream_key)
                 return True
             except asyncio.QueueFull:
-                logger.warning("Notification queue full for user %s, notification stored only", notification.user_id)
+                logger.warning("Notification queue full for user %s, notification stored only", stream_key)
 
         return False
 

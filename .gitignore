@@ -5,6 +5,8 @@ build/
 dist/
 wheels/
 *.egg-info
+.idea
+data/.DS_Store
 
 # Virtual environments
 .venv
@@ -46,3 +48,5 @@ node_modules/
 models/
 
 .DS_Store
+.idea
+/data/

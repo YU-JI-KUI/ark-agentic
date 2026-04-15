@@ -12,7 +12,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ark_agentic.core.callbacks import CallbackContext, CallbackResult, HookAction, RunnerCallbacks
+from ark_agentic.core.callbacks import (
+    CallbackContext,
+    CallbackResult,
+    HookAction,
+    RunnerCallbacks,
+    merge_runner_callbacks,
+)
 from ark_agentic.core.types import AgentMessage, AgentToolResult, MessageRole, ToolCall
 
 from .channels import set_visible_channels
@@ -305,19 +311,6 @@ class GuardrailsService:
                 validator=_validate_withdraw_plan_card,
             ),
         }
-
-
-def merge_runner_callbacks(*items: RunnerCallbacks) -> RunnerCallbacks:
-    merged = RunnerCallbacks()
-    for item in items:
-        merged.before_agent.extend(item.before_agent)
-        merged.after_agent.extend(item.after_agent)
-        merged.before_model.extend(item.before_model)
-        merged.after_model.extend(item.after_model)
-        merged.before_tool.extend(item.before_tool)
-        merged.after_tool.extend(item.after_tool)
-        merged.before_loop_end.extend(item.before_loop_end)
-    return merged
 
 
 def create_guardrails_callbacks(

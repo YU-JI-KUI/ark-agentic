@@ -15,7 +15,7 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard, make_before_agent_callback
+# from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard, make_before_agent_callback  # DEBUG: 暂时禁用准入拦截
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.guardrails import create_guardrails_callbacks
@@ -48,6 +48,7 @@ def create_insurance_agent(
     *,
     enable_memory: bool = False,
     enable_thinking_tags: bool = False,
+    proactive_cron: str = "26 23 * * *",
 ) -> AgentRunner:
     """创建保险智能体
 
@@ -109,6 +110,20 @@ def create_insurance_agent(
         skill_config=skill_config,
     )
 
+    # 构建保险专属主动服务 Job（memory 启用时），随 runner 一起交给框架调度
+    proactive_job = None
+    if memory_manager is not None:
+        assert llm is not None  # llm 在函数入口已初始化，此处不可能为 None
+        from .proactive_job import InsuranceProactiveJob
+        _llm = llm  # 收窄类型：BaseChatModel | None → BaseChatModel
+        proactive_job = InsuranceProactiveJob(
+            job_id="proactive_service_insurance",
+            llm_factory=lambda: _llm,
+            tool_registry=tool_registry,
+            memory_manager=memory_manager,
+            cron=proactive_cron,
+        )
+
     return AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
@@ -117,6 +132,7 @@ def create_insurance_agent(
         config=runner_config,
         memory_manager=memory_manager,
         callbacks=RunnerCallbacks(
-            before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],
+            # before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],  # DEBUG: 暂时禁用准入拦截
         ),
+        proactive_job=proactive_job,
     )
