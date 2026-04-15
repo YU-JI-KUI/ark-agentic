@@ -1107,25 +1107,8 @@
       const $notifList = document.getElementById('notifList');
       const $notifMarkAll = document.getElementById('notifMarkAll');
 
-      // ---- Notification system (mock + SSE) ----
-      const MOCK_NOTIFICATIONS = [
-        {
-          id: 'n1',
-          title: '股价播报 · 中国平安',
-          body: '中国平安（601318）今日收盘价 47.50 元，较昨日上涨 1.28%，近 5 日累计涨幅 3.2%。',
-          time: Date.now() - 5 * 60 * 1000,
-          read: false,
-        },
-        {
-          id: 'n2',
-          title: '主动服务通知',
-          body: '您关注的平安健康险费率近期下调，最高可优惠 15%，可在保险详情页查看最新报价。',
-          time: Date.now() - 30 * 60 * 1000,
-          read: false,
-        },
-      ];
-
-      let notifications = [...MOCK_NOTIFICATIONS];
+      // ---- Notification system (SSE + REST) ----
+      let notifications = [];
 
       function formatTime(ts) {
         const diff = Math.floor((Date.now() - ts) / 1000);
@@ -1163,13 +1146,18 @@
 
       function markRead(id) {
         const n = notifications.find(n => n.id === id);
-        if (n) n.read = true;
-        renderNotifications();
+        if (n && !n.read) {
+          n.read = true;
+          renderNotifications();
+          markReadRemote(selectedUserId, [id]);
+        }
       }
 
       function markAllRead() {
+        const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
         notifications.forEach(n => n.read = true);
         renderNotifications();
+        if (unreadIds.length > 0) markReadRemote(selectedUserId, unreadIds);
       }
 
       // 注入一条新通知（模拟 SSE 推送）
@@ -1208,12 +1196,45 @@
         }
       });
 
+      // 从后端拉取历史通知
+      async function fetchNotifications(userId) {
+        try {
+          const res = await fetch(`/api/notifications/insurance/${userId}?limit=50`);
+          if (!res.ok) return;
+          const data = await res.json();
+          notifications = (data.notifications || []).map(n => ({
+            id: n.notification_id,
+            title: n.title,
+            body: n.body,
+            time: n.created_at * 1000,
+            read: n.read,
+          }));
+          renderNotifications();
+        } catch (_) {}
+      }
+
+      // 标记已读同步到后端
+      async function markReadRemote(userId, ids) {
+        try {
+          await fetch(`/api/notifications/insurance/${userId}/read`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+          });
+        } catch (_) {}
+      }
+
       // 连接 SSE（/api/notifications/{user_id}/stream）
       function connectNotifStream(userId) {
         if (window._notifEvtSource) {
           window._notifEvtSource.close();
         }
-        const src = new EventSource(`/api/notifications/${userId}/stream`);
+        // 切换用户时重置通知列表，再拉新用户的数据
+        notifications = [];
+        renderNotifications();
+        fetchNotifications(userId);
+
+        const src = new EventSource(`/api/notifications/insurance/${userId}/stream`);
         src.onmessage = (e) => {
           try {
             const msg = JSON.parse(e.data);
@@ -1231,7 +1252,7 @@
         window._notifEvtSource = src;
       }
 
-      // 初始渲染（mock 数据）+ 尝试连接 SSE
+      // 初始渲染 + 连接 SSE（自动拉取历史通知）
       renderNotifications();
       connectNotifStream(selectedUserId);
 

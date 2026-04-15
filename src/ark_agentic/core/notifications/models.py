@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field
 class Notification(BaseModel):
     notification_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
-    job_id: str                              # 来源 Job，如 "proactive_service"
+    agent_id: str = ""                       # 来源 Agent，如 "insurance"、"securities"
+    job_id: str                              # 来源 Job，如 "proactive_service_insurance"
     title: str
     body: str                                # 通知正文，支持 Markdown
     data: dict[str, Any] = Field(default_factory=dict)  # 结构化附加数据（如股价详情）

@@ -43,12 +43,18 @@ def create_securities_agent(
     llm: BaseChatModel | None = None,
     *,
     enable_memory: bool = False,
+    proactive_cron: str = "0 9 * * 1-5",
 ) -> AgentRunner:
     """创建证券资产管理 Agent
 
     Args:
         llm: LLM 实例；None 时从环境变量初始化
         enable_memory: 是否启用 Memory 系统；路径由 MEMORY_DIR 环境变量控制
+        proactive_cron: 主动服务 Job 的触发时间（cron 表达式），默认工作日早 9 点。
+            常用示例：
+              "0 9 * * 1-5"   每个工作日早 9 点（默认）
+              "0 8,12 * * *"  每天早 8 点和中午 12 点
+              "*/30 9-15 * * 1-5"  工作日 9-15 点每 30 分钟
     """
     if llm is None:
         from ark_agentic.core.llm import create_chat_model_from_env
@@ -123,6 +129,20 @@ def create_securities_agent(
         before_loop_end=[_citation_hook],
     )
 
+    # 构建证券专属主动服务 Job（memory 启用时），随 runner 一起交给框架调度
+    proactive_job = None
+    if memory_manager is not None:
+        assert llm is not None  # llm 在函数入口已初始化，此处不可能为 None
+        from .proactive_job import SecuritiesProactiveJob
+        _llm = llm  # 收窄类型：BaseChatModel | None → BaseChatModel
+        proactive_job = SecuritiesProactiveJob(
+            job_id="proactive_service_securities",
+            llm_factory=lambda: _llm,
+            tool_registry=tool_registry,
+            memory_manager=memory_manager,
+            cron=proactive_cron,
+        )
+
     return AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
@@ -131,4 +151,5 @@ def create_securities_agent(
         config=runner_config,
         memory_manager=memory_manager,
         callbacks=merge_runner_callbacks(existing_callbacks, guardrails_callbacks),
+        proactive_job=proactive_job,
     )

@@ -8,11 +8,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ..memory.manager import MemoryManager
     from ..notifications.models import Notification
+    from ..notifications.store import NotificationStore
 
 
 @dataclass
@@ -55,6 +57,30 @@ class BaseJob(ABC):
     """主动服务 Job 抽象基类"""
 
     meta: JobMeta
+
+    @property
+    @abstractmethod
+    def memory_manager(self) -> "MemoryManager":
+        """返回本 Job 对应的 MemoryManager。
+
+        每个 Job 实例持有自己 Agent 的 MemoryManager，已指向正确的子目录。
+        例如 insurance job → data/ark_memory/insurance/
+             securities job → data/ark_memory/securities/
+        Scanner 从这里取，不再依赖全局路径。
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def notification_store(self) -> "NotificationStore":
+        """返回本 Job 专属的 NotificationStore。
+
+        与 memory 一样按 agent 隔离子目录：
+          insurance job → data/ark_notifications/insurance/{user_id}/
+          securities job → data/ark_notifications/securities/{user_id}/
+        Scanner 写通知时使用此 store，REST API 读取时也按 agent_id 路由。
+        """
+        ...
 
     @abstractmethod
     async def should_process_user(self, user_id: str, memory: str) -> bool:
