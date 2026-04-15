@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from ..memory.rules import MEMORY_FILTER_RULES
 from ..skills.base import SkillConfig, render_skill_section
 from ..tools.base import AgentTool
 from ..types import SkillEntry
@@ -53,15 +54,10 @@ _UNWRAPPED_SECTIONS = frozenset({"identity"})
 MEMORY_WRITE_PROTOCOL = """\
 你拥有持久化记忆能力（memory_write 工具），可增量更新用户长期偏好。
 
-### 保存规则
-回复前判断：偏好/身份/批评/持久决策/用户要求记住 → 先 memory_write 再回复。
-不记录：临时查询、公开数据、已存在的信息、寒暄。
+{filter_rules}
 
-**示例：**
-- "好啰嗦，简洁点" → 批评 = 偏好（要简洁）→ memory_write
-- "我是张经理，在平安工作" → 身份信息 → memory_write
-- "以后贷款渠道都不要" → 持久决策 → memory_write
-- "查一下我的保单" → 一次性查询 → 不保存
+### 保存流程
+回复前判断：符合"记录"条件 → 先 memory_write 再回复。
 
 ### 增量更新
 memory_write 只写变化的标题，其他自动保留。
@@ -71,7 +67,7 @@ memory_write 只写变化的标题，其他自动保留。
 ### 标题规范
 简短通用分类：## 身份信息、## 回复风格、## 业务偏好、## 风险偏好
 避免过于具体的标题（如 ## 2026年3月保单贷款策略 → 应归入 ## 业务偏好）
-写入前检查已有标题，优先复用。"""
+写入前检查已有标题，优先复用。""".format(filter_rules=MEMORY_FILTER_RULES)
 
 
 
@@ -254,6 +250,7 @@ class SystemPromptBuilder:
         include_tool_params: bool = False,
         user_profile_content: str = "",
         skill_config: SkillConfig | None = None,
+        enable_memory: bool = False,
     ) -> str:
         """快速构建系统提示
 
@@ -265,6 +262,7 @@ class SystemPromptBuilder:
             include_tool_params: 是否在工具描述中包含参数信息
             user_profile_content: 全局用户画像 (USER.md) 内容
             skill_config: 技能渲染配置（group 阈值、预算控制等）
+            enable_memory: 是否注入 memory 写入协议（仅当 memory 系统启用时为 True）
         """
         effective_config = config or PromptConfig()
         builder = cls(effective_config)
@@ -274,7 +272,8 @@ class SystemPromptBuilder:
         if effective_config.system_protocol:
             builder.add_section("system_protocol", effective_config.system_protocol)
 
-        builder.add_memory_instructions()
+        if enable_memory:
+            builder.add_memory_instructions()
         if tools:
             builder.add_tools(tools, include_params=include_tool_params)
         if skills:

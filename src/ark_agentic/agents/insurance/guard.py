@@ -29,10 +29,21 @@ logger = logging.getLogger(__name__)
 
 _ADJUST_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"只看|不要|不算|不含|换个|多取|少取|调整|零成本|不影响保障"),
-    re.compile(r"^(好的|继续|确认|就这样|算了|再看看|第[一二三]个|方案[一二三123])"),
+    re.compile(r"^(好的|继续|确认|就这样|算了|再看看)"),
+    re.compile(r"第[一二三]个|方案[一二三123]"),
 ]
 
 _NEGATIVE_AMOUNT_RE: re.Pattern[str] = re.compile(r"-\s*\d+")
+
+_BUSINESS_KEYWORDS: re.Pattern[str] = re.compile(
+    r"取[钱款]|领[钱取]|红利|生存金|保单贷款|部分领取|退保|零成本|取款方案|万能账户|减保"
+)
+
+_MEMORY_PATTERNS: re.Pattern[str] = re.compile(
+    r"记住|别忘|以后.{0,4}(?:用|选|记|按)|"
+    r"(?:沟通|说话|回复|交流).{0,4}(?:风格|方式|语气)|"
+    r"喜欢.{0,6}(?:风格|方式|语气)"
+)
 
 _SYSTEM_PROMPT = """你是保险取款业务准入分类器。根据对话上下文，判断最新一条用户输入是否属于受理范围。
 
@@ -40,7 +51,8 @@ _SYSTEM_PROMPT = """你是保险取款业务准入分类器。根据对话上下
 1. 领钱/取款：红利领取、生存金领取、保单贷款、部分领取、退保；
 2. 方案：取款方案的制定、调整、查询；
 3. 相关查询：与取款直接相关的保单信息、个人信息、额度明细；
-4. 上下文延续：上下文有取款相关话题时的确认、否定、指代性表达（"好的""继续""这个"等）。
+4. 上下文延续：上下文有取款相关话题时的确认、否定、指代性表达（"好的""继续""这个"等）；
+5. 偏好与记忆指令：用户设置沟通风格、偏好选项、要求记住某些内容等 meta 指令。
 
 【不受理】以下情况：
 - 保费缴纳、理赔报案、投保咨询、续保、核保等非取款业务；
@@ -55,6 +67,10 @@ _SYSTEM_PROMPT = """你是保险取款业务准入分类器。根据对话上下
 用户：50000的方案 → {"accepted":true}
 用户：还是第一个方案 → {"accepted":true}
 用户：用卡片展示一下 → {"accepted":true}
+用户：我喜欢活泼热情的沟通风格 → {"accepted":true}（偏好设置）
+用户：以后记住第一个 → {"accepted":true}（记忆指令）
+用户：以后都用简洁的方式回复 → {"accepted":true}（偏好设置）
+用户：帮我记住我喜欢零成本方案 → {"accepted":true}（记忆指令）
 用户：怎么理赔 → {"accepted":false,"message":"理赔非取款业务范围"}
 用户：我要交保费 → {"accepted":false,"message":"保费非取款业务范围"}
 用户：今天天气怎么样 → {"accepted":false,"message":"非保险业务范围"}
@@ -89,11 +105,15 @@ class InsuranceIntakeGuard:
         """Deterministic pre-check: returns result if conclusive, None to defer to LLM."""
         stripped = user_input.strip()
 
-        # Negative amount → let through, downstream tool validates
         if _NEGATIVE_AMOUNT_RE.search(stripped):
             return GuardResult(accepted=True)
 
-        # If there's conversation history (context exists), accept adjustment phrases
+        if _BUSINESS_KEYWORDS.search(stripped):
+            return GuardResult(accepted=True)
+
+        if _MEMORY_PATTERNS.search(stripped):
+            return GuardResult(accepted=True)
+
         if history and any(p.search(stripped) for p in _ADJUST_PATTERNS):
             return GuardResult(accepted=True)
 

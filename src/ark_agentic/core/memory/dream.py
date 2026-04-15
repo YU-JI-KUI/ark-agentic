@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Callable
 from pydantic import BaseModel
 
 from .extractor import parse_llm_json
+from .rules import MEMORY_FILTER_RULES
 from .user_profile import format_heading_sections, parse_heading_sections
 
 if TYPE_CHECKING:
@@ -32,37 +33,37 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _DREAM_PROMPT = """\
-你是一个记忆整理专家。今天是 {current_date}。
+你是一个记忆整理专家。今天是 {{current_date}}。
 
 ## 任务
 审阅以下用户记忆文件和最近对话摘要，执行：
 
 1. **合并**语义相近的标题（如"贷款策略"和"保单贷款策略"合并为一个，保留最新内容）
 2. **删除**过时信息（被后续记忆或对话明确否定的；仅删除有明确矛盾的，不确定时保留）
-3. **保留**所有仍然有效的偏好和决策
-4. **提取新信息**：从最近对话中提取值得长期记住的新信息（身份、偏好、决策）
-5. **提取潜在需求**：从用户行为模式中推断未被明确表达的需求（标记为 ## 潜在需求）
+3. **保留**所有仍然有效的偏好
+4. **提取新信息**：从最近对话中提取值得长期记住的新信息，严格遵守下方记录规则
 
-## 当前记忆文件（约 {token_count} tokens）
-{memory_content}
+{filter_rules}
+
+## 当前记忆文件（约 {{token_count}} tokens）
+{{memory_content}}
 
 ## 最近对话摘要
-{session_summaries}
+{{session_summaries}}
 
 ## 容量约束
 目标上限 2000 tokens。如果当前超出，请更积极地合并精简。
-优先级：身份信息 > 活跃偏好 > 近期决策 > 历史决策。
+优先级：身份信息 > 活跃偏好 > 持久业务偏好 > 风险偏好。
 
 ## 重要原则
 - 保守操作：宁可保留冗余信息，也不要删除可能有用的内容
 - 合并时保留最新、最具体的描述
-- 潜在需求必须有行为模式支撑，不能凭空推断
 - 输出格式同输入：heading-based markdown（## 标题 + 内容）
 
 输出严格 JSON（不要包含 markdown 代码块标记）:
-{{"distilled": "整理后的完整记忆（heading-based markdown）", "changes": "简述你做了哪些合并/删除/提取"}}
-如果不需要任何修改且无新信息，输出 {{"distilled": "", "changes": "无需修改"}}
-"""
+{{{{"distilled": "整理后的完整记忆（heading-based markdown）", "changes": "简述你做了哪些合并/删除/提取"}}}}
+如果不需要任何修改且无新信息，输出 {{{{"distilled": "", "changes": "无需修改"}}}}
+""".format(filter_rules=MEMORY_FILTER_RULES)
 
 
 # ---------------------------------------------------------------------------
@@ -163,8 +164,8 @@ def should_dream(
         return False
 
     hours_since = (time.time() - last_ts) / 3600
-    if hours_since < min_hours:
-        return False
+    if hours_since >= min_hours:
+        return True
 
     from ..persistence import SessionStore
 

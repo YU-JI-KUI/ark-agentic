@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from .rules import MEMORY_FILTER_RULES
 from .user_profile import upsert_profile_by_heading
 from ..compaction import estimate_tokens
 
@@ -40,25 +41,23 @@ class FlushResult(BaseModel):
 _FLUSH_PROMPT = """\
 你是一个记忆提取器。从以下对话历史中提取需要长期保存的信息。
 
-当前智能体: {agent_name}
-智能体职责: {agent_description}
+当前智能体: {{agent_name}}
+智能体职责: {{agent_description}}
 
 当前用户记忆:
-{current_memory}
+{{current_memory}}
 
 对话历史:
-{conversation}
+{{conversation}}
 
-分类规则:
-- 记录: 用户身份信息、沟通风格偏好、业务决策、持久偏好、关键事实
-- 不记录: 寒暄、一次性查询、临时计算、当前记忆中已有且未变化的内容
+{filter_rules}
 
 **仅输出新发现或需要更新的信息。不要重复当前记忆中未变化的内容。**
 
 输出严格 JSON（不要包含 markdown 代码块标记）:
-{{"memory": "新/变更的记忆（heading-based markdown, 如 ## 标题\\n内容），如无新内容则为空串"}}
-如果没有任何需要记录的内容，输出 {{}}
-"""
+{{{{"memory": "新/变更的记忆（heading-based markdown, 如 ## 标题\\n内容），如无新内容则为空串"}}}}
+如果没有任何需要记录的内容，输出 {{{{}}}}
+""".format(filter_rules=MEMORY_FILTER_RULES)
 
 
 def _extract_text_from_content(content: object) -> str:

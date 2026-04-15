@@ -261,7 +261,7 @@ class TestShouldDream:
             result = should_dream("U001", workspace, sessions, min_hours=24.0)
             assert result is False
 
-    def test_old_enough_but_not_enough_sessions(self) -> None:
+    def test_old_enough_triggers_even_without_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             workspace = Path(ws)
             sessions = workspace / "sessions"
@@ -271,7 +271,43 @@ class TestShouldDream:
             last_dream.parent.mkdir(parents=True)
             last_dream.write_text(str(time.time() - 86400 * 2), encoding="utf-8")
 
-            # SessionStore.load will return empty for non-existent user dir
+            result = should_dream("U001", workspace, sessions, min_hours=24.0, min_sessions=3)
+            assert result is True
+
+    def test_recent_but_enough_sessions_triggers(self) -> None:
+        with tempfile.TemporaryDirectory() as ws:
+            workspace = Path(ws)
+            sessions = workspace / "sessions"
+            sessions.mkdir()
+
+            last_ts = time.time() - 3600  # 1h ago
+            last_dream = workspace / "U001" / ".last_dream"
+            last_dream.parent.mkdir(parents=True)
+            last_dream.write_text(str(last_ts), encoding="utf-8")
+
+            fake_entries = {
+                f"s{i}": type("E", (), {"updated_at": (last_ts + 60 + i) * 1000})()
+                for i in range(3)
+            }
+            with patch(
+                "ark_agentic.core.persistence.SessionStore"
+            ) as mock_cls:
+                mock_cls.return_value.load.return_value = fake_entries
+                result = should_dream("U001", workspace, sessions, min_hours=24.0, min_sessions=3)
+
+            assert result is True
+
+    def test_both_unsatisfied_returns_false(self) -> None:
+        with tempfile.TemporaryDirectory() as ws:
+            workspace = Path(ws)
+            sessions = workspace / "sessions"
+            sessions.mkdir()
+
+            last_ts = time.time() - 3600  # 1h ago
+            last_dream = workspace / "U001" / ".last_dream"
+            last_dream.parent.mkdir(parents=True)
+            last_dream.write_text(str(last_ts), encoding="utf-8")
+
             result = should_dream("U001", workspace, sessions, min_hours=24.0, min_sessions=3)
             assert result is False
 

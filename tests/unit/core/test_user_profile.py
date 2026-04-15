@@ -160,10 +160,16 @@ class TestTruncateProfile:
         assert truncate_profile("", max_tokens=100) == ""
 
     def test_long_content_truncated(self) -> None:
-        long_content = "测试内容 " * 2000
+        sections = [f"## section{i}\ncontent " * 50 for i in range(20)]
+        long_content = "\n\n".join(sections)
         result = truncate_profile(long_content, max_tokens=100)
         assert len(result) < len(long_content)
-        assert result.endswith("... (truncated)")
+
+    def test_heading_aware_preserves_priority(self) -> None:
+        content = "## 身份信息\n张三\n\n## 回复风格\n简洁\n\n## 杂项\n" + "长内容 " * 500
+        result = truncate_profile(content, max_tokens=50)
+        assert "张三" in result
+        assert "简洁" in result
 
 
 # ============ paths.py ============
@@ -187,8 +193,8 @@ class TestBuilderUserProfile:
         builder = SystemPromptBuilder()
         builder.add_user_profile("## 偏好\n中文回复\n## 技术水平\n专家")
         prompt = builder.build()
-        assert "<memory>" in prompt
-        assert "</memory>" in prompt
+        assert "<user_profile>" in prompt
+        assert "</user_profile>" in prompt
         assert "中文回复" in prompt
         assert "专家" in prompt
 
@@ -201,10 +207,18 @@ class TestBuilderUserProfile:
         prompt = SystemPromptBuilder.quick_build(
             user_profile_content="## 时区\nAsia/Shanghai"
         )
-        assert "<memory>" in prompt
+        assert "<user_profile>" in prompt
         assert "Asia/Shanghai" in prompt
 
     def test_quick_build_without_profile(self) -> None:
+        prompt = SystemPromptBuilder.quick_build()
+        assert "<user_profile>" not in prompt
+
+    def test_quick_build_memory_enabled(self) -> None:
+        prompt = SystemPromptBuilder.quick_build(enable_memory=True)
+        assert "<memory>" in prompt
+
+    def test_quick_build_memory_disabled_by_default(self) -> None:
         prompt = SystemPromptBuilder.quick_build()
         assert "<memory>" not in prompt
 
@@ -212,6 +226,7 @@ class TestBuilderUserProfile:
         builder = SystemPromptBuilder()
         builder.add_identity(name="Bot")
         builder.add_runtime_info()
+        builder.add_memory_instructions()
         builder.add_user_profile("## 画像\ncontent")
         builder.build()
 

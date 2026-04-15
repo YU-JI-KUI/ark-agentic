@@ -281,6 +281,14 @@ class TestWithdrawPlanCard:
         )
         assert output.state_delta["_submitted_channels"] == []
 
+    def test_channels_null_uses_all(self):
+        output = build_withdraw_plan_card(
+            {"target": 5000, "title": "T"},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        assert len(output.components) > 0
+        assert output.state_delta is not None
+
 
 # ============ Agent Pipeline (Card expansion) ============
 

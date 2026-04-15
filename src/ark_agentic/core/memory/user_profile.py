@@ -94,7 +94,7 @@ def upsert_profile_by_heading(file_path: Path, new_content: str) -> bool:
 
 
 def truncate_profile(content: str, max_tokens: int = 2000) -> str:
-    """当预估 token 数超出 max_tokens 时截断。"""
+    """Heading-aware truncation: 按优先级保留完整 section，不会截断半句话。"""
     if not content:
         return content
     from ..compaction import estimate_tokens
@@ -102,12 +102,36 @@ def truncate_profile(content: str, max_tokens: int = 2000) -> str:
     tokens = estimate_tokens(content)
     if tokens <= max_tokens:
         return content
-    ratio = max_tokens / tokens
-    cut = int(len(content) * ratio)
-    while estimate_tokens(content[:cut]) > max_tokens:
-        cut = int(cut * 0.9)
-    logger.warning(
-        "User profile truncated: %d tokens -> %d tokens (max=%d)",
-        tokens, estimate_tokens(content[:cut]), max_tokens,
-    )
-    return content[:cut] + "\n\n... (truncated)"
+
+    from .rules import HEADING_PRIORITY
+
+    preamble, sections = parse_heading_sections(content)
+
+    ordered: list[tuple[str, str]] = []
+    for h in HEADING_PRIORITY:
+        if h in sections:
+            ordered.append((h, sections[h]))
+    for h, c in sections.items():
+        if h not in HEADING_PRIORITY:
+            ordered.append((h, c))
+
+    budget = max_tokens
+    if preamble:
+        budget -= estimate_tokens(preamble)
+
+    kept: dict[str, str] = {}
+    for h, c in ordered:
+        section_tokens = estimate_tokens(f"## {h}\n{c}")
+        if budget - section_tokens < 0:
+            break
+        kept[h] = c
+        budget -= section_tokens
+
+    result = format_heading_sections(preamble, kept)
+    kept_tokens = estimate_tokens(result)
+    if kept_tokens < tokens:
+        logger.warning(
+            "User profile truncated: %d tokens -> %d tokens (max=%d, kept %d/%d sections)",
+            tokens, kept_tokens, max_tokens, len(kept), len(sections),
+        )
+    return result

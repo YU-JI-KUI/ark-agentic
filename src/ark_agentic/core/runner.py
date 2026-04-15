@@ -84,6 +84,9 @@ class RunnerConfig:
     # 子任务（启用后自动注册 spawn_subtasks 工具）
     enable_subtasks: bool = False
 
+    # Dream 触发：最少 session 数（OR 语义：时间够 或 session 数够）
+    dream_min_sessions: int = 5
+
     # 外部历史合并（agent 级开关）
     accept_external_history: bool = True
 
@@ -184,6 +187,7 @@ class AgentRunner:
         self._flusher = None
         self._dreamer = None
         self._dream_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._dream_failures: dict[str, int] = {}
 
         # LLMCaller / ToolExecutor (SRP)
         self._llm_caller = LLMCaller(
@@ -425,7 +429,8 @@ class AgentRunner:
         sessions_dir = Path(self.session_manager._transcript_manager.sessions_dir)
 
         try:
-            if not should_dream(user_id, workspace, sessions_dir):
+            if not should_dream(user_id, workspace, sessions_dir,
+                               min_sessions=self.config.dream_min_sessions):
                 return
         except Exception:
             logger.debug("Dream gate check failed for user %s", user_id, exc_info=True)
@@ -437,15 +442,31 @@ class AgentRunner:
         )
         logger.info("Dream triggered for user %s", user_id)
 
+    _DREAM_FAILURE_THRESHOLD = 3
+
     async def _run_dream(
         self, user_id: str, memory_path: Path, sessions_dir: Path,
     ) -> None:
-        """Background dream cycle with error handling."""
+        """Background dream cycle with error handling and retry protection."""
+        assert self._dreamer is not None
+        assert self._memory_manager is not None
         try:
             result = await self._dreamer.run(memory_path, sessions_dir, user_id)
+            self._dream_failures.pop(user_id, None)
             logger.info("Dream completed for user %s: %s", user_id, result.changes)
         except Exception:
             logger.warning("Dream failed for user %s", user_id, exc_info=True)
+            failures = self._dream_failures.get(user_id, 0) + 1
+            self._dream_failures[user_id] = failures
+            if failures >= self._DREAM_FAILURE_THRESHOLD:
+                from .memory.dream import touch_last_dream
+                workspace = Path(self._memory_manager.config.workspace_dir)
+                touch_last_dream(user_id, workspace)
+                self._dream_failures.pop(user_id, None)
+                logger.warning(
+                    "Dream failed %d consecutive times for %s, advancing .last_dream",
+                    failures, user_id,
+                )
 
     @staticmethod
     def _merge_tool_state_deltas(
@@ -1025,6 +1046,7 @@ class AgentRunner:
             config=prompt_config,
             user_profile_content=profile_content,
             skill_config=self.config.skill_config,
+            enable_memory=self._memory_manager is not None,
         )
 
     def _build_tools(self) -> list[dict[str, Any]]:

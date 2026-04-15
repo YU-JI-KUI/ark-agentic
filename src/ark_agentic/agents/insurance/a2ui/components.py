@@ -29,12 +29,12 @@ from ark_agentic.core.a2ui.blocks import (
 from ark_agentic.core.a2ui.theme import A2UITheme
 
 from .withdraw_a2ui_utils import (
+    _ALL_CHANNELS,
     _CHANNEL_LABELS,
     _allocate_to_target,
     _allocs_to_plan_parts,
     _channel_available,
     _fmt,
-    _resolve_channel_filters,
 )
 
 logger = logging.getLogger(__name__)
@@ -297,7 +297,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
         if exclude_pids:
             options = [o for o in options if o.get("policy_id") not in exclude_pids]
 
-        channels = data.get("channels", [])
+        channels: list[str] = data.get("channels") or list(_ALL_CHANNELS)
         target = float(data.get("target") or 0)
         title = data.get("title", "")
         tag_text = data.get("tag", "")
