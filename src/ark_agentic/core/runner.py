@@ -35,7 +35,7 @@ from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
 from .guardrails.channels import resolve_llm_visible_content
-from .observability import create_tracing_callbacks
+from .observability import create_tracing_callbacks, phoenix_callbacks_enabled
 from .types import (
     AgentMessage,
     AgentToolResult,
@@ -66,6 +66,19 @@ def _compose_runner_callbacks(
         before_tool=[*internal.before_tool, *external.before_tool],
         after_tool=[*external.after_tool, *internal.after_tool],
         before_loop_end=[*external.before_loop_end, *internal.before_loop_end],
+    )
+
+
+def _build_runner_callbacks(
+    *,
+    config: RunnerConfig,
+    callbacks: RunnerCallbacks | None,
+) -> RunnerCallbacks:
+    if not phoenix_callbacks_enabled():
+        return callbacks or RunnerCallbacks()
+    return _compose_runner_callbacks(
+        create_tracing_callbacks(agent_name=config.prompt_config.agent_name),
+        callbacks,
     )
 
 
@@ -195,11 +208,9 @@ class AgentRunner:
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
 
-        self._callbacks = _compose_runner_callbacks(
-            create_tracing_callbacks(
-                agent_name=self.config.prompt_config.agent_name,
-            ),
-            callbacks,
+        self._callbacks = _build_runner_callbacks(
+            config=self.config,
+            callbacks=callbacks,
         )
 
         self._memory_manager = memory_manager

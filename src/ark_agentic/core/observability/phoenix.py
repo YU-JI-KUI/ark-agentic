@@ -66,6 +66,11 @@ def _phoenix_enabled() -> bool:
     )
 
 
+def phoenix_callbacks_enabled() -> bool:
+    """Tracing callbacks are injected only when ENABLE_PHOENIX is explicitly enabled."""
+    return _env_flag("ENABLE_PHOENIX")
+
+
 def init_phoenix(*, service_name: str = "ark-agentic") -> Any | None:
     """Initialize Phoenix tracing once per process."""
     global _PHOENIX_INITIALIZED, _PHOENIX_PROVIDER

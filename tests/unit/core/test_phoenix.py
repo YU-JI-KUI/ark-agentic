@@ -65,6 +65,22 @@ def test_init_phoenix_registers_and_shutdowns(monkeypatch) -> None:
     assert provider.shutdown_called is True
 
 
+def test_phoenix_callbacks_enabled_requires_explicit_env(monkeypatch) -> None:
+    from ark_agentic.core.observability import phoenix
+
+    module = importlib.reload(phoenix)
+
+    monkeypatch.delenv("ENABLE_PHOENIX", raising=False)
+    monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:4317")
+    assert module.phoenix_callbacks_enabled() is False
+
+    monkeypatch.setenv("ENABLE_PHOENIX", "true")
+    assert module.phoenix_callbacks_enabled() is True
+
+    monkeypatch.setenv("ENABLE_PHOENIX", "false")
+    assert module.phoenix_callbacks_enabled() is False
+
+
 class _FakeSpan:
     def __init__(self, name: str) -> None:
         self.name = name
