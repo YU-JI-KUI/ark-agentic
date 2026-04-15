@@ -8,6 +8,7 @@ from ark_agentic.core.callbacks import (
     CallbackResult,
     HookAction,
     RunnerCallbacks,
+    merge_runner_callbacks,
 )
 from ark_agentic.core.types import SessionEntry
 
@@ -22,6 +23,7 @@ def test_callback_context_fields() -> None:
     assert ctx.user_input == "hi"
     assert ctx.input_context["k"] == 1
     assert ctx.session.session_id == "s1"
+    assert ctx.runtime == {}
 
 
 def test_runner_callbacks_default_lists() -> None:
@@ -32,6 +34,25 @@ def test_runner_callbacks_default_lists() -> None:
     assert rc.after_model == []
     assert rc.before_tool == []
     assert rc.after_tool == []
+
+
+def test_merge_runner_callbacks_preserves_order() -> None:
+    async def _before_agent_a(ctx: CallbackContext) -> CallbackResult | None:
+        return None
+
+    async def _before_agent_b(ctx: CallbackContext) -> CallbackResult | None:
+        return None
+
+    async def _after_model(ctx: CallbackContext, *, turn: int, response) -> CallbackResult | None:
+        return None
+
+    merged = merge_runner_callbacks(
+        RunnerCallbacks(before_agent=[_before_agent_a]),
+        RunnerCallbacks(before_agent=[_before_agent_b], after_model=[_after_model]),
+    )
+
+    assert merged.before_agent == [_before_agent_a, _before_agent_b]
+    assert merged.after_model == [_after_model]
 
 
 def test_callback_result_defaults() -> None:

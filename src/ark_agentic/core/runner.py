@@ -35,7 +35,7 @@ from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
 from .guardrails.channels import resolve_llm_visible_content
-from .observability import start_span
+from .observability import create_tracing_callbacks
 from .types import (
     AgentMessage,
     AgentToolResult,
@@ -51,6 +51,22 @@ if TYPE_CHECKING:
     from .memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
+
+
+def _compose_runner_callbacks(
+    internal: RunnerCallbacks,
+    external: RunnerCallbacks | None,
+) -> RunnerCallbacks:
+    external = external or RunnerCallbacks()
+    return RunnerCallbacks(
+        before_agent=[*internal.before_agent, *external.before_agent],
+        after_agent=[*external.after_agent, *internal.after_agent],
+        before_model=[*internal.before_model, *external.before_model],
+        after_model=[*external.after_model, *internal.after_model],
+        before_tool=[*internal.before_tool, *external.before_tool],
+        after_tool=[*external.after_tool, *internal.after_tool],
+        before_loop_end=[*external.before_loop_end, *internal.before_loop_end],
+    )
 
 
 # ============ Runner Config ============
@@ -179,7 +195,12 @@ class AgentRunner:
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
 
-        self._callbacks = callbacks or RunnerCallbacks()
+        self._callbacks = _compose_runner_callbacks(
+            create_tracing_callbacks(
+                agent_name=self.config.prompt_config.agent_name,
+            ),
+            callbacks,
+        )
 
         self._memory_manager = memory_manager
         self._flusher = None
@@ -258,47 +279,44 @@ class AgentRunner:
         """
         input_context = input_context or {}
         params = self._resolve_run_params(run_options)
-        with start_span(
-            "agent.run",
-            tracer_name="ark_agentic.runner",
-            attributes={
-                "ark.session_id": session_id,
-                "ark.user_id": user_id,
-                "ark.stream": stream,
-                "ark.model": params.model,
-                "ark.skill_load_mode": params.skill_load_mode,
-                "ark.trace_id": input_context.get("temp:trace_id"),
-                "ark.agent_name": self.config.prompt_config.agent_name,
+        prepared = await self._prepare_session(
+            session_id,
+            user_id,
+            user_input,
+            input_context,
+            handler=handler,
+            history=history,
+            use_history=use_history,
+            runtime={
+                "run": {
+                    "user_id": user_id,
+                    "stream": stream,
+                    "model": params.model,
+                    "skill_load_mode": params.skill_load_mode,
+                    "agent_name": self.config.prompt_config.agent_name,
+                }
             },
-        ):
-            prepared = await self._prepare_session(
+        )
+        if isinstance(prepared, RunResult):
+            return prepared
+
+        cb_ctx = prepared
+        try:
+            result = await self._run_loop(
                 session_id,
-                user_id,
-                user_input,
-                input_context,
+                use_streaming=stream,
+                model_override=params.model,
+                temperature_override=params.temperature,
+                skill_load_mode=params.skill_load_mode,
                 handler=handler,
-                history=history,
-                use_history=use_history,
+                cb_ctx=cb_ctx,
             )
-            if isinstance(prepared, RunResult):
-                return prepared
+        finally:
+            await self.session_manager.sync_pending_messages(session_id, user_id)
 
-            cb_ctx = prepared
-            try:
-                result = await self._run_loop(
-                    session_id,
-                    use_streaming=stream,
-                    model_override=params.model,
-                    temperature_override=params.temperature,
-                    skill_load_mode=params.skill_load_mode,
-                    handler=handler,
-                    cb_ctx=cb_ctx,
-                )
-            finally:
-                await self.session_manager.sync_pending_messages(session_id, user_id)
-
-            await self._finalize_run(session_id, user_id, result, cb_ctx, handler)
-            return result
+        cb_ctx.runtime["run_result"] = result
+        await self._finalize_run(session_id, user_id, result, cb_ctx, handler)
+        return result
 
     async def run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
         """无持久化的 ReAct 循环，用于 ephemeral 子任务。
@@ -338,14 +356,19 @@ class AgentRunner:
         handler: AgentEventHandler | None,
         history: list[dict[str, Any]] | None,
         use_history: bool,
+        runtime: dict[str, Any] | None = None,
     ) -> RunResult | CallbackContext:
         """Lazy init, before_agent hooks, context merge, history merge, record user message, auto-compact.
 
         Returns RunResult on halt (early exit), CallbackContext on success.
         """
         session = self.session_manager.get_session_required(session_id)
+        session.user_id = user_id
         cb_ctx = CallbackContext(
-            user_input=user_input, input_context=input_context, session=session
+            user_input=user_input,
+            input_context=input_context,
+            session=session,
+            runtime=runtime or {},
         )
 
         r = await self._run_hooks(
@@ -361,7 +384,18 @@ class AgentRunner:
             resp = r.response or AgentMessage.assistant("")
             self.session_manager.add_message_sync(session_id, resp)
             await self.session_manager.sync_pending_messages(session_id, user_id)
-            return RunResult(response=resp)
+            result = RunResult(response=resp)
+            cb_ctx.runtime["run_result"] = result
+            cb_result = await self._run_hooks(
+                self._callbacks.after_agent,
+                cb_ctx,
+                response=result.response,
+                context=cb_ctx.input_context,
+                handler=handler,
+            )
+            if cb_result and cb_result.response is not None:
+                result.response = cb_result.response
+            return result
 
         input_context = cb_ctx.input_context
         self._merge_input_context(session, input_context)
@@ -661,113 +695,110 @@ class AgentRunner:
         cb_ctx: CallbackContext | None,
     ) -> AgentMessage | RunResult:
         """before_model → LLM call → after_model → persist → tokens → finish_reason."""
-        with start_span(
-            "agent.model_phase",
-            tracer_name="ark_agentic.runner",
-            attributes={
-                "ark.turn": ls.turns,
-                "ark.streaming": use_streaming,
-                "ark.message_count": len(messages),
-                "ark.tool_schema_count": len(tools),
-                "ark.model_override": model_override,
-            },
-        ):
-            bm = await self._run_hooks(
-                self._callbacks.before_model,
-                cb_ctx,
-                turn=ls.turns,
-                messages=messages,
-                context=state,
-                handler=handler,
-            )
-            if bm and bm.action == HookAction.OVERRIDE and bm.response:
-                response = bm.response
-            else:
-                turn = ls.turns
+        if cb_ctx is not None:
+            cb_ctx.runtime["model_phase"] = {
+                "streaming": use_streaming,
+                "tool_schema_count": len(tools),
+                "model_override": model_override or self.config.model,
+            }
+        bm = await self._run_hooks(
+            self._callbacks.before_model,
+            cb_ctx,
+            turn=ls.turns,
+            messages=messages,
+            context=state,
+            handler=handler,
+        )
+        if bm and bm.action == HookAction.OVERRIDE and bm.response:
+            response = bm.response
+        else:
+            turn = ls.turns
 
-                def _on_content(text: str, _t: int = turn) -> None:
-                    if handler:
-                        handler.on_content_delta(text, _t)
+            def _on_content(text: str, _t: int = turn) -> None:
+                if handler:
+                    handler.on_content_delta(text, _t)
 
-                def _on_thinking(text: str, _t: int = turn) -> None:
-                    if handler:
-                        handler.on_thinking_delta(text, _t)
+            def _on_thinking(text: str, _t: int = turn) -> None:
+                if handler:
+                    handler.on_thinking_delta(text, _t)
 
-                try:
-                    if use_streaming:
-                        response = await self._llm_caller.call_streaming(
-                            messages,
-                            tools,
-                            model_override=model_override,
-                            temperature_override=temperature_override,
-                            content_callback=_on_content,
-                            thinking_callback=_on_thinking,
-                        )
-                    else:
-                        response = await self._llm_caller.call(
-                            messages,
-                            tools,
-                            model_override=model_override,
-                            temperature_override=temperature_override,
-                        )
-                except LLMError as e:
-                    logger.error(
-                        "[LLM_ERROR] turn=%d reason=%s retryable=%s",
-                        ls.turns,
-                        e.reason.value,
-                        e.retryable,
+            try:
+                if use_streaming:
+                    response = await self._llm_caller.call_streaming(
+                        messages,
+                        tools,
+                        model_override=model_override,
+                        temperature_override=temperature_override,
+                        content_callback=_on_content,
+                        thinking_callback=_on_thinking,
                     )
-                    user_message = self._get_user_friendly_error_message(e)
-                    error_response = AgentMessage.assistant(content=user_message)
-                    error_response.metadata["error"] = {
-                        "reason": e.reason.value,
-                        "message": str(e),
-                        "retryable": e.retryable,
-                    }
-                    self.session_manager.add_message_sync(session_id, error_response)
-                    if handler:
-                        handler.on_content_delta(user_message, ls.turns)
-                    return ls.make_result(error_response, stopped_by_limit=False)
+                else:
+                    response = await self._llm_caller.call(
+                        messages,
+                        tools,
+                        model_override=model_override,
+                        temperature_override=temperature_override,
+                    )
+            except LLMError as e:
+                if cb_ctx is not None:
+                    cb_ctx.runtime["model_error"] = e
+                logger.error(
+                    "[LLM_ERROR] turn=%d reason=%s retryable=%s",
+                    ls.turns,
+                    e.reason.value,
+                    e.retryable,
+                )
+                user_message = self._get_user_friendly_error_message(e)
+                error_response = AgentMessage.assistant(content=user_message)
+                error_response.metadata["error"] = {
+                    "reason": e.reason.value,
+                    "message": str(e),
+                    "retryable": e.retryable,
+                }
+                self.session_manager.add_message_sync(session_id, error_response)
+                if handler:
+                    handler.on_content_delta(user_message, ls.turns)
+                return ls.make_result(error_response, stopped_by_limit=False)
 
-            am = await self._run_hooks(
-                self._callbacks.after_model,
-                cb_ctx,
-                turn=ls.turns,
-                response=response,
-                context=state,
-                handler=handler,
-            )
-            if am and am.response:
-                response = am.response
+        am = await self._run_hooks(
+            self._callbacks.after_model,
+            cb_ctx,
+            turn=ls.turns,
+            response=response,
+            context=state,
+            handler=handler,
+        )
+        if am and am.response:
+            response = am.response
 
-            usage = response.metadata.get("usage", {})
-            turn_prompt = usage.get("prompt_tokens", 0)
-            turn_completion = usage.get("completion_tokens", 0)
-            ls.total_prompt_tokens += turn_prompt
-            ls.total_completion_tokens += turn_completion
-            finish_reason = response.metadata.get("finish_reason")
-            logger.info(
-                "Turn %d | finish_reason=%s content_len=%d tool_calls=%d tokens=+%d/%d",
-                ls.turns,
-                finish_reason,
-                len(response.content or ""),
-                len(response.tool_calls or []),
-                turn_prompt,
-                turn_completion,
-            )
+        usage = response.metadata.get("usage", {})
+        turn_prompt = usage.get("prompt_tokens", 0)
+        turn_completion = usage.get("completion_tokens", 0)
+        ls.total_prompt_tokens += turn_prompt
+        ls.total_completion_tokens += turn_completion
+        finish_reason = response.metadata.get("finish_reason")
+        logger.info(
+            "Turn %d | finish_reason=%s content_len=%d tool_calls=%d tokens=+%d/%d",
+            ls.turns,
+            finish_reason,
+            len(response.content or ""),
+            len(response.tool_calls or []),
+            turn_prompt,
+            turn_completion,
+        )
 
-            self.session_manager.update_token_usage(
-                session_id,
-                prompt_tokens=turn_prompt,
-                completion_tokens=turn_completion,
-            )
-            self.session_manager.add_message_sync(session_id, response)
+        self.session_manager.update_token_usage(
+            session_id,
+            prompt_tokens=turn_prompt,
+            completion_tokens=turn_completion,
+        )
+        self.session_manager.add_message_sync(session_id, response)
 
-            if finish_reason == "length":
-                logger.warning("Response truncated (max_tokens) in session %s", session_id)
-                return ls.make_result(response, stopped_by_limit=True)
+        if finish_reason == "length":
+            logger.warning("Response truncated (max_tokens) in session %s", session_id)
+            return ls.make_result(response, stopped_by_limit=True)
 
-            return response
+        return response
 
     async def _tool_phase(
         self,
@@ -782,85 +813,76 @@ class AgentRunner:
     ) -> RunResult | None:
         """before_tool → execute → state_delta → after_tool → persist → STOP check."""
         tool_calls = response.tool_calls or []
-        with start_span(
-            "agent.tool_phase",
-            tracer_name="ark_agentic.runner",
-            attributes={
-                "ark.turn": ls.turns,
-                "ark.tool_count": len(tool_calls),
-                "ark.tool_names": ",".join(tc.name for tc in tool_calls),
-            },
-        ):
-            logger.info(
-                "[TOOLS] turn=%d count=%d names=%s",
-                ls.turns,
-                len(tool_calls),
-                [tc.name for tc in tool_calls],
-            )
-            ls.all_tool_calls.extend(tool_calls)
+        logger.info(
+            "[TOOLS] turn=%d count=%d names=%s",
+            ls.turns,
+            len(tool_calls),
+            [tc.name for tc in tool_calls],
+        )
+        ls.all_tool_calls.extend(tool_calls)
 
-            bt = await self._run_hooks(
-                self._callbacks.before_tool,
-                cb_ctx,
-                turn=ls.turns,
-                tool_calls=tool_calls,
-                context=state,
+        bt = await self._run_hooks(
+            self._callbacks.before_tool,
+            cb_ctx,
+            turn=ls.turns,
+            tool_calls=tool_calls,
+            context=state,
+            handler=handler,
+        )
+        if bt and bt.action == HookAction.OVERRIDE and bt.tool_results is not None:
+            tool_results = bt.tool_results
+        else:
+            tool_results = await self._tool_executor.execute(
+                tool_calls,
+                {**state, "session_id": session_id},
                 handler=handler,
             )
-            if bt and bt.action == HookAction.OVERRIDE and bt.tool_results is not None:
-                tool_results = bt.tool_results
-            else:
-                tool_results = await self._tool_executor.execute(
-                    tool_calls,
-                    {**state, "session_id": session_id},
-                    handler=handler,
-                )
 
-            ls.total_tool_calls += len(tool_calls)
-            ls.all_tool_results.extend(tool_results)
+        ls.total_tool_calls += len(tool_calls)
+        ls.all_tool_results.extend(tool_results)
 
+        self._merge_tool_state_deltas(session, tool_results)
+
+        at = await self._run_hooks(
+            self._callbacks.after_tool,
+            cb_ctx,
+            turn=ls.turns,
+            results=tool_results,
+            context=state,
+            handler=handler,
+        )
+        if at and at.tool_results is not None:
+            tool_results = at.tool_results
             self._merge_tool_state_deltas(session, tool_results)
 
-            at = await self._run_hooks(
-                self._callbacks.after_tool,
-                cb_ctx,
-                turn=ls.turns,
-                results=tool_results,
-                context=state,
-                handler=handler,
-            )
-            if at and at.tool_results is not None:
-                tool_results = at.tool_results
-                self._merge_tool_state_deltas(session, tool_results)
+        tool_message = AgentMessage.tool(tool_results)
+        self.session_manager.add_message_sync(session_id, tool_message)
 
-            tool_message = AgentMessage.tool(tool_results)
-            self.session_manager.add_message_sync(session_id, tool_message)
-
-            stop_results = [
-                tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP
+        stop_results = [
+            tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP
+        ]
+        if stop_results:
+            stop_content_parts = [
+                str(tr.content) for tr in stop_results if tr.content and not tr.is_error
             ]
-            if stop_results:
-                stop_content_parts = [
-                    str(tr.content) for tr in stop_results if tr.content and not tr.is_error
-                ]
-                stop_content = "\n".join(stop_content_parts)
-                if stop_content and handler:
-                    handler.on_content_delta(stop_content, ls.turns)
-                if not stop_content and not any(tr.events for tr in stop_results):
-                    logger.warning(
-                        "[TOOL_STOP] tool signaled STOP but both content and events are empty"
-                    )
-                stop_response = AgentMessage.assistant(content=stop_content or "")
-                self.session_manager.add_message_sync(session_id, stop_response)
-                return ls.make_result(stop_response)
+            stop_content = "\n".join(stop_content_parts)
+            if stop_content and handler:
+                handler.on_content_delta(stop_content, ls.turns)
+            if not stop_content and not any(tr.events for tr in stop_results):
+                logger.warning(
+                    "[TOOL_STOP] tool signaled STOP but both content and events are empty"
+                )
+            stop_response = AgentMessage.assistant(content=stop_content or "")
+            self.session_manager.add_message_sync(session_id, stop_response)
+            return ls.make_result(stop_response)
 
-            if all(tr.is_error for tr in tool_results):
-                logger.warning("[TOOLS_FAIL] turn=%d all_failed=True", ls.turns)
+        if all(tr.is_error for tr in tool_results):
+            logger.warning("[TOOLS_FAIL] turn=%d all_failed=True", ls.turns)
 
-            if handler:
-                handler.on_step("信息收集完毕，正在为您总结…")
+        if handler:
+            handler.on_step("信息收集完毕，正在为您总结…")
 
-            return None
+        return None
 
     async def _finalize_response(
         self,
