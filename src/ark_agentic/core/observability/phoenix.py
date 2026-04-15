@@ -41,6 +41,17 @@ except ImportError:  # pragma: no cover - best-effort fallback when optional dep
     SpanAttributes = _SpanAttributes()  # type: ignore[assignment]
     OpenInferenceSpanKindValues = _OpenInferenceSpanKindValues()  # type: ignore[assignment]
 
+try:
+    from opentelemetry.trace import Status, StatusCode
+except ImportError:  # pragma: no cover - best-effort fallback when optional deps missing
+    Status = None
+
+    class _StatusCode:
+        OK = "OK"
+        ERROR = "ERROR"
+
+    StatusCode = _StatusCode()  # type: ignore[assignment]
+
 
 _JSON_MIME_TYPE = "application/json"
 
@@ -219,11 +230,21 @@ class _ManagedSpan:
     def set_attributes(self, attributes: dict[str, Any] | None) -> None:
         _set_span_attributes(self.span, attributes)
 
+    def set_status(self, status_code: Any, description: str | None = None) -> None:
+        setter = getattr(self.span, "set_status", None)
+        if not callable(setter):
+            return
+        if Status is not None:
+            setter(Status(status_code, description))
+            return
+        setter(status_code)
+
     def close(self, exc: BaseException | None = None) -> None:
         if self.closed:
             return
         self.closed = True
         if exc is not None:
+            self.set_status(StatusCode.ERROR, str(exc))
             self.span.set_attribute("error", True)
             self.span.set_attribute("ark.error_type", type(exc).__name__)
             self.span.set_attribute("ark.error_message", str(exc))
@@ -262,17 +283,22 @@ def _close_span(
     key: str,
     *,
     attributes: dict[str, Any] | None = None,
+    status_code: Any | None = None,
+    status_description: str | None = None,
     exc: BaseException | None = None,
 ) -> None:
     span = _get_span_store(ctx).pop(key, None)
     if span is None:
         return
     span.set_attributes(attributes)
+    if exc is None and status_code is not None:
+        span.set_status(status_code, status_description)
     span.close(exc)
 
 
 def create_tracing_callbacks(
     *,
+    agent_id: str | None = None,
     agent_name: str | None = None,
     tracer_name: str = "ark_agentic.runner",
 ) -> RunnerCallbacks:
@@ -280,14 +306,16 @@ def create_tracing_callbacks(
 
     async def _before_agent(ctx: CallbackContext) -> None:
         run_meta = ctx.runtime.get("run", {})
+        span_name = run_meta.get("agent_id") or agent_id or "agent.run"
         handle = _start_managed_span(
-            "agent.run",
+            span_name,
             tracer_name=tracer_name,
             attributes={
                 SpanAttributes.OPENINFERENCE_SPAN_KIND: getattr(OpenInferenceSpanKindValues.AGENT, "value", OpenInferenceSpanKindValues.AGENT),
                 SpanAttributes.SESSION_ID: ctx.session.session_id,
                 SpanAttributes.USER_ID: run_meta.get("user_id") or ctx.session.user_id,
                 SpanAttributes.AGENT_NAME: run_meta.get("agent_name") or agent_name,
+                "ark.agent_id": run_meta.get("agent_id") or agent_id,
                 "ark.session_id": ctx.session.session_id,
                 "ark.user_id": run_meta.get("user_id") or ctx.session.user_id,
                 "ark.stream": run_meta.get("stream"),
@@ -331,6 +359,7 @@ def create_tracing_callbacks(
                 "ark.stopped_by_limit": getattr(run_result, "stopped_by_limit", None),
                 **_json_input_output_attributes(output_value=_response_payload(response)),
             },
+            status_code=StatusCode.OK,
         )
         ctx.runtime.pop("_phoenix_spans", None)
         return None

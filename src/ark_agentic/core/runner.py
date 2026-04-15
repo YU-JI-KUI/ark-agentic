@@ -77,7 +77,10 @@ def _build_runner_callbacks(
     if not phoenix_callbacks_enabled():
         return callbacks or RunnerCallbacks()
     return _compose_runner_callbacks(
-        create_tracing_callbacks(agent_name=config.prompt_config.agent_name),
+        create_tracing_callbacks(
+            agent_id=config.skill_config.agent_id,
+            agent_name=config.prompt_config.agent_name,
+        ),
         callbacks,
     )
 
@@ -300,13 +303,14 @@ class AgentRunner:
             use_history=use_history,
             runtime={
                 "run": {
-                    "user_id": user_id,
-                    "stream": stream,
-                    "model": params.model,
-                    "skill_load_mode": params.skill_load_mode,
-                    "agent_name": self.config.prompt_config.agent_name,
-                }
-            },
+                "user_id": user_id,
+                "stream": stream,
+                "model": params.model,
+                "skill_load_mode": params.skill_load_mode,
+                "agent_id": self.config.skill_config.agent_id,
+                "agent_name": self.config.prompt_config.agent_name,
+            }
+        },
         )
         if isinstance(prepared, RunResult):
             return prepared

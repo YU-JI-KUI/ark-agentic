@@ -86,9 +86,13 @@ class _FakeSpan:
         self.name = name
         self.attributes: dict[str, object] = {}
         self.ended = False
+        self.status: object | None = None
 
     def set_attribute(self, key: str, value: object) -> None:
         self.attributes[key] = value
+
+    def set_status(self, status: object) -> None:
+        self.status = status
 
 
 class _FakeSpanManager:
@@ -124,7 +128,7 @@ async def test_tracing_callbacks_capture_agent_model_and_tool_spans(monkeypatch)
     tracer = _FakeTracer()
     monkeypatch.setattr(module, "get_tracer", lambda name: tracer)
 
-    callbacks = module.create_tracing_callbacks(agent_name="测试助手")
+    callbacks = module.create_tracing_callbacks(agent_id="insurance", agent_name="测试助手")
     ctx = CallbackContext(
         user_input="你好",
         input_context={"temp:trace_id": "trace-1"},
@@ -134,6 +138,7 @@ async def test_tracing_callbacks_capture_agent_model_and_tool_spans(monkeypatch)
                 "stream": False,
                 "model": "mock-model",
                 "skill_load_mode": "full",
+                "agent_id": "insurance",
                 "agent_name": "测试助手",
             }
         },
@@ -170,27 +175,33 @@ async def test_tracing_callbacks_capture_agent_model_and_tool_spans(monkeypatch)
     await callbacks.after_agent[0](ctx, response=ctx.runtime["run_result"].response)
 
     assert [span.name for span in tracer.spans] == [
-        "agent.run",
+        "insurance",
         "agent.model_phase",
         "agent.tool_phase",
         "tool.mock_tool",
     ]
     assert tracer.events == [
-        ("enter", "agent.run"),
+        ("enter", "insurance"),
         ("enter", "agent.model_phase"),
         ("exit", "agent.model_phase"),
         ("enter", "agent.tool_phase"),
         ("enter", "tool.mock_tool"),
         ("exit", "tool.mock_tool"),
         ("exit", "agent.tool_phase"),
-        ("exit", "agent.run"),
+        ("exit", "insurance"),
     ]
+    assert tracer.spans[0].attributes["ark.agent_id"] == "insurance"
     assert tracer.spans[0].attributes["ark.session_id"] == "s1"
     assert tracer.spans[0].attributes["ark.trace_id"] == "trace-1"
     assert tracer.spans[0].attributes["openinference.span.kind"] == "AGENT"
     assert tracer.spans[0].attributes["session.id"] == "s1"
     assert tracer.spans[0].attributes["user.id"] == "u1"
     assert tracer.spans[0].attributes["agent.name"] == "测试助手"
+    assert getattr(
+        getattr(tracer.spans[0].status, "status_code", tracer.spans[0].status),
+        "name",
+        getattr(tracer.spans[0].status, "status_code", tracer.spans[0].status),
+    ) == "OK"
     assert json.loads(tracer.spans[0].attributes["input.value"]) == {
         "user_input": "你好",
         "input_context": {"temp:trace_id": "trace-1"},
@@ -248,7 +259,7 @@ async def test_tracing_callbacks_create_one_tool_span_per_tool_call(monkeypatch)
     tracer = _FakeTracer()
     monkeypatch.setattr(module, "get_tracer", lambda name: tracer)
 
-    callbacks = module.create_tracing_callbacks(agent_name="测试助手")
+    callbacks = module.create_tracing_callbacks(agent_id="insurance", agent_name="测试助手")
     ctx = CallbackContext(
         user_input="你好",
         input_context={},
@@ -288,7 +299,7 @@ async def test_tracing_callbacks_close_pending_model_span_on_error(monkeypatch) 
     tracer = _FakeTracer()
     monkeypatch.setattr(module, "get_tracer", lambda name: tracer)
 
-    callbacks = module.create_tracing_callbacks(agent_name="测试助手")
+    callbacks = module.create_tracing_callbacks(agent_id="insurance", agent_name="测试助手")
     ctx = CallbackContext(
         user_input="你好",
         input_context={},
@@ -298,6 +309,7 @@ async def test_tracing_callbacks_close_pending_model_span_on_error(monkeypatch) 
                 "stream": True,
                 "model": "mock-model",
                 "skill_load_mode": "full",
+                "agent_id": "insurance",
                 "agent_name": "测试助手",
             }
         },
@@ -321,10 +333,10 @@ async def test_tracing_callbacks_close_pending_model_span_on_error(monkeypatch) 
     await callbacks.after_agent[0](ctx, response=ctx.runtime["run_result"].response)
 
     assert tracer.events == [
-        ("enter", "agent.run"),
+        ("enter", "insurance"),
         ("enter", "agent.model_phase"),
         ("exit", "agent.model_phase"),
-        ("exit", "agent.run"),
+        ("exit", "insurance"),
     ]
     model_span = tracer.spans[1]
     assert model_span.attributes["error"] is True
