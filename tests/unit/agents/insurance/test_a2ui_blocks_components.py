@@ -311,6 +311,66 @@ class TestWithdrawPlanCard:
         assert len(output.components) > 0
         assert output.state_delta is not None
 
+    def test_digest_contains_channels_and_total(self):
+        """llm_digest must contain 'channels: [...]' and '总额: ¥...' for downstream ADJUST/execute."""
+        output = build_withdraw_plan_card(
+            {"channels": ["survival_fund", "bonus"], "target": 50000, "title": "零成本"},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        assert "channels:" in output.llm_digest
+        assert "survival_fund" in output.llm_digest
+        assert "bonus" in output.llm_digest
+        assert "总额: ¥" in output.llm_digest
+        assert "方案:" in output.llm_digest
+
+    def test_digest_amount_matches_actual_allocation(self):
+        """Digest total must match the actual allocated amount, not the target."""
+        output = build_withdraw_plan_card(
+            {"channels": ["survival_fund"], "target": 50000, "title": "T"},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        assert "¥12,000.00" in output.llm_digest, (
+            f"survival_fund max is 12000 in sample data; digest={output.llm_digest}"
+        )
+
+    def test_state_delta_plan_allocations_structure(self):
+        """_plan_allocations must contain channels and allocations with policy_no/channel/amount."""
+        output = build_withdraw_plan_card(
+            {"channels": ["survival_fund", "bonus"], "target": 10000, "title": "T"},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        allocs = output.state_delta["_plan_allocations"]
+        assert isinstance(allocs, list) and len(allocs) == 1
+        plan = allocs[0]
+        assert "channels" in plan
+        assert "allocations" in plan
+        for a in plan["allocations"]:
+            assert "channel" in a and "policy_no" in a and "amount" in a
+
+    def test_new_plan_card_always_resets_submitted_channels(self):
+        """Any new PlanCard must reset _submitted_channels to [], even if channels differ."""
+        for channels in [
+            ["survival_fund"],
+            ["policy_loan"],
+            ["survival_fund", "bonus", "policy_loan"],
+        ]:
+            output = build_withdraw_plan_card(
+                {"channels": channels, "target": 5000, "title": "T"},
+                _id_gen(), _SAMPLE_RAW_DATA,
+            )
+            assert output.state_delta["_submitted_channels"] == [], (
+                f"channels={channels} must reset _submitted_channels"
+            )
+
+    def test_single_channel_plan_digest_amount_not_zero(self):
+        """Single-channel PlanCard with target=0 (directive) shows actual available, not 0."""
+        output = build_withdraw_plan_card(
+            {"channels": ["survival_fund"], "target": 0, "title": "生存金"},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        assert "¥0" not in output.llm_digest
+        assert "¥12,000.00" in output.llm_digest
+
 
 # ============ Agent Pipeline (Card expansion) ============
 
@@ -430,6 +490,39 @@ class TestAgentPipeline:
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
         assert result.metadata["state_delta"]["_submitted_channels"] == []
+
+    @pytest.mark.asyncio
+    async def test_plan_card_pipeline_digest_propagates(self, tool, ctx):
+        """render_a2ui result.llm_digest must contain channels and total for session history."""
+        blocks = json.dumps([
+            {"type": "WithdrawPlanCard", "data": {
+                "channels": ["survival_fund", "bonus"], "target": 10000, "title": "零成本领取",
+            }},
+        ])
+        tc = ToolCall.create("render_a2ui", {"blocks": blocks})
+        result = await tool.execute(tc, context=ctx)
+        assert not result.is_error
+        digest = result.llm_digest
+        assert digest is not None, "render_a2ui must propagate llm_digest from PlanCard"
+        assert "channels:" in digest
+        assert "survival_fund" in digest
+        assert "总额: ¥" in digest
+
+    @pytest.mark.asyncio
+    async def test_plan_card_pipeline_state_delta_resets_on_new_card(self, tool, ctx):
+        """New PlanCard via pipeline must reset _submitted_channels even if prior state had submissions."""
+        blocks = json.dumps([
+            {"type": "WithdrawPlanCard", "data": {
+                "channels": ["policy_loan"], "target": 5000, "title": "贷款方案",
+            }},
+        ])
+        tc = ToolCall.create("render_a2ui", {"blocks": blocks})
+        result = await tool.execute(tc, context=ctx)
+        assert not result.is_error
+        delta = result.metadata.get("state_delta", {})
+        assert delta.get("_submitted_channels") == [], (
+            "New PlanCard must reset _submitted_channels"
+        )
 
     @pytest.mark.asyncio
     async def test_transform_resolution_in_card_children(self, tool, ctx):

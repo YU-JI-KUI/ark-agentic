@@ -144,9 +144,18 @@ class SubmitWithdrawalTool(AgentTool):
                 f"未知的操作类型: {operation_type}，支持: {', '.join(_SOURCE_TYPE_MAP.keys())}",
             )
 
+        channel = _OP_TO_CHANNEL.get(operation_type, operation_type)
+        already_submitted: set[str] = set(ctx.get("_submitted_channels") or [])
+        if channel in already_submitted:
+            cn_name = _CHANNEL_CN.get(channel, channel)
+            return AgentToolResult.json_result(
+                tool_call_id=tool_call.id,
+                data=f"{cn_name}已提交办理，无需重复操作。如需重新办理请先生成新的取款方案。",
+                loop_action=ToolLoopAction.STOP,
+            )
+
         policies = _resolve_policies_from_state(operation_type, ctx)
         if not policies:
-            channel = _OP_TO_CHANNEL.get(operation_type, operation_type)
             plan_allocs: list[dict] = ctx.get("_plan_allocations") or []
             available: set[str] = set()
             for p in plan_allocs:
@@ -161,9 +170,8 @@ class SubmitWithdrawalTool(AgentTool):
                 f"请先通过取款方案确认该渠道的可取额度。",
             )
 
-        channel = _OP_TO_CHANNEL[operation_type]
         remaining = _find_remaining_channels(channel, ctx)
-        already = set(ctx.get("_submitted_channels") or []) | {channel}
+        already = already_submitted | {channel}
         content = _build_stop_message(channel, remaining)
 
         query_msg = "，".join(

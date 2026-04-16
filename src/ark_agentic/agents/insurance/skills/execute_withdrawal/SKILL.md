@@ -41,6 +41,18 @@ required_tools:
 
 ---
 
+## 渠道 → operation_type 映射表
+
+| 渠道 channel           | operation_type | 中文名   |
+|------------------------|----------------|----------|
+| `survival_fund`        | `shengcunjin`  | 生存金领取 |
+| `bonus`                | `bonus`        | 红利领取   |
+| `policy_loan`          | `loan`         | 保单贷款   |
+| `partial_withdrawal`   | `partial`      | 部分领取   |
+| `surrender`            | `surrender`    | 退保       |
+
+---
+
 ## 决策树（必须从上到下逐步执行）
 
 > **绝对禁止**：不经过下面三步就直接调用 `submit_withdrawal`。
@@ -76,18 +88,6 @@ digest 格式示例：
 调用：`submit_withdrawal(operation_type=...)`
 
 工具自动生成文案并触发 STOP，只需传 operation_type。
-
----
-
-## 渠道 → operation_type 映射表
-
-| 渠道 channel           | operation_type | 中文名   |
-|------------------------|----------------|----------|
-| `survival_fund`        | `shengcunjin`  | 生存金领取 |
-| `bonus`                | `bonus`        | 红利领取   |
-| `policy_loan`          | `loan`         | 保单贷款   |
-| `partial_withdrawal`   | `partial`      | 部分领取   |
-| `surrender`            | `surrender`    | 退保       |
 
 ---
 

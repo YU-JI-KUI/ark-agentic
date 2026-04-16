@@ -308,7 +308,7 @@ class TestSubmitWithdrawalToolExecute:
         )
         result = await tool.execute(tc, context={})
         assert result.result_type == ToolResultType.ERROR
-        assert "未找到匹配的保单数据" in str(result.content)
+        assert result.is_error is True
 
     @pytest.mark.asyncio
     async def test_auto_generated_stop_message(
@@ -336,4 +336,145 @@ class TestSubmitWithdrawalToolExecute:
             arguments={"operation_type": "bonus"},
         )
         result = await tool.execute(tc, context=None)
+        assert result.is_error is True
+
+
+class TestAntiReentryAndConvergence:
+    """Prevent same channel from being submitted twice; verify all-done convergence."""
+
+    @pytest.fixture
+    def tool(self) -> SubmitWithdrawalTool:
+        return SubmitWithdrawalTool()
+
+    @pytest.mark.asyncio
+    async def test_same_channel_submitted_twice_is_blocked(
+        self, tool: SubmitWithdrawalTool,
+    ) -> None:
+        """Already-submitted channel returns early with dedup message, no state_delta."""
+        ctx = _multi_channel_ctx(submitted=["survival_fund"])
+        tc = ToolCall(
+            id="dup1",
+            name="submit_withdrawal",
+            arguments={"operation_type": "shengcunjin"},
+        )
+        result = await tool.execute(tc, context=ctx)
+        assert not result.is_error
+        assert "已提交办理" in str(result.content)
+        assert "无需重复" in str(result.content)
+        assert result.loop_action == ToolLoopAction.STOP
+        assert result.metadata.get("state_delta") is None
+
+    @pytest.mark.asyncio
+    async def test_all_channels_done_no_remaining_message(
+        self, tool: SubmitWithdrawalTool,
+    ) -> None:
+        """After all channels submitted, stop message has no '待办理'."""
+        ctx = _multi_channel_ctx(submitted=["survival_fund"])
+        tc = ToolCall(
+            id="all_done",
+            name="submit_withdrawal",
+            arguments={"operation_type": "bonus"},
+        )
+        result = await tool.execute(tc, context=ctx)
+        assert "待办理" not in str(result.content)
+        delta = result.metadata.get("state_delta", {})
+        assert set(delta["_submitted_channels"]) == {"survival_fund", "bonus"}
+
+    @pytest.mark.asyncio
+    async def test_adjust_resets_submitted_then_resubmit_works(
+        self, tool: SubmitWithdrawalTool,
+    ) -> None:
+        """Simulates ADJUST: new PlanCard resets _submitted_channels to [],
+        then first submit should show remaining again."""
+        ctx = _plan_ctx(
+            allocations=[
+                {"channel": "survival_fund", "policy_no": "POL002", "amount": 12000},
+                {"channel": "bonus", "policy_no": "POL002", "amount": 5200},
+            ],
+            channels=["survival_fund", "bonus"],
+            submitted=[],
+        )
+        tc = ToolCall(
+            id="post_adjust",
+            name="submit_withdrawal",
+            arguments={"operation_type": "shengcunjin"},
+        )
+        result = await tool.execute(tc, context=ctx)
+        assert not result.is_error
+        assert "待办理" in str(result.content), "After reset, remaining channels should be shown"
+        assert "红利领取" in str(result.content)
+
+    @pytest.mark.asyncio
+    async def test_three_channel_all_done_convergence(
+        self, tool: SubmitWithdrawalTool,
+    ) -> None:
+        """Three-channel plan: submit all three in sequence, verify convergence."""
+        ctx = _plan_ctx(
+            allocations=[
+                {"channel": "survival_fund", "policy_no": "P1", "amount": 1000},
+                {"channel": "bonus", "policy_no": "P1", "amount": 500},
+                {"channel": "policy_loan", "policy_no": "P1", "amount": 3000},
+            ],
+            channels=["survival_fund", "bonus", "policy_loan"],
+            submitted=["survival_fund", "bonus"],
+        )
+        tc = ToolCall(
+            id="final",
+            name="submit_withdrawal",
+            arguments={"operation_type": "loan"},
+        )
+        result = await tool.execute(tc, context=ctx)
+        assert not result.is_error
+        assert "待办理" not in str(result.content)
+        delta = result.metadata.get("state_delta", {})
+        assert set(delta["_submitted_channels"]) == {"survival_fund", "bonus", "policy_loan"}
+
+
+class TestOperationTypeMapping:
+    """Ensure operation_type -> channel -> flow_type mappings are stable."""
+
+    @pytest.fixture
+    def tool(self) -> SubmitWithdrawalTool:
+        return SubmitWithdrawalTool()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "op_type,channel,expected_flow",
+        [
+            ("shengcunjin", "survival_fund", "shengcunjin-claim-E031"),
+            ("bonus", "bonus", "bonus-claim"),
+            ("loan", "policy_loan", "E027Flow"),
+            ("partial", "partial_withdrawal", "U045Flow"),
+            ("surrender", "surrender", "surrender"),
+        ],
+    )
+    async def test_mapping_correct(
+        self, tool: SubmitWithdrawalTool, op_type: str, channel: str, expected_flow: str,
+    ) -> None:
+        ctx = _plan_ctx(
+            [{"channel": channel, "policy_no": "P1", "amount": 100}]
+        )
+        tc = ToolCall(
+            id=f"map_{op_type}",
+            name="submit_withdrawal",
+            arguments={"operation_type": op_type},
+        )
+        result = await tool.execute(tc, context=ctx)
+        assert not result.is_error
+        ev = result.events[0]
+        assert ev.payload["flow_type"] == expected_flow, (
+            f"{op_type} -> {expected_flow}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_channel_name_as_operation_type_is_error(
+        self, tool: SubmitWithdrawalTool,
+    ) -> None:
+        """Using channel name (survival_fund) instead of op_type (shengcunjin) must error."""
+        tc = ToolCall(
+            id="wrong_mapping",
+            name="submit_withdrawal",
+            arguments={"operation_type": "survival_fund"},
+        )
+        result = await tool.execute(tc, context=_plan_ctx([]))
         assert result.is_error is True

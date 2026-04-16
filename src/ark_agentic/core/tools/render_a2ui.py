@@ -185,11 +185,11 @@ class RenderA2UITool(AgentTool):
                 f"可用类型：{blocks_desc}。{exclusive}"
             )
             if self._blocks.component_schemas:
-                schema_lines = " | ".join(
-                    f"{name} — {schema}"
+                schema_lines = "\n".join(
+                    f"- {name}: {schema}"
                     for name, schema in self._blocks.component_schemas.items()
                 )
-                desc += f" 组件说明：{schema_lines}"
+                desc += f"\n组件说明：\n{schema_lines}"
             params.append(ToolParameter(
                 name="blocks",
                 type="string",

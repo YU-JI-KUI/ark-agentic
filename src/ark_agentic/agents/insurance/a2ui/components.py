@@ -211,7 +211,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "children": {"explicitList": [col_id]},
         })
 
-        digest = f"汇总: 总可领{'(含贷款)' if has_loan_section else ''} ¥{total:,.2f}"
+        digest = f"[已向用户展示卡片] 汇总: 总可领{'(含贷款)' if has_loan_section else ''} ¥{total:,.2f}"
         if has_loan_section:
             digest += f" | 不含贷款 ¥{total_excl_loan:,.2f}"
 
@@ -306,7 +306,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
         })
 
         detail = "; ".join(f"{item['label']} {item['value']}" for item in items)
-        digest = f"渠道: {title} | 合计: ¥{total_sum:,.2f} | {detail}"
+        digest = f"[已向用户展示卡片] 渠道: {title} | 合计: ¥{total_sum:,.2f} | {detail}"
 
         return A2UIOutput(components=[card, col] + comps, llm_digest=digest)
 
@@ -420,7 +420,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
         ch_summary = ", ".join(
             f"{_CHANNEL_LABELS.get(ch, ch)} ¥{amt:,.2f}" for ch, amt in by_ch.items()
         )
-        digest = f"方案: {title} | channels: {actual_channels} | 总额: ¥{actual_total:,.2f} | {ch_summary}"
+        digest = f"[已向用户展示卡片] 方案: {title} | channels: {actual_channels} | 总额: ¥{actual_total:,.2f} | {ch_summary}"
 
         return A2UIOutput(
             components=[card, col] + comps,
