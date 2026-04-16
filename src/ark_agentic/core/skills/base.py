@@ -149,12 +149,16 @@ def _escape_xml(text: str) -> str:
 
 
 LOAD_ONE_SKILL_INSTRUCTIONS = """\
-## 技能（mandatory）
-回复前扫描 <available_skills> 中每个技能的 <description>。
-- 恰好一个技能匹配（即使只是部分匹配）：调用 `read_skill` 加载该技能，然后严格按返回的指令执行。
-- 多个技能可能匹配：选择最具体的，调用 `read_skill` 后执行。
-- 仅当用户问题与所有已列技能完全无关时（如日常寒暄、通用知识），才可直接回复。
-约束：每轮最多读取一个技能；必须先选定再读取。"""
+## 技能加载（mandatory — 回复或调用任何工具前必须先完成）
+技能文档包含完整的业务规则、参数约束和输出格式。未读取技能就调用工具会违反业务规则。
+
+流程：
+1. 扫描 <available_skills> 的 <description>，找到与用户问题匹配的技能
+2. 调用 `read_skill(skill_id)` 加载完整指令
+3. 按返回的指令执行
+
+多个技能匹配时选最具体的。仅当用户问题与所有技能完全无关时（如寒暄），才可跳过。
+约束：每轮最多读取一个技能；必须先 read_skill 再调用其他工具。"""
 
 
 def _truncate_description(desc: str, max_chars: int = 250) -> str:
