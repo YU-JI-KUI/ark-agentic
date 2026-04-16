@@ -68,6 +68,22 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "line_color": t.accent,
             "total_color": t.accent,
         },
+        "survival_fund": {
+            "channels": ("survival_fund",),
+            "title": "生存金",
+            "tag": "不影响保障",
+            "tag_color": "#6cb585",
+            "line_color": t.accent,
+            "total_color": t.accent,
+        },
+        "bonus": {
+            "channels": ("bonus",),
+            "title": "红利",
+            "tag": "不影响保障",
+            "tag_color": "#6cb585",
+            "line_color": t.accent,
+            "total_color": t.accent,
+        },
         "loan": {
             "channels": ("policy_loan",),
             "title": "保单贷款",

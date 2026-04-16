@@ -189,21 +189,21 @@ class TestEnableMemoryGuard:
         from ark_agentic.core.prompt.builder import SystemPromptBuilder
 
         prompt = SystemPromptBuilder.quick_build(enable_memory=False)
-        assert "<memory>" not in prompt
+        assert "<auto_memory_instructions>" not in prompt
         assert "memory_write" not in prompt
 
     def test_memory_section_present_when_enabled(self) -> None:
         from ark_agentic.core.prompt.builder import SystemPromptBuilder
 
         prompt = SystemPromptBuilder.quick_build(enable_memory=True)
-        assert "<memory>" in prompt
+        assert "<auto_memory_instructions>" in prompt
         assert "memory_write" in prompt
 
     def test_default_is_disabled(self) -> None:
         from ark_agentic.core.prompt.builder import SystemPromptBuilder
 
         prompt = SystemPromptBuilder.quick_build()
-        assert "<memory>" not in prompt
+        assert "<auto_memory_instructions>" not in prompt
 
     def test_profile_still_injected_without_memory(self) -> None:
         from ark_agentic.core.prompt.builder import SystemPromptBuilder
@@ -212,7 +212,7 @@ class TestEnableMemoryGuard:
             user_profile_content="## 偏好\n简洁",
             enable_memory=False,
         )
-        assert "<memory>" not in prompt
+        assert "<auto_memory_instructions>" not in prompt
         assert "简洁" in prompt
         assert "<user_profile>" in prompt
 

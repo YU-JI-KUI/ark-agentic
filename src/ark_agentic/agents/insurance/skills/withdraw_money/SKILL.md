@@ -72,7 +72,9 @@ required_tools:
 
 | 用户说法 | sections 值 |
 |---------|-------------|
-| 零成本 / 不影响保障的 | `["zero_cost"]` |
+| 零成本 / 不影响保障的（生存金+红利合并） | `["zero_cost"]` |
+| 只看红利 / 红利有多少 | `["bonus"]` |
+| 只看生存金 / 生存金有多少 | `["survival_fund"]` |
 | 不看贷款 | `["zero_cost", "partial_surrender"]` |
 | 不看退保 | `["zero_cost", "loan"]` |
 | 全部（默认） | `["zero_cost", "loan", "partial_surrender"]` |
@@ -137,6 +139,8 @@ target 为负数 → 直接回复"取款金额需要为正数"，不调工具。
 | section 值 | 包含渠道 | 标签 |
 |-----------|---------|------|
 | `zero_cost` | survival_fund, bonus | 不影响保障 |
+| `survival_fund` | survival_fund | 不影响保障 |
+| `bonus` | bonus | 不影响保障 |
 | `loan` | policy_loan | 需支付利息 |
 | `partial_surrender` | partial_withdrawal, surrender | 保障有损失，不建议 |
 

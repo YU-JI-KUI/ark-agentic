@@ -52,22 +52,17 @@ class PromptConfig:
 _UNWRAPPED_SECTIONS = frozenset({"identity"})
 
 MEMORY_WRITE_PROTOCOL = """\
-你拥有持久化记忆能力（memory_write 工具），可增量更新用户长期偏好。
+⚠️ 必须执行：你拥有 memory_write 工具，用于自动保存用户长期偏好。
+每次回复前扫描用户消息，若包含可记录内容，必须先调用 memory_write 再回复，即使用户没有明确说"记住"。
 
+## 记录规则（mandatory）
 {filter_rules}
 
-### 保存流程
-回复前判断：符合"记录"条件 → 先 memory_write 再回复。
-
-### 增量更新
+## 增量写入格式
 memory_write 只写变化的标题，其他自动保留。
 - 新增/修改：`## 标题\\n内容`（同名覆盖）
-- 删除：`## 标题\\n`（空内容自动移除）
-
-### 标题规范
-简短通用分类：## 身份信息、## 回复风格、## 业务偏好、## 风险偏好
-避免过于具体的标题（如 ## 2026年3月保单贷款策略 → 应归入 ## 业务偏好）
-写入前检查已有标题，优先复用。""".format(filter_rules=MEMORY_FILTER_RULES)
+- 删除：`## 标题\\n`（空内容移除）
+标题规范：简短通用（如 ## 身份信息、## 回复风格、## 业务偏好、## 风险偏好），优先复用已有标题。""".format(filter_rules=MEMORY_FILTER_RULES)
 
 
 
@@ -134,7 +129,7 @@ class SystemPromptBuilder:
 
     def add_memory_instructions(self) -> SystemPromptBuilder:
         """添加 memory 写入协议（always-on，无需 profile 数据）"""
-        self._sections.append(("memory", MEMORY_WRITE_PROTOCOL))
+        self._sections.append(("auto_memory_instructions", MEMORY_WRITE_PROTOCOL))
         return self
 
     def add_user_profile(self, content: str) -> SystemPromptBuilder:
@@ -272,8 +267,6 @@ class SystemPromptBuilder:
         if effective_config.system_protocol:
             builder.add_section("system_protocol", effective_config.system_protocol)
 
-        if enable_memory:
-            builder.add_memory_instructions()
         if tools:
             builder.add_tools(tools, include_params=include_tool_params)
         if skills:
@@ -284,6 +277,8 @@ class SystemPromptBuilder:
             builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
         if user_profile_content:
             builder.add_user_profile(user_profile_content)
+        if enable_memory:
+            builder.add_memory_instructions()
         builder.add_custom_instructions()
 
         return builder.build()

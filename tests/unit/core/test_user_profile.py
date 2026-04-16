@@ -216,11 +216,11 @@ class TestBuilderUserProfile:
 
     def test_quick_build_memory_enabled(self) -> None:
         prompt = SystemPromptBuilder.quick_build(enable_memory=True)
-        assert "<memory>" in prompt
+        assert "<auto_memory_instructions>" in prompt
 
     def test_quick_build_memory_disabled_by_default(self) -> None:
         prompt = SystemPromptBuilder.quick_build()
-        assert "<memory>" not in prompt
+        assert "<auto_memory_instructions>" not in prompt
 
     def test_profile_section_order(self) -> None:
         builder = SystemPromptBuilder()
@@ -231,7 +231,7 @@ class TestBuilderUserProfile:
         builder.build()
 
         sections = [name for name, _ in builder._sections]
-        memory_idx = sections.index("memory")
+        memory_idx = sections.index("auto_memory_instructions")
         identity_idx = sections.index("identity")
         assert memory_idx > identity_idx
 

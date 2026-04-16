@@ -217,6 +217,28 @@ class TestWithdrawSummarySection:
         )
         assert output.components == []
 
+    def test_bonus_preset_excludes_survival_fund(self):
+        """POL002 has both survival_fund and bonus; section=bonus must not list 生存金."""
+        output = build_withdraw_summary_section(
+            {"section": "bonus"},
+            _id_gen(),
+            _SAMPLE_RAW_DATA,
+        )
+        assert len(output.components) > 0
+        assert "红利" in output.llm_digest
+        assert "生存金" not in output.llm_digest
+
+    def test_survival_fund_preset_excludes_bonus(self):
+        """POL002 has both; section=survival_fund must not list 红利."""
+        output = build_withdraw_summary_section(
+            {"section": "survival_fund"},
+            _id_gen(),
+            _SAMPLE_RAW_DATA,
+        )
+        assert len(output.components) > 0
+        assert "生存金" in output.llm_digest
+        assert "红利" not in output.llm_digest
+
 
 class TestWithdrawPlanCard:
     def test_basic(self):
