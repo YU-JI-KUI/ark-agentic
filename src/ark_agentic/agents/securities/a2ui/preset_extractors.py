@@ -98,6 +98,13 @@ def _make_holdings_extractor(source_tool: str):
         data = _read_source_data(context, source_tool)
         if not data:
             return A2UIOutput(template_data={"error": f"未找到 {source_tool} 数据"})
+        if data.get("_error") == "margin_not_supported":
+            return A2UIOutput(
+                template_data={
+                    "template_id": source_tool,
+                    "account_type": data.get("account_type", "margin"),
+                }
+            )
         _enrich_common(context, data, title_tpl)
         return A2UIOutput(
             template_data=TemplateRenderer.render_holdings_list_card(asset_class, data),

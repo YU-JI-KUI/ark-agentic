@@ -15,11 +15,7 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from ark_agentic.core.callbacks import (
-    CallbackContext,
-    CallbackResult,
-    RunnerCallbacks,
-)
+from ark_agentic.core.callbacks import CallbackContext, CallbackEvent, CallbackResult, HookAction, RunnerCallbacks
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
@@ -118,15 +114,36 @@ def create_securities_agent(
         build_memory_manager(memory_dir) if memory_dir is not None else None
     )
 
-    from .tools.service.param_mapping import enrich_securities_context
+    from .tools.service.param_mapping import enrich_securities_context, _get_context_value
 
     async def _enrich_context(ctx: CallbackContext) -> CallbackResult | None:
         return CallbackResult(
             context_updates=enrich_securities_context(ctx.input_context),
         )
 
+    async def _auth_check(ctx: CallbackContext) -> CallbackResult | None:
+        login_flag = _get_context_value(ctx.input_context, "loginflag")
+        if str(login_flag) != "1":
+            return None
+        account_type = _get_context_value(ctx.input_context, "account_type", "normal")
+        type_code = "1" if account_type == "margin" else "2"
+        return CallbackResult(
+            action=HookAction.ABORT,
+            response=AgentMessage.assistant("需要进行证券账户登录才能访问该服务。"),
+            event=CallbackEvent(
+                type="ui_component",
+                data={
+                    "template": "common_login",
+                    "body": {
+                        "actionAuth": "Z",
+                        "type": type_code,
+                    },
+                },
+            ),
+        )
+
     existing_callbacks = RunnerCallbacks(
-        before_agent=[_enrich_context],
+        before_agent=[_enrich_context, _auth_check],
         before_loop_end=[_citation_hook],
     )
 
