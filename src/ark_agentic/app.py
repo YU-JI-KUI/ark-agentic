@@ -26,6 +26,9 @@ logging.basicConfig(
 for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
     logging.getLogger(_lib).setLevel(logging.WARNING)
 
+# Windows Update 证书探测会触发 uvicorn 的 "Invalid HTTP request received" 警告，静默掉。
+logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
+
 if _log_level == logging.DEBUG:
     # set_debug(True) 会把 LLM 完整输入输出打到 stdout（ConsoleCallbackHandler），噪音过大。
     # DEBUG 级别的 LangChain 内部日志通过标准 logging 控制，无需开启 LangChain debug 模式。
@@ -136,6 +139,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Windows Update / CryptSvc 会把证书吊销列表请求（disallowedcertstl.cab 等）
+# 路由到本机监听端口，产生无意义的 404 日志。直接静默返回 204。
+@app.middleware("http")
+async def _drop_windows_update_probes(request, call_next):
+    if "/msdownload/update/" in request.url.path:
+        from fastapi.responses import Response
+        return Response(status_code=204)
+    return await call_next(request)
+
 # ---- 挂载路由 ----
 app.include_router(chat_api.router)
 app.include_router(notifications_api.router)
@@ -181,7 +193,14 @@ async def get_securities_mock_mode():
 
 
 def main() -> None:
+    import asyncio
+    import sys
     import uvicorn
+
+    # ProactorEventLoop (Windows default) raises OSError: [WinError 64] on abrupt
+    # client disconnects. Switch to SelectorEventLoop to avoid these spurious errors.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", "8080"))
