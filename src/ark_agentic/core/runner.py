@@ -34,7 +34,6 @@ from .tools.base import AgentTool
 from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
-from .guardrails.channels import resolve_llm_visible_content
 from .observability import create_tracing_callbacks, phoenix_callbacks_enabled
 from .types import (
     AgentMessage,
@@ -117,6 +116,9 @@ class RunnerConfig:
 
     # 子任务（启用后自动注册 spawn_subtasks 工具）
     enable_subtasks: bool = False
+
+    # Dream 开关：False 时不创建 MemoryDreamer，即使 memory 系统已启用也不会执行后台蒸馏
+    enable_dream: bool = True
 
     # Dream 触发：最少 session 数（OR 语义：时间够 或 session 数够）
     dream_min_sessions: int = 5
@@ -240,11 +242,13 @@ class AgentRunner:
         )
 
         if memory_manager is not None:
-            from .memory.dream import MemoryDreamer
             from .memory.extractor import MemoryFlusher
 
             self._flusher = MemoryFlusher(self._llm_caller.get_llm)
-            self._dreamer = MemoryDreamer(self._llm_caller.get_llm)
+
+            if self.config.enable_dream:
+                from .memory.dream import MemoryDreamer
+                self._dreamer = MemoryDreamer(self._llm_caller.get_llm)
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
@@ -552,7 +556,6 @@ class AgentRunner:
         session: SessionEntry,
         tool_results: list[AgentToolResult],
     ) -> None:
-        # guardrails 可能在 after_tool 阶段重写 tool_results，因此前后都需要合并一次 state_delta。
         for tr in tool_results:
             state_delta = tr.metadata.get("state_delta")
             if state_delta and isinstance(state_delta, dict):
@@ -1029,26 +1032,12 @@ class AgentRunner:
             elif msg.role == MessageRole.TOOL:
                 if msg.tool_results:
                     for tr in msg.tool_results:
-                        llm_visible = resolve_llm_visible_content(
-                            tr.content, tr.metadata,
-                        )
-                        if llm_visible is not tr.content:
-                            # 若 guardrails 已提供模型可见副本，则优先把脱敏后的内容送入上下文。
-                            content = llm_visible
-                            if isinstance(content, (dict, list)):
-                                content = json.dumps(content, ensure_ascii=False)
-                            else:
-                                content = str(content)
+                        if tr.llm_digest:
+                            content = tr.llm_digest
                         elif tr.tool_call_id in a2ui_tc_ids:
-                            digest = (
-                                tr.metadata.get("llm_digest") if tr.metadata else None
-                            )
-                            if digest:
-                                content = f"[已向用户展示卡片] {digest}"
-                            else:
-                                raw = tr.content
-                                n = len(raw) if isinstance(raw, list) else 1
-                                content = f"[已向用户展示卡片，共{n}个组件]"
+                            raw = tr.content
+                            n = len(raw) if isinstance(raw, list) else 1
+                            content = f"[已向用户展示卡片，共{n}个组件]"
                         else:
                             content = tr.content
                             if isinstance(content, (dict, list)):

@@ -55,6 +55,7 @@ class BlocksConfig:
     agent_blocks: dict[str, Callable] = field(default_factory=dict)
     agent_components: dict[str, Callable] = field(default_factory=dict)
     theme: A2UITheme | None = None
+    component_schemas: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -70,9 +71,9 @@ class TemplateConfig:
 # ---------------------------------------------------------------------------
 
 def _attach_enrichment(result: AgentToolResult, output: A2UIOutput) -> None:
-    """Route llm_digest and state_delta from A2UIOutput into AgentToolResult.metadata."""
+    """Route llm_digest and state_delta from A2UIOutput into AgentToolResult."""
     if output.llm_digest:
-        result.metadata["llm_digest"] = output.llm_digest
+        result.llm_digest = output.llm_digest
     if output.state_delta:
         existing = result.metadata.get("state_delta") or {}
         existing.update(output.state_delta)
@@ -179,13 +180,20 @@ class RenderA2UITool(AgentTool):
             )
             blocks_desc = ", ".join(available_types)
             exclusive = self._exclusive_hint("blocks")
+            desc = (
+                f"块描述 JSON 数组字符串。每个元素为 {{\"type\": \"BlockType\", \"data\": {{...}}}}。"
+                f"可用类型：{blocks_desc}。{exclusive}"
+            )
+            if self._blocks.component_schemas:
+                schema_lines = " | ".join(
+                    f"{name} — {schema}"
+                    for name, schema in self._blocks.component_schemas.items()
+                )
+                desc += f" 组件说明：{schema_lines}"
             params.append(ToolParameter(
                 name="blocks",
                 type="string",
-                description=(
-                    f"块描述 JSON 数组字符串。每个元素为 {{\"type\": \"BlockType\", \"data\": {{...}}}}。"
-                    f"可用类型：{blocks_desc}。{exclusive}"
-                ),
+                description=desc,
                 required=False,
             ))
 

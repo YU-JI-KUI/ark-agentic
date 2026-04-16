@@ -96,12 +96,15 @@ async def lifespan(app: FastAPI):
         init_phoenix(service_name="ark-agentic-api")
 
     # ── Step 2: 创建并注册 Agents ────────────────────────────────────────
+    _enable_dream = _env_flag("ENABLE_DREAM") if os.getenv("ENABLE_DREAM") else True
     _registry.register("insurance", create_insurance_agent(
         enable_memory=_env_flag("ENABLE_MEMORY"),
+        enable_dream=_enable_dream,
         enable_thinking_tags=_env_flag("ENABLE_THINKING_TAGS"),
     ))
     _registry.register("securities", create_securities_agent(
         enable_memory=_env_flag("ENABLE_MEMORY"),
+        enable_dream=_enable_dream,
     ))
 
     api_deps.init_registry(_registry)

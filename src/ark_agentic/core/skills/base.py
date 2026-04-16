@@ -283,10 +283,14 @@ def render_skill_section(
     skills: list[SkillEntry],
     config: SkillConfig | None = None,
 ) -> str:
-    """根据 config.load_mode 渲染 skill 系统提示段落。
+    """渲染 skill 系统提示段落（向后兼容）。
 
     full  → build_skill_prompt（全文注入）
     其它  → LOAD_ONE_SKILL_INSTRUCTIONS + format_skills_metadata_for_prompt（元数据 + read_skill）
+
+    Note: SystemPromptBuilder.add_skills 是推荐入口，它会将 dynamic 模式的
+    行为指令和元数据拆成独立 section，避免名词标签淹没指令。
+    本函数保留给直接拼 prompt 字符串的场景。
     """
     if not skills:
         return ""

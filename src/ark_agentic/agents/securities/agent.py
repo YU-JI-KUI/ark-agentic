@@ -15,7 +15,11 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from ark_agentic.core.callbacks import CallbackContext, CallbackResult, RunnerCallbacks
+from ark_agentic.core.callbacks import (
+    CallbackContext,
+    CallbackResult,
+    RunnerCallbacks,
+)
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
@@ -26,11 +30,6 @@ from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
-
-from ark_agentic.core.guardrails import (
-    create_guardrails_callbacks,
-    merge_runner_callbacks,
-)
 from ark_agentic.core.validation import EntityTrie, create_citation_validation_hook
 
 from .tools import create_securities_tools
@@ -43,6 +42,7 @@ def create_securities_agent(
     llm: BaseChatModel | None = None,
     *,
     enable_memory: bool = False,
+    enable_dream: bool = True,
     proactive_cron: str = "0 9 * * 1-5",
 ) -> AgentRunner:
     """创建证券资产管理 Agent
@@ -50,6 +50,7 @@ def create_securities_agent(
     Args:
         llm: LLM 实例；None 时从环境变量初始化
         enable_memory: 是否启用 Memory 系统；路径由 MEMORY_DIR 环境变量控制
+        enable_dream: 是否启用 Dream 后台蒸馏（需 enable_memory=True 才有效）
         proactive_cron: 主动服务 Job 的触发时间（cron 表达式），默认工作日早 9 点。
             常用示例：
               "0 9 * * 1-5"   每个工作日早 9 点（默认）
@@ -104,6 +105,7 @@ def create_securities_agent(
     runner_config = RunnerConfig(
         max_tokens=4096,
         max_turns=10,
+        enable_dream=enable_dream,
         prompt_config=PromptConfig(
             agent_name="证券资产管理助手",
             agent_description="专业的证券资产查询与分析助手",
@@ -123,7 +125,6 @@ def create_securities_agent(
             context_updates=enrich_securities_context(ctx.input_context),
         )
 
-    guardrails_callbacks = create_guardrails_callbacks(agent_id="securities")
     existing_callbacks = RunnerCallbacks(
         before_agent=[_enrich_context],
         before_loop_end=[_citation_hook],
@@ -150,6 +151,6 @@ def create_securities_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
-        callbacks=merge_runner_callbacks(existing_callbacks, guardrails_callbacks),
+        callbacks=existing_callbacks,
         proactive_job=proactive_job,
     )

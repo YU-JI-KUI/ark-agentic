@@ -19,7 +19,7 @@ from ..skills.base import (
     format_skills_metadata_for_prompt,
 )
 from ..tools.base import AgentTool
-from ..types import SkillEntry
+from ..types import SkillEntry, SkillLoadMode
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class PromptConfig:
     thinking_tag_instructions: str = ""
 
 
-_UNWRAPPED_SECTIONS = frozenset({"identity"})
+_UNWRAPPED_SECTIONS = frozenset({"identity", "available_skills"})
 
 MEMORY_WRITE_PROTOCOL = """\
 ⚠️ 必须执行：你拥有 memory_write 工具，用于自动保存用户长期偏好。
@@ -190,7 +190,6 @@ class SystemPromptBuilder:
         if not skills:
             return self
         sc = skill_config or SkillConfig()
-        from ..types import SkillLoadMode
 
         if sc.load_mode == SkillLoadMode.full:
             section = build_skill_prompt(skills)

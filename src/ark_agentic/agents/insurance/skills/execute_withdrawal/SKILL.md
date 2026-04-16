@@ -1,7 +1,7 @@
 ---
 name: 取款执行
 description: 仅当对话中已展示过取款方案卡片（render_a2ui WithdrawPlanCard）且用户明确选择了某个渠道要办理时，才使用本技能调用 submit_withdrawal 提交。如果尚未展示方案卡片，本技能不适用，应使用「保险取款」技能。
-version: "8.0.0"
+version: "9.0.0"
 invocation_policy: auto
 group: insurance
 tags:
@@ -13,9 +13,7 @@ required_tools:
 
 # 取款执行技能
 
-调用 `submit_withdrawal` 唤起办理流程。工具自动从方案数据获取保单和金额，**LLM 只需传 `operation_type`**。
-
-> **STOP 约束**：`submit_withdrawal` 会触发 STOP，调用后你**不能再发言**。所有要对用户说的话，必须通过工具的 `text` 参数传递，**不要在调用工具前输出任何文字内容**。
+调用 `submit_withdrawal` 唤起办理流程。工具自动从方案数据获取保单和金额，**LLM 只需传 `operation_type`**。工具自动生成用户文案和剩余渠道提醒。
 
 ## 何时使用本技能
 
@@ -62,8 +60,8 @@ required_tools:
 
 digest 格式示例：
 ```
-[已向用户展示卡片] 方案: ★ 推荐: 零成本领取 | channels: ["survival_fund", "bonus"] | 总额: ¥17,200.00 | 明细: ...
-方案: 保单贷款 | channels: ["policy_loan"] | 总额: ¥20,000.00 | 明细: ...
+[已向用户展示卡片] 方案: ★ 推荐: 零成本领取 | channels: ["survival_fund", "bonus"] | 总额: ¥17,200.00 | 生存金 ¥12,000.00, 红利 ¥5,200.00
+方案: 保单贷款 | channels: ["policy_loan"] | 总额: ¥20,000.00 | 保单贷款 ¥20,000.00
 ```
 
 - **1 个渠道** → 跳到 **STEP 2**
@@ -73,15 +71,11 @@ digest 格式示例：
   > 2. 红利领取(¥5,200.00)"
   - 等用户回复选择后 → 进入 **STEP 2**
 
-### STEP 2 — 提交（带上下文）
+### STEP 2 — 提交
 
-**不要输出任何文字内容。** 所有要对用户说的话，必须通过 `text` 参数传给工具。
+调用：`submit_withdrawal(operation_type=...)`
 
-`text` 参数必须包含：
-1. 正在办理什么："正在帮您办理{X}"
-2. 如果同方案还有未办理渠道："该方案还有{Y}(¥Z)，办完可以继续办理"
-
-调用：`submit_withdrawal(operation_type=..., text="正在帮您办理...")`
+工具自动生成文案并触发 STOP，只需传 operation_type。
 
 ---
 
@@ -99,10 +93,10 @@ digest 格式示例：
 
 ## 正例
 
-### 例 1：多渠道方案 — 列出渠道 → 用户选择 → 提交并提醒剩余
+### 例 1：多渠道方案 — 列出渠道 → 用户选择 → 提交
 
 ```
-digest: 方案: ★ 推荐: 零成本领取 | channels: ["survival_fund", "bonus"] | 总额: ¥17,200.00
+digest: 方案: ★ 推荐: 零成本领取 | channels: ["survival_fund", "bonus"] | 总额: ¥17,200.00 | 生存金 ¥12,000.00, 红利 ¥5,200.00
 
 用户: "就零成本方案"
 助手（STEP 1 — 2个渠道，需要问）:
@@ -111,8 +105,8 @@ digest: 方案: ★ 推荐: 零成本领取 | channels: ["survival_fund", "bonus
    2. 红利领取(¥5,200.00)"
 
 用户: "先领生存金"
-助手（STEP 2 — 不输出文字，直接调用工具）:
-  → submit_withdrawal(operation_type="shengcunjin", text="正在帮您办理生存金领取~该方案还有红利领取(¥5,200.00)，办完可以继续办理")
+助手（STEP 2）:
+  → submit_withdrawal(operation_type="shengcunjin")
 ```
 
 ### 例 2：续办 — 上轮提交后用户回来继续
@@ -121,18 +115,18 @@ digest: 方案: ★ 推荐: 零成本领取 | channels: ["survival_fund", "bonus
 上轮 submit_withdrawal 结果: "已启动生存金领取办理流程。还有红利领取(¥5,200.00)待办理"
 
 用户: "红利也办一下"
-助手（STEP 0 — 续办，不输出文字，直接调用工具）:
-  → submit_withdrawal(operation_type="bonus", text="正在帮您办理红利领取")
+助手（STEP 0 — 续办）:
+  → submit_withdrawal(operation_type="bonus")
 ```
 
 ### 例 3：单渠道方案 — 直接办理
 
 ```
-digest: 方案: 保单贷款 | channels: ["policy_loan"] | 总额: ¥20,000.00
+digest: 方案: 保单贷款 | channels: ["policy_loan"] | 总额: ¥20,000.00 | 保单贷款 ¥20,000.00
 
 用户: "办理方案2"
-助手（STEP 1 — 1个渠道，直接 STEP 2，不输出文字）:
-  → submit_withdrawal(operation_type="loan", text="正在帮您办理保单贷款")
+助手（STEP 1 — 1个渠道，直接 STEP 2）:
+  → submit_withdrawal(operation_type="loan")
 ```
 
 ## 反例（禁止）
@@ -146,28 +140,12 @@ digest: channels: ["survival_fund", "bonus"]
 ✅ 先列出两个渠道让用户选择，用户选定后再提交
 ```
 
-### 反例 2：提交时未提醒剩余渠道
-
-```
-digest: channels: ["survival_fund", "bonus"]，用户选了生存金
-❌ submit_withdrawal(operation_type="shengcunjin", text="正在帮您办理生存金领取")（没提红利）
-✅ submit_withdrawal(operation_type="shengcunjin", text="正在帮您办理生存金领取~该方案还有红利领取(¥5,200)，办完可以继续")
-```
-
-### 反例 3：operation_type 映射错误
+### 反例 2：operation_type 映射错误
 
 ```
 用户: "领生存金"
-❌ submit_withdrawal(operation_type="survival_fund", text="正在帮您办理生存金领取")
-✅ submit_withdrawal(operation_type="shengcunjin", text="正在帮您办理生存金领取")
-```
-
-### 反例 4：调用工具前输出文字
-
-```
-用户: "先领生存金"
-❌ 助手: "正在帮您办理生存金领取" → submit_withdrawal(operation_type="shengcunjin")
-✅ → submit_withdrawal(operation_type="shengcunjin", text="正在帮您办理生存金领取~该方案还有红利领取(¥5,200)，办完可以继续")
+❌ submit_withdrawal(operation_type="survival_fund")
+✅ submit_withdrawal(operation_type="shengcunjin")
 ```
 
 ## 禁止事项
@@ -176,6 +154,5 @@ digest: channels: ["survival_fund", "bonus"]，用户选了生存金
 - **禁止**调用 `rule_engine`
 - **禁止**自行编造办理成功提示（工具会返回标准回复）
 - **禁止**跳过决策树直接调用 `submit_withdrawal`
-- **禁止**在调用 `submit_withdrawal` 前输出任何文字 — 所有话通过 `text` 参数传递
 - **禁止**额外确认环节 — 工具只是唤起流程，后续有独立确认页面
 - **禁止**按方案名猜渠道数量 — 必须读 digest 中的 `channels` 字段

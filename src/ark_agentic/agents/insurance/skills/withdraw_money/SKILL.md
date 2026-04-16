@@ -1,7 +1,7 @@
 ---
 name: 保险取款
-description: 查询可取金额总览、生成取款方案、调整已有方案，均以 A2UI 卡片展示。用户表达取款意图（无论是否给出金额）均由本技能处理。
-version: "14.0.0"
+description: 当用户表达取款意图时使用：询问可取金额、查询总览、指定金额/渠道取款、调整已有方案。
+version: "15.0.0"
 invocation_policy: auto
 group: insurance
 tags:
@@ -16,7 +16,7 @@ required_tools:
 
 # 保险取款技能
 
-处理所有与取款相关的用户请求：总览查询(SUMMARY)、方案生成(PLAN)、方案调整(ADJUST)。使用三步流水线：**意图分类 → 参数提取 → 渲染**。
+三步流水线：**意图分类 → 参数提取 → 渲染**。
 
 > **所有数据展示必须调用 `render_a2ui`，详见末尾「输出约束」。**
 
@@ -65,7 +65,7 @@ required_tools:
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| sections | list / null | 要展示的分组，null = 全部三组 |
+| sections | list / null | 要展示的分组，null = 全部 |
 | exclude_policies | list / null | 排除的保单 |
 
 **sections 对照**：
@@ -75,9 +75,9 @@ required_tools:
 | 零成本 / 不影响保障的（生存金+红利合并） | `["zero_cost"]` |
 | 只看红利 / 红利有多少 | `["bonus"]` |
 | 只看生存金 / 生存金有多少 | `["survival_fund"]` |
-| 不看贷款 | `["zero_cost", "partial_surrender"]` |
+| 不看贷款 | `["zero_cost", "partial_withdrawal", "surrender"]` |
 | 不看退保 | `["zero_cost", "loan"]` |
-| 全部（默认） | `["zero_cost", "loan", "partial_surrender"]` |
+| 全部（默认） | `["zero_cost", "loan", "partial_withdrawal", "surrender"]` |
 
 ### PLAN / ADJUST 参数
 
@@ -112,37 +112,25 @@ target 为负数 → 直接回复"取款金额需要为正数"，不调工具。
 
 所有意图先调 `rule_engine(action="list_options")`；首次需调 `customer_info`。
 
+> rule_engine 返回渠道级摘要（不含保单明细）：`channels.zero_cost.total` = 生存金+红利合计，
+> `channels.policy_loan.total` = 贷款合计，`channels.partial_withdrawal.total` / `channels.surrender.total` 等。
+> LLM 用这些 total 做策略判断（是否需要组合渠道），保单级分配由 render_a2ui 内部完成，LLM 不需要知道每张保单的金额。
+
 ### SUMMARY 渲染
 
-默认展示全部三组（sections 为 null 时），空数据的 section 自动返回空（不显示）：
+默认展示全部分组（sections 为 null 时），空数据的 section 自动返回空：
 
 ```json
 [
-  {"type": "WithdrawSummaryHeader", "data": {"sections": ["zero_cost", "loan", "partial_surrender"]}},
+  {"type": "WithdrawSummaryHeader", "data": {"sections": ["zero_cost", "loan", "partial_withdrawal", "surrender"]}},
   {"type": "WithdrawSummarySection", "data": {"section": "zero_cost"}},
   {"type": "WithdrawSummarySection", "data": {"section": "loan"}},
-  {"type": "WithdrawSummarySection", "data": {"section": "partial_surrender"}}
+  {"type": "WithdrawSummarySection", "data": {"section": "partial_withdrawal"}},
+  {"type": "WithdrawSummarySection", "data": {"section": "surrender"}}
 ]
 ```
 
-**筛选示例**（"只看零成本"，sections=["zero_cost"]）：
-
-```json
-[
-  {"type": "WithdrawSummaryHeader", "data": {"sections": ["zero_cost"]}},
-  {"type": "WithdrawSummarySection", "data": {"section": "zero_cost"}}
-]
-```
-
-#### Section 预设
-
-| section 值 | 包含渠道 | 标签 |
-|-----------|---------|------|
-| `zero_cost` | survival_fund, bonus | 不影响保障 |
-| `survival_fund` | survival_fund | 不影响保障 |
-| `bonus` | bonus | 不影响保障 |
-| `loan` | policy_loan | 需支付利息 |
-| `partial_surrender` | partial_withdrawal, surrender | 保障有损失，不建议 |
+筛选时只传对应 sections 和 section，结构相同。
 
 ### PLAN 渲染
 
@@ -171,51 +159,7 @@ target 为负数 → 直接回复"取款金额需要为正数"，不调工具。
 - 含退保 → "(保障有损失)"
 - 单渠道 → 直接用渠道中文名
 
-#### 示例 1：零成本足够（目标 15000，零成本可用 20000）— 必须出 2 个方案
-
-```json
-[
-  {"type": "WithdrawPlanCard", "data": {
-    "channels": ["survival_fund", "bonus"],
-    "target": 15000,
-    "title": "★ 推荐: 零成本领取",
-    "tag": "(不影响保障)",
-    "reason": "零成本渠道合计 ¥20,000.00，足够覆盖目标 ¥15,000.00。"
-  }},
-  {"type": "WithdrawPlanCard", "data": {
-    "channels": ["survival_fund", "bonus", "policy_loan"],
-    "target": 15000,
-    "title": "零成本 + 保单贷款",
-    "tag": "(部分需付利息)",
-    "reason": "备选：如需保留零成本额度，也可用保单贷款补充。"
-  }}
-]
-```
-
-#### 示例 2：需组合（目标 30000，零成本仅 20000）— 必须出 2 个方案
-
-```json
-[
-  {"type": "WithdrawPlanCard", "data": {
-    "channels": ["survival_fund", "bonus", "policy_loan"],
-    "target": 30000,
-    "title": "★ 推荐: 零成本 + 保单贷款",
-    "tag": "(部分需付利息)",
-    "reason": "优先使用零成本渠道；不足部分用保单贷款补足。"
-  }},
-  {"type": "WithdrawPlanCard", "data": {
-    "channels": ["survival_fund", "bonus"],
-    "target": 20000,
-    "title": "仅零成本（最多 ¥20,000.00）",
-    "tag": "(不影响保障)",
-    "reason": "零成本渠道合计 ¥20,000.00，不足目标 ¥30,000.00。"
-  }}
-]
-```
-
-> 组合方案 `target` = 用户目标金额；单类别备选 `target` = 该类别最大可取额。
-
-#### 示例 3：渠道定向（"领取生存金"，无金额）— 单方案
+**示例**（渠道定向"领取生存金"，无金额 → 单方案）：
 
 ```json
 [
@@ -223,13 +167,12 @@ target 为负数 → 直接回复"取款金额需要为正数"，不调工具。
     "channels": ["survival_fund"],
     "target": 0,
     "title": "生存金领取",
-    "tag": "(不影响保障)",
-    "reason": "为您领取全部可用生存金"
+    "tag": "(不影响保障)"
   }}
 ]
 ```
 
-`target=0` 表示取该渠道全部可用额度。
+`target=0` 表示取该渠道全部可用额度。需组合时 `target` = 用户目标金额。
 
 ### ADJUST 渲染
 
@@ -246,81 +189,6 @@ target 为负数 → 直接回复"取款金额需要为正数"，不调工具。
 | "不退保" | channels 中移除 surrender |
 | "只用不影响保障的" | channels → ["survival_fund","bonus"] |
 | "不要POL002" | exclude_policies: ["POL002"] |
-
-**ADJUST 示例**（上轮 PlanCard digest 含 channels=["survival_fund","bonus","policy_loan"]，用户说"不要贷款"）：
-
-```json
-[
-  {"type": "WithdrawPlanCard", "data": {
-    "channels": ["survival_fund", "bonus"],
-    "target": 50000,
-    "title": "★ 推荐: 零成本领取",
-    "tag": "(不影响保障)"
-  }}
-]
-```
-
----
-
-## 可用 Component 类型
-
-| 类型 | 用途 | data |
-|------|------|------|
-| `WithdrawSummaryHeader` | 总览头部（总金额） | `{"sections": [...], "exclude_policies"?: [...]}` |
-| `WithdrawSummarySection` | 总览分组（零成本/贷款/退保） | `{"section": "preset_name", "exclude_policies"?: [...]}` |
-| `WithdrawPlanCard` | 取款方案卡 | `{"channels": [...], "target": N, "title": "...", "tag"?: "...", "reason"?: "...", "exclude_policies"?: [...]}` |
-
-Component 内部自动从 context 读取 `rule_engine` 数据并计算金额，LLM 无需硬编码数字。
-
----
-
-## 多轮示例
-
-### 示例 A：SUMMARY → PLAN 升级
-
-```
-轮1 用户: "能取多少"
-→ 意图 SUMMARY
-→ render_a2ui(blocks=[
-    {"type":"WithdrawSummaryHeader","data":{"sections":["zero_cost","loan","partial_surrender"]}},
-    {"type":"WithdrawSummarySection","data":{"section":"zero_cost"}},
-    {"type":"WithdrawSummarySection","data":{"section":"loan"}},
-    {"type":"WithdrawSummarySection","data":{"section":"partial_surrender"}}
-  ])
-
-轮2 用户: "领取生存金"
-→ 意图 PLAN（渠道"生存金" + 行动动词"领取" → 条件 2b；已有 Summary 后不再出 Summary）
-→ render_a2ui(blocks=[
-    {"type":"WithdrawPlanCard","data":{"channels":["survival_fund"],"target":0,"title":"生存金领取","tag":"(不影响保障)"}}
-  ])
-```
-
-### 示例 B：PLAN → ADJUST
-
-```
-轮1 用户: "取五万"
-→ 意图 PLAN
-→ render_a2ui(blocks=[
-    {"type":"WithdrawPlanCard","data":{"channels":["survival_fund","bonus","policy_loan"],"target":50000,"title":"★ 推荐: 零成本 + 保单贷款","tag":"(部分需付利息)"}}
-  ])
-
-轮2 用户: "不要贷款"
-→ 意图 ADJUST（已有 PlanCard + 修改语义）
-→ 从 digest 读 channels=["survival_fund","bonus","policy_loan"]，移除 policy_loan
-→ render_a2ui(blocks=[
-    {"type":"WithdrawPlanCard","data":{"channels":["survival_fund","bonus"],"target":50000,"title":"★ 推荐: 零成本领取","tag":"(不影响保障)"}}
-  ])
-```
-
-### 示例 C：首轮"领取生存金"（关键边界）
-
-```
-用户: "领取生存金"（首轮，无 PlanCard，无 Summary）
-→ 意图 PLAN（渠道"生存金" + 行动动词"领取" → 条件 2b）
-→ render_a2ui(blocks=[
-    {"type":"WithdrawPlanCard","data":{"channels":["survival_fund"],"target":0,"title":"生存金领取","tag":"(不影响保障)"}}
-  ])
-```
 
 ---
 

@@ -136,12 +136,15 @@ def serialize_tool_result(tr: AgentToolResult) -> dict[str, Any]:
     content = tr.content
     if isinstance(content, (dict, list)):
         content = json.dumps(content, ensure_ascii=False)
-    return {
+    result: dict[str, Any] = {
         "tool_call_id": tr.tool_call_id,
         "result_type": tr.result_type.value if isinstance(tr.result_type, ToolResultType) else str(tr.result_type),
         "content": content,
         "is_error": tr.is_error,
     }
+    if tr.llm_digest is not None:
+        result["llm_digest"] = tr.llm_digest
+    return result
 
 
 def deserialize_tool_result(data: dict[str, Any]) -> AgentToolResult:
@@ -179,6 +182,7 @@ def deserialize_tool_result(data: dict[str, Any]) -> AgentToolResult:
         result_type=result_type,
         content=content,
         is_error=is_error,
+        llm_digest=data.get("llm_digest"),
     )
 
 

@@ -92,10 +92,18 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "line_color": t.accent,
             "total_color": t.accent,
         },
-        "partial_surrender": {
-            "channels": ("partial_withdrawal", "surrender"),
-            "title": "部分领取/退保",
-            "tag": "保障有损失，不建议",
+        "partial_withdrawal": {
+            "channels": ("partial_withdrawal",),
+            "title": "部分领取",
+            "tag": "保额会降低",
+            "tag_color": "#FA8C16",
+            "line_color": t.accent,
+            "total_color": t.hint_color,
+        },
+        "surrender": {
+            "channels": ("surrender",),
+            "title": "退保",
+            "tag": "保障终止，不建议",
             "tag_color": "#CC6600",
             "line_color": "#CC6600",
             "total_color": t.hint_color,
@@ -140,7 +148,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
     ) -> A2UIOutput:
         """Header card for withdraw summary."""
         options = _parse_options(raw_data)
-        sections = data.get("sections", ["zero_cost", "loan", "partial_surrender"])
+        sections = data.get("sections", ["zero_cost", "loan", "partial_withdrawal", "surrender"])
         exclude_pids = set(data.get("exclude_policies") or [])
         if exclude_pids:
             options = [o for o in options if o.get("policy_id") not in exclude_pids]
@@ -397,7 +405,6 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "children": {"explicitList": [col_id]},
         })
 
-        # Derive channels from actual allocations (single source of truth)
         actual_channels = list(dict.fromkeys(ch for _, ch, _ in allocs))
         alloc_summary = {
             "title": title,
@@ -407,10 +414,13 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
                 for pid, ch, amt in allocs
             ],
         }
-        detail = "; ".join(f"{pid}({ch}) ¥{amt:,.2f}" for pid, ch, amt in allocs)
-        digest = f"方案: {title} | channels: {actual_channels} | 总额: ¥{actual_total:,.2f}"
-        if detail:
-            digest += f" | 明细: {detail}"
+        by_ch: dict[str, float] = {}
+        for _, ch, amt in allocs:
+            by_ch[ch] = by_ch.get(ch, 0) + amt
+        ch_summary = ", ".join(
+            f"{_CHANNEL_LABELS.get(ch, ch)} ¥{amt:,.2f}" for ch, amt in by_ch.items()
+        )
+        digest = f"方案: {title} | channels: {actual_channels} | 总额: ¥{actual_total:,.2f} | {ch_summary}"
 
         return A2UIOutput(
             components=[card, col] + comps,
@@ -429,3 +439,19 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
 
 
 INSURANCE_COMPONENTS: dict[str, Any] = create_insurance_components()
+
+COMPONENT_SCHEMAS: dict[str, str] = {
+    "WithdrawSummaryHeader": (
+        "总览头部(总金额)。data: {sections?: [zero_cost/loan/survival_fund/bonus"
+        "/partial_withdrawal/surrender], exclude_policies?: [str]}"
+    ),
+    "WithdrawSummarySection": (
+        "总览分组卡片。data: {section: zero_cost/loan/survival_fund/bonus"
+        "/partial_withdrawal/surrender}"
+    ),
+    "WithdrawPlanCard": (
+        "取款方案卡(自动分配金额)。data: {channels: [survival_fund/bonus"
+        "/partial_withdrawal/policy_loan/surrender], target: number(0=全额), "
+        "title: str, tag?: str, reason?: str, exclude_policies?: [str]}"
+    ),
+}

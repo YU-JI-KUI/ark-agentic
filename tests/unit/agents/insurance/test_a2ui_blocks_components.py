@@ -177,7 +177,7 @@ class TestWithdrawSummarySection:
         )
         assert len(output.components) > 0
 
-    def test_partial_surrender_total_color_is_gray(self):
+    def test_surrender_total_color_is_gray(self):
         raw = {
             "options": [
                 {"policy_id": "P1", "product_name": "X", "product_type": "whole_life",
@@ -185,7 +185,7 @@ class TestWithdrawSummarySection:
             ]
         }
         output = build_withdraw_summary_section(
-            {"section": "partial_surrender"}, _id_gen(), raw,
+            {"section": "surrender"}, _id_gen(), raw,
         )
         total_texts = [c for c in output.components if "Text" in c.get("component", {})
                        and c["component"]["Text"].get("bold") is True

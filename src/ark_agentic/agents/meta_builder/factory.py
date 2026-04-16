@@ -13,7 +13,6 @@ from pathlib import Path
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ark_agentic.core.compaction import CompactionConfig
-from ark_agentic.core.guardrails import create_guardrails_callbacks
 from ark_agentic.core.paths import prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
@@ -96,7 +95,6 @@ def create_meta_builder_from_env(
         session_manager=session_manager,
         skill_loader=skill_loader,
         config=runner_config,
-        callbacks=create_guardrails_callbacks(agent_id="meta_builder"),
     )
 
     return runner

@@ -119,8 +119,7 @@ class SubmitWithdrawalTool(AgentTool):
     name = "submit_withdrawal"
     description = (
         "[STOP] 用户明确确认办理取款操作后调用。"
-        "调用后不可再发言，所有文字通过 text 参数传递。"
-        "只需传 operation_type，保单和金额自动从方案数据中获取。"
+        "只需传 operation_type，保单、金额和用户文字由工具自动生成。"
     )
     thinking_hint = "正在提交办理请求…"
     parameters = [
@@ -129,12 +128,6 @@ class SubmitWithdrawalTool(AgentTool):
             type="string",
             description="取款类型",
             enum=list(_SOURCE_TYPE_MAP.keys()),
-        ),
-        ToolParameter(
-            name="text",
-            type="string",
-            description="展示给用户的文字说明（由 LLM 生成，包含办理内容和剩余渠道提醒）",
-            required=False,
         ),
     ]
 
@@ -171,10 +164,7 @@ class SubmitWithdrawalTool(AgentTool):
         channel = _OP_TO_CHANNEL[operation_type]
         remaining = _find_remaining_channels(channel, ctx)
         already = set(ctx.get("_submitted_channels") or []) | {channel}
-        stop_message = _build_stop_message(channel, remaining)
-
-        user_text = tool_call.arguments.get("text", "")
-        content = user_text if user_text else stop_message
+        content = _build_stop_message(channel, remaining)
 
         query_msg = "，".join(
             f"保单号-{p['policy_no']}，金额-{p['amount']}"

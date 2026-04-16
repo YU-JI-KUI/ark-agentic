@@ -96,6 +96,7 @@ class AgentToolResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     loop_action: ToolLoopAction = ToolLoopAction.CONTINUE
     events: list[ToolEvent] = field(default_factory=list)
+    llm_digest: str | None = None
 
     @classmethod
     def json_result(
@@ -105,6 +106,7 @@ class AgentToolResult:
         metadata: dict[str, Any] | None = None,
         loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
         events: list[ToolEvent] | None = None,
+        llm_digest: str | None = None,
     ) -> AgentToolResult:
         return cls(
             tool_call_id=tool_call_id,
@@ -113,6 +115,7 @@ class AgentToolResult:
             metadata=metadata or {},
             loop_action=loop_action,
             events=events or [],
+            llm_digest=llm_digest,
         )
 
     @classmethod
@@ -123,6 +126,7 @@ class AgentToolResult:
         metadata: dict[str, Any] | None = None,
         loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
         events: list[ToolEvent] | None = None,
+        llm_digest: str | None = None,
     ) -> AgentToolResult:
         return cls(
             tool_call_id=tool_call_id,
@@ -131,6 +135,7 @@ class AgentToolResult:
             metadata=metadata or {},
             loop_action=loop_action,
             events=events or [],
+            llm_digest=llm_digest,
         )
 
     @classmethod
@@ -142,6 +147,7 @@ class AgentToolResult:
         metadata: dict[str, Any] | None = None,
         loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
         events: list[ToolEvent] | None = None,
+        llm_digest: str | None = None,
     ) -> AgentToolResult:
         return cls(
             tool_call_id=tool_call_id,
@@ -150,6 +156,7 @@ class AgentToolResult:
             metadata=metadata or {},
             loop_action=loop_action,
             events=events or [],
+            llm_digest=llm_digest,
         )
 
     @classmethod
@@ -160,6 +167,7 @@ class AgentToolResult:
         metadata: dict[str, Any] | None = None,
         loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
         events: list[ToolEvent] | None = None,
+        llm_digest: str | None = None,
     ) -> AgentToolResult:
         """A2UI 前端组件结果 — 自动将 content 转为 UI_COMPONENT events。"""
         components = [data] if isinstance(data, dict) else data
@@ -171,6 +179,7 @@ class AgentToolResult:
             metadata=metadata or {},
             loop_action=loop_action,
             events=auto_events + (events or []),
+            llm_digest=llm_digest,
         )
 
     @classmethod

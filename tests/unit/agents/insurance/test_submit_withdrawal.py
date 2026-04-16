@@ -197,10 +197,8 @@ class TestSubmitWithdrawalToolExecute:
         return SubmitWithdrawalTool()
 
     def test_parameters(self, tool: SubmitWithdrawalTool) -> None:
-        assert len(tool.parameters) == 2
+        assert len(tool.parameters) == 1
         assert tool.parameters[0].name == "operation_type"
-        assert tool.parameters[1].name == "text"
-        assert tool.parameters[1].required is False
 
     @pytest.mark.asyncio
     async def test_happy_path_single_channel(
@@ -313,44 +311,11 @@ class TestSubmitWithdrawalToolExecute:
         assert "未找到匹配的保单数据" in str(result.content)
 
     @pytest.mark.asyncio
-    async def test_text_param_used_as_content(
+    async def test_auto_generated_stop_message(
         self, tool: SubmitWithdrawalTool
     ) -> None:
         tc = ToolCall(
             id="c4",
-            name="submit_withdrawal",
-            arguments={
-                "operation_type": "shengcunjin",
-                "text": "正在帮您办理生存金领取~还有红利领取待办理",
-            },
-        )
-        ctx = _multi_channel_ctx()
-        result = await tool.execute(tc, context=ctx)
-        assert result.loop_action == ToolLoopAction.STOP
-        assert result.content == "正在帮您办理生存金领取~还有红利领取待办理"
-
-    @pytest.mark.asyncio
-    async def test_text_param_empty_falls_back_to_stop_message(
-        self, tool: SubmitWithdrawalTool
-    ) -> None:
-        tc = ToolCall(
-            id="c5",
-            name="submit_withdrawal",
-            arguments={"operation_type": "loan", "text": ""},
-        )
-        ctx = _plan_ctx(
-            [{"channel": "policy_loan", "policy_no": "L1", "amount": 5000}]
-        )
-        result = await tool.execute(tc, context=ctx)
-        assert result.loop_action == ToolLoopAction.STOP
-        assert "已启动保单贷款办理流程" in str(result.content)
-
-    @pytest.mark.asyncio
-    async def test_text_param_absent_falls_back_to_stop_message(
-        self, tool: SubmitWithdrawalTool
-    ) -> None:
-        tc = ToolCall(
-            id="c6",
             name="submit_withdrawal",
             arguments={"operation_type": "loan"},
         )

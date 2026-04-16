@@ -18,7 +18,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 # from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard, make_before_agent_callback  # DEBUG: 暂时禁用准入拦截
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 from ark_agentic.core.compaction import CompactionConfig
-from ark_agentic.core.guardrails import create_guardrails_callbacks
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
@@ -47,6 +46,7 @@ def create_insurance_agent(
     llm: BaseChatModel | None = None,
     *,
     enable_memory: bool = False,
+    enable_dream: bool = True,
     enable_thinking_tags: bool = False,
     proactive_cron: str = "26 23 * * *",
 ) -> AgentRunner:
@@ -55,6 +55,7 @@ def create_insurance_agent(
     Args:
         llm: LLM 实例；None 时从环境变量初始化
         enable_memory: 是否启用 Memory 系统；路径由 MEMORY_DIR 环境变量控制
+        enable_dream: 是否启用 Dream 后台蒸馏（需 enable_memory=True 才有效）
         enable_thinking_tags: 是否启用 <think>/<final> 标签解析
     """
     if llm is None:
@@ -102,6 +103,7 @@ def create_insurance_agent(
         max_turns=10,
         enable_thinking_tags=enable_thinking_tags,
         enable_subtasks=True,
+        enable_dream=enable_dream,
         prompt_config=PromptConfig(
             agent_name="保险智能助手",
             agent_description="专业的保险咨询和业务处理助手。",

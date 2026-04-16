@@ -26,8 +26,11 @@ from ark_agentic.core.tools.base import (
     read_float_param,
     read_dict_param,
 )
+import json
+
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
+from ..a2ui.withdraw_a2ui_utils import _channel_available
 from .data_service import (
     DataServiceClient,
     DataServiceError,
@@ -188,12 +191,16 @@ class RuleEngineTool(AgentTool):
                 tool_call.id, f"不支持的操作: {action}"
             )
 
-        # list_options 结果存入 session state，供 render_a2ui(card_type=withdraw_summary) 跨轮次读取
-        metadata = {}
+        metadata: dict[str, Any] = {}
+        llm_digest: str | None = None
         if action == "list_options":
             metadata["state_delta"] = {"_rule_engine_result": result}
+            llm_summary = self._build_llm_summary(result)
+            llm_digest = json.dumps(llm_summary, ensure_ascii=False)
 
-        return AgentToolResult.json_result(tool_call.id, result, metadata=metadata or None)
+        return AgentToolResult.json_result(
+            tool_call.id, result, metadata=metadata or None, llm_digest=llm_digest,
+        )
 
     # ------------------------------------------------------------------
     # list_options: 自动获取保单数据 → 标准化为每张保单一条记录
@@ -291,6 +298,37 @@ class RuleEngineTool(AgentTool):
             "total_available_incl_loan": total_incl_loan,
             "combination_hint": combination_hint,
             "options": options,
+        }
+
+    # ------------------------------------------------------------------
+    # LLM-visible summary (渠道级汇总，隐藏保单级明细)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_channel_summary(options: list[dict[str, Any]]) -> dict[str, Any]:
+        sf = sum(_channel_available(o, "survival_fund") for o in options)
+        bon = sum(_channel_available(o, "bonus") for o in options)
+        pw = sum(_channel_available(o, "partial_withdrawal") for o in options)
+        loan = sum(_channel_available(o, "policy_loan") for o in options)
+        surr = sum(_channel_available(o, "surrender") for o in options)
+        return {
+            "zero_cost": {"total": sf + bon, "note": "不影响保障"},
+            "survival_fund": {"total": sf},
+            "bonus": {"total": bon},
+            "partial_withdrawal": {"total": pw, "note": "保额降低，可能有手续费"},
+            "policy_loan": {"total": loan, "note": "年利率5%，保障不受影响"},
+            "surrender": {"total": surr, "note": "保障终止"},
+        }
+
+    @staticmethod
+    def _build_llm_summary(result: dict[str, Any]) -> dict[str, Any]:
+        options = result.get("options", [])
+        return {
+            "status": "ok",
+            "policy_count": len(options),
+            "channels": RuleEngineTool._build_channel_summary(options),
+            "grand_total": result.get("total_available_incl_loan", 0),
+            "combination_hint": result.get("combination_hint"),
         }
 
     # ------------------------------------------------------------------
