@@ -75,6 +75,14 @@ class FundHoldingsTool(AgentTool):
             context, "user_id", "U001"
         )
 
+        if account_type == "margin":
+            error_data = {"_error": "margin_not_supported", "account_type": "margin"}
+            return AgentToolResult.json_result(
+                tool_call_id=tool_call.id,
+                data={"message": "两融账户不支持查询基金持仓，请调用 render_a2ui 展示提示卡片。"},
+                metadata={"state_delta": {self.name: error_data}},
+            )
+
         try:
             data = await create_service_adapter("fund_holdings", context=context).call(
                 account_type=account_type,
