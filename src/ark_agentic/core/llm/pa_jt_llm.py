@@ -134,9 +134,10 @@ def create_pa_jt_llm(
 ) -> "BaseChatModel":
     """构建 PA-JT 系列 ChatOpenAI。Body 通过 extra_body 在构造时注入，从源头保证 Content-Length 正确。"""
     from langchain_openai import ChatOpenAI
+    from .debug_transport import debug_transport
 
     transport = PinganEAGWHeaderAsyncTransport(
-        base_transport=httpx.AsyncHTTPTransport(retries=3),
+        base_transport=debug_transport(httpx.AsyncHTTPTransport(retries=3)),
         api_code=config.open_api_code,
         gateway_credential=config.open_api_credential,
         gateway_key=config.rsa_private_key,

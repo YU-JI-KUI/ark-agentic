@@ -201,6 +201,7 @@ def _create_openai_compat_model(
 ) -> "BaseChatModel":
     """创建 OpenAI 兼容模型（API_KEY + LLM_BASE_URL）。"""
     from langchain_openai import ChatOpenAI
+    from .debug_transport import make_debug_client
 
     effective_base_url = (base_url or os.getenv("LLM_BASE_URL", "") or "").strip()
     effective_api_key = _resolve_api_key(api_key)
@@ -216,6 +217,7 @@ def _create_openai_compat_model(
         "temperature": temperature,
         "max_tokens": max_tokens,
         "streaming": streaming,
+        "http_async_client": make_debug_client(),
     }
     if effective_base_url:
         kwargs["base_url"] = effective_base_url

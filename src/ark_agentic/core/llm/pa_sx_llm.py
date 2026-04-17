@@ -64,9 +64,10 @@ def create_pa_sx_llm(
 ) -> "BaseChatModel":
     """构建 PA-SX 系列 ChatOpenAI。Body 通过 extra_body 在构造时注入，从源头保证 Content-Length 正确。"""
     from langchain_openai import ChatOpenAI
+    from .debug_transport import debug_transport
 
     transport = PASXTraceTransport(
-        base_transport=httpx.AsyncHTTPTransport(retries=3),
+        base_transport=debug_transport(httpx.AsyncHTTPTransport(retries=3)),
         trace_app_id=config.trace_app_id,
     )
     http_client = httpx.AsyncClient(transport=transport)
