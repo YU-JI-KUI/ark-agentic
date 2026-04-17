@@ -8,7 +8,10 @@
 
 ## 1. 设计哲学
 
-* **非侵入性 (Non-Intrusive)**：不改动 `AgentRunner` 的核心 ReAct 循环逻辑。
+* **最小侵入性 (Minimal-Intrusive)**：不改动 `AgentRunner` 的核心 ReAct 循环逻辑；
+  需要在框架层新增 `ToolResultType.WAIT_FOR_USER` 处理、`SkillLoader` reference 扫描、
+  `_build_system_prompt()` Dynamic 注入、以及 `state_delta` 点路径合并四处改动，
+  改动均为增量扩展，不破坏现有行为。
 * **智能体原生 (Agentic Native)**：将流程编排从"框架硬编码"下沉为"Agent 的工具决策与知识检索"。
 * **按需内化 (Lazy Loading)**：通过 `reference` 解决 SKILL 臃肿问题，仅在需要时加载指令。
 * **状态驱动 (State-Driven)**：利用现有 `session.state` 实现跨会话的任务持久化与恢复。
@@ -109,15 +112,26 @@ class ExecuteOutput(BaseModel):
 
 @dataclass
 class StageDefinition:
-    """阶段定义"""
+    """阶段定义
+    
+    required 行为约定：
+      - True（默认）：必须阶段，无数据时阻塞后续阶段，_evaluate_stages 将其视为当前阶段。
+      - False：可跳过阶段，无数据时 status="skipped"，不阻塞后续阶段推进。
+    
+    wait_for_user 行为约定：
+      - True：evaluator 返回 ToolResultType.WAIT_FOR_USER，框架硬性终止当前 ReAct 循环，
+              不依赖 LLM 自觉遵守 instruction 文本，确保 Agent 不会擅自继续执行。
+      - False（默认）：正常 JSON 结果，Agent 继续 ReAct 循环。
+    """
     id: str
     name: str
     description: str
-    required: bool = True              # 是否必须，不可跳过
-    wait_for_user: bool = False        # 是否需要等待用户输入
-    output_schema: type[BaseModel] | None = None  # Pydantic 校验模型
-    reference_file: str | None = None   # reference 文件名（如 "identity_verify.md"），框架自动从 references/ 目录加载
-    tools: list[str] = field(default_factory=list)  # 该阶段建议使用的工具
+    required: bool = True
+    wait_for_user: bool = False
+    output_schema: type[BaseModel] | None = None
+    reference_file: str | None = None  # references/ 目录下的文件名，如 "identity_verify.md"
+                                       # Dynamic 模式注入时以此为准，与 stage.id 解耦
+    tools: list[str] = field(default_factory=list)
 
     def validate_output(self, data: dict) -> tuple[bool, list[str]]:
         """用 Pydantic 校验阶段输出数据"""
@@ -130,6 +144,26 @@ class StageDefinition:
             return False, [str(err) for err in e.errors()]
 
 
+# ── FlowEvaluatorRegistry（框架层，位于 core/flow/base_evaluator.py）──
+# 解决 persist_flow_context hook 需要通过 skill_name 字符串反查 evaluator 实例的问题。
+
+class FlowEvaluatorRegistry:
+    """全局单例注册表，维护 skill_name → evaluator 实例的映射。
+    
+    业务层在初始化 Agent 时通过 register() 注册；
+    框架层的 persist_flow_context callback 通过 get() 反查，无需硬编码 import。
+    """
+    _registry: dict[str, "BaseFlowEvaluator"] = {}
+
+    @classmethod
+    def register(cls, evaluator: "BaseFlowEvaluator") -> None:
+        cls._registry[evaluator.skill_name] = evaluator
+
+    @classmethod
+    def get(cls, skill_name: str) -> "BaseFlowEvaluator | None":
+        return cls._registry.get(skill_name)
+
+
 # ── BaseFlowEvaluator 抽象基类（框架层，位于 core/flow/base_evaluator.py）──
 
 class BaseFlowEvaluator(AgentTool, ABC):
@@ -138,8 +172,17 @@ class BaseFlowEvaluator(AgentTool, ABC):
     每个业务流程继承此类，实现自己的阶段定义和校验逻辑。
     基类提供通用的阶段遍历、Pydantic 校验、状态恢复等能力。
     """
-    name = "flow_evaluator"
     description = "评估当前流程进度，返回当前阶段、已完成步骤、下一步操作建议"
+
+    @property
+    def name(self) -> str:
+        """工具名称与 skill_name 绑定，避免多流程并存时 name 冲突。
+        
+        若 Agent 同时注册了 WithdrawalFlowEvaluator 和 LoanFlowEvaluator，
+        name 分别为 "withdrawal_flow_evaluator" / "loan_flow_evaluator"，不会冲突。
+        SKILL.md frontmatter 中 required_tools 需写对应具体名称，如 "withdrawal_flow_evaluator"。
+        """
+        return f"{self.skill_name}_evaluator"
 
     @property
     @abstractmethod
@@ -150,29 +193,37 @@ class BaseFlowEvaluator(AgentTool, ABC):
     @property
     @abstractmethod
     def skill_name(self) -> str:
-        """子类必须声明关联的 SKILL 名称"""
+        """子类必须声明关联的 SKILL 名称（同时作为工具 name 的前缀）"""
         ...
 
     async def execute(self, tool_call, context=None):
         """通用执行逻辑：阶段遍历 + Pydantic 校验 + 指引生成"""
         flow_ctx = (context or {}).get("_flow_context", {})
-        current_stage = self._determine_current_stage(flow_ctx)
-        
-        completed_stages = []
-        for stage in self.stages:
-            if stage.id == current_stage.id:
-                break
-            stage_data = flow_ctx.get(f"stage_{stage.id}", {})
-            valid, errors = stage.validate_output(stage_data)
-            completed_stages.append({
-                "id": stage.id,
-                "name": stage.name,
-                "status": "completed" if valid else "incomplete",
-                "errors": errors,
-            })
-        
+        completed, is_done = self._evaluate_stages(flow_ctx)
+
+        # ── 所有阶段均通过校验：流程完成 ──
+        if is_done:
+            return AgentToolResult(
+                result_type=ToolResultType.JSON,
+                content={
+                    "flow_status": "completed",
+                    "completed_stages": completed,
+                    "progress": f"{len(self.stages)}/{len(self.stages)}",
+                    "instruction": "所有阶段已完成，流程结束。",
+                },
+                metadata={"state_delta": {"_flow_stage": "__completed__"}},
+            )
+
+        # ── 找到第一个未完成阶段 ──
+        current_stage = self.stages[len(completed)]
+        # wait_for_user 阶段使用专用结果类型，让框架硬性暂停 ReAct 循环（见下方说明）
+        result_type = (
+            ToolResultType.WAIT_FOR_USER
+            if current_stage.wait_for_user
+            else ToolResultType.JSON
+        )
         return AgentToolResult(
-            result_type=ToolResultType.JSON,
+            result_type=result_type,
             content={
                 "flow_status": "in_progress",
                 "current_stage": {
@@ -182,26 +233,52 @@ class BaseFlowEvaluator(AgentTool, ABC):
                     "wait_for_user": current_stage.wait_for_user,
                     "suggested_tools": current_stage.tools,
                 },
-                "completed_stages": completed_stages,
-                "progress": f"{len(completed_stages)}/{len(self.stages)}",
+                "completed_stages": completed,
+                "progress": f"{len(completed)}/{len(self.stages)}",
                 "instruction": self._build_instruction(current_stage, flow_ctx),
             },
             metadata={"state_delta": {"_flow_stage": current_stage.id}},
         )
 
-    def _determine_current_stage(self, flow_ctx: dict) -> StageDefinition:
+    def _evaluate_stages(
+        self, flow_ctx: dict
+    ) -> tuple[list[dict], bool]:
+        """遍历阶段，返回 (已完成阶段列表, 是否全部完成)。
+        
+        required=False 的阶段在无数据时视为已跳过（status="skipped"），
+        不阻塞后续阶段推进。
+        """
+        completed = []
         for stage in self.stages:
             stage_data = flow_ctx.get(f"stage_{stage.id}", {})
             if not stage_data:
-                return stage
-            valid, _ = stage.validate_output(stage_data)
-            if not valid:
-                return stage
-        return self.stages[-1]
+                if not stage.required:
+                    completed.append({"id": stage.id, "name": stage.name, "status": "skipped"})
+                    continue
+                # 必须阶段无数据 → 即为当前阶段，停止遍历
+                break
+            valid, errors = stage.validate_output(stage_data)
+            if valid:
+                completed.append({"id": stage.id, "name": stage.name, "status": "completed"})
+            else:
+                completed.append({"id": stage.id, "name": stage.name, "status": "incomplete", "errors": errors})
+                break  # 校验失败 → 当前阶段，停止遍历
+        
+        is_done = len(completed) == len(self.stages)
+        return completed, is_done
+
+    def _determine_current_stage(self, flow_ctx: dict) -> StageDefinition | None:
+        """返回第一个未完成的阶段；若全部完成返回 None。"""
+        _, is_done = self._evaluate_stages(flow_ctx)
+        if is_done:
+            return None
+        completed, _ = self._evaluate_stages(flow_ctx)
+        return self.stages[len(completed)]
 
     def _build_instruction(self, stage: StageDefinition, flow_ctx: dict) -> str:
         if stage.wait_for_user:
-            return f"当前处于【{stage.name}】阶段，请等待用户确认后再继续。"
+            # WAIT_FOR_USER 结果类型由框架硬性终止 ReAct 循环，此处 instruction 仅供日志参考。
+            return f"当前处于【{stage.name}】阶段，已向用户展示方案，等待用户确认后方可继续。"
         return (
             f"当前处于【{stage.name}】阶段。"
             f"请根据当前阶段参考文档中的操作指引，"
@@ -285,7 +362,20 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 tools=["submit_withdrawal"],
             ),
         ]
+
+
+# ── 业务层初始化时注册 evaluator（位于 agents/insurance/agent.py 或 tools/__init__.py）──
+
+_withdrawal_evaluator = WithdrawalFlowEvaluator()
+FlowEvaluatorRegistry.register(_withdrawal_evaluator)
+# Agent 同时将其加入 tools 列表，name = "withdrawal_flow_evaluator"
 ```
+
+> **`ToolResultType.WAIT_FOR_USER` 框架约定**：框架在 `AgentRunner` 处理工具返回值时，
+> 若检测到 `result_type == WAIT_FOR_USER`，立即终止当前 ReAct 循环并将响应返回给用户，
+> 不再继续 `think → act` 步骤。这是确定性的硬中断，不依赖 LLM 遵守 prompt 文本。
+> 此类型需在 `core/tools/base.py` 的 `ToolResultType` 枚举中新增，
+> 并在 `AgentRunner._process_tool_result()` 中处理。
 
 ---
 
@@ -328,48 +418,73 @@ def _append_references(self, body: str, references_dir: Path) -> str:
 
 **注入点**：`AgentRunner._build_system_prompt()` 构建 system prompt 时，读取 `session.state["_flow_stage"]`，仅注入当前阶段对应的 reference。
 
+**`_flow_stage` 语义说明**：`_flow_stage` 存储的是当前阶段的 `stage.id`（字符串），由 `flow_evaluator` 通过 `state_delta` 写入。它是 reference 注入的**唯一来源**，与 `_evaluate_stages` 对 `_flow_context` 数据的校验保持一致——evaluator 每次执行都会重新推断当前阶段并更新 `_flow_stage`，两者不会长期不一致。
+
 ```python
 # AgentRunner._build_system_prompt() 中新增逻辑
 def _build_system_prompt(self, state, session_id=None, skill_load_mode="full"):
     # ... 现有的 skill matching 逻辑 ...
     
-    # ★ 如果存在 _flow_stage，按阶段动态注入 reference
-    current_stage = state.get("_flow_stage")
-    if current_stage and skills:
-        skills = self._enrich_skills_with_stage_reference(skills, current_stage)
+    # ★ 如果存在 _flow_stage（且非 __completed__），按阶段动态注入 reference
+    current_stage_id = state.get("_flow_stage")
+    if current_stage_id and current_stage_id != "__completed__" and skills:
+        skills = self._enrich_skills_with_stage_reference(skills, current_stage_id)
     
     return SystemPromptBuilder.quick_build(...)
 
 def _enrich_skills_with_stage_reference(
-    self, skills: list[SkillEntry], current_stage: str
+    self, skills: list[SkillEntry], current_stage_id: str
 ) -> list[SkillEntry]:
-    """根据当前阶段，仅注入对应的 reference 内容"""
+    """根据当前阶段 ID，查找对应 FlowEvaluator 的 reference_file 并注入。
+    
+    使用 StageDefinition.reference_file 字段（而非直接拼接 stage.id），
+    避免 stage.id 与文件名不一致导致静默失败。
+    """
     enriched = []
     for skill in skills:
-        ref_path = Path(skill.path) / "references" / f"{current_stage}.md"
-        if ref_path.exists():
-            ref_content = ref_path.read_text(encoding="utf-8")
-            enriched_skill = replace(
-                skill,
-                content=(
-                    skill.content
-                    + f"\n\n---\n### 当前阶段参考: {current_stage}\n"
-                    + ref_content
-                ),
+        # 从注册表查找该 skill 对应的 evaluator
+        evaluator = FlowEvaluatorRegistry.get(skill.skill_id)
+        ref_filename = None
+        if evaluator:
+            stage_def = next(
+                (s for s in evaluator.stages if s.id == current_stage_id), None
             )
-            enriched.append(enriched_skill)
-        else:
-            enriched.append(skill)
+            ref_filename = stage_def.reference_file if stage_def else None
+        
+        if ref_filename:
+            ref_path = Path(skill.path) / "references" / ref_filename
+            if ref_path.exists():
+                ref_content = ref_path.read_text(encoding="utf-8")
+                enriched_skill = replace(
+                    skill,
+                    content=(
+                        skill.content
+                        + f"\n\n---\n### 当前阶段参考: {current_stage_id}\n"
+                        + ref_content
+                    ),
+                )
+                enriched.append(enriched_skill)
+                continue
+            else:
+                # reference_file 有配置但文件不存在，发出警告而非静默跳过
+                import warnings
+                warnings.warn(
+                    f"[FlowEvaluator] reference file not found: {ref_path}",
+                    stacklevel=2,
+                )
+        enriched.append(skill)
     return enriched
 ```
 
 **执行流程**：
 ```
 flow_evaluator 执行
+  → _evaluate_stages() 推断当前阶段
   → state_delta 写入 _flow_stage = "identity_verify"
   → 下一轮 _build_system_prompt() 检测到 _flow_stage
-  → 自动读取 references/identity_verify.md
-  → 追加到 SkillEntry.content
+  → FlowEvaluatorRegistry.get(skill_id) 查找 evaluator
+  → 从 StageDefinition.reference_file 获取文件名（如 "identity_verify.md"）
+  → 读取 references/identity_verify.md 追加到 SkillEntry.content
   → Agent 自动获得当前阶段的 SOP 指引
   → 阶段切换时，下一轮自动切换 reference 内容
 ```
@@ -417,27 +532,36 @@ session.state["_flow_context"] = {
 }
 ```
 
-**工具写入约定**：业务工具通过 `state_delta` 写入对应阶段的数据，key 格式为 `_flow_context.stage_{stage_id}.{field}`。为简化实现，建议工具直接写入 `_flow_context` 的子字段：
+**工具写入约定**：业务工具通过 `state_delta` 写入阶段数据，**必须使用点路径（dot-path）格式**，
+key 为 `_flow_context.stage_{stage_id}`，值为该阶段的完整 dict。
+
+框架的 `state_delta` 处理器须实现**深度合并（deep merge）**：
+- 对普通 key 执行 `dict.update()`
+- 对以 `.` 分隔的路径 key 执行逐层合并，不整体替换父对象
 
 ```python
-# 业务工具返回 state_delta 示例
+# ✅ 正确写法：路径写入，不依赖 **existing_flow_ctx 展开
 return AgentToolResult(
     result_type=ToolResultType.JSON,
     content={"verified": True, ...},
     metadata={
         "state_delta": {
-            "_flow_context": {
-                **existing_flow_ctx,  # 保留已有数据
-                "stage_identity_verify": {
-                    "user_id": "U001",
-                    "id_card_verified": True,
-                    "policy_ids": ["POL001"],
-                },
-            }
+            # 点路径格式：框架自动深度合并到 session.state["_flow_context"]["stage_identity_verify"]
+            "_flow_context.stage_identity_verify": {
+                "user_id": "U001",
+                "id_card_verified": True,
+                "policy_ids": ["POL001"],
+            },
         }
     },
 )
+
+# ❌ 错误写法：整体替换 _flow_context，会清空其他阶段数据
+# metadata={"state_delta": {"_flow_context": {"stage_identity_verify": {...}}}}
 ```
+
+> **框架实现要求**：`AgentRunner._apply_state_delta()` 需支持点路径合并。
+> 若 key 包含 `.`，则按路径逐层 `setdefault({})` 后赋值，而非 `session.state.update(delta)`。
 
 ---
 
@@ -490,8 +614,10 @@ async def persist_flow_context(context: CallbackContext) -> CallbackResult:
     if not user_id:
         return CallbackResult()
     
-    # 从 FlowEvaluator 获取可恢复状态
-    evaluator = _get_flow_evaluator(flow_ctx.get("skill_name"))
+    # 从注册表反查 evaluator，获取可恢复状态
+    evaluator = FlowEvaluatorRegistry.get(flow_ctx.get("skill_name", ""))
+    if not evaluator:
+        return CallbackResult()  # 未注册的 skill，跳过持久化
     restorable = evaluator.get_restorable_state(flow_ctx)
     
     # 写入 active_tasks.json
@@ -516,23 +642,41 @@ async def persist_flow_context(context: CallbackContext) -> CallbackResult:
 
 ```python
 async def inject_flow_hint(context: CallbackContext) -> CallbackResult:
-    """before_agent hook：检查未完成任务并注入提示"""
+    """before_agent hook：检查未完成任务并注入提示。
+    
+    注入路径：将 hint 写入 context.extra_system_instructions，
+    框架的 SystemPromptBuilder 将其渲染到 system prompt 末尾的 <system_hint> 标签，
+    Agent 在第一轮即可感知到未完成任务。
+    同时写入 state 供 resume_task 工具读取 flow_id 列表。
+    """
     user_id = context.session.state.get("user:id")
     registry = TaskRegistry(base_dir=SESSIONS_DIR)
     active = registry.list_active(user_id, ttl_hours=72)
     
-    if active:
-        task = active[0]  # 取最近的
+    if not active:
+        return CallbackResult()
+    
+    # 支持多个未完成任务：生成列表供用户选择
+    if len(active) == 1:
+        task = active[0]
         hint = (
             f"[系统提示] 检测到用户有未完成的【{task['skill_name']}】任务，"
-            f"当前在【{task['current_stage']}】阶段。"
-            f"flow_id={task['flow_id']}。"
-            f"请询问用户是否继续。"
+            f"当前在【{task['current_stage']}】阶段（flow_id={task['flow_id']}）。"
+            f"请主动询问用户是否继续该任务。"
         )
-        return CallbackResult(
-            context_updates={"_pending_flow_hint": hint},
+    else:
+        items = "\n".join(
+            f"  - {t['skill_name']}（{t['current_stage']} 阶段，flow_id={t['flow_id']}）"
+            for t in active
         )
-    return CallbackResult()
+        hint = f"[系统提示] 检测到用户有 {len(active)} 个未完成任务：\n{items}\n请询问用户希望继续哪个。"
+    
+    return CallbackResult(
+        # extra_system_instructions 由框架渲染到 system prompt，Agent 可见
+        extra_system_instructions=hint,
+        # 同时写入 state，方便 resume_task 工具直接读取可用 flow_id
+        context_updates={"_pending_flow_ids": [t["flow_id"] for t in active]},
+    )
 ```
 
 **Step 2: resume_task 工具**
@@ -560,7 +704,7 @@ class ResumeTaskTool(AgentTool):
                 content=f"未找到流程: {flow_id}",
             )
         
-        # 从旧 session 提取 _flow_context（或从 snapshot 恢复）
+        # 将 snapshot 格式转换回 _flow_context 格式并恢复
         old_flow_ctx = self._restore_flow_context(task)
         
         return AgentToolResult(
@@ -572,9 +716,40 @@ class ResumeTaskTool(AgentTool):
                 "message": f"已恢复【{task['skill_name']}】流程，当前在【{task['current_stage']}】阶段",
             },
             metadata={
+                # 使用点路径写入，框架深度合并不覆盖其他 state 字段
                 "state_delta": {"_flow_context": old_flow_ctx},
             },
         )
+
+    def _restore_flow_context(self, task: dict) -> dict:
+        """将 active_tasks.json 的 snapshot 格式转换回 _flow_context 的运行时格式。
+        
+        snapshot 格式（get_restorable_state 产出）：
+            {
+              "flow_id": "...",
+              "stages": {
+                "identity_verify": {"status": "completed", "data": {...}},
+                ...
+              }
+            }
+        
+        _flow_context 运行时格式（evaluator 读取的格式）：
+            {
+              "flow_id": "...",
+              "skill_name": "withdrawal_flow",
+              "stage_identity_verify": {...},   # 直接展平，key = stage_{id}
+              ...
+            }
+        """
+        snapshot = task.get("flow_context_snapshot", {})
+        flow_ctx: dict = {
+            "flow_id": task["flow_id"],
+            "skill_name": task["skill_name"],
+        }
+        for stage_id, stage_info in snapshot.get("stages", {}).items():
+            if stage_info.get("status") == "completed" and stage_info.get("data"):
+                flow_ctx[f"stage_{stage_id}"] = stage_info["data"]
+        return flow_ctx
 ```
 
 **Step 3: 继续执行**
@@ -595,7 +770,7 @@ class ResumeTaskTool(AgentTool):
 └──────────────┬──────────────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────────────┐
-│ AgentRunner (完全不改动)                                 │
+│ AgentRunner（最小改动：+WAIT_FOR_USER / +Dynamic注入 / +点路径合并）│
 │                                                         │
 │  ReAct Loop:                                            │
 │   ┌─────────────────────────────────────────────┐      │
@@ -697,7 +872,7 @@ class ResumeTaskTool(AgentTool):
 src/ark_agentic/
 ├── core/
 │   ├── flow/
-│   │   ├── base_evaluator.py          # BaseFlowEvaluator 抽象基类 + StageDefinition
+│   │   ├── base_evaluator.py          # BaseFlowEvaluator + StageDefinition + FlowEvaluatorRegistry
 │   │   ├── task_registry.py           # TaskRegistry（active_tasks.json 管理）
 │   │   └── callbacks.py               # persist_flow_context, inject_flow_hint（框架核心）
 │   └── tools/
@@ -721,12 +896,15 @@ src/ark_agentic/
 
 ### Phase 1: 基础设施（2 天）
 
-- [ ] 实现 `BaseFlowEvaluator` 抽象基类 + `StageDefinition` 数据类（`core/flow/base_evaluator.py`）
+- [ ] 实现 `BaseFlowEvaluator` 抽象基类 + `StageDefinition` + `FlowEvaluatorRegistry`（`core/flow/base_evaluator.py`）
 - [ ] 实现 `TaskRegistry`（active_tasks.json 读写 + TTL 清理）
 - [ ] 实现 `persist_flow_context` / `inject_flow_hint` 框架回调（`core/flow/callbacks.py`）
 - [ ] 修改 `SkillLoader` 支持 `references/` 自动扫描（FULL 模式）
-- [ ] 修改 `_build_system_prompt()` 支持 `_flow_stage` 驱动的 Dynamic 注入
-- [ ] 实现 `ResumeTaskTool`（状态恢复 + state_delta 注入）
+- [ ] 修改 `_build_system_prompt()` 支持 `_flow_stage` + `FlowEvaluatorRegistry` 驱动的 Dynamic 注入
+- [ ] 修改 `AgentRunner._apply_state_delta()` 支持点路径（dot-path）深度合并
+- [ ] 在 `ToolResultType` 枚举中新增 `WAIT_FOR_USER`，并在 `AgentRunner._process_tool_result()` 中处理硬中断
+- [ ] 在 `SystemPromptBuilder` 中支持 `extra_system_instructions` 渲染（供 `inject_flow_hint` 使用）
+- [ ] 实现 `ResumeTaskTool`（含 `_restore_flow_context` snapshot→运行时格式转换）
 
 ### Phase 2: 业务实现（2 天）
 
