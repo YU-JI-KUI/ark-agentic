@@ -307,11 +307,10 @@ class TemplateRenderer:
             "template": "stockDailyProfitCalendarTpl",
             "title": "...",
             "account_type": "normal" | "margin",
-            "total_profit": "-856.30",
-            "total_profit_rate": "-0.0086",
-            "trading_dates":     ["20260303", "20260304", ...],
-            "daily_profit":      ["-310.20", "448.90", "休市", ...],
-            "daily_profit_rate": ["-0.0031", "0.0045", "休市", ...],
+            "profit_history": [
+              {"trading_date": "20260303", "profit": "-310.20", "profit_rate": "-0.0031"},
+              ...
+            ]
           }
         }
         """
@@ -321,11 +320,7 @@ class TemplateRenderer:
                 "template": "stockDailyProfitCalendarTpl",
                 "title": data.get("title", ""),
                 "account_type": data.get("account_type", "normal"),
-                "total_profit": data.get("total_profit"),
-                "total_profit_rate": data.get("total_profit_rate"),
-                "trading_dates": data.get("trading_dates", []),
-                "daily_profit": data.get("daily_profit", []),
-                "daily_profit_rate": data.get("daily_profit_rate", []),
+                "profit_history": data.get("profit_history", []),
             },
         }
 

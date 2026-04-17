@@ -32,6 +32,7 @@ class ToolResultType(str, Enum):
     IMAGE = "image"
     A2UI = "a2ui"  # 前端组件描述（A2UI 协议），content 为组件 dict 或 list[dict]
     ERROR = "error"
+    WAIT_FOR_USER = "wait_for_user"  # 流程硬中断：框架立即终止 ReAct 循环，不依赖 LLM 自觉停止
 
 
 class ToolLoopAction(str, Enum):

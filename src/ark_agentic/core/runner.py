@@ -556,7 +556,28 @@ class AgentRunner:
         for tr in tool_results:
             state_delta = tr.metadata.get("state_delta")
             if state_delta and isinstance(state_delta, dict):
-                session.update_state(state_delta)
+                AgentRunner._apply_state_delta(session.state, state_delta)
+                session.updated_at = __import__("datetime").datetime.now()
+
+    @staticmethod
+    def _apply_state_delta(state: dict[str, Any], delta: dict[str, Any]) -> None:
+        """支持点路径（dot-path）的深度合并。
+
+        普通 key → state[key] = value（浅覆盖）
+        点路径 key（如 "_flow_context.stage_identity_verify"）→ 逐层 setdefault({}) 后赋值，
+        不整体替换父对象，避免清空同级其他 key。
+        """
+        for key, value in delta.items():
+            if "." in key:
+                parts = key.split(".")
+                obj = state
+                for part in parts[:-1]:
+                    if not isinstance(obj.get(part), dict):
+                        obj[part] = {}
+                    obj = obj[part]
+                obj[parts[-1]] = value
+            else:
+                state[key] = value
 
     @staticmethod
     def _merge_input_context(
@@ -911,6 +932,16 @@ class AgentRunner:
         tool_message = AgentMessage.tool(tool_results)
         self.session_manager.add_message_sync(session_id, tool_message)
 
+        # WAIT_FOR_USER: 流程阶段要求用户输入，硬中断 ReAct 循环（不再让 LLM 继续 think）
+        wait_results = [
+            tr for tr in tool_results if tr.result_type == ToolResultType.WAIT_FOR_USER
+        ]
+        if wait_results:
+            logger.info("[WAIT_FOR_USER] turn=%d stage signaled hard stop", ls.turns)
+            wait_response = AgentMessage.assistant(content="")
+            self.session_manager.add_message_sync(session_id, wait_response)
+            return ls.make_result(wait_response)
+
         stop_results = [
             tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP
         ]
@@ -1097,6 +1128,11 @@ class AgentRunner:
             )
             skills = match_result.matched_skills
 
+        # Dynamic reference 注入: 有 _flow_stage 时按阶段按需追加 reference 内容
+        current_stage_id = state.get("_flow_stage")
+        if current_stage_id and current_stage_id != "__completed__" and skills:
+            skills = self._enrich_skills_with_stage_reference(skills, current_stage_id)
+
         prompt_config = self.config.prompt_config
 
         # 当 enable_thinking_tags=True 且 prompt_config 未自定义指令时，自动填充默认模板
@@ -1126,6 +1162,8 @@ class AgentRunner:
                 except Exception:
                     pass
 
+        flow_hint = state.get("_flow_hint", "")
+
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
@@ -1134,7 +1172,55 @@ class AgentRunner:
             user_profile_content=profile_content,
             skill_config=self.config.skill_config,
             enable_memory=self._memory_manager is not None,
+            flow_hint=flow_hint,
         )
+
+    @staticmethod
+    def _enrich_skills_with_stage_reference(
+        skills: list, current_stage_id: str
+    ) -> list:
+        """根据 _flow_stage，将当前阶段 reference 文件内容追加到对应 SkillEntry.content。
+
+        通过 FlowEvaluatorRegistry 反查 evaluator，使用 StageDefinition.reference_file
+        （而非直接拼接 stage.id），避免文件名与 stage.id 不一致导致静默失败。
+        """
+        from .flow.base_evaluator import FlowEvaluatorRegistry
+
+        enriched = []
+        for skill in skills:
+            # 尝试用完整 id 和短 id（去掉 agent 前缀）查找 evaluator
+            skill_short = skill.id.split(".")[-1]
+            evaluator = FlowEvaluatorRegistry.get(skill.id) or FlowEvaluatorRegistry.get(skill_short)
+
+            ref_filename: str | None = None
+            if evaluator:
+                stage_def = next(
+                    (s for s in evaluator.stages if s.id == current_stage_id), None
+                )
+                ref_filename = stage_def.reference_file if stage_def else None
+
+            if ref_filename:
+                from pathlib import Path
+                ref_path = Path(skill.path) / "references" / ref_filename
+                if ref_path.exists():
+                    ref_content = ref_path.read_text(encoding="utf-8")
+                    enriched.append(replace(
+                        skill,
+                        content=(
+                            skill.content
+                            + f"\n\n---\n### 当前阶段参考: {current_stage_id}\n\n"
+                            + ref_content
+                        ),
+                    ))
+                    continue
+                else:
+                    import warnings
+                    warnings.warn(
+                        f"[FlowEvaluator] reference file not found: {ref_path}",
+                        stacklevel=4,
+                    )
+            enriched.append(skill)
+        return enriched
 
     def _build_tools(self) -> list[dict[str, Any]]:
         """构建工具定义"""

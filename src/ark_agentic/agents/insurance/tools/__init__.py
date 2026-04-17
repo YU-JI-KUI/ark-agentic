@@ -26,6 +26,7 @@ from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
 from .customer_info import CustomerInfoTool
 from .submit_withdrawal import SubmitWithdrawalTool
+from .flow_evaluator import withdrawal_flow_evaluator  # noqa: F401 — import 触发 FlowEvaluatorRegistry 注册
 
 _A2UI_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "a2ui" / "templates"
 _CARD_EXTRACTORS = {
@@ -78,6 +79,7 @@ __all__ = [
     "CustomerInfoTool",
     "RenderA2UITool",
     "SubmitWithdrawalTool",
+    "withdrawal_flow_evaluator",
     "create_insurance_tools",
     "create_insurance_tools_minimal",
 ]
@@ -85,15 +87,23 @@ __all__ = [
 
 def create_insurance_tools(
     data_client: DataServiceClient | None = None,
+    *,
+    sessions_dir: "str | Path | None" = None,
 ) -> list:
     """创建保险工具集合（完整版）"""
+    from pathlib import Path
+    from ark_agentic.core.tools.resume_task import ResumeTaskTool
+
     client = data_client or get_data_service_client()
+    _sessions_dir = Path(sessions_dir) if sessions_dir else Path("data/ark_sessions") / "insurance"
     return [
         PolicyQueryTool(client=client),
         RuleEngineTool(client=client),
         CustomerInfoTool(client=client),
         _create_render_a2ui_tool(),
         SubmitWithdrawalTool(),
+        withdrawal_flow_evaluator,
+        ResumeTaskTool(sessions_dir=_sessions_dir),
     ]
 
 

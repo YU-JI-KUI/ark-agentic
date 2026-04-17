@@ -107,6 +107,7 @@ class ToolExecutor:
         ToolResultType.A2UI: "A2UI",
         ToolResultType.IMAGE: "json",
         ToolResultType.ERROR: "text",
+        ToolResultType.WAIT_FOR_USER: "json",
     }
 
     @staticmethod

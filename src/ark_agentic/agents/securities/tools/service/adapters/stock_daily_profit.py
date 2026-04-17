@@ -46,4 +46,4 @@ class StockDailyProfitAdapter(BaseServiceAdapter):
         account_type: str,
     ) -> dict[str, Any]:
         check_api_response(raw_data)
-        return extract_stock_daily_profit(raw_data)
+        return extract_stock_daily_profit(raw_data, account_type)
