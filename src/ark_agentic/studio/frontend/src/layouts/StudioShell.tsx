@@ -84,8 +84,6 @@ export default function StudioShell() {
     })
   }, [agents, selectedAgent])
 
-  const environment = pathname.startsWith('/login') ? 'auth' : 'studio'
-
   function focusNavigate(target: string, isActive: boolean) {
     if (isActive || pathname === target) return
     void navigate(target)
@@ -100,18 +98,13 @@ export default function StudioShell() {
           </div>
           <div>
             <strong>Ark-Agentic Studio</strong>
-            <span>Mission Control with editorial precision</span>
           </div>
         </button>
 
         <div className="studio-topbar-meta">
-          <div className="topbar-chip">
-            <span className="topbar-chip-dot" />
-            {environment}
-          </div>
-          {selectedAgent && <div className="topbar-chip">target · {selectedAgent.name}</div>}
-          {user && <div className="topbar-chip">role · {user.role}</div>}
-          {user && <div className="topbar-chip">user · {user.display_name}</div>}
+          {selectedAgent && <div className="topbar-chip">Agent · {selectedAgent.name}</div>}
+          {user && <div className="topbar-chip">Role · {user.role}</div>}
+          {user && <div className="topbar-chip">User · {user.display_name}</div>}
           <button className="topbar-logout" onClick={logout} type="button">
             <LogoutIcon />
             Sign Out
@@ -170,20 +163,20 @@ export default function StudioShell() {
             />
           </label>
 
-          {agentsLoading && <div className="empty-surface">Loading agents...</div>}
+          {agentsLoading && <div className="empty-surface">正在加载 Agent...</div>}
           {agentsError && !agentsLoading && <div className="empty-surface">{agentsError}</div>}
           {!agentsLoading && !agentsError && filteredAgents.length === 0 && (
-            <div className="empty-surface">No agents matched the current filter.</div>
+            <div className="empty-surface">没有匹配的 Agent。</div>
           )}
 
-          <div aria-label="Available agents" className="agent-radar-list">
+          <div aria-label="可用 Agent" className="agent-radar-list">
             {filteredAgents.map(agent => {
               const targetSection = activeSection === DEFAULT_SECTION ? DEFAULT_SECTION : activeSection
               const target = `/agents/${agent.id}/${targetSection}`
               const isActive = selectedAgent?.id === agent.id
               return (
                 <NavLink
-                  aria-label={`Open agent ${agent.name}`}
+                  aria-label={`打开 Agent ${agent.name}`}
                   className={`agent-radar-card ${isActive ? 'active' : ''}`}
                   key={agent.id}
                   onFocus={() => focusNavigate(target, isActive)}
@@ -192,7 +185,7 @@ export default function StudioShell() {
                   <div className="agent-radar-card-top">
                     <strong>{agent.name}</strong>
                   </div>
-                  <p>{agent.description || 'No description provided.'}</p>
+                  <p>{agent.description || '暂无描述。'}</p>
                   <div className="agent-radar-card-meta">
                     <span>{agent.id}</span>
                   </div>
