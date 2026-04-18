@@ -23,16 +23,16 @@ logging.basicConfig(
 )
 
 # 抑制第三方库的 DEBUG 日志（即使 LOG_LEVEL=DEBUG）
-for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
-    logging.getLogger(_lib).setLevel(logging.WARNING)
+# for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
+#     logging.getLogger(_lib).setLevel(logging.WARNING)
 
 # Windows Update 证书探测会触发 uvicorn 的 "Invalid HTTP request received" 警告，静默掉。
-logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
+# logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
 
-if _log_level == logging.DEBUG:
-    # set_debug(True) 会把 LLM 完整输入输出打到 stdout（ConsoleCallbackHandler），噪音过大。
-    # DEBUG 级别的 LangChain 内部日志通过标准 logging 控制，无需开启 LangChain debug 模式。
-    pass
+# if _log_level == logging.DEBUG:
+#     # set_debug(True) 会把 LLM 完整输入输出打到 stdout（ConsoleCallbackHandler），噪音过大。
+#     # DEBUG 级别的 LangChain 内部日志通过标准 logging 控制，无需开启 LangChain debug 模式。
+#     pass
 
 from pathlib import Path
 
@@ -44,14 +44,14 @@ from fastapi.staticfiles import StaticFiles
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
-from ark_agentic.api import notifications as notifications_api
+# from ark_agentic.api import notifications as notifications_api
 from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
-from ark_agentic.core.observability import (
-    init_phoenix,
-    phoenix_callbacks_enabled,
-    shutdown_phoenix,
-)
+# from ark_agentic.core.observability import (
+#     init_phoenix,
+#     phoenix_callbacks_enabled,
+#     shutdown_phoenix,
+# )
 from ark_agentic.studio import setup_studio_from_env
 from ark_agentic.agents.securities.tools.service.mock_mode import get_mock_mode
 
@@ -68,42 +68,41 @@ def _env_flag(name: str) -> bool:
 async def lifespan(app: FastAPI):
     # ── Step 1: 先初始化 JobManager 全局单例（如果启用）────────────────────
     # 必须在 agent warmup 之前设置，因为 warmup 时会自动向 JobManager 注册 Job
-    if _env_flag("ENABLE_JOB_MANAGER"):
-        from ark_agentic.core.notifications.store import NotificationStore
-        from ark_agentic.core.notifications.delivery import NotificationDelivery
-        from ark_agentic.core.jobs.manager import JobManager, set_job_manager
-        from ark_agentic.core.jobs.scanner import UserShardScanner
-        from ark_agentic.core.paths import get_notifications_base_dir
+    # if _env_flag("ENABLE_JOB_MANAGER"):
+    #     from ark_agentic.core.notifications.store import NotificationStore
+    #     from ark_agentic.core.notifications.delivery import NotificationDelivery
+    #     from ark_agentic.core.jobs.manager import JobManager, set_job_manager
+    #     from ark_agentic.core.jobs.scanner import UserShardScanner
+    #     from ark_agentic.core.paths import get_notifications_base_dir
 
-        notification_store = NotificationStore(base_dir=get_notifications_base_dir())
-        notification_delivery = NotificationDelivery()
-        app.state.notification_store = notification_store
-        app.state.notification_delivery = notification_delivery
+    #     notification_store = NotificationStore(base_dir=get_notifications_base_dir())
+    #     notification_delivery = NotificationDelivery()
+    #     app.state.notification_store = notification_store
+    #     app.state.notification_delivery = notification_delivery
 
-        scanner = UserShardScanner(
-            max_concurrent=int(os.getenv("JOB_MAX_CONCURRENT", "50")),
-            batch_size=int(os.getenv("JOB_BATCH_SIZE", "500")),
-            shard_index=int(os.getenv("JOB_SHARD_INDEX", "0")),
-            total_shards=int(os.getenv("JOB_TOTAL_SHARDS", "1")),
-        )
-        job_manager = JobManager(
-            notification_store=notification_store,
-            delivery=notification_delivery,
-            scanner=scanner,
-        )
-        set_job_manager(job_manager)  # 设置全局单例
-        app.state.job_manager = job_manager
+    #     scanner = UserShardScanner(
+    #         max_concurrent=int(os.getenv("JOB_MAX_CONCURRENT", "50")),
+    #         batch_size=int(os.getenv("JOB_BATCH_SIZE", "500")),
+    #         shard_index=int(os.getenv("JOB_SHARD_INDEX", "0")),
+    #         total_shards=int(os.getenv("JOB_TOTAL_SHARDS", "1")),
+    #     )
+    #     job_manager = JobManager(
+    #         notification_store=notification_store,
+    #         delivery=notification_delivery,
+    #         scanner=scanner,
+    #     )
+    #     set_job_manager(job_manager)  # 设置全局单例
+    #     app.state.job_manager = job_manager
 
-    phoenix_enabled = phoenix_callbacks_enabled()
-    if phoenix_enabled:
-        init_phoenix(service_name="ark-agentic-api")
+    # phoenix_enabled = phoenix_callbacks_enabled()
+    # if phoenix_enabled:
+    #     init_phoenix(service_name="ark-agentic-api")
 
     # ── Step 2: 创建并注册 Agents ────────────────────────────────────────
     _enable_dream = _env_flag("ENABLE_DREAM") if os.getenv("ENABLE_DREAM") else True
     _registry.register("insurance", create_insurance_agent(
         enable_memory=_env_flag("ENABLE_MEMORY"),
         enable_dream=_enable_dream,
-        enable_thinking_tags=_env_flag("ENABLE_THINKING_TAGS"),
     ))
     _registry.register("securities", create_securities_agent(
         enable_memory=_env_flag("ENABLE_MEMORY"),
@@ -119,22 +118,22 @@ async def lifespan(app: FastAPI):
         logger.info("Agent '%s' warmed up", agent_id)
 
     # ── Step 4: 所有 Job 注册完毕，启动调度器 ─────────────────────────────
-    if hasattr(app.state, "job_manager"):
-        await app.state.job_manager.start()
-        logger.info("JobManager started")
+    # if hasattr(app.state, "job_manager"):
+    #     await app.state.job_manager.start()
+    #     logger.info("JobManager started")
 
     logger.info("Unified API started with agents: %s", _registry.list_ids())
     yield
 
-    if hasattr(app.state, "job_manager"):
-        await app.state.job_manager.stop()
-        logger.info("JobManager stopped")
+    # if hasattr(app.state, "job_manager"):
+    #     await app.state.job_manager.stop()
+    #     logger.info("JobManager stopped")
 
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
         await runner.close_memory()
-    if phoenix_enabled:
-        shutdown_phoenix()
+    # if phoenix_enabled:
+    #     shutdown_phoenix()
     logger.info("Unified API shutting down")
 
 
@@ -153,18 +152,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Windows Update / CryptSvc 会把证书吊销列表请求（disallowedcertstl.cab 等）
-# 路由到本机监听端口，产生无意义的 404 日志。直接静默返回 204。
-@app.middleware("http")
-async def _drop_windows_update_probes(request, call_next):
-    if "/msdownload/update/" in request.url.path:
-        from fastapi.responses import Response
-        return Response(status_code=204)
-    return await call_next(request)
+# # Windows Update / CryptSvc 会把证书吊销列表请求（disallowedcertstl.cab 等）
+# # 路由到本机监听端口，产生无意义的 404 日志。直接静默返回 204。
+# @app.middleware("http")
+# async def _drop_windows_update_probes(request, call_next):
+#     if "/msdownload/update/" in request.url.path:
+#         from fastapi.responses import Response
+#         return Response(status_code=204)
+#     return await call_next(request)
 
 # ---- 挂载路由 ----
 app.include_router(chat_api.router)
-app.include_router(notifications_api.router)
+# app.include_router(notifications_api.router)
 setup_studio_from_env(app, registry=_registry)
 
 # ---- 静态文件 & 测试 UI ----
@@ -211,10 +210,10 @@ def main() -> None:
     import sys
     import uvicorn
 
-    # ProactorEventLoop (Windows default) raises OSError: [WinError 64] on abrupt
-    # client disconnects. Switch to SelectorEventLoop to avoid these spurious errors.
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    # # ProactorEventLoop (Windows default) raises OSError: [WinError 64] on abrupt
+    # # client disconnects. Switch to SelectorEventLoop to avoid these spurious errors.
+    # if sys.platform == "win32":
+    #     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", "8080"))

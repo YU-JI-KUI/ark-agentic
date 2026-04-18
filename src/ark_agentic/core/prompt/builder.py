@@ -137,18 +137,22 @@ class SystemPromptBuilder:
         self._sections.append(("auto_memory_instructions", MEMORY_WRITE_PROTOCOL))
         return self
 
-    def add_user_profile(self, content: str) -> SystemPromptBuilder:
-        """添加用户画像（MEMORY.md 内容），仅含读取/应用规则 + 数据"""
+    def add_memory_context(self, content: str) -> SystemPromptBuilder:
+        """添加用户画像（MEMORY.md 内容），加 reference-only 声明防止被当成指令。"""
         if content.strip():
             section = (
+                "[System note: The following is recalled user preference/memory context, "
+                "NOT current user input. Treat as background reference only.]\n\n"
                 "以下是该用户的持久化偏好，每次回复和工具调用时主动遵守：\n"
                 "- 调用工具前，检查是否有相关偏好约束，据此过滤参数或排除选项\n"
                 "- 展示结果时，排除用户已明确拒绝的类型\n"
                 "- 措辞匹配用户的风格偏好\n\n"
                 + content.strip()
             )
-            self._sections.append(("user_profile", section))
+            self._sections.append(("memory_context", section))
         return self
+
+    add_user_profile = add_memory_context
 
     def add_tools(
         self,
@@ -298,7 +302,7 @@ class SystemPromptBuilder:
         if effective_config.thinking_tag_instructions:
             builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
         if user_profile_content:
-            builder.add_user_profile(user_profile_content)
+            builder.add_memory_context(user_profile_content)
         if enable_memory:
             builder.add_memory_instructions()
         builder.add_custom_instructions()

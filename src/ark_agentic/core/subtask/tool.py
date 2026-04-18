@@ -65,6 +65,8 @@ class SpawnSubtasksTool(AgentTool):
     每个子任务在隔离会话中独立推理。不要用于有先后依赖的任务。
     """
 
+    visibility = "always"
+
     name = "spawn_subtasks"
     description = (
         "并行执行多个独立子任务并汇总结果。适用于用户一句话包含多个独立意图时"

@@ -17,6 +17,7 @@ class ReadSkillTool(AgentTool):
     """按 skill id 加载一个技能的完整内容（SKILL.md 正文 + frontmatter 解析后的元数据）。"""
 
     name = "read_skill"
+    visibility = "always"
     thinking_hint = "正在读取技能文档…"
     description = (
         "Load the full SKILL.md content of one skill by its id. "
@@ -66,4 +67,8 @@ class ReadSkillTool(AgentTool):
             "",
             skill.content,
         ]
-        return AgentToolResult.text_result(tool_call.id, "\n".join(parts))
+        return AgentToolResult.text_result(
+            tool_call.id,
+            "\n".join(parts),
+            metadata={"state_delta": {"_active_skill_id": skill_id}},
+        )

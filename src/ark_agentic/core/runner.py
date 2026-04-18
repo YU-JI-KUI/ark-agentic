@@ -41,6 +41,7 @@ from .types import (
     MessageRole,
     RunOptions,
     SessionEntry,
+    SkillEntry,
     SkillLoadMode,
     ToolCall,
     ToolLoopAction,
@@ -649,9 +650,10 @@ class AgentRunner:
             ls.turns += 1
             state = session.state
             messages = self._build_messages(
-                session_id, state, skill_load_mode=skill_load_mode
+                session_id, state,
+                skill_load_mode=skill_load_mode,
             )
-            tools = self._build_tools()
+            tools = self._build_tools(state=state)
             logger.info(
                 "Turn %d | messages=%d tools=%d model=%s",
                 ls.turns,
@@ -1054,6 +1056,35 @@ class AgentRunner:
 
         return messages
 
+    def _match_skills(
+        self,
+        state: dict[str, Any],
+        session_id: str | None = None,
+        *,
+        skill_load_mode: str = "full",
+    ) -> list[SkillEntry]:
+        """统一技能匹配入口，供 _run_loop 一次匹配、多处复用。"""
+        if not self.skill_matcher:
+            return []
+
+        tools = self.tool_registry.list_all()
+        skill_context = {**state, "available_tools": {t.name for t in tools}}
+
+        user_query: str | None = None
+        if session_id:
+            session = self.session_manager.get_session(session_id)
+            if session:
+                for msg in reversed(session.messages):
+                    if msg.role == MessageRole.USER and msg.content:
+                        user_query = msg.content
+                        break
+
+        match_result = self.skill_matcher.match(
+            query=user_query, context=skill_context,
+            skill_load_mode=skill_load_mode,
+        )
+        return match_result.matched_skills
+
     def _build_system_prompt(
         self,
         state: dict[str, Any],
@@ -1064,27 +1095,9 @@ class AgentRunner:
         """构建系统提示"""
         tools = self.tool_registry.list_all()
 
-        # 将已注册的工具名注入，供 skill 资格检查使用
-        skill_context = {**state, "available_tools": {t.name for t in tools}}
-
-        # 提取最近的用户查询（供 skill matcher 做相关性判断）
-        user_query: str | None = None
-        if session_id:
-            session = self.session_manager.get_session(session_id)
-            if session:
-                for msg in reversed(session.messages):
-                    if msg.role == MessageRole.USER and msg.content:
-                        user_query = msg.content
-                        break
-
-        # 获取匹配的技能
-        skills = []
-        if self.skill_matcher:
-            match_result = self.skill_matcher.match(
-                query=user_query, context=skill_context,
-                skill_load_mode=skill_load_mode,
-            )
-            skills = match_result.matched_skills
+        skills = self._match_skills(
+            state, session_id, skill_load_mode=skill_load_mode,
+        )
 
         prompt_config = self.config.prompt_config
 
@@ -1125,9 +1138,31 @@ class AgentRunner:
             enable_memory=self._memory_manager is not None,
         )
 
-    def _build_tools(self) -> list[dict[str, Any]]:
-        """构建工具定义"""
-        return [tool.get_json_schema() for tool in self.tool_registry.list_all()]
+    def _build_tools(
+        self, state: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """构建工具定义。
+
+        full 模式: 全部返回。
+        dynamic 模式: always 工具始终可见；auto 工具仅在 state["_active_skill_id"]
+        对应的技能被 read_skill 激活后才暴露给 LLM。
+        """
+        all_tools = self.tool_registry.list_all()
+
+        if not self.skill_loader or self.config.skill_config.load_mode == SkillLoadMode.full:
+            return [t.get_json_schema() for t in all_tools]
+
+        always = [t for t in all_tools if getattr(t, "visibility", "auto") == "always"]
+
+        active_skill_id = (state or {}).get("_active_skill_id")
+        if not active_skill_id:
+            return [t.get_json_schema() for t in always]
+
+        skill = self.skill_loader.get_skill(active_skill_id)
+        allowed = set(skill.metadata.required_tools or []) if skill else set()
+        seen = {t.name for t in always}
+        skill_tools = [t for t in all_tools if t.name in allowed and t.name not in seen]
+        return [t.get_json_schema() for t in always + skill_tools]
 
     def _get_llm(
         self,

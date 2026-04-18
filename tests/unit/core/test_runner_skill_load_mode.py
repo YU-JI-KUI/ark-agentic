@@ -106,7 +106,7 @@ def test_dynamic_mode_contains_read_skill_instruction(
         {}, session_id=session_id, skill_load_mode="dynamic"
     )
     assert "read_skill" in prompt
-    assert "业务必选协议" in prompt
+    assert "mandatory" in prompt
     assert "Full skill body here." not in prompt
     assert "Test Skill" in prompt
     assert "When testing" in prompt

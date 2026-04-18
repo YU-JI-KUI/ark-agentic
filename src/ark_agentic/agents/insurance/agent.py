@@ -88,7 +88,7 @@ def create_insurance_agent(
         skill_directories=[str(_SKILLS_DIR)],
         agent_id="insurance",
         enable_eligibility_check=True,
-        load_mode=SkillLoadMode.full,
+        load_mode=SkillLoadMode.dynamic,
     )
     skill_loader = SkillLoader(skill_config)
     try:
@@ -100,6 +100,7 @@ def create_insurance_agent(
     memory_manager = build_memory_manager(memory_dir) if memory_dir is not None else None
 
     runner_config = RunnerConfig(
+        temperature=0.3,
         max_tokens=4096,
         max_turns=10,
         enable_thinking_tags=enable_thinking_tags,

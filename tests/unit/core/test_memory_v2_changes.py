@@ -214,7 +214,7 @@ class TestEnableMemoryGuard:
         )
         assert "<auto_memory_instructions>" not in prompt
         assert "简洁" in prompt
-        assert "<user_profile>" in prompt
+        assert "<memory_context>" in prompt
 
 
 # ---------------------------------------------------------------------------
