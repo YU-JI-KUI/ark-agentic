@@ -1,73 +1,57 @@
-# React + TypeScript + Vite
+# Ark-Agentic Studio Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Studio UI 基于 React + TypeScript + Vite。
 
-Currently, two official plugins are available:
+## 本地开发
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+在当前目录执行：
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+默认会启动 Vite 开发服务。
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 如何构建 UI
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+后端会从 `src/ark_agentic/studio/frontend/dist` 挂载静态资源，因此发布或集成 Studio 前，需要先构建前端产物。
+
+在当前目录执行：
+
+```bash
+npm install
+npm run build
 ```
+
+构建成功后会生成：
+
+```text
+src/ark_agentic/studio/frontend/dist/
+```
+
+其中 `npm run build` 实际执行的是：
+
+```bash
+tsc -b && vite build
+```
+
+## 与后端集成
+
+当环境变量 `ENABLE_STUDIO=true` 时，后端会尝试挂载 Studio：
+
+- API 前缀：`/api/studio`
+- UI 入口：`/studio`
+- 静态资源目录：`/studio/assets`
+
+如果 `dist` 不存在，后端不会提供 UI，并会提示先在 `studio/frontend/` 下运行 `npm run build`。
+
+## 可选检查
+
+构建完成后可执行：
+
+```bash
+npm run preview
+```
+
+用于本地预览构建后的 UI。
