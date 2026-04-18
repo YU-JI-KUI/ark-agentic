@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type WheelEvent as ReactWheelEvent,
+} from 'react'
 import { NavLink, Navigate, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import {
   api,
-  type AgentMeta,
   type MemoryFileItem,
   type MessageItem,
   type SessionDetail,
@@ -12,7 +20,7 @@ import {
 } from '../api'
 import { useAuth } from '../auth'
 import type { StudioShellContextValue } from '../layouts/StudioShell'
-import { CollapseIcon, CopyIcon, ExpandIcon } from '../components/StudioIcons'
+import { ChevronRightIcon, CollapseIcon, CopyIcon, ExpandIcon } from '../components/StudioIcons'
 
 const VALID_SECTIONS = new Set(['overview', 'skills', 'tools', 'sessions', 'memory'])
 
@@ -39,7 +47,7 @@ function toDomId(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]+/g, '-')
 }
 
-function traceLaneLabel(lane: TraceLane) {
+function executionLaneLabel(lane: TraceLane) {
   switch (lane) {
     case 'input':
       return 'Input'
@@ -150,6 +158,7 @@ function StructuredDataCard({
   compact = false,
   headingId,
   headingLevel = 'h3',
+  expandedOverride,
 }: {
   title: string
   value: string | null | undefined
@@ -158,11 +167,17 @@ function StructuredDataCard({
   compact?: boolean
   headingId?: string
   headingLevel?: 'h3' | 'h4'
+  expandedOverride?: boolean
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(expandedOverride ?? false)
   const [copied, setCopied] = useState(false)
   const content = value && value.trim() ? value : emptyText
   const HeadingTag = headingLevel
+
+  useEffect(() => {
+    if (expandedOverride === undefined) return
+    setExpanded(expandedOverride)
+  }, [expandedOverride])
 
   async function handleCopy() {
     try {
@@ -284,9 +299,23 @@ type TraceStage = {
   accent?: string
 }
 
-type TraceTurn = {
-  turn: number
+type ExecutionRound = {
+  round: number
   stages: TraceStage[]
+  userPrompt: string | null
+  assistantOutput: string | null
+  toolCallCount: number
+  toolResultCount: number
+  toolErrorCount: number
+  reasoningCount: number
+}
+
+type ExecutionSummary = {
+  roundCount: number
+  toolCallCount: number
+  toolResultCount: number
+  toolErrorCount: number
+  reasoningCount: number
 }
 
 function laneForEvent(kind: TraceEvent['kind']): TraceLane {
@@ -306,23 +335,36 @@ function laneForEvent(kind: TraceEvent['kind']): TraceLane {
   }
 }
 
-function buildTraceTurns(detail: SessionDetail | null): TraceTurn[] {
+function createExecutionRound(round: number): ExecutionRound {
+  return {
+    round,
+    stages: [],
+    userPrompt: null,
+    assistantOutput: null,
+    toolCallCount: 0,
+    toolResultCount: 0,
+    toolErrorCount: 0,
+    reasoningCount: 0,
+  }
+}
+
+function buildExecutionRounds(detail: SessionDetail | null): ExecutionRound[] {
   if (!detail) return []
 
-  const turns: TraceTurn[] = []
-  let currentTurn: TraceTurn | null = null
+  const rounds: ExecutionRound[] = []
+  let currentRound: ExecutionRound | null = null
 
   function ensureTurn() {
-    if (!currentTurn) {
-      currentTurn = { turn: turns.length + 1, stages: [] }
-      turns.push(currentTurn)
+    if (!currentRound) {
+      currentRound = createExecutionRound(rounds.length + 1)
+      rounds.push(currentRound)
     }
-    return currentTurn
+    return currentRound
   }
 
   function pushStage(kind: TraceEvent['kind'], label: string, preview: string, accent?: string) {
-    const turn = ensureTurn()
-    turn.stages.push({
+    const round = ensureTurn()
+    round.stages.push({
       lane: laneForEvent(kind),
       kind,
       label,
@@ -333,11 +375,17 @@ function buildTraceTurns(detail: SessionDetail | null): TraceTurn[] {
 
   for (const message of detail.messages) {
     if (message.role === 'user' && (message.content || message.tool_calls?.length || message.tool_results?.length)) {
-      currentTurn = { turn: turns.length + 1, stages: [] }
-      turns.push(currentTurn)
+      currentRound = createExecutionRound(rounds.length + 1)
+      rounds.push(currentRound)
     }
 
     if (message.content) {
+      const round = ensureTurn()
+      if (message.role === 'user') {
+        round.userPrompt ??= truncate(message.content, 180)
+      } else if (message.role === 'assistant') {
+        round.assistantOutput = truncate(message.content, 180)
+      }
       pushStage(
         message.role === 'user' ? 'user' : 'assistant',
         message.role === 'user' ? 'User Prompt' : 'Assistant Output',
@@ -346,10 +394,12 @@ function buildTraceTurns(detail: SessionDetail | null): TraceTurn[] {
     }
 
     if (message.thinking) {
+      ensureTurn().reasoningCount += 1
       pushStage('thinking', 'Reasoning', truncate(message.thinking, 180))
     }
 
     for (const toolCall of message.tool_calls ?? []) {
+      ensureTurn().toolCallCount += 1
       pushStage(
         'tool_call',
         `Tool Call · ${toolCall.name}`,
@@ -359,6 +409,9 @@ function buildTraceTurns(detail: SessionDetail | null): TraceTurn[] {
     }
 
     for (const toolResult of message.tool_results ?? []) {
+      const round = ensureTurn()
+      round.toolResultCount += 1
+      if (toolResult.is_error) round.toolErrorCount += 1
       pushStage(
         'tool_result',
         `Tool Result · ${toolResult.tool_call_id}`,
@@ -372,7 +425,26 @@ function buildTraceTurns(detail: SessionDetail | null): TraceTurn[] {
     }
   }
 
-  return turns
+  return rounds
+}
+
+function summarizeExecutionRounds(rounds: ExecutionRound[]): ExecutionSummary {
+  return rounds.reduce<ExecutionSummary>(
+    (summary, round) => ({
+      roundCount: summary.roundCount + 1,
+      toolCallCount: summary.toolCallCount + round.toolCallCount,
+      toolResultCount: summary.toolResultCount + round.toolResultCount,
+      toolErrorCount: summary.toolErrorCount + round.toolErrorCount,
+      reasoningCount: summary.reasoningCount + round.reasoningCount,
+    }),
+    {
+      roundCount: 0,
+      toolCallCount: 0,
+      toolResultCount: 0,
+      toolErrorCount: 0,
+      reasoningCount: 0,
+    },
+  )
 }
 
 type ViewMode = 'view' | 'create' | 'edit' | 'scaffold'
@@ -423,7 +495,7 @@ export default function AgentWorkspacePage() {
         </nav>
       </section>
 
-      {activeSection === 'overview' && <OverviewSection agent={selectedAgent} agentId={agentId} />}
+      {activeSection === 'overview' && <OverviewSection agentId={agentId} />}
       {activeSection === 'skills' && <SkillsSection agentId={agentId} />}
       {activeSection === 'tools' && <ToolsSection agentId={agentId} />}
       {activeSection === 'sessions' && <SessionsSection agentId={agentId} />}
@@ -432,7 +504,7 @@ export default function AgentWorkspacePage() {
   )
 }
 
-function OverviewSection({ agent, agentId }: { agent: AgentMeta | null; agentId: string }) {
+function OverviewSection({ agentId }: { agentId: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState({
@@ -486,61 +558,91 @@ function OverviewSection({ agent, agentId }: { agent: AgentMeta | null; agentId:
   return (
     <>
       <section className="workspace-grid-four">
-        <div className="metric-surface">
-          <span>Skills</span>
+        <div className="metric-surface metric-surface-compact">
+          <div className="metric-surface-compact-copy">
+            <span>Skills</span>
+            <p>当前 Agent 已注册的技能条目。</p>
+          </div>
           <strong>{snapshot.skills.length}</strong>
-          <p>Rules, instructions, and configuration surfaces attached to this agent.</p>
         </div>
-        <div className="metric-surface">
-          <span>Tools</span>
+        <div className="metric-surface metric-surface-compact">
+          <div className="metric-surface-compact-copy">
+            <span>Tools</span>
+            <p>可被编排或调用的工具数量。</p>
+          </div>
           <strong>{snapshot.tools.length}</strong>
-          <p>Available tool contracts, scaffolds, and callable backend integrations.</p>
         </div>
-        <div className="metric-surface">
-          <span>Sessions</span>
+        <div className="metric-surface metric-surface-compact">
+          <div className="metric-surface-compact-copy">
+            <span>Sessions</span>
+            <p>最近保留下来的会话记录总数。</p>
+          </div>
           <strong>{snapshot.sessions.length}</strong>
-          <p>Traceable session records ready for review and audit.</p>
         </div>
-        <div className="metric-surface">
-          <span>Knowledge Freshness</span>
-          <strong>{freshness.label}</strong>
-          <p>
-            {freshness.fresh} fresh · {freshness.aging} aging · {freshness.stale} stale
-            {freshness.unknown > 0 ? ` · ${freshness.unknown} unknown` : ''}
-          </p>
+        <div className="metric-surface metric-surface-freshness">
+          <span>Memory Freshness</span>
+          <p>基于 Memory 文件最近更新时间推断当前知识状态。</p>
+          <div className="metric-freshness-main-row">
+            <strong>{freshness.label === 'Fresh' ? '新鲜' : freshness.label}</strong>
+            <div className="metric-freshness-summary-wrap">
+              <div
+                aria-label={`新鲜 ${freshness.fresh}，陈旧中 ${freshness.aging}，过时 ${freshness.stale}${freshness.unknown > 0 ? `，未知 ${freshness.unknown}` : ''}`}
+                className="metric-freshness-summary"
+                tabIndex={0}
+              >
+                {freshness.fresh} / {freshness.aging} / {freshness.stale}
+              </div>
+              <div className="metric-freshness-detail" role="note">
+                <div className="metric-freshness-detail-row">
+                  <label>新鲜</label>
+                  <b>{freshness.fresh}</b>
+                </div>
+                <div className="metric-freshness-detail-row">
+                  <label>陈旧中</label>
+                  <b>{freshness.aging}</b>
+                </div>
+                <div className="metric-freshness-detail-row">
+                  <label>过时</label>
+                  <b>{freshness.stale}</b>
+                </div>
+                {freshness.unknown > 0 && (
+                  <div className="metric-freshness-detail-row">
+                    <label>未知</label>
+                    <b>{freshness.unknown}</b>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
       <section className="workspace-grid-two">
         <article className="workspace-surface">
           <div className="surface-heading">
-            <span>Operational Snapshot</span>
+            <span>运行快照</span>
           </div>
           <div className="signal-list">
             <div className="signal-card">
-              <strong>Current agent</strong>
-              <p>{agent?.description || 'No description provided for this agent.'}</p>
-            </div>
-            <div className="signal-card">
-              <strong>Latest session activity</strong>
+              <strong>最近会话活动</strong>
               <p>
                 {snapshot.sessions[0]
                   ? `${snapshot.sessions[0].user_id} · ${formatRelativeTime(snapshot.sessions[0].updated_at || snapshot.sessions[0].created_at)}`
-                  : 'No session activity yet.'}
+                  : '暂无会话活动。'}
               </p>
             </div>
             <div className="signal-card">
-              <strong>Knowledge footprint</strong>
-              <p>{snapshot.files.length} memory files currently visible to this agent.</p>
+              <strong>知识足迹</strong>
+              <p>当前 Agent 可见 {snapshot.files.length} 个 MEMORY 文件。</p>
             </div>
             <div className="signal-card">
-              <strong>Memory freshness signal</strong>
+              <strong>MEMORY 新鲜度信号</strong>
               <p>
                 {freshness.stale > 0
-                  ? `${freshness.stale} file(s) look stale based on modified time and should be reviewed first.`
+                  ? `${freshness.stale} 个文件已过时，建议优先审查。`
                   : freshness.aging > 0
-                    ? `${freshness.aging} file(s) are aging and may need content verification soon.`
-                    : 'Current memory set looks fresh based on available modified timestamps.'}
+                    ? `${freshness.aging} 个文件正在陈旧，可能需要验证。`
+                    : '当前 MEMORY 集合基于修改时间显示为新鲜。'}
               </p>
             </div>
           </div>
@@ -548,27 +650,15 @@ function OverviewSection({ agent, agentId }: { agent: AgentMeta | null; agentId:
 
         <article className="workspace-surface">
           <div className="surface-heading">
-            <span>Editorial Lens</span>
+            <span>编辑视角</span>
           </div>
           <div className="signal-list">
             <div className="signal-card">
-              <strong>Readable objects</strong>
-              <p>Skills, tools, sessions, and memory each use separate layouts instead of one generic master-detail shell.</p>
-            </div>
-            <div className="signal-card">
-              <strong>Decision-oriented AI</strong>
-              <p>The dock is tuned for impact analysis, drafting, and review guidance tied to the current surface.</p>
-            </div>
-            <div className="signal-card">
-              <strong>Tool reliability signal</strong>
+              <strong>TOOLS 可靠性信号</strong>
               <p>
-                {reliability.label} from available metadata: {reliability.documented}/{snapshot.tools.length} described,
-                {` ${reliability.typed}/${snapshot.tools.length} with parsed schema.`}
+                基于可用元数据：{reliability.label}。{reliability.documented}/{snapshot.tools.length} 已描述，
+                {` ${reliability.typed}/${snapshot.tools.length} 已解析 Schema。`}
               </p>
-            </div>
-            <div className="signal-card">
-              <strong>Operational discipline</strong>
-              <p>Use Overview to orient, then switch into the specific surface that owns the next change.</p>
             </div>
           </div>
         </article>
@@ -1052,8 +1142,9 @@ function SessionsSection({ agentId }: { agentId: string }) {
   const [detail, setDetail] = useState<SessionDetail | null>(null)
   const [rawText, setRawText] = useState('')
   const [rawDraft, setRawDraft] = useState('')
-  const [tab, setTab] = useState<'conversation' | 'trace' | 'raw'>('conversation')
+  const [tab, setTab] = useState<'conversation' | 'execution' | 'raw'>('conversation')
   const [editingRaw, setEditingRaw] = useState(false)
+  const [sessionPanelsExpanded, setSessionPanelsExpanded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1109,7 +1200,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
     async function loadTabData() {
       setDetailLoading(true)
       try {
-        if (tab === 'conversation' || tab === 'trace') {
+        if (tab === 'conversation' || tab === 'execution') {
           const nextDetail = await api.getSessionDetail(
             agentId,
             currentSession.session_id,
@@ -1143,6 +1234,10 @@ function SessionsSection({ agentId }: { agentId: string }) {
     }
   }, [agentId, selected, tab])
 
+  useEffect(() => {
+    setSessionPanelsExpanded(false)
+  }, [selected?.session_id])
+
   async function saveRaw() {
     if (!selected) return
     try {
@@ -1160,20 +1255,16 @@ function SessionsSection({ agentId }: { agentId: string }) {
   if (loading) return <div className="empty-surface">Loading sessions...</div>
   if (error) return <div className="empty-surface">{error}</div>
 
-  const traceTurns = buildTraceTurns(detail)
-  const traceEvents = traceTurns.flatMap(turn => turn.stages)
-  const toolCalls = traceEvents.filter(event => event.kind === 'tool_call').length
-  const toolResults = traceEvents.filter(event => event.kind === 'tool_result').length
-  const reasoningSteps = traceEvents.filter(event => event.kind === 'thinking').length
-  const outputSteps = traceEvents.filter(event => event.kind === 'assistant').length
   const filteredSessionCount = groupedSessions.reduce((total, [, items]) => total + items.length, 0)
   const sessionDomId = selected ? toDomId(selected.session_id) : 'session'
   const conversationTabId = `${sessionDomId}-conversation-tab`
-  const traceTabId = `${sessionDomId}-trace-tab`
+  const executionTabId = `${sessionDomId}-execution-tab`
   const rawTabId = `${sessionDomId}-raw-tab`
   const conversationPanelId = `${sessionDomId}-conversation-panel`
-  const tracePanelId = `${sessionDomId}-trace-panel`
+  const executionPanelId = `${sessionDomId}-execution-panel`
   const rawPanelId = `${sessionDomId}-raw-panel`
+  const canToggleSessionPanels = tab === 'conversation' || (tab === 'raw' && !editingRaw)
+  const sessionPanelToggleLabel = sessionPanelsExpanded ? 'Collapse all' : 'Expand all'
 
   return (
     <section className="workspace-split workspace-sessions">
@@ -1181,10 +1272,6 @@ function SessionsSection({ agentId }: { agentId: string }) {
         <div className="surface-heading">
           <span>Sessions</span>
           <span>{filteredSessionCount}</span>
-        </div>
-        <div className="session-nav-intro">
-          <strong>Traceable conversation index</strong>
-          <p>Filter by user, session id, or first message to jump directly into the right evidence trail.</p>
         </div>
         <label className="session-search">
           <input
@@ -1236,6 +1323,9 @@ function SessionsSection({ agentId }: { agentId: string }) {
       </div>
 
       <div className="workspace-surface split-detail session-detail-panel">
+        <div className="surface-heading">
+          <span>Session Detail</span>
+        </div>
         <div aria-atomic="true" aria-live="polite" className="sr-only">
           {detailLoading
             ? 'Loading session detail'
@@ -1257,17 +1347,45 @@ function SessionsSection({ agentId }: { agentId: string }) {
 
         {selected && (
           <div className="editor-sheet">
+            <div className="workspace-grid-three">
+              <div className="metric-surface session-summary-card">
+                <span>User ID</span>
+                <strong>{selected.user_id}</strong>
+              </div>
+              <div className="metric-surface session-summary-card">
+                <span>Messages</span>
+                <strong>{selected.message_count}</strong>
+              </div>
+              <div className="metric-surface session-summary-card">
+                <span>Updated</span>
+                <strong>{formatRelativeTime(selected.updated_at || selected.created_at)}</strong>
+              </div>
+            </div>
+
             <div className="session-detail-hero">
-              <div className="session-detail-hero-copy">
-                <div className="surface-kicker">Session Detail</div>
-                <h2>{selected.first_message || selected.session_id}</h2>
-                <p>{selected.session_id}</p>
+              <div className="session-detail-hero-top">
+                <div className="session-detail-hero-copy">
+                  <h2>{selected.first_message || selected.session_id}</h2>
+                  <p>{selected.session_id}</p>
+                </div>
+                <div className="session-detail-hero-actions">
+                  <button
+                    aria-label={sessionPanelToggleLabel}
+                    className="action-button session-detail-bulk-toggle"
+                    disabled={!canToggleSessionPanels}
+                    onClick={() => setSessionPanelsExpanded(current => !current)}
+                    type="button"
+                  >
+                    {sessionPanelsExpanded ? <CollapseIcon /> : <ExpandIcon />}
+                    <span>{sessionPanelToggleLabel}</span>
+                  </button>
+                </div>
               </div>
               <div aria-label="Session detail views" className="session-mode-switch" role="tablist">
                 <button
                   aria-controls={conversationPanelId}
                   aria-selected={tab === 'conversation'}
-                  className={`action-button ${tab === 'conversation' ? 'action-button-primary' : ''}`}
+                  className={`action-button session-mode-switch-button ${tab === 'conversation' ? 'action-button-primary' : ''}`}
                   id={conversationTabId}
                   onFocus={() => setTab('conversation')}
                   onClick={() => setTab('conversation')}
@@ -1277,21 +1395,21 @@ function SessionsSection({ agentId }: { agentId: string }) {
                   Conversation
                 </button>
                 <button
-                  aria-controls={tracePanelId}
-                  aria-selected={tab === 'trace'}
-                  className={`action-button ${tab === 'trace' ? 'action-button-primary' : ''}`}
-                  id={traceTabId}
-                  onFocus={() => setTab('trace')}
-                  onClick={() => setTab('trace')}
+                  aria-controls={executionPanelId}
+                  aria-selected={tab === 'execution'}
+                  className={`action-button session-mode-switch-button ${tab === 'execution' ? 'action-button-primary' : ''}`}
+                  id={executionTabId}
+                  onFocus={() => setTab('execution')}
+                  onClick={() => setTab('execution')}
                   role="tab"
                   type="button"
                 >
-                  Trace
+                  Execution
                 </button>
                 <button
                   aria-controls={rawPanelId}
                   aria-selected={tab === 'raw'}
-                  className={`action-button ${tab === 'raw' ? 'action-button-primary' : ''}`}
+                  className={`action-button session-mode-switch-button ${tab === 'raw' ? 'action-button-primary' : ''}`}
                   id={rawTabId}
                   onFocus={() => setTab('raw')}
                   onClick={() => setTab('raw')}
@@ -1300,24 +1418,6 @@ function SessionsSection({ agentId }: { agentId: string }) {
                 >
                   Raw JSONL
                 </button>
-              </div>
-            </div>
-
-            <div className="workspace-grid-three">
-              <div className="metric-surface">
-                <span>User ID</span>
-                <strong>{selected.user_id}</strong>
-                <p>Session ownership used by Studio session APIs.</p>
-              </div>
-              <div className="metric-surface">
-                <span>Messages</span>
-                <strong>{selected.message_count}</strong>
-                <p>Total message records counted by the backend.</p>
-              </div>
-              <div className="metric-surface">
-                <span>Updated</span>
-                <strong>{formatRelativeTime(selected.updated_at || selected.created_at)}</strong>
-                <p>Useful for triaging recent operational activity.</p>
               </div>
             </div>
 
@@ -1332,6 +1432,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
               >
                 <StructuredDataCard
                   emptyText="// No session state recorded"
+                  expandedOverride={sessionPanelsExpanded}
                   title="State"
                   value={
                     Object.keys(detail.state || {}).length > 0
@@ -1342,6 +1443,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
                 <div className="message-stack">
                   {detail.messages.map((message, index) => (
                     <SessionMessageCard
+                      allPanelsExpanded={sessionPanelsExpanded}
                       key={`${message.role}-${index}`}
                       message={message}
                       messageIndex={index}
@@ -1351,99 +1453,13 @@ function SessionsSection({ agentId }: { agentId: string }) {
               </div>
             )}
 
-            {!detailLoading && tab === 'trace' && detail && (
-              <div
-                aria-labelledby={traceTabId}
-                className="editor-sheet"
-                id={tracePanelId}
-                role="tabpanel"
-              >
-                <div className="workspace-grid-three">
-                  <div className="metric-surface">
-                    <span>Trace Turns</span>
-                    <strong>{traceTurns.length}</strong>
-                    <p>Grouped by user prompt boundaries to show end-to-end execution flow.</p>
-                  </div>
-                  <div className="metric-surface">
-                    <span>Tool Execution</span>
-                    <strong>{toolCalls}/{toolResults}</strong>
-                    <p>Detected tool calls and returned results in this session.</p>
-                  </div>
-                  <div className="metric-surface">
-                    <span>Model Steps</span>
-                    <strong>{reasoningSteps + outputSteps}</strong>
-                    <p>{reasoningSteps} reasoning blocks and {outputSteps} assistant outputs.</p>
-                  </div>
-                </div>
-                <div className="trace-legend">
-                  <span>Input</span>
-                  <span>Reasoning</span>
-                  <span>Tools</span>
-                  <span>Output</span>
-                  <span>Metadata</span>
-                </div>
-                <section aria-label="Session trace execution flow" className="trace-board">
-                  {traceTurns.map(traceTurn => (
-                    <section
-                      aria-labelledby={`${sessionDomId}-trace-turn-${traceTurn.turn}`}
-                      className="trace-turn"
-                      key={traceTurn.turn}
-                    >
-                      <div className="trace-turn-header">
-                        <h3 className="trace-turn-badge" id={`${sessionDomId}-trace-turn-${traceTurn.turn}`}>
-                          Turn {traceTurn.turn}
-                        </h3>
-                        <p>{traceTurn.stages.length} stage(s) inferred from recorded session messages.</p>
-                      </div>
-                      <div className="trace-lane-grid">
-                        {(['input', 'reasoning', 'tools', 'output', 'metadata'] as TraceLane[]).map(lane => {
-                          const stages = traceTurn.stages.filter(stage => stage.lane === lane)
-                          return (
-                            <section
-                              aria-labelledby={`${sessionDomId}-trace-turn-${traceTurn.turn}-${lane}`}
-                              className={`trace-lane trace-lane-${lane}`}
-                              key={`${traceTurn.turn}-${lane}`}
-                            >
-                              <h4
-                                className="trace-lane-title"
-                                id={`${sessionDomId}-trace-turn-${traceTurn.turn}-${lane}`}
-                              >
-                                {traceLaneLabel(lane)}
-                              </h4>
-                              {stages.length > 0 ? (
-                                stages.map((stage, index) => (
-                                  <div
-                                    className={`trace-node trace-${stage.kind} ${stage.accent ? `trace-accent-${stage.accent}` : ''}`}
-                                    key={`${traceTurn.turn}-${lane}-${index}`}
-                                  >
-                                    <strong>{stage.label}</strong>
-                                    <p>{stage.preview}</p>
-                                  </div>
-                                ))
-                              ) : (
-                                <div className="trace-node trace-node-empty">
-                                  <strong>No event</strong>
-                                  <p>No recorded data for this lane in the current turn.</p>
-                                </div>
-                              )}
-                            </section>
-                          )
-                        })}
-                      </div>
-                    </section>
-                  ))}
-                  {traceTurns.length === 0 && (
-                    <div className="empty-surface">No traceable events were derived from this session.</div>
-                  )}
-                </section>
-                <div className="content-card">
-                  <h3>Trace Notes</h3>
-                  <p>
-                    This execution chain is inferred from stored session detail, not from a dedicated span-tracing backend.
-                    It is still useful for understanding prompt, reasoning, tool usage, output, and metadata flow per turn.
-                  </p>
-                </div>
-              </div>
+            {!detailLoading && tab === 'execution' && detail && (
+              <ExecutionSection
+                detail={detail}
+                panelId={executionPanelId}
+                sessionDomId={sessionDomId}
+                tabId={executionTabId}
+              />
             )}
 
             {!detailLoading && tab === 'raw' && (
@@ -1474,6 +1490,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
                 ) : (
                   <StructuredDataCard
                     emptyText="// Empty raw content"
+                    expandedOverride={sessionPanelsExpanded}
                     extraActions={
                       canEdit ? (
                         <button className="action-button" onClick={() => setEditingRaw(true)} type="button">
@@ -1494,7 +1511,443 @@ function SessionsSection({ agentId }: { agentId: string }) {
   )
 }
 
-function SessionMessageCard({ message, messageIndex }: { message: MessageItem; messageIndex: number }) {
+function ExecutionSection({
+  detail,
+  panelId,
+  sessionDomId,
+  tabId,
+}: {
+  detail: SessionDetail
+  panelId: string
+  sessionDomId: string
+  tabId: string
+}) {
+  const rounds = useMemo(() => buildExecutionRounds(detail), [detail])
+  const summary = useMemo(() => summarizeExecutionRounds(rounds), [rounds])
+  const [selectedRound, setSelectedRound] = useState<number | null>(rounds[0]?.round ?? null)
+  const [scrollRoundStart, setScrollRoundStart] = useState(0)
+  const [roundsDragging, setRoundsDragging] = useState(false)
+  const roundsPanelRef = useRef<HTMLElement | null>(null)
+  const pageScrollStyleRef = useRef<{
+    htmlOverflow: string
+    bodyOverflow: string
+    workspaceOverflow: string
+    workspacePaddingRight: string
+  } | null>(null)
+  const roundScrollerRef = useRef<HTMLDivElement | null>(null)
+  const roundCardRefs = useRef<Record<number, HTMLButtonElement | null>>({})
+  const lastWheelShiftAtRef = useRef(0)
+  const dragPointerIdRef = useRef<number | null>(null)
+  const dragStartXRef = useRef(0)
+  const dragStartScrollLeftRef = useRef(0)
+  const suppressCardClickRef = useRef(false)
+
+  useEffect(() => {
+    setSelectedRound(current =>
+      rounds.some(round => round.round === current) ? current : (rounds[0]?.round ?? null),
+    )
+  }, [rounds])
+
+  const activeRound =
+    rounds[scrollRoundStart] ??
+    rounds.find(round => round.round === selectedRound) ??
+    rounds[0] ??
+    null
+  const canShiftPrev = rounds.length > 1
+  const canShiftNext = rounds.length > 1
+
+  const updateRoundCardMotion = useCallback(() => {
+    const scroller = roundScrollerRef.current
+    if (!scroller || rounds.length === 0) return
+
+    const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2
+
+    for (const round of rounds) {
+      const card = roundCardRefs.current[round.round]
+      if (!card) continue
+
+      const cardCenter = card.offsetLeft + card.offsetWidth / 2
+      const normalizedProgress = Math.max(
+        -1.25,
+        Math.min(1.25, (cardCenter - viewportCenter) / Math.max(card.offsetWidth, 1)),
+      )
+      const absProgress = Math.abs(normalizedProgress)
+
+      card.style.setProperty('--round-progress', normalizedProgress.toFixed(4))
+      card.style.setProperty('--round-abs-progress', absProgress.toFixed(4))
+    }
+  }, [rounds])
+
+  const syncRoundSelectionFromScroll = useCallback(() => {
+    const scroller = roundScrollerRef.current
+    if (!scroller || rounds.length === 0) return
+
+    let closestIndex = 0
+    let closestOffset = Number.POSITIVE_INFINITY
+    const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2
+
+    for (let index = 0; index < rounds.length; index += 1) {
+      const card = roundCardRefs.current[rounds[index].round]
+      if (!card) continue
+      const cardCenter = card.offsetLeft + card.offsetWidth / 2
+      const offset = Math.abs(cardCenter - viewportCenter)
+      if (offset < closestOffset) {
+        closestOffset = offset
+        closestIndex = index
+      }
+    }
+
+    updateRoundCardMotion()
+    setScrollRoundStart(current => (current === closestIndex ? current : closestIndex))
+    setSelectedRound(current => (current === rounds[closestIndex]?.round ? current : (rounds[closestIndex]?.round ?? null)))
+  }, [rounds, updateRoundCardMotion])
+
+  const scrollToRound = useCallback(
+    (roundNumber: number, behavior: ScrollBehavior = 'smooth') => {
+      const scroller = roundScrollerRef.current
+      const card = roundCardRefs.current[roundNumber]
+      if (!scroller || !card) return
+
+      scroller.scrollTo({
+        left: Math.max(0, card.offsetLeft - (scroller.clientWidth - card.offsetWidth) / 2),
+        behavior,
+      })
+      const nextIndex = rounds.findIndex(round => round.round === roundNumber)
+      if (nextIndex !== -1) {
+        setScrollRoundStart(nextIndex)
+        setSelectedRound(roundNumber)
+      }
+    },
+    [rounds],
+  )
+
+  useEffect(() => {
+    if (rounds.length === 0) {
+      setScrollRoundStart(0)
+      return
+    }
+
+    const selected =
+      selectedRound && rounds.some(round => round.round === selectedRound)
+        ? selectedRound
+        : rounds[0].round
+
+    setSelectedRound(selected)
+    setScrollRoundStart(Math.max(0, rounds.findIndex(round => round.round === selected)))
+
+    requestAnimationFrame(() => {
+      scrollToRound(selected, 'auto')
+      updateRoundCardMotion()
+    })
+  }, [rounds, scrollToRound, updateRoundCardMotion])
+
+  const lockPageScroll = useCallback(() => {
+    if (pageScrollStyleRef.current) return
+    const workspace = roundsPanelRef.current?.closest('.studio-workspace') as HTMLElement | null
+    const workspaceScrollbarWidth = workspace ? workspace.offsetWidth - workspace.clientWidth : 0
+    pageScrollStyleRef.current = {
+      htmlOverflow: document.documentElement.style.overflow,
+      bodyOverflow: document.body.style.overflow,
+      workspaceOverflow: workspace?.style.overflow ?? '',
+      workspacePaddingRight: workspace?.style.paddingRight ?? '',
+    }
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overflow = 'hidden'
+    if (workspace) {
+      workspace.style.overflow = 'hidden'
+      workspace.style.paddingRight = `calc(4px + ${workspaceScrollbarWidth}px)`
+    }
+  }, [])
+
+  const unlockPageScroll = useCallback(() => {
+    if (!pageScrollStyleRef.current) return
+    const workspace = roundsPanelRef.current?.closest('.studio-workspace') as HTMLElement | null
+    document.documentElement.style.overflow = pageScrollStyleRef.current.htmlOverflow
+    document.body.style.overflow = pageScrollStyleRef.current.bodyOverflow
+    if (workspace) {
+      workspace.style.overflow = pageScrollStyleRef.current.workspaceOverflow
+      workspace.style.paddingRight = pageScrollStyleRef.current.workspacePaddingRight
+    }
+    pageScrollStyleRef.current = null
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      unlockPageScroll()
+    }
+  }, [unlockPageScroll])
+
+  function shiftRoundWindow(direction: -1 | 1) {
+    if (rounds.length === 0) return
+    const nextIndex = (scrollRoundStart + direction + rounds.length) % rounds.length
+    const nextRound = rounds[nextIndex]?.round
+    if (nextRound) scrollToRound(nextRound)
+  }
+
+  function handleRoundScrollerPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    const scroller = roundScrollerRef.current
+    if (!scroller) return
+    dragPointerIdRef.current = event.pointerId
+    dragStartXRef.current = event.clientX
+    dragStartScrollLeftRef.current = scroller.scrollLeft
+    scroller.setPointerCapture(event.pointerId)
+    setRoundsDragging(true)
+  }
+
+  function handleRoundScrollerPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const scroller = roundScrollerRef.current
+    if (!scroller || dragPointerIdRef.current !== event.pointerId) return
+
+    const deltaX = event.clientX - dragStartXRef.current
+    if (Math.abs(deltaX) > 6) suppressCardClickRef.current = true
+    scroller.scrollLeft = dragStartScrollLeftRef.current - deltaX
+  }
+
+  function handleRoundScrollerPointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    const scroller = roundScrollerRef.current
+    if (!scroller || dragPointerIdRef.current !== event.pointerId) return
+
+    if (scroller.hasPointerCapture(event.pointerId)) {
+      scroller.releasePointerCapture(event.pointerId)
+    }
+    dragPointerIdRef.current = null
+    setRoundsDragging(false)
+    syncRoundSelectionFromScroll()
+
+    if (suppressCardClickRef.current) {
+      window.setTimeout(() => {
+        suppressCardClickRef.current = false
+      }, 0)
+    }
+  }
+
+  function handleRoundCardSelect(roundNumber: number) {
+    if (suppressCardClickRef.current) return
+    scrollToRound(roundNumber)
+  }
+
+  function handleRoundsPanelWheel(event: ReactWheelEvent<HTMLElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (rounds.length <= 1) return
+
+    const dominantDelta =
+      Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+    if (Math.abs(dominantDelta) < 8) return
+
+    const now = Date.now()
+    if (now - lastWheelShiftAtRef.current < 220) return
+    lastWheelShiftAtRef.current = now
+
+    shiftRoundWindow(dominantDelta > 0 ? 1 : -1)
+  }
+
+  function handleRoundsPanelPointerEnter() {
+    lockPageScroll()
+  }
+
+  function handleRoundsPanelPointerLeave() {
+    unlockPageScroll()
+  }
+
+  return (
+    <div aria-labelledby={tabId} className="editor-sheet" id={panelId} role="tabpanel">
+      <div className="workspace-grid-four">
+        <div className="metric-surface execution-summary-card execution-metric-surface">
+          <span>Conversation Rounds</span>
+          <strong>{summary.roundCount}</strong>
+        </div>
+        <div className="metric-surface execution-summary-card execution-metric-surface">
+          <span>Tool Calls</span>
+          <strong>{summary.toolCallCount}</strong>
+        </div>
+        <div className="metric-surface execution-summary-card execution-metric-surface">
+          <span>Tool Errors</span>
+          <strong>{summary.toolErrorCount}</strong>
+        </div>
+        <div className="metric-surface execution-summary-card execution-metric-surface">
+          <span>Reasoning Steps</span>
+          <strong>{summary.reasoningCount}</strong>
+        </div>
+      </div>
+
+      <div className="execution-stack">
+        <section
+          className="content-card execution-rounds-panel"
+          onWheelCapture={handleRoundsPanelWheel}
+          ref={roundsPanelRef}
+          onPointerEnter={handleRoundsPanelPointerEnter}
+          onPointerLeave={handleRoundsPanelPointerLeave}
+        >
+          <div className="surface-heading execution-rounds-heading">
+            <span>Rounds</span>
+            <span>{`${Math.min(scrollRoundStart + 1, rounds.length || 1)} / ${rounds.length}`}</span>
+          </div>
+          <div className="execution-rounds-carousel">
+            <button
+              aria-label="Show previous rounds"
+              className="icon-action-button execution-carousel-button execution-carousel-button-prev"
+              disabled={!canShiftPrev}
+              onClick={() => shiftRoundWindow(-1)}
+              type="button"
+            >
+              <ChevronRightIcon />
+            </button>
+            <div
+              aria-label="Conversation rounds"
+              className={`execution-round-list ${roundsDragging ? 'is-dragging' : ''}`}
+              onPointerCancel={handleRoundScrollerPointerEnd}
+              onPointerDown={handleRoundScrollerPointerDown}
+              onPointerMove={handleRoundScrollerPointerMove}
+              onPointerUp={handleRoundScrollerPointerEnd}
+              onScroll={syncRoundSelectionFromScroll}
+              ref={roundScrollerRef}
+              role="listbox"
+            >
+              {rounds.map(round => (
+                <button
+                  aria-label={`Round ${round.round}`}
+                  aria-selected={activeRound?.round === round.round}
+                  className={`session-nav-card execution-round-card ${activeRound?.round === round.round ? 'active' : ''}`}
+                  key={round.round}
+                  onClick={() => handleRoundCardSelect(round.round)}
+                  onFocus={() => scrollToRound(round.round)}
+                  ref={element => {
+                    roundCardRefs.current[round.round] = element
+                  }}
+                  role="option"
+                  type="button"
+                >
+                  <div className="session-nav-card-top">
+                    <strong>{`Round ${round.round}`}</strong>
+                    <span>{round.toolCallCount} calls</span>
+                  </div>
+                  <p>{round.userPrompt ?? 'No user prompt recorded for this round.'}</p>
+                  <div className="session-nav-card-meta execution-round-card-meta">
+                    <span>{round.reasoningCount} reasoning</span>
+                    <span>{round.toolErrorCount > 0 ? `${round.toolErrorCount} errors` : 'No tool errors'}</span>
+                  </div>
+                </button>
+              ))}
+              {rounds.length === 0 && <div className="empty-surface">No execution rounds were inferred from this session.</div>}
+            </div>
+            <button
+              aria-label="Show next rounds"
+              className="icon-action-button execution-carousel-button"
+              disabled={!canShiftNext}
+              onClick={() => shiftRoundWindow(1)}
+              type="button"
+            >
+              <ChevronRightIcon />
+            </button>
+          </div>
+          {rounds.length > 1 && (
+            <div aria-label="Rounds pagination" className="execution-round-dots" role="tablist">
+              {rounds.map((round, index) => (
+                <button
+                  aria-label={`Go to round ${round.round}`}
+                  aria-selected={scrollRoundStart === index}
+                  className={`execution-round-dot ${scrollRoundStart === index ? 'active' : ''}`}
+                  key={`round-dot-${round.round}`}
+                  onClick={() => scrollToRound(round.round)}
+                  role="tab"
+                  type="button"
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {activeRound ? (
+          <section
+            aria-labelledby={`${sessionDomId}-execution-round-${activeRound.round}`}
+            className="trace-turn execution-round-detail"
+          >
+            <div className="trace-turn-header">
+              <div className="execution-round-header-copy">
+                <h3
+                  className="trace-turn-badge"
+                  id={`${sessionDomId}-execution-round-${activeRound.round}`}
+                >
+                  {`Round ${activeRound.round}`}
+                </h3>
+                <p>
+                  {activeRound.stages.length} event(s) inferred from stored session messages for the selected round.
+                </p>
+              </div>
+              <p className="execution-round-output">
+                {activeRound.assistantOutput ?? 'No assistant output recorded for this round.'}
+              </p>
+            </div>
+            <div className="trace-legend">
+              <span>Input</span>
+              <span>Reasoning</span>
+              <span>Tools</span>
+              <span>Output</span>
+              <span>Metadata</span>
+            </div>
+            <div className="trace-lane-grid">
+              {(['input', 'reasoning', 'tools', 'output', 'metadata'] as TraceLane[]).map(lane => {
+                const stages = activeRound.stages.filter(stage => stage.lane === lane)
+                return (
+                  <section
+                    aria-labelledby={`${sessionDomId}-execution-round-${activeRound.round}-${lane}`}
+                    className={`trace-lane trace-lane-${lane}`}
+                    key={`${activeRound.round}-${lane}`}
+                  >
+                    <h4
+                      className="trace-lane-title"
+                      id={`${sessionDomId}-execution-round-${activeRound.round}-${lane}`}
+                    >
+                      {executionLaneLabel(lane)}
+                    </h4>
+                    {stages.length > 0 ? (
+                      stages.map((stage, index) => (
+                        <div
+                          className={`trace-node trace-${stage.kind} ${stage.accent ? `trace-accent-${stage.accent}` : ''}`}
+                          key={`${activeRound.round}-${lane}-${index}`}
+                        >
+                          <strong>{stage.label}</strong>
+                          <p>{stage.preview}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="trace-node trace-node-empty">
+                        <strong>No event</strong>
+                        <p>No recorded data for this lane in the selected round.</p>
+                      </div>
+                    )}
+                  </section>
+                )
+              })}
+            </div>
+          </section>
+        ) : (
+          <div className="empty-surface">No execution detail is available for this session.</div>
+        )}
+      </div>
+
+      <div className="content-card">
+        <h3>Inference Notes</h3>
+        <p>
+          This execution view is inferred from stored session detail, not from a dedicated span-tracing backend.
+          It is useful for understanding prompt, reasoning, tool usage, output, and metadata flow per round.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function SessionMessageCard({
+  message,
+  messageIndex,
+  allPanelsExpanded,
+}: {
+  message: MessageItem
+  messageIndex: number
+  allPanelsExpanded: boolean
+}) {
   const messageId = `session-message-${messageIndex}-${message.role}`
   return (
     <article
@@ -1516,6 +1969,7 @@ function SessionMessageCard({ message, messageIndex }: { message: MessageItem; m
           <StructuredDataCard
             compact
             emptyText="// No tool calls"
+            expandedOverride={allPanelsExpanded}
             headingId={`${messageId}-tool-calls`}
             headingLevel="h4"
             title="tool calls"
@@ -1528,6 +1982,7 @@ function SessionMessageCard({ message, messageIndex }: { message: MessageItem; m
           <StructuredDataCard
             compact
             emptyText="// No tool results"
+            expandedOverride={allPanelsExpanded}
             headingId={`${messageId}-tool-results`}
             headingLevel="h4"
             title="tool results"
@@ -1540,6 +1995,7 @@ function SessionMessageCard({ message, messageIndex }: { message: MessageItem; m
           <StructuredDataCard
             compact
             emptyText="// No metadata"
+            expandedOverride={allPanelsExpanded}
             headingId={`${messageId}-metadata`}
             headingLevel="h4"
             title="metadata"
