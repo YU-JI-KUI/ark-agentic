@@ -64,18 +64,28 @@ class FlowCallbacks:
         if len(active) == 1:
             task = active[0]
             hint = (
-                f"[系统提示] 检测到用户有未完成的【{task['skill_name']}】任务，"
-                f"当前在【{task['current_stage']}】阶段（flow_id={task['flow_id']}）。"
-                f"请主动询问用户是否继续该任务。"
+                f"[系统提示] 检测到用户有 1 个未完成任务：\n"
+                f"  · 「{task['skill_name']}」— 当前在「{task['current_stage']}」阶段"
+                f"（flow_id={task['flow_id']}）\n\n"
+                f"请向用户展示该任务，等待用户明确答复后再操作：\n"
+                f"  继续      → resume_task(flow_id=\"{task['flow_id']}\", action=\"resume\")\n"
+                f"  废弃      → resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")\n"
+                f"  重新开始  → resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")，然后重新发起流程\n\n"
+                f"⚠️ 严禁未得到用户答复前直接调用 resume_task。"
             )
         else:
             items = "\n".join(
-                f"  - {t['skill_name']}（{t['current_stage']} 阶段，flow_id={t['flow_id']}）"
-                for t in active
+                f"  {i + 1}. 「{t['skill_name']}」— {t['current_stage']} 阶段（flow_id={t['flow_id']}）"
+                for i, t in enumerate(active)
             )
             hint = (
-                f"[系统提示] 检测到用户有 {len(active)} 个未完成任务：\n{items}\n"
-                f"请询问用户希望继续哪个。"
+                f"[系统提示] 检测到用户有 {len(active)} 个未完成任务：\n{items}\n\n"
+                f"请先向用户展示列表，请其指明要操作哪一个；\n"
+                f"用户选定后，再询问意向（继续 / 废弃 / 重新开始），等待明确答复后再调用对应的 resume_task：\n"
+                f"  继续      → resume_task(flow_id=<选定的 flow_id>, action=\"resume\")\n"
+                f"  废弃      → resume_task(flow_id=<选定的 flow_id>, action=\"discard\")\n"
+                f"  重新开始  → resume_task(flow_id=<选定的 flow_id>, action=\"discard\")，然后重新发起流程\n\n"
+                f"⚠️ 严禁未得到用户答复前直接调用 resume_task。"
             )
 
         return CallbackResult(

@@ -773,84 +773,108 @@ async def persist_flow_context(context: CallbackContext) -> CallbackResult:
 
 **Step 1: 唤醒提示注入**
 
-在新会话的 `before_agent` hook 中检查 `active_tasks.json`：
+在新会话的 `before_agent` hook 中检查 `active_tasks.json`，注入带操作指引的结构化 hint：
 
 ```python
 async def inject_flow_hint(context: CallbackContext) -> CallbackResult:
-    """before_agent hook：检查未完成任务并注入提示。
-    
-    注入路径：将 hint 写入 context.extra_system_instructions，
-    框架的 SystemPromptBuilder 将其渲染到 system prompt 末尾的 <system_hint> 标签，
-    Agent 在第一轮即可感知到未完成任务。
-    同时写入 state 供 resume_task 工具读取 flow_id 列表。
+    """before_agent hook：检查未完成任务并注入结构化提示。
+
+    Hint 包含任务列表和操作指引（继续/废弃/重新开始），
+    并明确要求 Agent 先得到用户答复再调用 resume_task。
     """
     user_id = context.session.state.get("user:id")
     registry = TaskRegistry(base_dir=SESSIONS_DIR)
     active = registry.list_active(user_id, ttl_hours=72)
-    
+
     if not active:
         return CallbackResult()
-    
-    # 支持多个未完成任务：生成列表供用户选择
+
     if len(active) == 1:
         task = active[0]
         hint = (
-            f"[系统提示] 检测到用户有未完成的【{task['skill_name']}】任务，"
-            f"当前在【{task['current_stage']}】阶段（flow_id={task['flow_id']}）。"
-            f"请主动询问用户是否继续该任务。"
+            f"[系统提示] 检测到用户有 1 个未完成任务：\n"
+            f"  · 「{task['skill_name']}」— 当前在「{task['current_stage']}」阶段"
+            f"（flow_id={task['flow_id']}）\n\n"
+            f"请向用户展示该任务，等待用户明确答复后再操作：\n"
+            f"  继续      → resume_task(flow_id=\"{task['flow_id']}\", action=\"resume\")\n"
+            f"  废弃      → resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")\n"
+            f"  重新开始  → resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")，然后重新发起流程\n\n"
+            f"⚠️ 严禁未得到用户答复前直接调用 resume_task。"
         )
     else:
         items = "\n".join(
-            f"  - {t['skill_name']}（{t['current_stage']} 阶段，flow_id={t['flow_id']}）"
-            for t in active
+            f"  {i + 1}. 「{t['skill_name']}」— {t['current_stage']} 阶段（flow_id={t['flow_id']}）"
+            for i, t in enumerate(active)
         )
-        hint = f"[系统提示] 检测到用户有 {len(active)} 个未完成任务：\n{items}\n请询问用户希望继续哪个。"
-    
+        hint = (
+            f"[系统提示] 检测到用户有 {len(active)} 个未完成任务：\n{items}\n\n"
+            f"请先向用户展示列表，请其指明要操作哪一个；\n"
+            f"用户选定后，再询问意向（继续 / 废弃 / 重新开始），等待明确答复后再调用：\n"
+            f"  继续      → resume_task(flow_id=<选定的 flow_id>, action=\"resume\")\n"
+            f"  废弃      → resume_task(flow_id=<选定的 flow_id>, action=\"discard\")\n"
+            f"  重新开始  → resume_task(flow_id=<选定的 flow_id>, action=\"discard\")，然后重新发起流程\n\n"
+            f"⚠️ 严禁未得到用户答复前直接调用 resume_task。"
+        )
+
     return CallbackResult(
-        # extra_system_instructions 由框架渲染到 system prompt，Agent 可见
-        extra_system_instructions=hint,
-        # 同时写入 state，方便 resume_task 工具直接读取可用 flow_id
-        context_updates={"_pending_flow_ids": [t["flow_id"] for t in active]},
+        context_updates={
+            "_flow_hint": hint,
+            "_pending_flow_ids": [t["flow_id"] for t in active],
+        }
     )
 ```
 
 **Step 2: resume_task 工具**
 
+支持 `action="resume"（默认）` 和 `action="discard"` 两种操作：
+
 ```python
 class ResumeTaskTool(AgentTool):
-    """恢复未完成的流程任务"""
+    """恢复或废弃用户之前未完成的业务流程。"""
     name = "resume_task"
-    description = "恢复用户之前未完成的业务流程，将之前的进度加载到当前会话"
-    
+    description = (
+        "操作用户之前未完成的业务流程。"
+        "action=resume：将流程进度恢复到当前会话，继续执行；"
+        "action=discard：废弃该任务，从待恢复列表中移除。"
+    )
+
     parameters = [
         ToolParameter(name="flow_id", type="string", required=True,
-                      description="要恢复的流程 ID"),
+                      description="要操作的流程 ID"),
+        ToolParameter(name="action", type="string", required=False,
+                      enum=["resume", "discard"],
+                      description=(
+                          "resume（默认）：恢复流程进度并继续执行；"
+                          "discard：废弃任务，从待恢复列表永久移除。"
+                          "用户选择「重新开始」时也使用 discard，废弃后重新发起流程即可。"
+                      )),
     ]
-    
+
     async def execute(self, tool_call, context=None):
+        action = tool_call.arguments.get("action", "resume")
         flow_id = tool_call.arguments.get("flow_id")
         user_id = (context or {}).get("user:id")
-        
+
         registry = TaskRegistry(base_dir=SESSIONS_DIR)
         task = registry.get(user_id, flow_id)
-        if not task:
-            return AgentToolResult(
-                result_type=ToolResultType.ERROR,
-                content=f"未找到流程: {flow_id}",
-            )
-        
-        # 将 snapshot 格式转换回 _flow_context 格式并恢复
-        restored_flow_ctx = self._snapshot_to_flow_context(task)
-        # 将各阶段 delta 中的原始工具输出还原到 session.state 顶层
-        restored_tool_state = self._extract_delta_state(task)
 
+        if action == "discard":
+            registry.remove(user_id, flow_id)
+            return AgentToolResult.json_result(..., {
+                "status": "discarded",
+                "message": f"【{task['skill_name']}】流程已废弃。如需重新开始，请重新发起该业务流程。",
+            })
+
+        # action == "resume"：还原 _flow_context + delta
+        restored_flow_ctx = self._snapshot_to_flow_context(task)
+        restored_tool_state = self._extract_delta_state(task)
         state_delta = {"_flow_context": restored_flow_ctx}
-        state_delta.update(restored_tool_state)  # 还原 _rule_engine_result 等工具输出
-        
+        state_delta.update(restored_tool_state)
+
         return AgentToolResult(
             result_type=ToolResultType.JSON,
             content={
-                "status": "restored",
+                "status": "resumed",
                 "flow_id": flow_id,
                 "current_stage": task["current_stage"],
                 "message": f"已恢复【{task['skill_name']}】流程，当前在【{task['current_stage']}】阶段",

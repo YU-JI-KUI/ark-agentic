@@ -1,7 +1,10 @@
-"""ResumeTaskTool — 恢复中断流程任务。
+"""ResumeTaskTool — 恢复或废弃中断流程任务。
 
-Agent 调用此工具时，从 active_tasks.json 还原 _flow_context 到当前 session，
-使 flow_evaluator 能从上次中断的阶段继续执行。
+Agent 调用此工具时，根据 action 参数执行对应操作：
+  - action="resume"（默认）：从 active_tasks.json 还原 _flow_context 到当前 session，
+    使 flow_evaluator 能从上次中断的阶段继续执行。
+  - action="discard"：从 active_tasks.json 删除该任务记录，
+    供用户选择废弃或重新开始时使用。
 """
 
 from __future__ import annotations
@@ -17,16 +20,31 @@ logger = logging.getLogger(__name__)
 
 
 class ResumeTaskTool(AgentTool):
-    """恢复用户之前未完成的业务流程，将之前的进度加载到当前会话。"""
+    """恢复或废弃用户之前未完成的业务流程。"""
 
     name = "resume_task"
-    description = "恢复用户之前未完成的业务流程，将之前的进度加载到当前会话"
+    description = (
+        "操作用户之前未完成的业务流程。"
+        "action=resume：将流程进度恢复到当前会话，继续执行；"
+        "action=discard：废弃该任务，从待恢复列表中移除。"
+    )
     parameters = [
         ToolParameter(
             name="flow_id",
             type="string",
             required=True,
-            description="要恢复的流程 ID（从系统提示中的 flow_id 获取）",
+            description="要操作的流程 ID（从系统提示中的 flow_id 获取）",
+        ),
+        ToolParameter(
+            name="action",
+            type="string",
+            required=False,
+            enum=["resume", "discard"],
+            description=(
+                "resume（默认）：恢复流程进度并继续执行；"
+                "discard：废弃任务，从待恢复列表永久移除。"
+                "用户选择「重新开始」时也使用 discard，废弃后重新发起流程即可。"
+            ),
         ),
     ]
 
@@ -38,13 +56,20 @@ class ResumeTaskTool(AgentTool):
     ) -> AgentToolResult:
         from ..flow.task_registry import TaskRegistry
 
-        flow_id = tool_call.arguments.get("flow_id", "").strip()
+        args = tool_call.arguments
+        flow_id = args.get("flow_id", "").strip()
         if not flow_id:
             return AgentToolResult.error_result(tool_call.id, "flow_id 不能为空")
 
+        action = (args.get("action") or "resume").strip().lower()
+        if action not in ("resume", "discard"):
+            return AgentToolResult.error_result(
+                tool_call.id, f"action 无效：'{action}'，可选值为 resume / discard"
+            )
+
         user_id = (context or {}).get("user:id")
         if not user_id:
-            return AgentToolResult.error_result(tool_call.id, "无法获取 user_id，恢复失败")
+            return AgentToolResult.error_result(tool_call.id, "无法获取 user_id，操作失败")
 
         registry = TaskRegistry(base_dir=self._sessions_dir)
         task = registry.get(str(user_id), flow_id)
@@ -53,10 +78,18 @@ class ResumeTaskTool(AgentTool):
                 tool_call.id, f"未找到流程记录: flow_id={flow_id}"
             )
 
+        if action == "discard":
+            return self._handle_discard(tool_call, registry, str(user_id), flow_id, task)
+
+        return self._handle_resume(tool_call, task)
+
+    def _handle_resume(
+        self, tool_call: ToolCall, task: dict[str, Any]
+    ) -> AgentToolResult:
+        """恢复流程：还原 _flow_context 和各阶段 delta 到 session.state。"""
         restored_flow_ctx = self._snapshot_to_flow_context(task)
         restored_tool_state = self._extract_delta_state(task)
 
-        # 同时还原 _flow_context（stage data）和各阶段工具原始输出（delta keys）
         state_delta: dict[str, Any] = {"_flow_context": restored_flow_ctx}
         state_delta.update(restored_tool_state)
 
@@ -64,8 +97,8 @@ class ResumeTaskTool(AgentTool):
             tool_call_id=tool_call.id,
             result_type=ToolResultType.JSON,
             content={
-                "status": "restored",
-                "flow_id": flow_id,
+                "status": "resumed",
+                "flow_id": task["flow_id"],
                 "skill_name": task.get("skill_name"),
                 "current_stage": task.get("current_stage"),
                 "message": (
@@ -75,6 +108,36 @@ class ResumeTaskTool(AgentTool):
                 ),
             },
             metadata={"state_delta": state_delta},
+        )
+
+    def _handle_discard(
+        self,
+        tool_call: ToolCall,
+        registry: Any,
+        user_id: str,
+        flow_id: str,
+        task: dict[str, Any],
+    ) -> AgentToolResult:
+        """废弃流程：从 active_tasks.json 删除记录。"""
+        try:
+            registry.remove(user_id, flow_id)
+            logger.info("Task discarded: flow_id=%s user_id=%s", flow_id, user_id)
+        except Exception as e:
+            logger.warning("Failed to discard task flow_id=%s: %s", flow_id, e)
+            return AgentToolResult.error_result(tool_call.id, f"废弃任务失败: {e}")
+
+        return AgentToolResult(
+            tool_call_id=tool_call.id,
+            result_type=ToolResultType.JSON,
+            content={
+                "status": "discarded",
+                "flow_id": flow_id,
+                "skill_name": task.get("skill_name"),
+                "message": (
+                    f"【{task.get('skill_name')}】流程已废弃。"
+                    f"如需重新开始，请重新发起该业务流程。"
+                ),
+            },
         )
 
     @staticmethod
