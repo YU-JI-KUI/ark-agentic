@@ -51,11 +51,12 @@ class FlowCallbacks:
         """检查用户的 active tasks，将提示注入 session state 供 _build_system_prompt 读取。"""
         user_id = ctx.session.state.get("user:id")
         if not user_id:
+            logger.debug("No user id found, skipping inject flow hint")
             return None
 
         registry = TaskRegistry(base_dir=self._sessions_dir)
         active = registry.list_active(str(user_id), ttl_hours=self._ttl_hours)
-
+        logger.debug("Active tasks: %s", active)
         if not active:
             # 清除上一次注入的 hint
             return CallbackResult(context_updates={"_flow_hint": ""})

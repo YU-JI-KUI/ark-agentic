@@ -7,8 +7,14 @@
 框架层自动提供:
   - 通用阶段遍历 + Pydantic 校验
   - _flow_stage state_delta 写入
-  - WAIT_FOR_USER 硬中断信号
+  - user_required_fields 自动推导（从 field_sources 中 source="user" 的字段）
   - 跨会话可恢复状态序列化
+
+阶段数据写入约定:
+  业务完成后，LLM 调用 commit_flow_stage(stage_id=..., user_data={...}) 提交阶段数据。
+  框架自动从 session.state 提取 source="tool" 字段，LLM 仅需提供 source="user" 字段。
+  当阶段存在 source="user" 字段时，evaluator 响应中会列出待收集字段及说明，
+  由模型自主决定何时向用户询问并提交，无需框架硬性中断 ReAct 循环。
 """
 
 from __future__ import annotations
@@ -16,12 +22,36 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ValidationError
 
 from ..tools.base import AgentTool, ToolParameter
 from ..types import AgentToolResult, ToolCall, ToolResultType
+
+
+# ── 字段来源声明 ──────────────────────────────────────────────────────────────
+
+
+@dataclass
+class FieldSource:
+    """阶段 schema 字段的数据来源声明，供 CommitFlowStageTool 使用。
+
+    source="tool": 框架从 session.state[state_key] 自动提取，LLM 无需传值。
+    source="user": LLM 必须通过 commit_flow_stage(user_data=...) 明确提供。
+                   description 字段建议填写，evaluator 会将其暴露给模型指导收集。
+
+    提取逻辑（仅 source="tool" 时有效，优先级：transform > path > 直接取值）：
+      transform: 若提供，调用 transform(state_value) 得到字段值（适合复杂提取）
+      path:      若提供，按点路径遍历 state_value（如 "identity.verified"）
+      否则：     直接使用 state_value 本身
+    """
+
+    source: Literal["tool", "user"] = "user"
+    state_key: str | None = None
+    path: str | None = None
+    transform: Callable[[Any], Any] | None = field(default=None, repr=False)
+    description: str | None = None  # 仅 source="user" 时有意义，供 evaluator 向模型说明
 
 
 # ── 阶段定义 ─────────────────────────────────────────────────────────────────
@@ -35,9 +65,11 @@ class StageDefinition:
       True（默认）: 必须阶段，无数据时阻塞后续阶段，视为当前阶段。
       False: 可跳过阶段，无数据时 status="skipped"，不阻塞后续推进。
 
-    wait_for_user 语义:
-      True: evaluator 返回 ToolResultType.WAIT_FOR_USER，框架硬性终止 ReAct 循环。
-      False（默认）: 正常 JSON 结果，Agent 继续 ReAct 循环。
+    field_sources 语义:
+      声明每个 output_schema 字段的数据来源。
+      source="tool"：框架自动从 session.state 提取。
+      source="user"：LLM 需从用户对话中收集，evaluator 会在响应中列出这些字段及说明。
+      未声明 field_sources 时，CommitFlowStageTool 直接使用 user_data（兼容旧阶段）。
 
     reference_file: references/ 目录下的文件名（如 "identity_verify.md"）。
       Dynamic 注入模式以此为准，与 stage.id 解耦。
@@ -47,10 +79,18 @@ class StageDefinition:
     name: str
     description: str
     required: bool = True
-    wait_for_user: bool = False
     output_schema: type[BaseModel] | None = None
     reference_file: str | None = None
     tools: list[str] = field(default_factory=list)
+    field_sources: dict[str, FieldSource] = field(default_factory=dict)
+
+    def user_required_fields(self) -> list[dict[str, str]]:
+        """返回 source="user" 的字段列表，供 evaluator 响应向模型描述。"""
+        return [
+            {"field": name, "description": fs.description or ""}
+            for name, fs in self.field_sources.items()
+            if fs.source == "user"
+        ]
 
     def validate_output(self, data: dict[str, Any]) -> tuple[bool, list[str]]:
         if not self.output_schema:
@@ -97,16 +137,19 @@ class BaseFlowEvaluator(AgentTool, ABC):
     每个业务流程继承此类，仅需定义 skill_name 和 stages。
     基类提供通用的阶段遍历、Pydantic 校验、状态恢复等能力。
 
+    当前阶段存在 source="user" 字段时，evaluator 在 JSON 响应中列出待收集字段，
+    由模型自主决定何时收集并调用 commit_flow_stage，无需框架强制中断 ReAct 循环。
+
     工具 name 格式: "{skill_name}_evaluator"，避免多流程并存时名称冲突。
     SKILL.md frontmatter 中 required_tools 应写对应具体名称。
     """
 
     description = "评估当前流程进度，返回当前阶段、已完成步骤、下一步操作建议"
     parameters: list[ToolParameter] = []
+    name: str = "flow_evaluator"  # overridden per instance in __init__
 
-    @property
-    def name(self) -> str:
-        return f"{self.skill_name}_evaluator"
+    def __init__(self) -> None:
+        self.name = f"{self.skill_name}_evaluator"
 
     @property
     @abstractmethod
@@ -156,28 +199,28 @@ class BaseFlowEvaluator(AgentTool, ABC):
         else:
             current_stage = self.stages[len(completed)]
 
-        result_type = (
-            ToolResultType.WAIT_FOR_USER
-            if current_stage.wait_for_user
-            else ToolResultType.JSON
-        )
-
         state_delta = {"_flow_stage": current_stage.id}
         if init_flow_ctx:
             state_delta["_flow_context"] = init_flow_ctx
 
+        # 若当前阶段有需要从用户收集的字段，列入响应供模型规划
+        user_fields = current_stage.user_required_fields()
+
+        current_stage_info: dict[str, Any] = {
+            "id": current_stage.id,
+            "name": current_stage.name,
+            "description": current_stage.description,
+            "suggested_tools": current_stage.tools,
+        }
+        if user_fields:
+            current_stage_info["user_required_fields"] = user_fields
+
         return AgentToolResult(
             tool_call_id=tool_call.id,
-            result_type=result_type,
+            result_type=ToolResultType.JSON,
             content={
                 "flow_status": "in_progress",
-                "current_stage": {
-                    "id": current_stage.id,
-                    "name": current_stage.name,
-                    "description": current_stage.description,
-                    "wait_for_user": current_stage.wait_for_user,
-                    "suggested_tools": current_stage.tools,
-                },
+                "current_stage": current_stage_info,
                 "completed_stages": completed,
                 "progress": f"{len(completed)}/{len(self.stages)}",
                 "instruction": self._build_instruction(current_stage),
@@ -222,10 +265,14 @@ class BaseFlowEvaluator(AgentTool, ABC):
         return completed, is_done
 
     def _build_instruction(self, stage: StageDefinition) -> str:
-        if stage.wait_for_user:
+        user_fields = stage.user_required_fields()
+        if user_fields:
+            field_names = ", ".join(f['field'] for f in user_fields)
             return (
-                f"当前处于【{stage.name}】阶段，已向用户展示方案，"
-                f"等待用户确认后方可继续。"
+                f"当前处于【{stage.name}】阶段。"
+                f"请按阶段参考文档完成准备工作（{stage.tools}），"
+                f"向用户收集以下信息：{field_names}，"
+                f"然后调用 commit_flow_stage 提交，再次调用 {self.name} 确认推进。"
             )
         return (
             f"当前处于【{stage.name}】阶段。"

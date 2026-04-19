@@ -10,41 +10,39 @@
    - `selected_option.channels`：取款渠道列表
    - `amount`：取款金额
 
-2. 调用 `submit_withdrawal(channels=[...], amount=<amount>)`。
+2. 调用 `submit_withdrawal(operation_type=<channel>)` 触发外部业务流程。
 
-   返回示例：
-   ```json
-   {
-     "transaction_id": "TXN20260417001",
-     "status": "submitted",
-     "message": "取款申请已提交，预计 1-3 个工作日到账。"
-   }
-   ```
+   `submit_withdrawal` 写入 `_submitted_channels`（已触发渠道列表），
+   并发送 `start_flow` 事件到前端启动 RPA 流程。
 
-3. 向用户告知执行结果（一句话，含金额和预计到账时间）。
+3. 向用户告知提交状态（一句话，含金额和预计到账时间）。
 
-## 阶段完成数据（写入 state_delta）
+## 阶段提交
 
-```python
-metadata={"state_delta": {
-    "_flow_context.stage_execute": {
-        "transaction_id": "TXN20260417001",
-        "status": "submitted",
-    }
-}}
+`submit_withdrawal` 调用完成后，调用 `commit_flow_stage` 提交本阶段：
+
 ```
+commit_flow_stage(stage_id="execute")
+```
+
+> `submitted` 和 `channels` 均为 **tool 来源**，
+> 框架自动从 `_submitted_channels` 中提取：
+> - `submitted` ← `bool(_submitted_channels)`
+> - `channels` ← `_submitted_channels`（渠道名列表）
+>
+> **无需在 user_data 中传递**。
 
 4. 调用 `withdraw_money_flow_evaluator` → 返回 `flow_status=completed` → 流程结束。
 
 ## 完成条件
 
-- `transaction_id` 非空
-- `status` 为 `"submitted"` 或 `"pending"`（非 `"failed"`）
+- `submitted = true`
+- `channels` 非空列表
 
 ## 异常处理
 
-- `status = "failed"` → 告知用户失败原因，不写入 state_delta（流程停在 execute 阶段，可重试）
-- 网络超时 → 提示用户稍后查询取款状态，不写入 state_delta
+- `submit_withdrawal` 返回错误 → 告知用户失败原因，不调用 commit_flow_stage（流程停在 execute 阶段，可重试）
+- 网络超时 → 提示用户稍后查询取款状态，不调用 commit_flow_stage
 
 ## 输出约束
 

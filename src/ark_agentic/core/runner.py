@@ -932,16 +932,6 @@ class AgentRunner:
         tool_message = AgentMessage.tool(tool_results)
         self.session_manager.add_message_sync(session_id, tool_message)
 
-        # WAIT_FOR_USER: 流程阶段要求用户输入，硬中断 ReAct 循环（不再让 LLM 继续 think）
-        wait_results = [
-            tr for tr in tool_results if tr.result_type == ToolResultType.WAIT_FOR_USER
-        ]
-        if wait_results:
-            logger.info("[WAIT_FOR_USER] turn=%d stage signaled hard stop", ls.turns)
-            wait_response = AgentMessage.assistant(content="")
-            self.session_manager.add_message_sync(session_id, wait_response)
-            return ls.make_result(wait_response)
-
         stop_results = [
             tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP
         ]

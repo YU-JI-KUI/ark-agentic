@@ -1,12 +1,8 @@
-# 阶段 3：方案确认（wait_for_user）
+# 阶段 3：方案确认
 
 ## 目标
 
-向用户展示取款方案卡片，等待用户选择并确认。
-
-> **重要**：本阶段 `wait_for_user=true`，evaluator 将返回 `WAIT_FOR_USER` 信号。
-> 框架会立即终止 ReAct 循环，等待用户下一轮输入。
-> **严禁**在此阶段直接进入执行步骤。
+向用户展示取款方案卡片，等待用户选择并确认后提交阶段数据。
 
 ## 操作步骤
 
@@ -32,34 +28,40 @@
    ]
    ```
 
-2. 调用 `withdraw_money_flow_evaluator` → 收到 `flow_status=in_progress, wait_for_user=true` → 框架硬中断。
+2. 向用户说明方案内容，等待用户明确确认（"确认方案1"/"就第一个"/"办理"等）。
 
-3. 等待用户下一轮确认输入。
+3. 用户确认后，收集以下信息：
 
-## 用户确认后（下一轮）
+   | 字段 | 说明 |
+   |------|------|
+   | `confirmed` | 用户是否确认（true） |
+   | `selected_option` | 选中的方案，含 `channels`（渠道列表）和 `target`（目标金额） |
+   | `amount` | 最终取款金额（元） |
 
-用户说"确认方案1"/"办理"/"就第一个"等确认语时：
+## 阶段提交
 
-1. 从上轮 PlanCard digest 中读取 `channels` 和 `target`
-2. 写入阶段完成数据：
+用户确认后，调用 `commit_flow_stage` 提交本阶段：
 
-```python
-metadata={"state_delta": {
-    "_flow_context.stage_plan_confirm": {
-        "confirmed": True,
+```
+commit_flow_stage(
+    stage_id="plan_confirm",
+    user_data={
+        "confirmed": true,
         "selected_option": {
             "channels": ["survival_fund", "bonus"],
-            "target": 50000,
+            "target": 50000
         },
-        "amount": 50000.0,
+        "amount": 50000.0
     }
-}}
+)
 ```
 
-3. 再次调用 `withdraw_money_flow_evaluator` → 进入 execute 阶段。
+> 所有字段均为 **user 来源**，必须通过 user_data 提供。
+
+提交后调用 `withdraw_money_flow_evaluator` → 进入 execute 阶段。
 
 ## 完成条件
 
 - `confirmed = true`
-- `selected_option` 包含用户选择的渠道和金额
+- `selected_option` 包含用户选择的渠道和目标金额
 - `amount` > 0

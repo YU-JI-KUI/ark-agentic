@@ -21,6 +21,7 @@ dependencies = [
     "openinference-instrumentation-langchain",
     "uvicorn>=0.40.0",
     "apscheduler>=3.11",
+    "bcrypt>=5.0.0",
 ]
 
 [project.optional-dependencies]

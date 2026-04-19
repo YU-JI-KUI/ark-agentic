@@ -9,9 +9,8 @@
 ## 1. 设计哲学
 
 * **最小侵入性 (Minimal-Intrusive)**：不改动 `AgentRunner` 的核心 ReAct 循环逻辑；
-  需要在框架层新增 `ToolResultType.WAIT_FOR_USER` 处理、`SkillLoader` reference 扫描、
-  `_build_system_prompt()` Dynamic 注入、以及 `state_delta` 点路径合并四处改动，
-  改动均为增量扩展，不破坏现有行为。
+  需要在框架层新增 `SkillLoader` reference 扫描、`_build_system_prompt()` Dynamic 注入、
+  以及 `state_delta` 点路径合并三处改动，改动均为增量扩展，不破坏现有行为。
 * **智能体原生 (Agentic Native)**：将流程编排从"框架硬编码"下沉为"Agent 的工具决策与知识检索"。
 * **按需内化 (Lazy Loading)**：通过 `reference` 解决 SKILL 臃肿问题，仅在需要时加载指令。
 * **状态驱动 (State-Driven)**：利用现有 `session.state` 实现跨会话的任务持久化与恢复。
@@ -26,8 +25,11 @@
 flow_evaluator（确定性状态机）
   → state_delta 写入 _flow_stage
     → 框架自动注入当前阶段 reference
-      → Agent 按 SOP 执行业务工具
-        → state_delta 累积阶段数据到 _flow_context
+      → Agent 按 SOP 执行业务工具（结果写入 session.state）
+        → Agent 调用 commit_flow_stage(stage_id, user_data)
+            → 框架按 field_sources 自动提取 tool 来源字段
+            → LLM 提供 user 来源字段（via user_data）
+            → Pydantic 校验通过 → 写入 _flow_context.stage_<id>
           → flow_evaluator 再评估（Pydantic 校验通过 → 进入下一阶段）
 ```
 
@@ -111,27 +113,47 @@ class ExecuteOutput(BaseModel):
 # ── 阶段定义 ──
 
 @dataclass
+class FieldSource:
+    """阶段 schema 字段的数据来源声明，供 CommitFlowStageTool 使用。
+
+    source="tool": 框架从 session.state[state_key] 自动提取，LLM 无需传值。
+    source="user": LLM 必须通过 commit_flow_stage(user_data=...) 明确提供。
+
+    提取逻辑（source="tool" 时，优先级：transform > path > 直接取值）：
+      transform: 调用 transform(state_value) 得到字段值（适合复杂提取/列表推导）
+      path:      按点路径遍历 state_value（如 "identity.verified"）
+      否则：     直接使用 state_value 本身
+    """
+    source: Literal["tool", "user"] = "user"
+    state_key: str | None = None   # 读取哪个 session.state key
+    path: str | None = None        # 点路径（如 "identity.verified"）
+    transform: Callable | None = None  # 复杂提取逻辑，优先于 path
+
+
+@dataclass
 class StageDefinition:
     """阶段定义
-    
+
     required 行为约定：
       - True（默认）：必须阶段，无数据时阻塞后续阶段，_evaluate_stages 将其视为当前阶段。
       - False：可跳过阶段，无数据时 status="skipped"，不阻塞后续阶段推进。
-    
-    wait_for_user 行为约定：
-      - True：evaluator 返回 ToolResultType.WAIT_FOR_USER，框架硬性终止当前 ReAct 循环，
-              不依赖 LLM 自觉遵守 instruction 文本，确保 Agent 不会擅自继续执行。
-      - False（默认）：正常 JSON 结果，Agent 继续 ReAct 循环。
+
+    field_sources 行为约定：
+      声明每个 output_schema 字段的数据来源（tool 或 user）。
+      source="tool"：框架自动从 session.state 提取。
+      source="user"：LLM 需从用户对话收集，evaluator 响应中自动列出待收集字段及说明。
+      CommitFlowStageTool 依此决定哪些字段自动提取、哪些要求 LLM 提供。
+      未声明 field_sources 时，CommitFlowStageTool 直接使用 user_data（兼容旧阶段）。
     """
     id: str
     name: str
     description: str
     required: bool = True
-    wait_for_user: bool = False
     output_schema: type[BaseModel] | None = None
     reference_file: str | None = None  # references/ 目录下的文件名，如 "identity_verify.md"
                                        # Dynamic 模式注入时以此为准，与 stage.id 解耦
     tools: list[str] = field(default_factory=list)
+    field_sources: dict[str, FieldSource] = field(default_factory=dict)
 
     def validate_output(self, data: dict) -> tuple[bool, list[str]]:
         """用 Pydantic 校验阶段输出数据"""
@@ -216,26 +238,24 @@ class BaseFlowEvaluator(AgentTool, ABC):
 
         # ── 找到第一个未完成阶段 ──
         current_stage = self.stages[len(completed)]
-        # wait_for_user 阶段使用专用结果类型，让框架硬性暂停 ReAct 循环（见下方说明）
-        result_type = (
-            ToolResultType.WAIT_FOR_USER
-            if current_stage.wait_for_user
-            else ToolResultType.JSON
-        )
+        # 若阶段含 source="user" 字段，在响应中列出，由模型自主规划收集
+        user_fields = current_stage.user_required_fields()
+        current_stage_info = {
+            "id": current_stage.id,
+            "name": current_stage.name,
+            "description": current_stage.description,
+            "suggested_tools": current_stage.tools,
+        }
+        if user_fields:
+            current_stage_info["user_required_fields"] = user_fields
         return AgentToolResult(
-            result_type=result_type,
+            result_type=ToolResultType.JSON,
             content={
                 "flow_status": "in_progress",
-                "current_stage": {
-                    "id": current_stage.id,
-                    "name": current_stage.name,
-                    "description": current_stage.description,
-                    "wait_for_user": current_stage.wait_for_user,
-                    "suggested_tools": current_stage.tools,
-                },
+                "current_stage": current_stage_info,
                 "completed_stages": completed,
                 "progress": f"{len(completed)}/{len(self.stages)}",
-                "instruction": self._build_instruction(current_stage, flow_ctx),
+                "instruction": self._build_instruction(current_stage),
             },
             metadata={"state_delta": {"_flow_stage": current_stage.id}},
         )
@@ -275,10 +295,16 @@ class BaseFlowEvaluator(AgentTool, ABC):
         completed, _ = self._evaluate_stages(flow_ctx)
         return self.stages[len(completed)]
 
-    def _build_instruction(self, stage: StageDefinition, flow_ctx: dict) -> str:
-        if stage.wait_for_user:
-            # WAIT_FOR_USER 结果类型由框架硬性终止 ReAct 循环，此处 instruction 仅供日志参考。
-            return f"当前处于【{stage.name}】阶段，已向用户展示方案，等待用户确认后方可继续。"
+    def _build_instruction(self, stage: StageDefinition) -> str:
+        user_fields = stage.user_required_fields()
+        if user_fields:
+            field_names = ", ".join(f["field"] for f in user_fields)
+            return (
+                f"当前处于【{stage.name}】阶段。"
+                f"请按参考文档完成准备工作（{stage.tools}），"
+                f"向用户收集以下信息：{field_names}，"
+                f"然后调用 commit_flow_stage 提交，再次调用 {self.name} 确认推进。"
+            )
         return (
             f"当前处于【{stage.name}】阶段。"
             f"请根据当前阶段参考文档中的操作指引，"
@@ -311,15 +337,15 @@ class BaseFlowEvaluator(AgentTool, ABC):
 
 class WithdrawalFlowEvaluator(BaseFlowEvaluator):
     """保险取款流程评估器（业务层实现）
-    
+
     继承框架基类，仅需定义：
-    1. stages: 阶段列表及 Pydantic schema
+    1. stages: 阶段列表、Pydantic schema 和 field_sources
     2. skill_name: 关联的 SKILL 名称
     """
-    
+
     @property
     def skill_name(self) -> str:
-        return "withdrawal_flow"
+        return "withdraw_money_flow"
 
     @property
     def stages(self) -> list[StageDefinition]:
@@ -327,55 +353,129 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
             StageDefinition(
                 id="identity_verify",
                 name="身份核验",
-                description="验证客户身份和保单信息",
-                required=True,
                 output_schema=IdentityVerifyOutput,
                 reference_file="identity_verify.md",
                 tools=["customer_info", "policy_query"],
+                field_sources={
+                    # user_id: customer_info 返回根路径 user_id，直接提取
+                    "user_id": FieldSource("tool", "_customer_info_result", "user_id"),
+                    # id_card_verified: 工具返回 identity.verified，字段名不同 + 嵌套路径
+                    "id_card_verified": FieldSource("tool", "_customer_info_result", "identity.verified"),
+                    # policy_ids: 从 policyAssertList 列表推导，需要 transform
+                    "policy_ids": FieldSource("tool", "_policy_query_result",
+                        transform=lambda r: [p["policy_id"] for p in r.get("policyAssertList", [])]),
+                },
             ),
             StageDefinition(
                 id="options_query",
                 name="方案查询",
-                description="查询可取款选项和金额",
-                required=True,
                 output_schema=OptionsQueryOutput,
                 reference_file="options_query.md",
                 tools=["rule_engine"],
+                field_sources={
+                    # schema 字段名 vs 工具字段名均不同，通过 path 声明映射
+                    "available_options": FieldSource("tool", "_rule_engine_result", "options"),
+                    "total_cash_value":  FieldSource("tool", "_rule_engine_result", "total_available_excl_loan"),
+                    "max_withdrawal":    FieldSource("tool", "_rule_engine_result", "total_available_incl_loan"),
+                },
             ),
             StageDefinition(
                 id="plan_confirm",
                 name="方案确认",
-                description="展示方案并等待用户确认",
-                required=True,
-                wait_for_user=True,
                 output_schema=PlanConfirmOutput,
                 reference_file="plan_confirm.md",
                 tools=["render_a2ui"],
+                field_sources={
+                    # 全部 user 来源：evaluator 在响应中列出 user_required_fields，由模型收集
+                    "confirmed":       FieldSource("user", description="用户是否确认方案（true/false）"),
+                    "selected_option": FieldSource("user", description="选中方案，含 channels 和 target"),
+                    "amount":          FieldSource("user", description="最终取款金额（元）"),
+                },
             ),
             StageDefinition(
                 id="execute",
                 name="执行取款",
-                description="提交取款操作",
-                required=True,
                 output_schema=ExecuteOutput,
                 reference_file="execute.md",
                 tools=["submit_withdrawal"],
+                field_sources={
+                    # submit_withdrawal 写入 _submitted_channels（渠道列表）
+                    "submitted": FieldSource("tool", "_submitted_channels",
+                        transform=lambda channels: bool(channels)),
+                    "channels":  FieldSource("tool", "_submitted_channels"),
+                },
             ),
         ]
 
 
-# ── 业务层初始化时注册 evaluator（位于 agents/insurance/agent.py 或 tools/__init__.py）──
+# ── 业务层初始化时注册 evaluator（位于 agents/insurance/tools/__init__.py）──
 
 _withdrawal_evaluator = WithdrawalFlowEvaluator()
 FlowEvaluatorRegistry.register(_withdrawal_evaluator)
-# Agent 同时将其加入 tools 列表，name = "withdrawal_flow_evaluator"
+# Agent 同时将其加入 tools 列表，name = "withdraw_money_flow_evaluator"
 ```
 
-> **`ToolResultType.WAIT_FOR_USER` 框架约定**：框架在 `AgentRunner` 处理工具返回值时，
-> 若检测到 `result_type == WAIT_FOR_USER`，立即终止当前 ReAct 循环并将响应返回给用户，
-> 不再继续 `think → act` 步骤。这是确定性的硬中断，不依赖 LLM 遵守 prompt 文本。
-> 此类型需在 `core/tools/base.py` 的 `ToolResultType` 枚举中新增，
-> 并在 `AgentRunner._process_tool_result()` 中处理。
+---
+
+### 2.2.1 CommitFlowStageTool — 阶段数据提交工具
+
+**问题背景**：业务工具（`customer_info`、`rule_engine` 等）将结果写入各自的 state key（如 `_customer_info_result`），字段名和路径与阶段 schema 不一定一致，且部分字段来自用户对话而非工具调用。框架不能依赖 LLM 自行拼装 `state_delta` 写入 `_flow_context.stage_<id>`——LLM 无法控制工具返回的 `metadata["state_delta"]`。
+
+**解决方案**：新增 `CommitFlowStageTool`（框架层，`core/flow/commit_flow_stage.py`），由 LLM 在完成阶段业务后显式调用。工具按 `StageDefinition.field_sources` 声明完成以下工作：
+
+1. `source="tool"` 字段：从 `session.state[state_key]` 自动提取（支持点路径和 transform）
+2. `source="user"` 字段：从 `user_data` 参数取值（要求 LLM 从对话上下文提供）
+3. Pydantic 校验合并后的数据
+4. 写入 `_flow_context.stage_<id>`（点路径，不覆盖同级 key）
+
+```python
+# 框架层工具（core/flow/commit_flow_stage.py）
+class CommitFlowStageTool(AgentTool):
+    name = "commit_flow_stage"
+    description = "提交当前流程阶段的完成数据。框架自动提取 tool 来源字段，LLM 仅需提供 user 来源字段。"
+    parameters = [
+        ToolParameter("stage_id", "string", "阶段 ID", required=True),
+        ToolParameter("user_data", "object", "用户来源字段", required=False),
+    ]
+
+    async def execute(self, tool_call, context=None):
+        ctx = context or {}
+        stage_id = args["stage_id"]
+        user_data = args.get("user_data") or {}
+
+        # 从 _flow_context 获取 skill_name，查找 evaluator 和 stage 定义
+        skill_name = (ctx.get("_flow_context") or {}).get("skill_name", "")
+        evaluator = FlowEvaluatorRegistry.get(skill_name)
+        stage = next(s for s in evaluator.stages if s.id == stage_id)
+
+        # 按 field_sources 声明收集数据
+        collected = {}
+        for field_name, fs in stage.field_sources.items():
+            if fs.source == "tool":
+                state_val = ctx[fs.state_key]
+                collected[field_name] = fs.transform(state_val) if fs.transform \
+                    else _dot_get(state_val, fs.path) if fs.path else state_val
+            else:  # "user"
+                collected[field_name] = user_data[field_name]
+
+        # Pydantic 校验 → 写入 _flow_context.stage_<id>
+        stage.validate_output(collected)  # raises on failure
+        return AgentToolResult.json_result(...,
+            metadata={"state_delta": {f"_flow_context.stage_{stage_id}": collected}})
+```
+
+**字段来源决策树**：
+
+```
+对于阶段的每个 schema 字段：
+  ├── source="tool"
+  │     ├── transform 有值 → transform(session.state[state_key])
+  │     ├── path 有值     → 点路径遍历 session.state[state_key]
+  │     └── 否则          → session.state[state_key] 直接赋值
+  └── source="user"       → user_data[field_name]（LLM 必须提供）
+```
+
+---
 
 ---
 
@@ -770,7 +870,7 @@ class ResumeTaskTool(AgentTool):
 └──────────────┬──────────────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────────────┐
-│ AgentRunner（最小改动：+WAIT_FOR_USER / +Dynamic注入 / +点路径合并）│
+│ AgentRunner（最小改动：+Dynamic注入 / +点路径合并）                  │
 │                                                         │
 │  ReAct Loop:                                            │
 │   ┌─────────────────────────────────────────────┐      │
@@ -827,8 +927,9 @@ class ResumeTaskTool(AgentTool):
    → 返回: "身份核验完成，进入方案查询阶段"
 7. 下一轮 system prompt 自动切换为 references/options_query.md
 8. 重复 5-7 直到 plan_confirm 阶段
-9. flow_evaluator 返回 wait_for_user=true
-   → Agent 向用户展示方案并等待确认
+9. flow_evaluator 返回 user_required_fields（confirmed、selected_option、amount）
+   → Agent 调用 render_a2ui 展示方案，等待用户确认
+   → 用户确认后 commit_flow_stage → 进入 execute 阶段
 10. after_agent hook 持久化 _flow_context
 ```
 
@@ -902,7 +1003,6 @@ src/ark_agentic/
 - [ ] 修改 `SkillLoader` 支持 `references/` 自动扫描（FULL 模式）
 - [ ] 修改 `_build_system_prompt()` 支持 `_flow_stage` + `FlowEvaluatorRegistry` 驱动的 Dynamic 注入
 - [ ] 修改 `AgentRunner._apply_state_delta()` 支持点路径（dot-path）深度合并
-- [ ] 在 `ToolResultType` 枚举中新增 `WAIT_FOR_USER`，并在 `AgentRunner._process_tool_result()` 中处理硬中断
 - [ ] 在 `SystemPromptBuilder` 中支持 `extra_system_instructions` 渲染（供 `inject_flow_hint` 使用）
 - [ ] 实现 `ResumeTaskTool`（含 `_restore_flow_context` snapshot→运行时格式转换）
 
