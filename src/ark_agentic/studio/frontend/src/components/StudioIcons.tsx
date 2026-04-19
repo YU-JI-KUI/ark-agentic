@@ -94,6 +94,26 @@ export function SearchIcon(props: IconProps) {
   )
 }
 
+export function PlusIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </IconBase>
+  )
+}
+
+export function RefreshIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M20 6v5h-5" />
+      <path d="M4 18v-5h5" />
+      <path d="M19 11a7 7 0 0 0-12-3l-2 3" />
+      <path d="M5 13a7 7 0 0 0 12 3l2-3" />
+    </IconBase>
+  )
+}
+
 export function LogoutIcon(props: IconProps) {
   return (
     <IconBase {...props}>
@@ -167,6 +187,30 @@ export function CollapseIcon(props: IconProps) {
       <path d="m15 15 6 6" />
       <path d="M8 16H3v5" />
       <path d="m3 21 6-6" />
+    </IconBase>
+  )
+}
+
+export function CloseIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m6 6 12 12" />
+      <path d="M18 6 6 18" />
+    </IconBase>
+  )
+}
+
+export function RobotIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect height="11" rx="3" width="14" x="5" y="8" />
+      <path d="M12 4v4" />
+      <path d="M9 13h.01" />
+      <path d="M15 13h.01" />
+      <path d="M8 19v2" />
+      <path d="M16 19v2" />
+      <path d="M2.5 11.5H5" />
+      <path d="M19 11.5h2.5" />
     </IconBase>
   )
 }

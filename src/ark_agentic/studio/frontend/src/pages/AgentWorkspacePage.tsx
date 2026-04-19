@@ -4,11 +4,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
-import { NavLink, Navigate, useNavigate, useOutletContext, useParams } from 'react-router-dom'
+import { NavLink, Navigate, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import {
   api,
   type MemoryFileItem,
@@ -20,7 +21,7 @@ import {
 } from '../api'
 import { useAuth } from '../auth'
 import type { StudioShellContextValue } from '../layouts/StudioShell'
-import { ChevronRightIcon, CollapseIcon, CopyIcon, ExpandIcon } from '../components/StudioIcons'
+import { ChevronRightIcon, CollapseIcon, CopyIcon, ExpandIcon, PlusIcon } from '../components/StudioIcons'
 
 const VALID_SECTIONS = new Set(['overview', 'skills', 'tools', 'sessions', 'memory'])
 
@@ -43,8 +44,29 @@ function formatAgentDate(value: string | null | undefined) {
   return `updated ${parsed.toLocaleDateString()}`
 }
 
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '—'
+  return parsed.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+}
+
 function toDomId(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]+/g, '-')
+}
+
+function getTimestampValue(value: string | null | undefined) {
+  if (!value) return 0
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? 0 : timestamp
 }
 
 function executionLaneLabel(lane: TraceLane) {
@@ -115,18 +137,21 @@ function StructuredDataPanel({
 function StructuredDataControls({
   copied,
   expanded,
+  extraActions,
   title,
   onCopy,
   onToggle,
 }: {
   copied: boolean
   expanded: boolean
+  extraActions?: ReactNode
   title: string
   onCopy: () => void
   onToggle: () => void
 }) {
   return (
     <div className="structured-data-actions">
+      {extraActions}
       <span className={`structured-data-copy-status ${copied ? 'visible' : ''}`} role="status">
         Copied
       </span>
@@ -194,10 +219,10 @@ function StructuredDataCard({
       <div className="detail-data-card-head">
         <HeadingTag id={headingId}>{title}</HeadingTag>
         <div className="detail-data-card-head-actions">
-          {extraActions}
           <StructuredDataControls
             copied={copied}
             expanded={expanded}
+            extraActions={extraActions}
             onCopy={() => void handleCopy()}
             onToggle={() => setExpanded(current => !current)}
             title={title}
@@ -231,42 +256,6 @@ function truncate(value: string | null | undefined, max = 120) {
   return value.length > max ? `${value.slice(0, max)}…` : value
 }
 
-function daysSince(value: string | null) {
-  if (!value) return Number.POSITIVE_INFINITY
-  const diff = Date.now() - new Date(value).getTime()
-  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)))
-}
-
-function analyzeMemoryFreshness(files: MemoryFileItem[]) {
-  let fresh = 0
-  let aging = 0
-  let stale = 0
-  let unknown = 0
-
-  for (const file of files) {
-    if (!file.modified_at) {
-      unknown += 1
-      continue
-    }
-    const age = daysSince(file.modified_at)
-    if (age <= 30) {
-      fresh += 1
-    } else if (age <= 90) {
-      aging += 1
-    } else {
-      stale += 1
-    }
-  }
-
-  const label =
-    stale > 0 ? 'Needs refresh'
-    : aging > 0 ? 'Aging'
-    : files.length > 0 ? 'Fresh'
-    : 'No memory'
-
-  return { fresh, aging, stale, unknown, label }
-}
-
 function analyzeToolReliability(tools: ToolMeta[]) {
   if (tools.length === 0) {
     return { score: 0, documented: 0, typed: 0, label: 'No tools' }
@@ -290,6 +279,7 @@ type TraceEvent = {
 }
 
 type TraceLane = 'input' | 'reasoning' | 'tools' | 'output' | 'metadata'
+const TRACE_LANES: TraceLane[] = ['input', 'reasoning', 'tools', 'output', 'metadata']
 
 type TraceStage = {
   lane: TraceLane
@@ -463,8 +453,10 @@ export default function AgentWorkspacePage() {
     void navigate(`/agents/${agentId}/${targetSection}`)
   }
 
+  const isSplitSection = activeSection === 'skills' || activeSection === 'tools' || activeSection === 'sessions' || activeSection === 'memory'
+
   return (
-    <div className="workspace-page">
+    <div className={`workspace-page ${isSplitSection ? 'workspace-page-split' : ''}`}>
       <div aria-atomic="true" aria-live="polite" className="sr-only">
         {selectedAgent ? `${selectedAgent.name}, ${activeSection} section` : 'No agent selected'}
       </div>
@@ -505,6 +497,7 @@ export default function AgentWorkspacePage() {
 }
 
 function OverviewSection({ agentId }: { agentId: string }) {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState({
@@ -552,12 +545,34 @@ function OverviewSection({ agentId }: { agentId: string }) {
     return <div className="empty-surface">{error}</div>
   }
 
-  const freshness = analyzeMemoryFreshness(snapshot.files)
   const reliability = analyzeToolReliability(snapshot.tools)
+  const recentSkills = [...snapshot.skills]
+    .sort((left, right) => getTimestampValue(right.modified_at) - getTimestampValue(left.modified_at))
+    .slice(0, 3)
+  const recentTools = [...snapshot.tools]
+    .sort((left, right) => getTimestampValue(right.modified_at) - getTimestampValue(left.modified_at))
+    .slice(0, 3)
+  const recentFiles = [...snapshot.files]
+    .sort((left, right) => getTimestampValue(right.modified_at) - getTimestampValue(left.modified_at))
+    .slice(0, 3)
+
+  function openSkillDetail(skillId: string) {
+    void navigate(`/agents/${agentId}/skills?skill=${encodeURIComponent(skillId)}`)
+  }
+
+  function openToolDetail(toolName: string) {
+    void navigate(`/agents/${agentId}/tools?tool=${encodeURIComponent(toolName)}`)
+  }
+
+  function openMemoryDetail(filePath: string, userId: string) {
+    void navigate(
+      `/agents/${agentId}/memory?memory=${encodeURIComponent(filePath)}&user=${encodeURIComponent(userId)}`,
+    )
+  }
 
   return (
     <>
-      <section className="workspace-grid-four">
+      <section className="workspace-grid-four overview-metric-grid">
         <div className="metric-surface metric-surface-compact">
           <div className="metric-surface-compact-copy">
             <span>Skills</span>
@@ -579,41 +594,12 @@ function OverviewSection({ agentId }: { agentId: string }) {
           </div>
           <strong>{snapshot.sessions.length}</strong>
         </div>
-        <div className="metric-surface metric-surface-freshness">
-          <span>Memory Freshness</span>
-          <p>基于 Memory 文件最近更新时间推断当前知识状态。</p>
-          <div className="metric-freshness-main-row">
-            <strong>{freshness.label === 'Fresh' ? '新鲜' : freshness.label}</strong>
-            <div className="metric-freshness-summary-wrap">
-              <div
-                aria-label={`新鲜 ${freshness.fresh}，陈旧中 ${freshness.aging}，过时 ${freshness.stale}${freshness.unknown > 0 ? `，未知 ${freshness.unknown}` : ''}`}
-                className="metric-freshness-summary"
-                tabIndex={0}
-              >
-                {freshness.fresh} / {freshness.aging} / {freshness.stale}
-              </div>
-              <div className="metric-freshness-detail" role="note">
-                <div className="metric-freshness-detail-row">
-                  <label>新鲜</label>
-                  <b>{freshness.fresh}</b>
-                </div>
-                <div className="metric-freshness-detail-row">
-                  <label>陈旧中</label>
-                  <b>{freshness.aging}</b>
-                </div>
-                <div className="metric-freshness-detail-row">
-                  <label>过时</label>
-                  <b>{freshness.stale}</b>
-                </div>
-                {freshness.unknown > 0 && (
-                  <div className="metric-freshness-detail-row">
-                    <label>未知</label>
-                    <b>{freshness.unknown}</b>
-                  </div>
-                )}
-              </div>
-            </div>
+        <div className="metric-surface metric-surface-compact">
+          <div className="metric-surface-compact-copy">
+            <span>Memory Files</span>
+            <p>当前 Agent 可见的 Memory 文件数量。</p>
           </div>
+          <strong>{snapshot.files.length}</strong>
         </div>
       </section>
 
@@ -635,16 +621,6 @@ function OverviewSection({ agentId }: { agentId: string }) {
               <strong>知识足迹</strong>
               <p>当前 Agent 可见 {snapshot.files.length} 个 MEMORY 文件。</p>
             </div>
-            <div className="signal-card">
-              <strong>MEMORY 新鲜度信号</strong>
-              <p>
-                {freshness.stale > 0
-                  ? `${freshness.stale} 个文件已过时，建议优先审查。`
-                  : freshness.aging > 0
-                    ? `${freshness.aging} 个文件正在陈旧，可能需要验证。`
-                    : '当前 MEMORY 集合基于修改时间显示为新鲜。'}
-              </p>
-            </div>
           </div>
         </article>
 
@@ -664,18 +640,24 @@ function OverviewSection({ agentId }: { agentId: string }) {
         </article>
       </section>
 
-      <section className="workspace-grid-two">
+      <section className="workspace-grid-three">
         <article className="workspace-surface">
           <div className="surface-heading">
-            <span>Recent Skills</span>
+            <span>最近技能</span>
           </div>
           <div className="document-list">
-            {snapshot.skills.slice(0, 4).map(skill => (
-              <div className="document-card" key={skill.id}>
+            {recentSkills.map(skill => (
+              <button
+                aria-label={`Open skill ${skill.name}`}
+                className="document-card document-button"
+                key={skill.id}
+                onClick={() => openSkillDetail(skill.id)}
+                type="button"
+              >
                 <strong>{skill.name}</strong>
                 <p>{skill.description || skill.file_path}</p>
-                <span>{skill.invocation_policy || 'manual invocation'}</span>
-              </div>
+                {skill.modified_at && <span>{formatRelativeTime(skill.modified_at)}</span>}
+              </button>
             ))}
             {snapshot.skills.length === 0 && <div className="empty-surface">No skills found.</div>}
           </div>
@@ -683,26 +665,45 @@ function OverviewSection({ agentId }: { agentId: string }) {
 
         <article className="workspace-surface">
           <div className="surface-heading">
-            <span>Recent Tools and Memory</span>
+            <span>最近工具</span>
           </div>
           <div className="document-list">
-            {snapshot.tools.slice(0, 2).map(tool => (
-              <div className="document-card" key={tool.name}>
+            {recentTools.map(tool => (
+              <button
+                aria-label={`Open tool ${tool.name}`}
+                className="document-card document-button"
+                key={tool.name}
+                onClick={() => openToolDetail(tool.name)}
+                type="button"
+              >
                 <strong>{tool.name}</strong>
                 <p>{tool.description || tool.file_path}</p>
-                <span>{tool.group || 'default'}</span>
-              </div>
+                {tool.modified_at && <span>{formatRelativeTime(tool.modified_at)}</span>}
+              </button>
             ))}
-            {snapshot.files.slice(0, 2).map(file => (
-              <div className="document-card" key={`${file.user_id}-${file.file_path}`}>
-                <strong>{file.file_path.split('/').pop()}</strong>
+            {snapshot.tools.length === 0 && <div className="empty-surface">No tools found.</div>}
+          </div>
+        </article>
+
+        <article className="workspace-surface">
+          <div className="surface-heading">
+            <span>最近记忆</span>
+          </div>
+          <div className="document-list">
+            {recentFiles.map(file => (
+              <button
+                aria-label={`Open memory file ${file.file_path}`}
+                className="document-card document-button"
+                key={`${file.user_id}-${file.file_path}`}
+                onClick={() => openMemoryDetail(file.file_path, file.user_id)}
+                type="button"
+              >
+                <strong>{`${file.user_id}/${file.file_path.split('/').pop() || file.file_path}`}</strong>
                 <p>{file.file_type}</p>
-                <span>{formatBytes(file.size_bytes)}</span>
-              </div>
+                {file.modified_at && <span>{formatRelativeTime(file.modified_at)}</span>}
+              </button>
             ))}
-            {snapshot.tools.length === 0 && snapshot.files.length === 0 && (
-              <div className="empty-surface">No tool or memory data found.</div>
-            )}
+            {snapshot.files.length === 0 && <div className="empty-surface">No memory files found.</div>}
           </div>
         </article>
       </section>
@@ -711,6 +712,7 @@ function OverviewSection({ agentId }: { agentId: string }) {
 }
 
 function SkillsSection({ agentId }: { agentId: string }) {
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const canEdit = user?.role === 'editor'
   const [skills, setSkills] = useState<SkillMeta[]>([])
@@ -722,11 +724,27 @@ function SkillsSection({ agentId }: { agentId: string }) {
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formContent, setFormContent] = useState('')
+  const [query, setQuery] = useState('')
 
   const selectedSkill = useMemo(
     () => skills.find(skill => skill.id === selectedId) ?? null,
     [selectedId, skills],
   )
+  const filteredSkills = useMemo(() => {
+    const value = query.trim().toLowerCase()
+    if (!value) return skills
+    return skills.filter(skill => {
+      const tags = skill.tags?.join(' ').toLowerCase() || ''
+      return (
+        skill.name.toLowerCase().includes(value) ||
+        skill.id.toLowerCase().includes(value) ||
+        (skill.description || '').toLowerCase().includes(value) ||
+        (skill.file_path || '').toLowerCase().includes(value) ||
+        tags.includes(value)
+      )
+    })
+  }, [query, skills])
+  const requestedSkillId = searchParams.get('skill')
 
   const loadSkills = useCallback(async () => {
     setLoading(true)
@@ -734,17 +752,30 @@ function SkillsSection({ agentId }: { agentId: string }) {
     try {
       const nextSkills = await api.listSkills(agentId)
       setSkills(nextSkills)
-      setSelectedId(prev => prev ?? nextSkills[0]?.id ?? null)
+      setSelectedId(prev => {
+        if (requestedSkillId && nextSkills.some(skill => skill.id === requestedSkillId)) {
+          return requestedSkillId
+        }
+        return prev ?? nextSkills[0]?.id ?? null
+      })
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError))
     } finally {
       setLoading(false)
     }
-  }, [agentId])
+  }, [agentId, requestedSkillId])
 
   useEffect(() => {
     void loadSkills()
   }, [loadSkills])
+
+  useEffect(() => {
+    if (!requestedSkillId) return
+    const match = skills.find(skill => skill.id === requestedSkillId)
+    if (!match) return
+    setSelectedId(match.id)
+    setMode('view')
+  }, [requestedSkillId, skills])
 
   useEffect(() => {
     if (mode === 'edit' && selectedSkill) {
@@ -815,24 +846,39 @@ function SkillsSection({ agentId }: { agentId: string }) {
       <div className="workspace-surface split-list">
         <div className="surface-heading">
           <span>Skills</span>
+          <span>{skills.length}</span>
+        </div>
+        <div className="panel-search-row">
+          <label className="panel-search">
+            <input
+              aria-label="Search skills"
+              onChange={event => setQuery(event.target.value)}
+              placeholder="Search skills"
+              value={query}
+            />
+          </label>
           {canEdit && (
             <button
-              className="surface-link-button"
+              aria-label="Create new skill"
+              className="panel-icon-button"
               onClick={() => {
                 setMode('create')
                 setSelectedId(null)
                 resetForm()
               }}
+              title="New skill"
               type="button"
             >
-              New Skill
+              <PlusIcon />
             </button>
           )}
         </div>
         <div className="document-list">
-          {skills.map(skill => (
+          {filteredSkills.map(skill => (
             <button
-              className={`document-card document-button ${selectedId === skill.id && mode === 'view' ? 'active' : ''}`}
+              className={`document-card document-button skill-list-card ${
+                selectedId === skill.id && mode === 'view' ? 'active' : ''
+              }`}
               key={skill.id}
               onClick={() => {
                 setSelectedId(skill.id)
@@ -840,12 +886,15 @@ function SkillsSection({ agentId }: { agentId: string }) {
               }}
               type="button"
             >
-              <strong>{skill.name}</strong>
+              <div className="skill-list-card-top">
+                <strong>{skill.name}</strong>
+                <span className="skill-policy-chip">{skill.invocation_policy || 'manual'}</span>
+              </div>
               <p>{skill.description || skill.file_path}</p>
-              <span>{skill.invocation_policy || 'manual invocation'}</span>
             </button>
           ))}
           {skills.length === 0 && <div className="empty-surface">No skills found.</div>}
+          {skills.length > 0 && filteredSkills.length === 0 && <div className="empty-surface">No matching skills.</div>}
         </div>
       </div>
 
@@ -863,8 +912,9 @@ function SkillsSection({ agentId }: { agentId: string }) {
             </label>
             <label className="form-field">
               <span>Description</span>
-              <input
+              <textarea
                 onChange={event => setFormDescription(event.target.value)}
+                rows={3}
                 value={formDescription}
               />
             </label>
@@ -909,27 +959,60 @@ function SkillsSection({ agentId }: { agentId: string }) {
               )}
             </div>
 
-            <div className="workspace-grid-three">
-              <div className="metric-surface">
-                <span>Skill ID</span>
-                <strong>{selectedSkill.id}</strong>
-                <p>Persistent identifier for this skill asset.</p>
+            <div className="content-card skill-metadata-card">
+              <h3>Skill Metadata</h3>
+              <div className="metadata-table-shell">
+                <table className="metadata-table skill-metadata-table">
+                  <tbody>
+                    <tr>
+                      <th scope="row">Skill ID</th>
+                      <td>
+                        <code>{selectedSkill.id}</code>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Version</th>
+                      <td>{selectedSkill.version || '—'}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Policy</th>
+                      <td>{selectedSkill.invocation_policy || 'manual'}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Group</th>
+                      <td>{selectedSkill.group || 'default'}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Tags</th>
+                      <td>
+                        {selectedSkill.tags && selectedSkill.tags.length > 0 ? (
+                          <div className="metadata-tag-list" role="list" aria-label="Skill tags">
+                            {selectedSkill.tags.map(tag => (
+                              <span className="metadata-tag" key={tag} role="listitem">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                    <tr>
+                      <th scope="row">File Path</th>
+                      <td>
+                        <code>{selectedSkill.file_path}</code>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Updated</th>
+                      <td>
+                        {selectedSkill.modified_at ? formatRelativeTime(selectedSkill.modified_at) : '—'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-              <div className="metric-surface">
-                <span>Policy</span>
-                <strong>{selectedSkill.invocation_policy || 'manual'}</strong>
-                <p>Current invocation strategy exposed by backend metadata.</p>
-              </div>
-              <div className="metric-surface">
-                <span>Group</span>
-                <strong>{selectedSkill.group || 'default'}</strong>
-                <p>Logical grouping used for organization and retrieval.</p>
-              </div>
-            </div>
-
-            <div className="content-card">
-              <h3>Description</h3>
-              <p>{selectedSkill.description || 'No description provided.'}</p>
             </div>
 
             <div className="content-card">
@@ -948,6 +1031,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
 }
 
 function ToolsSection({ agentId }: { agentId: string }) {
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const canEdit = user?.role === 'editor'
   const [tools, setTools] = useState<ToolMeta[]>([])
@@ -958,12 +1042,25 @@ function ToolsSection({ agentId }: { agentId: string }) {
   const [feedback, setFeedback] = useState<string | null>(null)
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
+  const [query, setQuery] = useState('')
 
   const selectedTool = useMemo(
     () => tools.find(tool => tool.name === selectedName) ?? null,
     [selectedName, tools],
   )
-  const reliability = useMemo(() => analyzeToolReliability(tools), [tools])
+  const filteredTools = useMemo(() => {
+    const value = query.trim().toLowerCase()
+    if (!value) return tools
+    return tools.filter(tool => {
+      return (
+        tool.name.toLowerCase().includes(value) ||
+        tool.group.toLowerCase().includes(value) ||
+        (tool.description || '').toLowerCase().includes(value) ||
+        tool.file_path.toLowerCase().includes(value)
+      )
+    })
+  }, [query, tools])
+  const requestedToolName = searchParams.get('tool')
 
   const loadTools = useCallback(async () => {
     setLoading(true)
@@ -971,17 +1068,30 @@ function ToolsSection({ agentId }: { agentId: string }) {
     try {
       const nextTools = await api.listTools(agentId)
       setTools(nextTools)
-      setSelectedName(prev => prev ?? nextTools[0]?.name ?? null)
+      setSelectedName(prev => {
+        if (requestedToolName && nextTools.some(tool => tool.name === requestedToolName)) {
+          return requestedToolName
+        }
+        return prev ?? nextTools[0]?.name ?? null
+      })
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError))
     } finally {
       setLoading(false)
     }
-  }, [agentId])
+  }, [agentId, requestedToolName])
 
   useEffect(() => {
     void loadTools()
   }, [loadTools])
+
+  useEffect(() => {
+    if (!requestedToolName) return
+    const match = tools.find(tool => tool.name === requestedToolName)
+    if (!match) return
+    setSelectedName(match.name)
+    setMode('view')
+  }, [requestedToolName, tools])
 
   async function handleScaffold() {
     try {
@@ -1008,23 +1118,38 @@ function ToolsSection({ agentId }: { agentId: string }) {
       <div className="workspace-surface split-list">
         <div className="surface-heading">
           <span>Tools</span>
+          <span>{tools.length}</span>
+        </div>
+        <div className="panel-search-row">
+          <label className="panel-search">
+            <input
+              aria-label="Search tools"
+              onChange={event => setQuery(event.target.value)}
+              placeholder="Search tools"
+              value={query}
+            />
+          </label>
           {canEdit && (
             <button
-              className="surface-link-button"
+              aria-label="Create new tool"
+              className="panel-icon-button"
               onClick={() => {
                 setMode('scaffold')
                 setSelectedName(null)
               }}
+              title="New tool"
               type="button"
             >
-              Scaffold Tool
+              <PlusIcon />
             </button>
           )}
         </div>
         <div className="document-list">
-          {tools.map(tool => (
+          {filteredTools.map(tool => (
             <button
-              className={`document-card document-button ${selectedName === tool.name && mode === 'view' ? 'active' : ''}`}
+              className={`document-card document-button tool-list-card ${
+                selectedName === tool.name && mode === 'view' ? 'active' : ''
+              }`}
               key={tool.name}
               onClick={() => {
                 setSelectedName(tool.name)
@@ -1032,35 +1157,20 @@ function ToolsSection({ agentId }: { agentId: string }) {
               }}
               type="button"
             >
-              <strong>{tool.name}</strong>
+              <div className="skill-list-card-top">
+                <strong>{tool.name}</strong>
+                <span className="skill-policy-chip">{tool.group || 'default'}</span>
+              </div>
               <p>{tool.description || tool.file_path}</p>
-              <span>{tool.group || 'default'}</span>
             </button>
           ))}
           {tools.length === 0 && <div className="empty-surface">No tools found.</div>}
+          {tools.length > 0 && filteredTools.length === 0 && <div className="empty-surface">No matching tools.</div>}
         </div>
       </div>
 
       <div className="workspace-surface split-detail">
         {feedback && <div className="feedback-banner">{feedback}</div>}
-        <div className="workspace-grid-three">
-          <div className="metric-surface">
-            <span>Total Tools</span>
-            <strong>{tools.length}</strong>
-            <p>Declared tool surfaces available to this agent.</p>
-          </div>
-          <div className="metric-surface">
-            <span>Reliability Signal</span>
-            <strong>{reliability.label}</strong>
-            <p>Inferred from descriptions and parsed parameter schema coverage.</p>
-          </div>
-          <div className="metric-surface">
-            <span>Metadata Coverage</span>
-            <strong>{reliability.score}%</strong>
-            <p>{reliability.documented} described · {reliability.typed} with schema.</p>
-          </div>
-        </div>
-
         {mode === 'scaffold' && (
           <div className="editor-sheet">
             <div className="surface-heading">
@@ -1098,21 +1208,41 @@ function ToolsSection({ agentId }: { agentId: string }) {
             <div className="surface-heading">
               <span>{selectedTool.name}</span>
             </div>
-            <div className="workspace-grid-three">
-              <div className="metric-surface">
-                <span>Group</span>
-                <strong>{selectedTool.group || 'default'}</strong>
-                <p>Grouping metadata for this tool definition.</p>
-              </div>
-              <div className="metric-surface">
-                <span>Source File</span>
-                <strong>{selectedTool.file_path}</strong>
-                <p>Workspace location where the scaffolded implementation lives.</p>
-              </div>
-              <div className="metric-surface">
-                <span>Description</span>
-                <strong>{selectedTool.description || 'n/a'}</strong>
-                <p>Operator-facing summary of tool purpose.</p>
+            <div className="content-card skill-metadata-card">
+              <h3>Tool Metadata</h3>
+              <div className="metadata-table-shell">
+                <table className="metadata-table">
+                  <tbody>
+                    <tr>
+                      <th scope="row">Tool Name</th>
+                      <td>
+                        <code>{selectedTool.name}</code>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Group</th>
+                      <td>{selectedTool.group || 'default'}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">File Path</th>
+                      <td>
+                        <code>{selectedTool.file_path}</code>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Updated</th>
+                      <td>{selectedTool.modified_at ? formatRelativeTime(selectedTool.modified_at) : '—'}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Parameters</th>
+                      <td>{Object.keys(selectedTool.parameters || {}).length}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Description</th>
+                      <td>{selectedTool.description || '—'}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
             <StructuredDataCard
@@ -1138,6 +1268,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
   const canEdit = user?.role === 'editor'
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const [selected, setSelected] = useState<SessionItem | null>(null)
+  const [collapsedUserGroups, setCollapsedUserGroups] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
   const [detail, setDetail] = useState<SessionDetail | null>(null)
   const [rawText, setRawText] = useState('')
@@ -1238,6 +1369,26 @@ function SessionsSection({ agentId }: { agentId: string }) {
     setSessionPanelsExpanded(false)
   }, [selected?.session_id])
 
+  useEffect(() => {
+    if (sessions.length === 0) {
+      setCollapsedUserGroups(new Set())
+      return
+    }
+    setCollapsedUserGroups(new Set(sessions.map(session => session.user_id || '(anonymous)')))
+  }, [sessions])
+
+  const toggleUserGroup = useCallback((userId: string) => {
+    setCollapsedUserGroups(current => {
+      const next = new Set(current)
+      if (next.has(userId)) {
+        next.delete(userId)
+      } else {
+        next.add(userId)
+      }
+      return next
+    })
+  }, [])
+
   async function saveRaw() {
     if (!selected) return
     try {
@@ -1281,17 +1432,31 @@ function SessionsSection({ agentId }: { agentId: string }) {
             value={query}
           />
         </label>
-        <div aria-label="Sessions" className="session-nav-list" role="listbox">
-          {groupedSessions.map(([userId, items]) => (
+        <div aria-label="Sessions" className="session-nav-list" role="list">
+          {groupedSessions.map(([userId, items]) => {
+            const isCollapsed = collapsedUserGroups.has(userId)
+            const sessionGroupId = `${toDomId(userId)}-sessions-group`
+            return (
             <div className="session-cluster" key={userId}>
               <div className="session-cluster-head">
-                <div className="session-group-title">{userId}</div>
-                <span>{items.length}</span>
+                <button
+                  aria-controls={sessionGroupId}
+                  aria-expanded={!isCollapsed}
+                  className={`session-cluster-toggle ${isCollapsed ? 'collapsed' : ''}`}
+                  onClick={() => toggleUserGroup(userId)}
+                  type="button"
+                >
+                  <span className="session-group-title">
+                    <ChevronRightIcon className="session-group-chevron" />
+                    <span>{userId}</span>
+                  </span>
+                  <span>{items.length}</span>
+                </button>
               </div>
-              {items.map(session => (
+              <div className={`session-cluster-items ${isCollapsed ? 'collapsed' : ''}`} id={sessionGroupId}>
+                {items.map(session => (
                 <button
                   aria-label={`Session ${session.first_message || session.session_id}`}
-                  aria-selected={selected?.session_id === session.session_id}
                   className={`session-nav-card ${selected?.session_id === session.session_id ? 'active' : ''}`}
                   key={session.session_id}
                   onFocus={() => {
@@ -1302,7 +1467,6 @@ function SessionsSection({ agentId }: { agentId: string }) {
                     setSelected(session)
                     setEditingRaw(false)
                   }}
-                  role="option"
                   type="button"
                 >
                   <div className="session-nav-card-top">
@@ -1315,9 +1479,11 @@ function SessionsSection({ agentId }: { agentId: string }) {
                     <span>{session.user_id}</span>
                   </div>
                 </button>
-              ))}
+                ))}
+              </div>
             </div>
-          ))}
+            )
+          })}
           {filteredSessionCount === 0 && <div className="empty-surface">No sessions found.</div>}
         </div>
       </div>
@@ -1371,13 +1537,12 @@ function SessionsSection({ agentId }: { agentId: string }) {
                 <div className="session-detail-hero-actions">
                   <button
                     aria-label={sessionPanelToggleLabel}
-                    className="action-button session-detail-bulk-toggle"
+                    className="icon-action-button session-detail-bulk-toggle"
                     disabled={!canToggleSessionPanels}
                     onClick={() => setSessionPanelsExpanded(current => !current)}
                     type="button"
                   >
                     {sessionPanelsExpanded ? <CollapseIcon /> : <ExpandIcon />}
-                    <span>{sessionPanelToggleLabel}</span>
                   </button>
                 </div>
               </div>
@@ -1526,6 +1691,7 @@ function ExecutionSection({
   const summary = useMemo(() => summarizeExecutionRounds(rounds), [rounds])
   const [selectedRound, setSelectedRound] = useState<number | null>(rounds[0]?.round ?? null)
   const [scrollRoundStart, setScrollRoundStart] = useState(0)
+  const [focusedLane, setFocusedLane] = useState<TraceLane | null>(null)
   const [roundsDragging, setRoundsDragging] = useState(false)
   const roundsPanelRef = useRef<HTMLElement | null>(null)
   const pageScrollStyleRef = useRef<{
@@ -1536,6 +1702,13 @@ function ExecutionSection({
   } | null>(null)
   const roundScrollerRef = useRef<HTMLDivElement | null>(null)
   const roundCardRefs = useRef<Record<number, HTMLButtonElement | null>>({})
+  const traceLegendRefs = useRef<Record<TraceLane, HTMLButtonElement | null>>({
+    input: null,
+    reasoning: null,
+    tools: null,
+    output: null,
+    metadata: null,
+  })
   const lastWheelShiftAtRef = useRef(0)
   const dragPointerIdRef = useRef<number | null>(null)
   const dragStartXRef = useRef(0)
@@ -1751,6 +1924,43 @@ function ExecutionSection({
     unlockPageScroll()
   }
 
+  function handleTraceLegendSelect(lane: TraceLane) {
+    setFocusedLane(current => (current === lane ? null : lane))
+  }
+
+  function focusTraceLegendTab(lane: TraceLane) {
+    traceLegendRefs.current[lane]?.focus()
+  }
+
+  function handleTraceLegendKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    currentLane: TraceLane,
+  ) {
+    const currentIndex = TRACE_LANES.indexOf(currentLane)
+    if (currentIndex === -1) return
+
+    let nextLane: TraceLane | null = null
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      nextLane = TRACE_LANES[(currentIndex + 1) % TRACE_LANES.length]
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      nextLane = TRACE_LANES[(currentIndex - 1 + TRACE_LANES.length) % TRACE_LANES.length]
+    } else if (event.key === 'Home') {
+      nextLane = TRACE_LANES[0]
+    } else if (event.key === 'End') {
+      nextLane = TRACE_LANES[TRACE_LANES.length - 1]
+    } else if (event.key === 'Tab') {
+      nextLane = TRACE_LANES[
+        (currentIndex + (event.shiftKey ? -1 : 1) + TRACE_LANES.length) % TRACE_LANES.length
+      ]
+    }
+
+    if (!nextLane) return
+    event.preventDefault()
+    setFocusedLane(nextLane)
+    focusTraceLegendTab(nextLane)
+  }
+
   return (
     <div aria-labelledby={tabId} className="editor-sheet" id={panelId} role="tabpanel">
       <div className="workspace-grid-four">
@@ -1865,35 +2075,53 @@ function ExecutionSection({
             className="trace-turn execution-round-detail"
           >
             <div className="trace-turn-header">
-              <div className="execution-round-header-copy">
-                <h3
-                  className="trace-turn-badge"
-                  id={`${sessionDomId}-execution-round-${activeRound.round}`}
-                >
-                  {`Round ${activeRound.round}`}
-                </h3>
-                <p>
-                  {activeRound.stages.length} event(s) inferred from stored session messages for the selected round.
-                </p>
-              </div>
-              <p className="execution-round-output">
-                {activeRound.assistantOutput ?? 'No assistant output recorded for this round.'}
-              </p>
+              <h3
+                className="trace-turn-badge"
+                id={`${sessionDomId}-execution-round-${activeRound.round}`}
+              >
+                {`Round ${activeRound.round}`}
+              </h3>
+              <span className="trace-turn-count">{`${activeRound.stages.length} event(s)`}</span>
             </div>
-            <div className="trace-legend">
-              <span>Input</span>
-              <span>Reasoning</span>
-              <span>Tools</span>
-              <span>Output</span>
-              <span>Metadata</span>
+            <p className="execution-round-output">
+              {activeRound.assistantOutput ?? 'No assistant output recorded for this round.'}
+            </p>
+            <div aria-label="Trace lane filters" className="trace-legend" role="toolbar">
+              {TRACE_LANES.map(lane => {
+                const isActive = focusedLane === lane
+                const stageCount = activeRound.stages.filter(stage => stage.lane === lane).length
+                return (
+                  <button
+                    aria-label={
+                      isActive
+                        ? `Clear ${executionLaneLabel(lane)} filter`
+                        : `Filter to ${executionLaneLabel(lane)} lane`
+                    }
+                    aria-pressed={isActive}
+                    className={`trace-legend-button ${isActive ? 'active' : ''}`}
+                    key={`trace-legend-${lane}`}
+                    onClick={() => handleTraceLegendSelect(lane)}
+                    onKeyDown={event => handleTraceLegendKeyDown(event, lane)}
+                    ref={element => {
+                      traceLegendRefs.current[lane] = element
+                    }}
+                    tabIndex={focusedLane === null ? (lane === TRACE_LANES[0] ? 0 : -1) : (isActive ? 0 : -1)}
+                    type="button"
+                  >
+                    <span>{executionLaneLabel(lane)}</span>
+                    <strong>{stageCount}</strong>
+                  </button>
+                )
+              })}
             </div>
-            <div className="trace-lane-grid">
-              {(['input', 'reasoning', 'tools', 'output', 'metadata'] as TraceLane[]).map(lane => {
+            <div className={`trace-lane-grid ${focusedLane ? 'trace-lane-grid-focused' : ''}`}>
+              {TRACE_LANES.map(lane => {
                 const stages = activeRound.stages.filter(stage => stage.lane === lane)
+                const isHidden = focusedLane !== null && focusedLane !== lane
                 return (
                   <section
-                    aria-labelledby={`${sessionDomId}-execution-round-${activeRound.round}-${lane}`}
-                    className={`trace-lane trace-lane-${lane}`}
+                    aria-hidden={isHidden}
+                    className={`trace-lane trace-lane-${lane} ${focusedLane === lane ? 'trace-lane-active' : ''} ${isHidden ? 'trace-lane-hidden' : ''}`}
                     key={`${activeRound.round}-${lane}`}
                   >
                     <h4
@@ -2008,9 +2236,11 @@ function SessionMessageCard({
 }
 
 function MemorySection({ agentId }: { agentId: string }) {
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const canEdit = user?.role === 'editor'
   const [files, setFiles] = useState<MemoryFileItem[]>([])
+  const [collapsedUserGroups, setCollapsedUserGroups] = useState<Set<string>>(() => new Set())
   const [selected, setSelected] = useState<MemoryFileItem | null>(null)
   const [content, setContent] = useState('')
   const [draft, setDraft] = useState('')
@@ -2019,18 +2249,34 @@ function MemorySection({ agentId }: { agentId: string }) {
   const [contentLoading, setContentLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+
+  const filteredFiles = useMemo(() => {
+    const value = query.trim().toLowerCase()
+    if (!value) return files
+    return files.filter(file => {
+      const fileName = file.file_path.split('/').pop()?.toLowerCase() || ''
+      return (
+        file.user_id.toLowerCase().includes(value) ||
+        file.file_path.toLowerCase().includes(value) ||
+        fileName.includes(value) ||
+        file.file_type.toLowerCase().includes(value)
+      )
+    })
+  }, [files, query])
 
   const groupedFiles = useMemo(() => {
     const next = new Map<string, MemoryFileItem[]>()
-    for (const file of files) {
+    for (const file of filteredFiles) {
       const key = file.user_id || '(global)'
       const list = next.get(key) ?? []
       list.push(file)
       next.set(key, list)
     }
     return [...next.entries()]
-  }, [files])
-  const freshness = useMemo(() => analyzeMemoryFreshness(files), [files])
+  }, [filteredFiles])
+  const requestedMemoryPath = searchParams.get('memory')
+  const requestedMemoryUser = searchParams.get('user') ?? ''
 
   useEffect(() => {
     let cancelled = false
@@ -2042,7 +2288,15 @@ function MemorySection({ agentId }: { agentId: string }) {
         const nextFiles = await api.listMemoryFiles(agentId)
         if (!cancelled) {
           setFiles(nextFiles)
-          setSelected(nextFiles[0] ?? null)
+          setSelected(() => {
+            if (requestedMemoryPath) {
+              const match = nextFiles.find(
+                file => file.file_path === requestedMemoryPath && file.user_id === requestedMemoryUser,
+              )
+              if (match) return match
+            }
+            return nextFiles[0] ?? null
+          })
         }
       } catch (nextError) {
         if (!cancelled) setError(nextError instanceof Error ? nextError.message : String(nextError))
@@ -2055,7 +2309,36 @@ function MemorySection({ agentId }: { agentId: string }) {
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, requestedMemoryPath, requestedMemoryUser])
+
+  useEffect(() => {
+    if (!requestedMemoryPath) return
+    const match = files.find(
+      file => file.file_path === requestedMemoryPath && file.user_id === requestedMemoryUser,
+    )
+    if (!match) return
+    setSelected(match)
+  }, [files, requestedMemoryPath, requestedMemoryUser])
+
+  useEffect(() => {
+    if (files.length === 0) {
+      setCollapsedUserGroups(new Set())
+      return
+    }
+    setCollapsedUserGroups(new Set(files.map(file => file.user_id || '(global)')))
+  }, [files])
+
+  const toggleUserGroup = useCallback((userId: string) => {
+    setCollapsedUserGroups(current => {
+      const next = new Set(current)
+      if (next.has(userId)) {
+        next.delete(userId)
+      } else {
+        next.add(userId)
+      }
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     if (!selected) return
@@ -2111,49 +2394,62 @@ function MemorySection({ agentId }: { agentId: string }) {
           <span>Memory Files</span>
           <span>{files.length}</span>
         </div>
+        <label className="panel-search">
+          <input
+            aria-label="Search memory files"
+            onChange={event => setQuery(event.target.value)}
+            placeholder="Search memory"
+            value={query}
+          />
+        </label>
         <div className="document-list">
           {groupedFiles.map(([group, items]) => (
-            <div className="session-group" key={group}>
-              <div className="session-group-title">{group}</div>
-              {items.map(file => (
+            <div className="session-cluster" key={group}>
+              <div className="session-cluster-head">
                 <button
-                  className={`document-card document-button ${
-                    selected?.file_path === file.file_path && selected?.user_id === file.user_id ? 'active' : ''
-                  }`}
-                  key={`${file.user_id}-${file.file_path}`}
-                  onClick={() => setSelected(file)}
+                  aria-controls={`${toDomId(group)}-memory-group`}
+                  aria-expanded={!collapsedUserGroups.has(group)}
+                  className={`session-cluster-toggle ${collapsedUserGroups.has(group) ? 'collapsed' : ''}`}
+                  onClick={() => toggleUserGroup(group)}
                   type="button"
                 >
-                  <strong>{file.file_path.split('/').pop()}</strong>
-                  <p>{file.file_type}</p>
-                  <span>{formatBytes(file.size_bytes)}</span>
+                  <span className="session-group-title">
+                    <ChevronRightIcon className="session-group-chevron" />
+                    <span>{group}</span>
+                  </span>
+                  <span>{formatBytes(items.reduce((total, file) => total + file.size_bytes, 0))}</span>
                 </button>
-              ))}
+              </div>
+              <div
+                className={`session-cluster-items ${collapsedUserGroups.has(group) ? 'collapsed' : ''}`}
+                id={`${toDomId(group)}-memory-group`}
+              >
+                {items.map(file => (
+                  <button
+                    className={`document-card document-button memory-list-card ${
+                      selected?.file_path === file.file_path && selected?.user_id === file.user_id ? 'active' : ''
+                    }`}
+                    key={`${file.user_id}-${file.file_path}`}
+                    onClick={() => setSelected(file)}
+                    type="button"
+                  >
+                    <div className="skill-list-card-top">
+                      <strong>{file.file_path.split('/').pop()}</strong>
+                      <span className="skill-policy-chip">{formatBytes(file.size_bytes)}</span>
+                    </div>
+                    <p>{file.file_type}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
           {files.length === 0 && <div className="empty-surface">No memory files found.</div>}
+          {files.length > 0 && groupedFiles.length === 0 && <div className="empty-surface">No matching memory files.</div>}
         </div>
       </div>
 
       <div className="workspace-surface split-detail">
         {feedback && <div className="feedback-banner">{feedback}</div>}
-        <div className="workspace-grid-three">
-          <div className="metric-surface">
-            <span>Memory Freshness</span>
-            <strong>{freshness.label}</strong>
-            <p>Estimated from `modified_at` timestamps exposed by the backend.</p>
-          </div>
-          <div className="metric-surface">
-            <span>Fresh / Aging</span>
-            <strong>{freshness.fresh}/{freshness.aging}</strong>
-            <p>Files updated within 30 days vs 31-90 days.</p>
-          </div>
-          <div className="metric-surface">
-            <span>Stale / Unknown</span>
-            <strong>{freshness.stale}/{freshness.unknown}</strong>
-            <p>Files older than 90 days or without timestamp metadata.</p>
-          </div>
-        </div>
         {!selected && <div className="empty-surface">Select a memory file to inspect its content.</div>}
 
         {selected && (
@@ -2181,21 +2477,41 @@ function MemorySection({ agentId }: { agentId: string }) {
               )}
             </div>
 
-            <div className="workspace-grid-three">
-              <div className="metric-surface">
-                <span>Type</span>
-                <strong>{selected.file_type}</strong>
-                <p>Memory classification exposed by the backend.</p>
-              </div>
-              <div className="metric-surface">
-                <span>Size</span>
-                <strong>{formatBytes(selected.size_bytes)}</strong>
-                <p>Current memory file size before any manual edits.</p>
-              </div>
-              <div className="metric-surface">
-                <span>Modified</span>
-                <strong>{selected.modified_at ? formatRelativeTime(selected.modified_at) : 'unknown'}</strong>
-                <p>Last modification timestamp when available.</p>
+            <div className="content-card skill-metadata-card">
+              <h3>Memory Metadata</h3>
+              <div className="metadata-table-shell">
+                <table className="metadata-table">
+                  <tbody>
+                    <tr>
+                      <th scope="row">User ID</th>
+                      <td>
+                        <code>{selected.user_id}</code>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th scope="row">File Name</th>
+                      <td>{selected.file_path.split('/').pop() || selected.file_path}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">File Path</th>
+                      <td>
+                        <code>{selected.file_path}</code>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Type</th>
+                      <td>{selected.file_type}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Size</th>
+                      <td>{formatBytes(selected.size_bytes)}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Updated</th>
+                      <td>{formatDateTime(selected.modified_at)}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 

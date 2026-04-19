@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { streamChat, type AgentMeta } from '../api'
-import { SparkIcon, TraceIcon } from './StudioIcons'
+import { CloseIcon, PlusIcon, SparkIcon } from './StudioIcons'
 
 interface DockMessage {
   id: string
@@ -15,8 +15,13 @@ interface DockMessage {
 
 interface DecisionDockProps {
   activeSection: string
+  maxWidth: number
+  minWidth: number
+  onClose: () => void
+  onWidthChange: (width: number) => void
   selectedAgent: AgentMeta | null
   visible: boolean
+  width: number
 }
 
 let nextMessageSeed = 0
@@ -25,20 +30,31 @@ function nextMessageId() {
   return `dock-msg-${nextMessageSeed}`
 }
 
-function initialAssistantMessage(agentName?: string): DockMessage {
-  const target = agentName ? `当前目标 Agent 是 ${agentName}。` : '你可以先从左侧选择一个 Agent。'
+function initialAssistantMessage(): DockMessage {
   return {
     id: nextMessageId(),
     role: 'assistant',
-    content: `Meta-Agent 已进入决策辅助模式。${target}\n我会把建议聚焦在变更影响、复核要点和可验证动作上。`,
+    content:
+      '你好！我是 Ark-Agentic Meta-Agent。\n\n你可以用自然语言让我帮你：\n- 创建新的 Skill（例如：帮我给当前 Agent 加上退休拦截的技能）\n- 生成 Tool 脚手架（例如：生成一个查询保单状态的工具）\n- 创建全新的 Agent（例如：帮我建一个客服场景的 Agent）',
   }
 }
 
-export default function DecisionDock({ activeSection, selectedAgent, visible }: DecisionDockProps) {
+export default function DecisionDock({
+  activeSection,
+  maxWidth,
+  minWidth,
+  onClose,
+  onWidthChange,
+  selectedAgent,
+  visible,
+  width,
+}: DecisionDockProps) {
   const [messages, setMessages] = useState<DockMessage[]>(() => [initialAssistantMessage()])
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId, setSessionId] = useState<string | undefined>()
+  const [isResizing, setIsResizing] = useState(false)
+  const resizeRef = useRef<{ startWidth: number; startX: number } | null>(null)
   const streamRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -52,23 +68,41 @@ export default function DecisionDock({ activeSection, selectedAgent, visible }: 
   }, [messages])
 
   useEffect(() => {
-    setMessages([initialAssistantMessage(selectedAgent?.name)])
+    setMessages([initialAssistantMessage()])
     setSessionId(undefined)
     setInput('')
   }, [selectedAgent?.id])
 
-  const summaryCards = useMemo(() => {
-    return [
-      {
-        title: 'Context',
-        body: selectedAgent ? `${selectedAgent.name} · ${activeSection}` : 'No agent selected',
-      },
-      {
-        title: 'Mode',
-        body: 'AI suggests changes, humans review and execute directly',
-      },
-    ]
-  }, [activeSection, selectedAgent])
+  useEffect(() => {
+    if (!isResizing) return
+
+    function handlePointerMove(event: PointerEvent) {
+      const current = resizeRef.current
+      if (!current) return
+      const delta = current.startX - event.clientX
+      const nextWidth = Math.min(maxWidth, Math.max(minWidth, current.startWidth + delta))
+      onWidthChange(nextWidth)
+    }
+
+    function stopResizing() {
+      resizeRef.current = null
+      setIsResizing(false)
+      document.body.style.removeProperty('cursor')
+      document.body.style.removeProperty('user-select')
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResizing)
+    window.addEventListener('pointercancel', stopResizing)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResizing)
+      window.removeEventListener('pointercancel', stopResizing)
+      document.body.style.removeProperty('cursor')
+      document.body.style.removeProperty('user-select')
+    }
+  }, [isResizing, maxWidth, minWidth, onWidthChange])
 
   async function sendMessage() {
     const text = input.trim()
@@ -187,39 +221,53 @@ export default function DecisionDock({ activeSection, selectedAgent, visible }: 
   function startFreshSession() {
     if (isStreaming) return
     setSessionId(undefined)
-    setMessages([initialAssistantMessage(selectedAgent?.name)])
+    setMessages([initialAssistantMessage()])
+  }
+
+  function handleResizeStart(event: React.PointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return
+    resizeRef.current = { startWidth: width, startX: event.clientX }
+    setIsResizing(true)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
   }
 
   return (
-    <aside className={`decision-dock ${visible ? '' : 'decision-dock-hidden'}`}>
+    <aside
+      className={`decision-dock ${visible ? '' : 'decision-dock-hidden'} ${isResizing ? 'decision-dock-resizing' : ''}`}
+    >
+      <button
+        aria-label="Resize Meta-Agent dock"
+        className="decision-dock-resize-handle"
+        onPointerDown={handleResizeStart}
+        type="button"
+      />
       <div className="decision-dock-header">
         <div>
           <div className="decision-dock-eyebrow">
             <SparkIcon />
-            Meta-Agent Decision Dock
+            Meta-Agent (Builder)
           </div>
-          <h2>{selectedAgent ? selectedAgent.name : 'Select an agent'}</h2>
         </div>
-        <button className="dock-button dock-button-ghost" onClick={startFreshSession} type="button">
-          New Session
-        </button>
-      </div>
-
-      <div className="decision-dock-summary">
-        {summaryCards.map(card => (
-          <div className="dock-summary-card" key={card.title}>
-            <span>{card.title}</span>
-            <strong>{card.body}</strong>
-          </div>
-        ))}
-      </div>
-
-      <div className="decision-dock-guidance">
-        <TraceIcon />
-        <p>
-          Ask for concrete changes, impact analysis, review notes, or follow-up actions.
-          The dock is designed to drive edits, not idle conversation.
-        </p>
+        <div className="decision-dock-controls">
+          <button
+            aria-label="Start new Meta-Agent session"
+            className="dock-icon-button"
+            onClick={startFreshSession}
+            title="New Session"
+            type="button"
+          >
+            <PlusIcon />
+          </button>
+          <button
+            aria-label="Hide Meta-Agent dock"
+            className="dock-icon-button"
+            onClick={onClose}
+            type="button"
+          >
+            <CloseIcon />
+          </button>
+        </div>
       </div>
 
       <div className="decision-dock-stream" ref={streamRef}>
@@ -265,8 +313,8 @@ export default function DecisionDock({ activeSection, selectedAgent, visible }: 
           onKeyDown={handleKeyDown}
           placeholder={
             selectedAgent
-              ? 'Describe the next change or ask for an impact review...'
-              : 'Select an agent to activate the dock'
+              ? '输入消息，按 Enter 发送（Shift+Enter 换行）'
+              : '请先选择一个 Agent 以激活对话框'
           }
           rows={4}
           value={input}

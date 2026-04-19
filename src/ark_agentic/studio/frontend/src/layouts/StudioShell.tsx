@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import { api, type AgentMeta } from '../api'
 import { useAuth } from '../auth'
 import DecisionDock from '../components/DecisionDock'
@@ -8,6 +8,8 @@ import {
   LogoutIcon,
   MemoryIcon,
   OverviewIcon,
+  RefreshIcon,
+  RobotIcon,
   SearchIcon,
   SessionsIcon,
   SkillsIcon,
@@ -22,7 +24,14 @@ export interface StudioShellContextValue {
   selectedAgent: AgentMeta | null
 }
 
+type StudioMainStyle = CSSProperties & {
+  '--decision-dock-width': string
+}
+
 const DEFAULT_SECTION = 'overview'
+const DECISION_DOCK_MIN_WIDTH = 320
+const DECISION_DOCK_MAX_WIDTH = 560
+const DECISION_DOCK_DEFAULT_WIDTH = 380
 const SECTION_ITEMS = [
   { key: 'overview', label: 'Overview', icon: OverviewIcon },
   { key: 'skills', label: 'Skills', icon: SkillsIcon },
@@ -40,6 +49,8 @@ export default function StudioShell() {
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [agentsError, setAgentsError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [decisionDockOpen, setDecisionDockOpen] = useState(true)
+  const [decisionDockWidth, setDecisionDockWidth] = useState(DECISION_DOCK_DEFAULT_WIDTH)
 
   async function refreshAgents() {
     setAgentsLoading(true)
@@ -89,6 +100,15 @@ export default function StudioShell() {
     void navigate(target)
   }
 
+  const canUseDecisionDock = user?.role === 'editor'
+  const showDecisionDock = canUseDecisionDock && decisionDockOpen
+  const studioMainStyle = useMemo(
+    (): StudioMainStyle => ({
+      '--decision-dock-width': `${decisionDockWidth}px`,
+    }),
+    [decisionDockWidth],
+  )
+
   return (
     <div className="studio-shell">
       <header className="studio-topbar">
@@ -112,7 +132,10 @@ export default function StudioShell() {
         </div>
       </header>
 
-      <div className="studio-main">
+      <div
+        className={`studio-main ${showDecisionDock ? '' : 'studio-main-dock-collapsed'}`}
+        style={studioMainStyle}
+      >
         <aside aria-label="Studio sections" className="global-rail">
           <div className="global-rail-stack">
             {SECTION_ITEMS.map((item, index) => {
@@ -145,11 +168,12 @@ export default function StudioShell() {
             <span>Agent Radar</span>
             <button
               aria-label="Refresh agents"
-              className="surface-link-button"
+              className="panel-icon-button"
               onClick={() => void refreshAgents()}
+              title="Refresh agents"
               type="button"
             >
-              Refresh
+              <RefreshIcon />
             </button>
           </div>
 
@@ -208,10 +232,28 @@ export default function StudioShell() {
 
         <DecisionDock
           activeSection={activeSection}
+          maxWidth={DECISION_DOCK_MAX_WIDTH}
+          minWidth={DECISION_DOCK_MIN_WIDTH}
+          onClose={() => setDecisionDockOpen(false)}
+          onWidthChange={width =>
+            setDecisionDockWidth(Math.min(DECISION_DOCK_MAX_WIDTH, Math.max(DECISION_DOCK_MIN_WIDTH, width)))
+          }
           selectedAgent={selectedAgent}
-          visible={user?.role === 'editor'}
+          visible={showDecisionDock}
+          width={decisionDockWidth}
         />
       </div>
+
+      {canUseDecisionDock && !decisionDockOpen && (
+        <button
+          aria-label="Restore Meta-Agent dock"
+          className="dock-restore-button"
+          onClick={() => setDecisionDockOpen(true)}
+          type="button"
+        >
+          <RobotIcon />
+        </button>
+      )}
     </div>
   )
 }
