@@ -390,20 +390,27 @@ def extract_asset_profit_hist(data: dict[str, Any], account_type: str = "normal"
     return extracted
 
 
-# ============ 股票每日收益明细字段映射 ============
+# ============ 股票每日收益明细字段提取 ============
 
-STOCK_DAILY_PROFIT_FIELD_MAPPING: dict[str, str] = {
-    "total_profit":      "results.totalProfit",
-    "total_profit_rate": "results.totalProfitRate",
-    "trading_dates":     "results.trdDate",
-    "daily_profit_rate": "results.profitRate",
-    "daily_profit":      "results.profit",
-}
+def extract_stock_daily_profit(data: dict[str, Any], account_type: str = "normal") -> dict[str, Any]:
+    """提取股票每日收益明细字段，将平行数组合并为 profit_history 列表"""
+    trading_dates: list[str] = _get_by_path(data, "results.trdDate") or []
+    profits: list[str]       = _get_by_path(data, "results.profit") or []
+    profit_rates: list[str]  = _get_by_path(data, "results.profitRate") or []
 
+    profit_history = [
+        {
+            "trading_date": d,
+            "profit":       profits[i] if i < len(profits) else None,
+            "profit_rate":  profit_rates[i] if i < len(profit_rates) else None,
+        }
+        for i, d in enumerate(trading_dates)
+    ]
 
-def extract_stock_daily_profit(data: dict[str, Any]) -> dict[str, Any]:
-    """提取股票每日收益明细字段"""
-    return extract_fields(data, STOCK_DAILY_PROFIT_FIELD_MAPPING)
+    return {
+        "account_type":   account_type,
+        "profit_history": profit_history,
+    }
 
 
 # ============ 股票盈亏排行字段映射 ============

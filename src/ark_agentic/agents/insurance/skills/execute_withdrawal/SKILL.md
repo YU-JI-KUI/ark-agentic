@@ -1,4 +1,5 @@
 ---
+enabled: False
 name: 取款执行
 description: 仅当对话中已展示过取款方案卡片（render_a2ui WithdrawPlanCard）且用户明确选择了某个渠道要办理时，才使用本技能调用 submit_withdrawal 提交。如果尚未展示方案卡片，本技能不适用，应使用「保险取款」技能。
 version: "9.0.0"

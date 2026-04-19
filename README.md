@@ -375,6 +375,61 @@ runner.register_tool(SpawnSubtasksTool(runner, session_manager, subtask_config))
 3. 汇总结果并回传 state_delta
 4. 清理临时会话
 
+### 业务流程系统（Flow）
+
+多阶段有状态业务流程引擎，支持中断后跨会话恢复。`BaseFlowEvaluator` 驱动阶段遍历与 Pydantic 校验，`commit_flow_stage` 提交阶段数据，`resume_task` 在新会话恢复现场。
+
+#### 定义流程
+
+```python
+from ark_agentic.core.flow.base_evaluator import (
+    BaseFlowEvaluator, StageDefinition, FieldSource, FlowEvaluatorRegistry,
+)
+
+class MyFlowEvaluator(BaseFlowEvaluator):
+    @property
+    def skill_name(self) -> str:
+        return "my_flow"
+
+    @property
+    def stages(self) -> list[StageDefinition]:
+        return [
+            StageDefinition(
+                id="verify", name="身份核验", description="验证用户身份",
+                output_schema=VerifyOutput, tools=["identity_tool"],
+                field_sources={
+                    "user_id": FieldSource(source="tool", state_key="_identity_result", path="user_id"),
+                    "confirmed": FieldSource(source="user", description="用户是否确认"),
+                },
+            ),
+            # ... 更多阶段
+        ]
+
+evaluator = MyFlowEvaluator()
+FlowEvaluatorRegistry.register(evaluator)
+```
+
+#### 挂载到 Agent
+
+```python
+from ark_agentic.core.flow.callbacks import make_flow_callbacks
+from ark_agentic.core.flow.commit_flow_stage import CommitFlowStageTool
+from ark_agentic.core.tools.resume_task import ResumeTaskTool
+
+flow_callbacks = make_flow_callbacks(sessions_dir="./data/sessions")
+runner = AgentRunner(..., callbacks=RunnerCallbacks(
+    before_agent=[flow_callbacks.inject_flow_hint],
+    after_agent=[flow_callbacks.persist_flow_context],
+))
+runner.register_tool(CommitFlowStageTool())
+runner.register_tool(ResumeTaskTool(sessions_dir="./data/sessions"))
+runner.register_tool(evaluator)  # evaluator 本身也是工具
+```
+
+LLM 调用 evaluator 评估进度 → 执行阶段工具 → 调用 `commit_flow_stage` 提交数据 → 循环推进。用户中断后新会话会提示待恢复任务，由用户确认后调用 `resume_task(flow_id=..., action="resume")` 恢复现场，或 `action="discard"` 废弃。
+
+---
+
 ### 用户记忆系统
 
 三层记忆生命周期：**Session JSONL (raw) → MEMORY.md (distilled) → System Prompt (consumption)**。
@@ -603,11 +658,17 @@ src/ark_agentic/
 │   │   ├── registry.py    # ToolRegistry
 │   │   ├── executor.py    # 工具执行器
 │   │   ├── render_a2ui.py # A2UI 渲染工具
+│   │   ├── resume_task.py # 流程恢复/废弃工具
 │   │   ├── memory.py      # Memory 工具 (~88 行)
 │   │   ├── read_skill.py  # ReadSkill 工具
 │   │   ├── demo_a2ui.py   # A2UI 演示工具
 │   │   ├── demo_state.py  # State 演示工具
 │   │   └── pa_knowledge_api.py  # PA 知识库 API (230 行)
+│   ├── flow/              # 业务流程引擎
+│   │   ├── base_evaluator.py   # BaseFlowEvaluator + StageDefinition + FieldSource
+│   │   ├── commit_flow_stage.py # CommitFlowStageTool（阶段数据提交）
+│   │   ├── callbacks.py        # persist_flow_context / inject_flow_hint
+│   │   └── task_registry.py    # active_tasks.json 读写 + TTL 清理
 │   ├── skills/            # 技能系统
 │   │   ├── base.py
 │   │   ├── loader.py
@@ -652,12 +713,15 @@ src/ark_agentic/
 │   │   ├── agent.py       # 入口
 │   │   ├── api.py         # 工厂函数
 │   │   ├── tools/         # 业务工具
-│   │   │   ├── policy_query.py
 │   │   │   ├── customer_info.py
-│   │   │   ├── data_service.py
-│   │   │   └── rule_engine.py
+│   │   │   ├── policy_query.py
+│   │   │   ├── rule_engine.py
+│   │   │   ├── submit_withdrawal.py
+│   │   │   ├── flow_evaluator.py   # WithdrawalFlowEvaluator
+│   │   │   └── data_service.py
 │   │   └── skills/        # 业务技能
 │   │       ├── withdraw_money/
+│   │       ├── withdraw_money_flow/  # Flow 模式取款流程
 │   │       ├── clarify_need/
 │   │       └── rewrite_plan/
 │   ├── securities/        # 证券智能体
@@ -719,28 +783,6 @@ src/ark_agentic/
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `EMBEDDING_MODEL_PATH` | Embedding 模型路径（记忆/检索） | - |
 | `AGENTS_ROOT` | 自定义 Agent 根目录 | - |
-
-### 保险数据服务配置
-
-| 变量 | 说明 |
-|------|------|
-| `DATA_SERVICE_MOCK` | 是否使用 Mock 数据 |
-| `DATA_SERVICE_URL` | 数据服务 URL |
-| `DATA_SERVICE_AUTH_URL` | 认证 URL |
-| `DATA_SERVICE_APP_ID` | 应用 ID |
-| `DATA_SERVICE_CLIENT_ID` | 客户端 ID |
-| `DATA_SERVICE_CLIENT_SECRET` | 客户端密钥 |
-
-### 证券服务配置
-
-| 变量 | 说明 |
-|------|------|
-| `SECURITIES_SERVICE_MOCK` | 是否使用 Mock 数据 |
-| `SECURITIES_ACCOUNT_TYPE` | 账户类型 |
-| `SECURITIES_ACCOUNT_OVERVIEW_URL` | 账户概览 API |
-| `SECURITIES_ETF_HOLDINGS_URL` | ETF 持仓 API |
-| `SECURITIES_HKSC_HOLDINGS_URL` | 港股通持仓 API |
-| `SECURITIES_FUND_HOLDINGS_URL` | 基金持仓 API |
 
 **注意**: PA 模型专用变量（PA_SX_80B_APP_ID、PA_JT_OPEN_API_CODE 等）详见 `.env-sample`。
 

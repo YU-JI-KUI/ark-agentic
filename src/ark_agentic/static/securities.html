@@ -3533,20 +3533,24 @@
 
       function renderStockDailyProfitCalendarCard(data) {
         const title = escHtml(data.title || '股票每日收益');
-        const totalProfit = toNum(data.total_profit);
-        const totalProfitRate = toNum(data.total_profit_rate);
+        const accountType = data.account_type || '';
+
+        // 构建 "YYYYMMDD" -> {profit, profitRate} 映射（兼容新结构 profit_history）
+        const profitHistory = data.profit_history || [];
+        const profitMap = {};
+        profitHistory.forEach(entry => {
+          profitMap[entry.trading_date] = { profit: entry.profit, profitRate: entry.profit_rate };
+        });
+        const tradingDates = profitHistory.map(e => e.trading_date);
+
+        // 计算累计收益（汇总各交易日）
+        let totalProfit = 0;
+        profitHistory.forEach(entry => {
+          const p = parseFloat(entry.profit);
+          if (!isNaN(p) && entry.profit !== '休市') totalProfit += p;
+        });
         const profitClass = totalProfit >= 0 ? 'profit' : 'loss';
         const profitSign = totalProfit >= 0 ? '+' : '';
-        const rateDisplay = (totalProfitRate * 100).toFixed(2);
-
-        // 构建 "YYYYMMDD" -> {profit, profitRate} 映射
-        const tradingDates = data.trading_dates || [];
-        const dailyProfit = data.daily_profit || [];
-        const dailyProfitRate = data.daily_profit_rate || [];
-        const profitMap = {};
-        tradingDates.forEach((d, i) => {
-          profitMap[d] = { profit: dailyProfit[i], profitRate: dailyProfitRate[i] };
-        });
 
         // 按月分组，保持顺序
         const monthSet = new Set();
@@ -3621,10 +3625,11 @@
                 <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">累计收益</div>
                 <div class="tc-value ${profitClass}">${profitSign}￥${formatNumber(Math.abs(totalProfit))}</div>
               </div>
+              ${accountType ? `
               <div style="text-align:center;flex:1;border-left:1px solid var(--border);">
-                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">累计收益率</div>
-                <div class="tc-value ${profitClass}">${profitSign}${rateDisplay}%</div>
-              </div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">账户类型</div>
+                <div class="tc-value">${escHtml(accountType)}</div>
+              </div>` : ''}
             </div>
             ${monthsHtml || '<div style="text-align:center;color:var(--text-muted);padding:16px;">暂无数据</div>'}
           </div>

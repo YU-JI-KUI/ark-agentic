@@ -1,4 +1,5 @@
 ---
+enabled: False
 name: 保险取款
 description: 当用户表达取款意图时使用：询问可取金额、查询总览、指定金额/渠道取款、调整已有方案。
 version: "15.0.0"
