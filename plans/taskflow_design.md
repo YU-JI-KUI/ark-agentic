@@ -427,6 +427,7 @@ FlowEvaluatorRegistry.register(_withdrawal_evaluator)
 2. `source="user"` 字段：从 `user_data` 参数取值（要求 LLM 从对话上下文提供）
 3. Pydantic 校验合并后的数据
 4. 写入 `_flow_context.stage_<id>`（点路径，不覆盖同级 key）
+5. **捕获 stage delta**：将 `source="tool"` 字段对应的 `state_key` 原始值（按 state_key 去重）写入 `_flow_context.stage_<id>_delta`，供跨会话恢复时还原工具上下文
 
 ```python
 # 框架层工具（core/flow/commit_flow_stage.py）
@@ -460,8 +461,21 @@ class CommitFlowStageTool(AgentTool):
 
         # Pydantic 校验 → 写入 _flow_context.stage_<id>
         stage.validate_output(collected)  # raises on failure
-        return AgentToolResult.json_result(...,
-            metadata={"state_delta": {f"_flow_context.stage_{stage_id}": collected}})
+
+        state_delta = {f"_flow_context.stage_{stage_id}": collected}
+
+        # 捕获 source="tool" 的 state_key 原始值（去重），写入 stage_delta
+        # 跨会话恢复时 resume_task 将其还原到 session.state 顶层
+        stage_delta = {}
+        for fs in stage.field_sources.values():
+            if fs.source == "tool" and fs.state_key and fs.state_key not in stage_delta:
+                raw = ctx.get(fs.state_key)
+                if raw is not None:
+                    stage_delta[fs.state_key] = raw
+        if stage_delta:
+            state_delta[f"_flow_context.stage_{stage_id}_delta"] = stage_delta
+
+        return AgentToolResult.json_result(..., metadata={"state_delta": state_delta})
 ```
 
 **字段来源决策树**：
@@ -674,6 +688,14 @@ return AgentToolResult(
 * **文件路径**：`storage/{user_id}/active_tasks.json`
 * **新增字段**：`flow_context_snapshot`（存储 `FlowEvaluator.get_restorable_state()` 的结果）、`resume_ttl_hours`（默认 72 小时）、`updated_at`（毫秒时间戳）
 
+每个 stage 快照包含三个子字段：
+
+| 字段 | 说明 |
+|------|------|
+| `status` | `"completed"` \| `"pending"` |
+| `data` | 经 Pydantic 校验的 schema 数据，供 evaluator 判定阶段完成 |
+| `delta` | commit 时 `source="tool"` 字段对应的 state_key 原始值（如 `_rule_engine_result`），恢复后还原到 `session.state` 顶层，供下游工具（如 `render_a2ui`）读取 |
+
 ```json
 {
   "active_tasks": [
@@ -686,10 +708,23 @@ return AgentToolResult(
       "resume_ttl_hours": 72,
       "flow_context_snapshot": {
         "stages": {
-          "identity_verify": {"status": "completed", "data": {"user_id": "U001", "id_card_verified": true, "policy_ids": ["POL001"]}},
-          "options_query": {"status": "completed", "data": {"available_options": [], "total_cash_value": 150000.0, "max_withdrawal": 120000.0}},
-          "plan_confirm": {"status": "pending", "data": {}},
-          "execute": {"status": "pending", "data": {}}
+          "identity_verify": {
+            "status": "completed",
+            "data": {"user_id": "U001", "id_card_verified": true, "policy_ids": ["POL001"]},
+            "delta": {
+              "_customer_info_result": {"user_id": "U001", "identity": {"verified": true}},
+              "_policy_query_result": {"policyAssertList": [{"policy_id": "POL001"}]}
+            }
+          },
+          "options_query": {
+            "status": "completed",
+            "data": {"available_options": [], "total_cash_value": 150000.0, "max_withdrawal": 120000.0},
+            "delta": {
+              "_rule_engine_result": {"options": [], "total_available_excl_loan": 150000.0, "total_available_incl_loan": 120000.0}
+            }
+          },
+          "plan_confirm": {"status": "pending", "data": {}, "delta": {}},
+          "execute": {"status": "pending", "data": {}, "delta": {}}
         }
       }
     }
@@ -805,7 +840,12 @@ class ResumeTaskTool(AgentTool):
             )
         
         # 将 snapshot 格式转换回 _flow_context 格式并恢复
-        old_flow_ctx = self._restore_flow_context(task)
+        restored_flow_ctx = self._snapshot_to_flow_context(task)
+        # 将各阶段 delta 中的原始工具输出还原到 session.state 顶层
+        restored_tool_state = self._extract_delta_state(task)
+
+        state_delta = {"_flow_context": restored_flow_ctx}
+        state_delta.update(restored_tool_state)  # 还原 _rule_engine_result 等工具输出
         
         return AgentToolResult(
             result_type=ToolResultType.JSON,
@@ -815,29 +855,27 @@ class ResumeTaskTool(AgentTool):
                 "current_stage": task["current_stage"],
                 "message": f"已恢复【{task['skill_name']}】流程，当前在【{task['current_stage']}】阶段",
             },
-            metadata={
-                # 使用点路径写入，框架深度合并不覆盖其他 state 字段
-                "state_delta": {"_flow_context": old_flow_ctx},
-            },
+            metadata={"state_delta": state_delta},
         )
 
-    def _restore_flow_context(self, task: dict) -> dict:
-        """将 active_tasks.json 的 snapshot 格式转换回 _flow_context 的运行时格式。
-        
+    def _snapshot_to_flow_context(self, task: dict) -> dict:
+        """将 snapshot 格式转换回 _flow_context 运行时格式（evaluator 读取用）。
+
         snapshot 格式（get_restorable_state 产出）：
             {
               "flow_id": "...",
               "stages": {
-                "identity_verify": {"status": "completed", "data": {...}},
+                "identity_verify": {"status": "completed", "data": {...}, "delta": {...}},
                 ...
               }
             }
-        
-        _flow_context 运行时格式（evaluator 读取的格式）：
+
+        _flow_context 运行时格式：
             {
               "flow_id": "...",
               "skill_name": "withdrawal_flow",
-              "stage_identity_verify": {...},   # 直接展平，key = stage_{id}
+              "stage_identity_verify": {...},        # key = stage_{id}
+              "stage_identity_verify_delta": {...},  # key = stage_{id}_delta
               ...
             }
         """
@@ -849,12 +887,30 @@ class ResumeTaskTool(AgentTool):
         for stage_id, stage_info in snapshot.get("stages", {}).items():
             if stage_info.get("status") == "completed" and stage_info.get("data"):
                 flow_ctx[f"stage_{stage_id}"] = stage_info["data"]
+            if stage_info.get("delta"):
+                flow_ctx[f"stage_{stage_id}_delta"] = stage_info["delta"]
         return flow_ctx
+
+    def _extract_delta_state(self, task: dict) -> dict:
+        """提取所有已完成阶段的 delta，还原到 session.state 顶层。
+
+        render_a2ui 等工具通过 state_keys 读取工具输出（如 _rule_engine_result），
+        恢复后必须将这些原始输出放回 session.state 顶层，工具才能正常渲染。
+        旧格式快照（无 delta 字段）降级为空 dict，向后兼容。
+        """
+        snapshot = task.get("flow_context_snapshot", {})
+        result: dict = {}
+        for stage_info in snapshot.get("stages", {}).values():
+            if stage_info.get("status") == "completed":
+                result.update(stage_info.get("delta", {}))
+        return result
 ```
 
 **Step 3: 继续执行**
 
 恢复后 Agent 自动调用 `flow_evaluator`，读取已恢复的 `_flow_context`，Pydantic 校验前序阶段数据完整后，返回当前阶段并继续执行。
+
+**delta 还原解决的核心问题**：某些阶段（如 `plan_confirm`）需要调用 `render_a2ui` 渲染卡片，而 `render_a2ui` 依赖 `_rule_engine_result` 等工具原始输出。在新会话中这些 state key 为空，若不还原则卡片内容为空。`stage.delta` 机制在 `options_query` 阶段 commit 时捕获了 `_rule_engine_result` 的完整快照，`resume_task` 恢复时将其写回 `session.state`，`render_a2ui` 得以正常读取并渲染。
 
 ---
 

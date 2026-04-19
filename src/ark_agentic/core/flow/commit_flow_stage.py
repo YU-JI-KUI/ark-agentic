@@ -146,9 +146,20 @@ class CommitFlowStageTool(AgentTool):
                 )
 
         # 写入 _flow_context.stage_<id>（点路径，不覆盖同级其他 key）
-        state_delta = {f"_flow_context.stage_{stage_id}": collected}
+        state_delta: dict[str, Any] = {f"_flow_context.stage_{stage_id}": collected}
 
-        logger.debug("CommitFlowStage: stage=%s data=%s", stage_id, collected)
+        # 快照 source="tool" 字段的原始 state 值（stage_delta），供恢复后下游工具（如 render_a2ui）使用。
+        # 按 state_key 去重：同一 state_key 被多个字段引用时只存一份完整原始值。
+        stage_delta: dict[str, Any] = {}
+        for fs in stage.field_sources.values():
+            if fs.source == "tool" and fs.state_key and fs.state_key not in stage_delta:
+                raw = ctx.get(fs.state_key)
+                if raw is not None:
+                    stage_delta[fs.state_key] = raw
+        if stage_delta:
+            state_delta[f"_flow_context.stage_{stage_id}_delta"] = stage_delta
+
+        logger.debug("CommitFlowStage: stage=%s data=%s delta_keys=%s", stage_id, collected, list(stage_delta))
 
         return AgentToolResult.json_result(
             tool_call.id,

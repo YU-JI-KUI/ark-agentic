@@ -299,6 +299,10 @@ class BaseFlowEvaluator(AgentTool, ABC):
                 stage.id: {
                     "status": "completed" if self._is_stage_complete(stage, flow_ctx) else "pending",
                     "data": flow_ctx.get(f"stage_{stage.id}", {}),
+                    # delta: commit_flow_stage 提交时捕获的 source="tool" 原始 state 值，
+                    # 供 resume_task 恢复后将其还原到 session.state 顶层，
+                    # 使 render_a2ui 等下游工具在恢复后仍能读到原始工具输出。
+                    "delta": flow_ctx.get(f"stage_{stage.id}_delta", {}),
                 }
                 for stage in self.stages
             },
