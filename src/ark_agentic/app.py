@@ -69,10 +69,10 @@ async def lifespan(app: FastAPI):
     # ── Step 1: 先初始化 JobManager 全局单例（如果启用）────────────────────
     # 必须在 agent warmup 之前设置，因为 warmup 时会自动向 JobManager 注册 Job
     if _env_flag("ENABLE_JOB_MANAGER"):
-        from ark_agentic.core.notifications.store import NotificationStore
-        from ark_agentic.core.notifications.delivery import NotificationDelivery
-        from ark_agentic.core.jobs.manager import JobManager, set_job_manager
-        from ark_agentic.core.jobs.scanner import UserShardScanner
+        from ark_agentic.services.notifications.store import NotificationStore
+        from ark_agentic.services.notifications.delivery import NotificationDelivery
+        from ark_agentic.services.jobs.manager import JobManager, set_job_manager
+        from ark_agentic.services.jobs.scanner import UserShardScanner
         from ark_agentic.core.paths import get_notifications_base_dir
 
         notification_store = NotificationStore(base_dir=get_notifications_base_dir())

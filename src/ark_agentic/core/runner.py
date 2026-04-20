@@ -48,7 +48,7 @@ from .types import (
 )
 if TYPE_CHECKING:
     from .memory.manager import MemoryManager
-    from .jobs.proactive_service import ProactiveServiceJob
+    from ark_agentic.services.jobs.proactive_service import ProactiveServiceJob
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +285,7 @@ class AgentRunner:
         if self._proactive_job is None:
             return  # 未配置主动服务 Job，跳过
 
-        from .jobs.manager import get_job_manager
+        from ark_agentic.services.jobs.manager import get_job_manager
         job_manager = get_job_manager()
         if job_manager is None:
             return  # JobManager 尚未初始化（ENABLE_JOB_MANAGER=false）

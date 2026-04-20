@@ -17,6 +17,12 @@
 ## 安装
 
 ```bash
+# 打包前端 Studio 
+npm install --prefix src/ark_agentic/studio/frontend
+npm run build --prefix src/ark_agentic/studio/frontend
+```
+
+```bash
 uv add git+https://github.com/your-org/ark-agentic.git
 
 # 或本地开发

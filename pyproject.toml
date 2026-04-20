@@ -5,33 +5,29 @@ description = "Lightweight ReAct agent framework"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "arize-phoenix-otel",
     "httpx>=0.27.0",
     "pyyaml>=6.0.0",
     "python-dotenv>=1.0.0",
-    "numpy>=2.0.0",
+
     "langchain-openai>=0.3",
     "langchain-core>=0.3",
-    "akshare>=1.18.43",
-    "pandas>=2.3.3",
-    "rapidfuzz>=3.14.3",
-    "pypinyin>=0.55.0",
+
     "flashtext>=2.7",
-    "fastapi>=0.128.0",
-    "openinference-instrumentation-langchain",
-    "uvicorn>=0.40.0",
     "apscheduler>=3.11",
-    "bcrypt>=5.0.0",
 ]
 
 [project.optional-dependencies]
 server = [
-    "bcrypt>=4.0.0",
+    "bcrypt>=5.0.0",
     "fastapi>=0.128.0",
     "uvicorn[standard]>=0.40.0",
 ]
+observability = [
+    "arize-phoenix-otel",
+    "openinference-instrumentation-langchain",
+]
 dev = [
-    "ark-agentic[server]",
+    "ark-agentic[server,observability]",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-timeout>=2.3.0",
@@ -93,6 +89,7 @@ dev = [
     "pytest-timeout>=2.3.0",
 ]
 securities = [
+    "akshare>=1.18.43",
     "rapidfuzz>=3.14.3",
     "pypinyin>=0.55.0",
 ]
