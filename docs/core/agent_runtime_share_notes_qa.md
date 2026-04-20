@@ -303,16 +303,16 @@
 - 企业场景通常需要标准化信封和事件格式
 - 做协议层适配可以降低耦合度
 
-#### Q2：thinking/final 分离的价值是什么？
+#### Q2：思考流与最终答案分离的价值是什么？
 **回答重点：**
-- 可以内部保留思考信息处理能力
-- 但最终输出只暴露应展示的部分
-- 对安全性、产品体验和一致性都有帮助
+- 直接对齐 Thinking 模型的 `reasoning_content` 原生字段（`chunk.additional_kwargs`），无需自己解析标签
+- 思考内容走独立的 `thinking_message_*` 事件流，不会污染最终 `content`
+- 对安全性、产品体验和一致性都有帮助；Instruct 模型无该字段时零影响
 
 可引用位置：
-- `src/ark_agentic/core/stream/event_bus.py:63`
-- `src/ark_agentic/core/stream/output_formatter.py:59`
-- `src/ark_agentic/core/stream/thinking_tag_parser.py:182`
+- `src/ark_agentic/core/llm/caller.py`（`call_streaming` reasoning_content 分流）
+- `src/ark_agentic/core/stream/event_bus.py`（`on_thinking_delta`）
+- `src/ark_agentic/core/stream/output_formatter.py`
 
 ---
 

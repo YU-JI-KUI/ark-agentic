@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol, TYPE_CHECKING
 
+from .llm.sampling import SamplingConfig
 from .types import AgentMessage, MessageRole, ToolResultType
 
 if TYPE_CHECKING:
@@ -271,12 +272,36 @@ class LLMSummarizer:
     MERGE_INSTRUCTIONS = """合并以下多个部分摘要为一个统一的摘要。
 保留所有重要的决策、待办事项、问题和约束条件。"""
 
-    def __init__(self, llm: BaseChatModel) -> None:
+    def __init__(
+        self,
+        llm: BaseChatModel,
+        *,
+        sampling: SamplingConfig | None = None,
+    ) -> None:
         """
         Args:
             llm: ChatOpenAI 实例（或任何实现了 ainvoke 的 LangChain chat model）
+            sampling: 摘要任务采样参数，默认 SamplingConfig.for_summarization()
+                （低温 + 防重复，专为摘要场景调优）
         """
-        self.llm = llm
+        self.llm = self._apply_sampling(
+            llm, sampling or SamplingConfig.for_summarization()
+        )
+
+    @staticmethod
+    def _apply_sampling(
+        llm: BaseChatModel, sampling: SamplingConfig
+    ) -> BaseChatModel:
+        """基于 sampling 覆盖 llm 的采样参数（走 model_copy）。"""
+        updates: dict[str, Any] = {**sampling.to_chat_openai_kwargs()}
+        current_body = getattr(llm, "extra_body", None) or {}
+        updates["extra_body"] = {**current_body, **sampling.to_extra_body()}
+        if hasattr(llm, "model_copy"):
+            return llm.model_copy(update=updates)
+        if hasattr(llm, "copy"):
+            return llm.copy(update=updates)
+        logger.debug("Summarizer llm lacks model_copy; sampling override ignored")
+        return llm
 
     async def summarize(
         self,

@@ -8,8 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple, TYPE_CHECKING
 
@@ -24,6 +23,7 @@ from .callbacks import (
 )
 from .llm.caller import LLMCaller
 from .llm.errors import LLMError, LLMErrorReason
+from .llm.sampling import SamplingConfig
 from .prompt.builder import SystemPromptBuilder, PromptConfig
 from .session import SessionManager
 from .skills.base import SkillConfig
@@ -95,16 +95,15 @@ class RunnerConfig:
 
     # LLM 参数
     model: str | None = None
-    temperature: float = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
-    max_tokens: int = 4096
+    sampling: SamplingConfig = field(default_factory=SamplingConfig.for_chat)
+
+    # LLM 调用重试（指数退避 + 抖动，仅对 retryable 错误生效）
+    max_retries: int = 3
 
     # 执行控制
     max_turns: int = 10  # 最大对话轮数（防止无限循环）
     max_tool_calls_per_turn: int = 5  # 单轮最大工具调用数
     tool_timeout: float = 30.0  # 单个工具执行超时（秒）
-
-    # 思考标签：启用后 system prompt 注入 <think>/<final> 指引，流式解析器按标签路由
-    enable_thinking_tags: bool = False
 
     # 自动压缩
     auto_compact: bool = True
@@ -160,7 +159,7 @@ class _RunParams(NamedTuple):
     """Resolved per-run parameters (pure computation result)."""
 
     model: str | None
-    temperature: float
+    sampling_override: SamplingConfig | None
     skill_load_mode: str
 
 
@@ -234,7 +233,7 @@ class AgentRunner:
         # LLMCaller / ToolExecutor (SRP)
         self._llm_caller = LLMCaller(
             llm,
-            enable_thinking_tags=self.config.enable_thinking_tags,
+            max_retries=self.config.max_retries,
         )
         self._tool_executor = ToolExecutor(
             self.tool_registry,
@@ -245,11 +244,21 @@ class AgentRunner:
         if memory_manager is not None:
             from .memory.extractor import MemoryFlusher
 
-            self._flusher = MemoryFlusher(self._llm_caller.get_llm)
+            # Memory flush 是结构化 JSON 抽取任务，需要低温度 + 可复现 seed
+            extraction_sampling = SamplingConfig.for_extraction()
+            self._flusher = MemoryFlusher(
+                lambda: self._llm_caller.get_llm(sampling_override=extraction_sampling)
+            )
 
             if self.config.enable_dream:
                 from .memory.dream import MemoryDreamer
-                self._dreamer = MemoryDreamer(self._llm_caller.get_llm)
+
+                summarization_sampling = SamplingConfig.for_summarization()
+                self._dreamer = MemoryDreamer(
+                    lambda: self._llm_caller.get_llm(
+                        sampling_override=summarization_sampling
+                    )
+                )
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
@@ -347,7 +356,7 @@ class AgentRunner:
                 session_id,
                 use_streaming=stream,
                 model_override=params.model,
-                temperature_override=params.temperature,
+                sampling_override=params.sampling_override,
                 skill_load_mode=params.skill_load_mode,
                 handler=handler,
                 cb_ctx=cb_ctx,
@@ -372,7 +381,7 @@ class AgentRunner:
             session_id,
             use_streaming=False,
             model_override=params.model,
-            temperature_override=params.temperature,
+            sampling_override=params.sampling_override,
             skill_load_mode=params.skill_load_mode,
         )
 
@@ -381,11 +390,17 @@ class AgentRunner:
     def _resolve_run_params(self, run_options: RunOptions | None) -> _RunParams:
         """Pure parameter resolution from run_options + config defaults."""
         model = (run_options.model if run_options else None) or self.config.model
-        temperature = self.config.temperature
+        sampling_override: SamplingConfig | None = None
         if run_options and run_options.temperature is not None:
-            temperature = run_options.temperature
+            sampling_override = self.config.sampling.model_copy(
+                update={"temperature": run_options.temperature}
+            )
         skill_load_mode = self.config.skill_config.load_mode.value
-        return _RunParams(model=model, temperature=temperature, skill_load_mode=skill_load_mode)
+        return _RunParams(
+            model=model,
+            sampling_override=sampling_override,
+            skill_load_mode=skill_load_mode,
+        )
 
     async def _prepare_session(
         self,
@@ -636,7 +651,7 @@ class AgentRunner:
         *,
         use_streaming: bool = True,
         model_override: str | None = None,
-        temperature_override: float | None = None,
+        sampling_override: SamplingConfig | None = None,
         skill_load_mode: str = "full",
         handler: AgentEventHandler | None = None,
         cb_ctx: CallbackContext | None = None,
@@ -670,7 +685,7 @@ class AgentRunner:
                 state,
                 use_streaming=use_streaming,
                 model_override=model_override,
-                temperature_override=temperature_override,
+                sampling_override=sampling_override,
                 handler=handler,
                 cb_ctx=cb_ctx,
             )
@@ -748,7 +763,7 @@ class AgentRunner:
         *,
         use_streaming: bool,
         model_override: str | None,
-        temperature_override: float | None,
+        sampling_override: SamplingConfig | None,
         handler: AgentEventHandler | None,
         cb_ctx: CallbackContext | None,
     ) -> AgentMessage | RunResult:
@@ -786,7 +801,7 @@ class AgentRunner:
                         messages,
                         tools,
                         model_override=model_override,
-                        temperature_override=temperature_override,
+                        sampling_override=sampling_override,
                         content_callback=_on_content,
                         thinking_callback=_on_thinking,
                     )
@@ -795,7 +810,7 @@ class AgentRunner:
                         messages,
                         tools,
                         model_override=model_override,
-                        temperature_override=temperature_override,
+                        sampling_override=sampling_override,
                     )
             except LLMError as e:
                 if cb_ctx is not None:
@@ -950,7 +965,7 @@ class AgentRunner:
         session_id: str,
         handler: AgentEventHandler | None,
     ) -> RunResult:
-        """Final turn: thinking-tags fallback."""
+        """Final turn summary."""
         logger.info(
             "[RUN_END] session=%s turns=%d tool_calls=%d tokens=%d/%d",
             session_id[:8],
@@ -959,12 +974,6 @@ class AgentRunner:
             ls.total_prompt_tokens,
             ls.total_completion_tokens,
         )
-
-        if self.config.enable_thinking_tags and handler:
-            fallback = response.metadata.get("thinking_fallback_content")
-            if fallback:
-                handler.on_content_delta(fallback, ls.turns)
-
         return ls.make_result(response)
 
     def _build_messages(
@@ -1101,18 +1110,6 @@ class AgentRunner:
 
         prompt_config = self.config.prompt_config
 
-        # 当 enable_thinking_tags=True 且 prompt_config 未自定义指令时，自动填充默认模板
-        if (
-            self.config.enable_thinking_tags
-            and not prompt_config.thinking_tag_instructions
-        ):
-            from .stream.thinking_tag_parser import DEFAULT_THINKING_TAG_INSTRUCTIONS
-
-            prompt_config = replace(
-                prompt_config,
-                thinking_tag_instructions=DEFAULT_THINKING_TAG_INSTRUCTIONS,
-            )
-
         # 默认只注入 user: 前缀的状态到提示词，减少噪声
         user_state = {k: v for k, v in state.items() if k.startswith("user:")}
 
@@ -1167,10 +1164,13 @@ class AgentRunner:
     def _get_llm(
         self,
         model_override: str | None = None,
-        temperature_override: float | None = None,
+        sampling_override: SamplingConfig | None = None,
     ) -> BaseChatModel:
-        """向后兼容 — 委托给 LLMCaller.get_llm。"""
-        return self._llm_caller.get_llm(model_override, temperature_override)
+        """委托给 LLMCaller.get_llm（支持模型 / 采样参数覆盖）。"""
+        return self._llm_caller.get_llm(
+            model_override=model_override,
+            sampling_override=sampling_override,
+        )
 
     # ============ 便捷方法 ============
 

@@ -18,6 +18,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 # from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard, make_before_agent_callback  # DEBUG: 暂时禁用准入拦截
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 from ark_agentic.core.compaction import CompactionConfig
+from ark_agentic.core.llm.sampling import SamplingConfig
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
@@ -48,7 +49,7 @@ def create_insurance_agent(
     *,
     enable_memory: bool = False,
     enable_dream: bool = True,
-    enable_thinking_tags: bool = False,
+    sampling: SamplingConfig | None = None,
     proactive_cron: str = "26 23 * * *",
 ) -> AgentRunner:
     """创建保险智能体
@@ -57,7 +58,8 @@ def create_insurance_agent(
         llm: LLM 实例；None 时从环境变量初始化
         enable_memory: 是否启用 Memory 系统；路径由 MEMORY_DIR 环境变量控制
         enable_dream: 是否启用 Dream 后台蒸馏（需 enable_memory=True 才有效）
-        enable_thinking_tags: 是否启用 <think>/<final> 标签解析
+        sampling: 采样参数；默认 SamplingConfig.for_chat()（金融业务场景低温 + 工具调用遵循）
+        proactive_cron: 主动服务 Job 的触发 cron 表达式，默认每日 23:26
     """
     if llm is None:
         from ark_agentic.core.llm import create_chat_model_from_env
@@ -100,10 +102,8 @@ def create_insurance_agent(
     memory_manager = build_memory_manager(memory_dir) if memory_dir is not None else None
 
     runner_config = RunnerConfig(
-        temperature=0.3,
-        max_tokens=4096,
+        sampling=sampling or SamplingConfig.for_chat(),
         max_turns=10,
-        enable_thinking_tags=enable_thinking_tags,
         enable_subtasks=True,
         enable_dream=enable_dream,
         prompt_config=PromptConfig(

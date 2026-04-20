@@ -49,7 +49,7 @@ class AgentEventHandler(Protocol):
         ...
 
     def on_thinking_delta(self, delta: str, turn: int = 1) -> None:
-        """思考过程文本增量（<think> 标签内容）。turn 为 ReAct 轮次（1-based）。"""
+        """思考过程文本增量（Thinking 模型的 reasoning_content 字段）。turn 为 ReAct 轮次（1-based）。"""
         ...
 
     def on_ui_component(self, component: dict[str, Any]) -> None:

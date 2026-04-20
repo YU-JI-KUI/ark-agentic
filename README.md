@@ -624,8 +624,7 @@ src/ark_agentic/
 │   │   ├── event_bus.py   # StreamEventBus
 │   │   ├── output_formatter.py  # 4 种输出协议
 │   │   ├── agui_models.py # 企业 AGUI 信封
-│   │   ├── assembler.py   # 流式组装器
-│   │   └── thinking_tag_parser.py  # 思考标签解析器
+│   │   └── assembler.py   # 流式组装器
 │   ├── subtask/           # 并行子任务系统
 │   │   └── tool.py        # SpawnSubtasksTool
 │   ├── utils/             # 工具函数
@@ -715,7 +714,6 @@ src/ark_agentic/
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `ENABLE_STUDIO` | 启用 Studio 管理界面 | `false` |
-| `ENABLE_THINKING_TAGS` | 启用思考标签解析（<think>/<final> 流式区分思考态与最终回答） | `false` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `EMBEDDING_MODEL_PATH` | Embedding 模型路径（记忆/检索） | - |
 | `AGENTS_ROOT` | 自定义 Agent 根目录 | - |
@@ -790,7 +788,7 @@ uv run python script.py
 - **生命周期事件**: run_started, run_finished, run_error
 - **步骤事件**: step_started, step_finished
 - **文本流**: text_message_start, text_message_content, text_message_end
-- **思考流**: thinking_message_start, thinking_message_content, thinking_message_end（需启用 `ENABLE_THINKING_TAGS=true`）
+- **思考流**: thinking_message_start, thinking_message_content, thinking_message_end（Thinking 模型 `reasoning_content` 字段原生推送）
 - **工具调用**: tool_call_start, tool_call_args, tool_call_end, tool_call_result
 - **状态同步**: state_snapshot, state_delta, messages_snapshot
 - **自定义扩展**: custom, raw

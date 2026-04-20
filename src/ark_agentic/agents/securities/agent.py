@@ -99,7 +99,6 @@ def create_securities_agent(
         pass
 
     runner_config = RunnerConfig(
-        max_tokens=4096,
         max_turns=10,
         enable_dream=enable_dream,
         prompt_config=PromptConfig(

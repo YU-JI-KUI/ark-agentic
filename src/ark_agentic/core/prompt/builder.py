@@ -50,9 +50,6 @@ class PromptConfig:
     # 工具描述
     include_tool_descriptions: bool = False
 
-    # <think>/<final> 标签指引（非空时注入到 system prompt）
-    thinking_tag_instructions: str = ""
-
 
 _UNWRAPPED_SECTIONS = frozenset({"identity", "available_skills"})
 
@@ -299,8 +296,6 @@ class SystemPromptBuilder:
             builder.add_skills(skills, skill_config=skill_config)
         if context:
             builder.add_context(context)
-        if effective_config.thinking_tag_instructions:
-            builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
         if user_profile_content:
             builder.add_memory_context(user_profile_content)
         if enable_memory:

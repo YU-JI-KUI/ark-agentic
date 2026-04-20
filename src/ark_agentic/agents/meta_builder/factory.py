@@ -13,6 +13,7 @@ from pathlib import Path
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ark_agentic.core.compaction import CompactionConfig
+from ark_agentic.core.llm.sampling import SamplingConfig
 from ark_agentic.core.paths import prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
@@ -76,8 +77,8 @@ def create_meta_builder_from_env(
 
     # Runner 配置
     runner_config = RunnerConfig(
-        temperature=0.3,  # 构建任务偏低温，确保工具调用精准
-        max_tokens=4096,
+        # 构建任务：低温 + 精准工具调用（适度提高 temperature 以避免过度确定性导致输出重复）
+        sampling=SamplingConfig.for_chat(temperature=0.3),
         max_turns=8,
         prompt_config=PromptConfig(
             agent_name="Ark-Agentic Meta-Agent",
