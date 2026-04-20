@@ -2153,6 +2153,10 @@ button {
   align-items: center;
 }
 
+.execution-rounds-panel {
+  overscroll-behavior: contain;
+}
+
 .execution-rounds-carousel {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) 30px;
@@ -2190,7 +2194,7 @@ button {
   scroll-padding-inline: 8px;
   scrollbar-gutter: stable;
   cursor: grab;
-  overscroll-behavior-x: contain;
+  overscroll-behavior: contain;
   scrollbar-width: none;
 }
 
