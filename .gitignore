@@ -28,6 +28,8 @@ data/ark_securities
 data/ark_sessions
 
 .qoder/
+.agent/
+.*/
 
 
 # Claude
