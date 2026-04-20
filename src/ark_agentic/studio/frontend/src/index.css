@@ -682,9 +682,9 @@ button {
 .hero-surface h1,
 .login-hero h1 {
   margin: 0 0 12px;
-  font-size: clamp(2rem, 4vw, 3.4rem);
-  line-height: 0.98;
-  letter-spacing: -0.05em;
+  font-size: clamp(1.8rem, 3.2vw, 2.6rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 
 .workspace-context-copy p,
@@ -2913,22 +2913,53 @@ button {
 
 .login-shell {
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 18px;
-  align-items: stretch;
-  width: min(1320px, calc(100% - 24px));
-  margin: 0 auto;
-  padding: 18px 0;
-  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
 
-.login-hero,
-.login-panel {
-  padding: 28px;
+.login-container {
   display: grid;
-  align-content: start;
-  gap: 18px;
+  grid-template-columns: 1.3fr 0.7fr;
+  width: min(1000px, 100%);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.login-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 28px;
+  padding: 32px 40px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow);
+}
+
+.login-hero .surface-kicker {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: -0.02em;
+  font-family: var(--font-sans);
+  line-height: 1;
+}
+
+.login-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 24px;
+  padding: 32px 40px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow);
 }
 
 .login-signal-grid {
@@ -2936,7 +2967,8 @@ button {
 }
 
 .login-signal {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 16px;
   border-radius: 18px;
@@ -2949,25 +2981,28 @@ button {
 }
 
 .login-signal span {
+  display: block;
+  width: 100%;
   color: var(--text-muted);
   font-size: 14px;
-  line-height: 1.55;
-}
-
-.login-panel {
-  max-width: 540px;
-  margin-left: auto;
+  line-height: 1.6;
+  text-align: left;
+  word-break: normal;
+  overflow-wrap: break-word;
+  max-width: none;
 }
 
 .login-panel-header {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
+  margin-bottom: 4px;
+  margin-top: -12px; /* 上移文字，抵消视觉上的下偏 */
 }
 
 .login-panel-header strong {
   display: block;
-  font-size: 18px;
+  font-size: 16px;
   margin-bottom: 4px;
 }
 

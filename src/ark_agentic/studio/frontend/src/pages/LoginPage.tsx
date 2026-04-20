@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { SparkIcon } from '../components/StudioIcons'
 
 const LOGIN_URL = '/api/studio/auth/login'
 
@@ -41,80 +42,70 @@ export default function LoginPage() {
 
   return (
     <div className="login-shell">
-      <div className="login-hero">
-        <div className="surface-kicker">Ark-Agentic Studio</div>
-        <h1>Mission Control for agent operations, evidence, and direct execution.</h1>
-        <p>
-          This redesigned Studio moves away from generic admin patterns.
-          It is built to manage real agent assets with stronger context, clearer review signals, and better long-form editing surfaces.
-        </p>
-        <div className="login-signal-grid">
-          <div className="login-signal">
-            <strong>Control Plane</strong>
-            <span>Operational visibility across agents and assets.</span>
-          </div>
-          <div className="login-signal">
-            <strong>Decision Dock</strong>
-            <span>Meta-Agent support focused on concrete actions and impact.</span>
-          </div>
-          <div className="login-signal">
-            <strong>Readable Objects</strong>
-            <span>Skills, sessions, tools, and memory each have their own working rhythm.</span>
+      <div className="login-container">
+        <div className="login-hero">
+          <div className="surface-kicker">Ark-Agentic Studio</div>
+          <div className="login-signal-grid">
+            <div className="login-signal">
+              <strong>统一控制台</strong>
+              <span>集中查看 Agent、Skills、Tools、Sessions 与 Memory。</span>
+            </div>
+            <div className="login-signal">
+              <strong>调试工作流</strong>
+              <span>围绕真实运行记录与资产状态，快速定位问题并推进修改。</span>
+            </div>
+            <div className="login-signal">
+              <strong>可视化视角</strong>
+              <span>让复杂对象以更清晰的结构呈现，降低运营与维护成本。</span>
+            </div>
           </div>
         </div>
+
+        <form className="login-panel" onSubmit={handleSubmit}>
+          <div className="login-panel-header">
+            <div className="studio-brand-mark">
+              <SparkIcon />
+            </div>
+            <div>
+              <strong>登录 Studio</strong>
+            </div>
+          </div>
+
+          {error && <div className="login-error-banner">{error}</div>}
+
+          <label className="form-field">
+            <span>用户名</span>
+            <input
+              autoComplete="username"
+              autoFocus
+              onChange={event => setUsername(event.target.value)}
+              placeholder="请输入用户名"
+              required
+              value={username}
+            />
+          </label>
+
+          <label className="form-field">
+            <span>密码</span>
+            <input
+              autoComplete="current-password"
+              onChange={event => setPassword(event.target.value)}
+              placeholder="请输入密码"
+              required
+              type="password"
+              value={password}
+            />
+          </label>
+
+          <button
+            className="action-button action-button-primary login-submit"
+            disabled={!username.trim() || !password.trim() || loading}
+            type="submit"
+          >
+            {loading ? '登录中...' : '登录'}
+          </button>
+        </form>
       </div>
-
-      <form className="login-panel" onSubmit={handleSubmit}>
-        <div className="login-panel-header">
-          <div className="studio-brand-mark login-brand-mark" />
-          <div>
-            <strong>Authenticate</strong>
-            <span>Enter Studio credentials to continue.</span>
-          </div>
-        </div>
-
-        {error && <div className="login-error-banner">{error}</div>}
-
-        <label className="form-field">
-          <span>Username</span>
-          <input
-            autoComplete="username"
-            autoFocus
-            onChange={event => setUsername(event.target.value)}
-            placeholder="admin or viewer"
-            required
-            value={username}
-          />
-        </label>
-
-        <label className="form-field">
-          <span>Password</span>
-          <input
-            autoComplete="current-password"
-            onChange={event => setPassword(event.target.value)}
-            placeholder="Enter password"
-            required
-            type="password"
-            value={password}
-          />
-        </label>
-
-        <button
-          className="action-button action-button-primary login-submit"
-          disabled={!username.trim() || !password.trim() || loading}
-          type="submit"
-        >
-          {loading ? 'Signing in...' : 'Sign In'}
-        </button>
-
-        <div className="login-hints">
-          <span>Common roles</span>
-          <div className="button-row">
-            <div className="status-pill status-healthy">admin</div>
-            <div className="status-pill status-watch">viewer</div>
-          </div>
-        </div>
-      </form>
     </div>
   )
 }
