@@ -19,7 +19,7 @@ def test_init_phoenix_skips_when_disabled(monkeypatch) -> None:
     monkeypatch.delenv("PHOENIX_API_KEY", raising=False)
     monkeypatch.delenv("PHOENIX_CLIENT_HEADERS", raising=False)
 
-    from ark_agentic.core.observability import phoenix
+    from ark_agentic.observability import phoenix
 
     module = importlib.reload(phoenix)
     assert module.init_phoenix() is None
@@ -52,7 +52,7 @@ def test_init_phoenix_registers_and_shutdowns(monkeypatch) -> None:
     monkeypatch.setenv("PHOENIX_PROJECT_NAME", "ark-tests")
     monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:4317")
 
-    from ark_agentic.core.observability import phoenix
+    from ark_agentic.observability import phoenix
 
     module = importlib.reload(phoenix)
     assert module.init_phoenix(service_name="ignored") is provider
@@ -66,7 +66,7 @@ def test_init_phoenix_registers_and_shutdowns(monkeypatch) -> None:
 
 
 def test_phoenix_callbacks_enabled_requires_explicit_env(monkeypatch) -> None:
-    from ark_agentic.core.observability import phoenix
+    from ark_agentic.observability import phoenix
 
     module = importlib.reload(phoenix)
 
@@ -79,6 +79,58 @@ def test_phoenix_callbacks_enabled_requires_explicit_env(monkeypatch) -> None:
 
     monkeypatch.setenv("ENABLE_PHOENIX", "false")
     assert module.phoenix_callbacks_enabled() is False
+
+
+def test_build_observability_bindings_skip_tracing_when_disabled(monkeypatch) -> None:
+    from ark_agentic.core.callbacks import RunnerCallbacks
+    from ark_agentic.observability import phoenix
+
+    module = importlib.reload(phoenix)
+    monkeypatch.delenv("ENABLE_PHOENIX", raising=False)
+
+    external = RunnerCallbacks()
+    bindings = module.build_observability_bindings(
+        agent_id="insurance",
+        agent_name="测试助手",
+        callbacks=external,
+    )
+
+    assert bindings.callbacks is external
+    assert bindings.subtask_callbacks is None
+
+
+def test_build_observability_bindings_wrap_external_callbacks_when_enabled(monkeypatch) -> None:
+    from ark_agentic.core.callbacks import RunnerCallbacks
+    from ark_agentic.observability import phoenix
+
+    module = importlib.reload(phoenix)
+    monkeypatch.setenv("ENABLE_PHOENIX", "true")
+
+    external_before = object()
+    external_after = object()
+    external_retry = object()
+    external = RunnerCallbacks(
+        before_agent=[external_before],
+        after_agent=[external_after],
+        before_loop_end=[external_retry],
+    )
+
+    bindings = module.build_observability_bindings(
+        agent_id="insurance",
+        agent_name="测试助手",
+        callbacks=external,
+    )
+    callbacks = bindings.callbacks
+    subtask_callbacks = bindings.subtask_callbacks
+
+    assert len(callbacks.before_agent) == 2
+    assert callbacks.before_agent[1] is external_before
+    assert callbacks.after_agent[0] is external_after
+    assert len(callbacks.after_agent) == 2
+    assert callbacks.before_loop_end == [external_retry]
+    assert subtask_callbacks is not None
+    assert len(subtask_callbacks.before_agent) == 1
+    assert len(subtask_callbacks.after_agent) == 1
 
 
 class _FakeSpan:
@@ -122,7 +174,7 @@ class _FakeTracer:
 
 @pytest.mark.asyncio
 async def test_tracing_callbacks_capture_agent_model_and_tool_spans(monkeypatch) -> None:
-    from ark_agentic.core.observability import phoenix
+    from ark_agentic.observability import phoenix
 
     module = importlib.reload(phoenix)
     tracer = _FakeTracer()
@@ -253,7 +305,7 @@ async def test_tracing_callbacks_capture_agent_model_and_tool_spans(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_tracing_callbacks_create_one_tool_span_per_tool_call(monkeypatch) -> None:
-    from ark_agentic.core.observability import phoenix
+    from ark_agentic.observability import phoenix
 
     module = importlib.reload(phoenix)
     tracer = _FakeTracer()
@@ -293,7 +345,7 @@ async def test_tracing_callbacks_create_one_tool_span_per_tool_call(monkeypatch)
 @pytest.mark.asyncio
 async def test_tracing_callbacks_close_pending_model_span_on_error(monkeypatch) -> None:
     from ark_agentic.core.llm.errors import LLMError, LLMErrorReason
-    from ark_agentic.core.observability import phoenix
+    from ark_agentic.observability import phoenix
 
     module = importlib.reload(phoenix)
     tracer = _FakeTracer()

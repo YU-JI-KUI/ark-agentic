@@ -18,6 +18,10 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from ark_agentic.core.callbacks import CallbackContext, CallbackEvent, CallbackResult, HookAction, RunnerCallbacks
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
+from ark_agentic.observability import (
+    apply_observability_bindings,
+    build_observability_bindings,
+)
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
@@ -146,6 +150,11 @@ def create_securities_agent(
         before_agent=[_enrich_context, _auth_check],
         before_loop_end=[_citation_hook],
     )
+    observability = build_observability_bindings(
+        agent_id=skill_config.agent_id,
+        agent_name=runner_config.prompt_config.agent_name,
+        callbacks=existing_callbacks,
+    )
 
     # 构建证券专属主动服务 Job（memory 启用时），随 runner 一起交给框架调度
     proactive_job = None
@@ -161,13 +170,14 @@ def create_securities_agent(
             cron=proactive_cron,
         )
 
-    return AgentRunner(
+    runner = AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
         session_manager=session_manager,
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
-        callbacks=existing_callbacks,
+        callbacks=observability.callbacks,
         proactive_job=proactive_job,
     )
+    return apply_observability_bindings(runner, observability)

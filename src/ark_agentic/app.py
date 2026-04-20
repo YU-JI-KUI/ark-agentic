@@ -47,7 +47,7 @@ from ark_agentic.api import chat as chat_api
 from ark_agentic.api import notifications as notifications_api
 from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
-from ark_agentic.core.observability import (
+from ark_agentic.observability import (
     init_phoenix,
     phoenix_callbacks_enabled,
     shutdown_phoenix,

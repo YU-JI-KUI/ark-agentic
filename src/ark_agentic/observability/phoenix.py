@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from ..callbacks import CallbackContext, RunnerCallbacks
-from ..llm.errors import LLMError
+from ..core.callbacks import CallbackContext, RunnerCallbacks
+from ..core.llm.errors import LLMError
+
+if TYPE_CHECKING:
+    from ..core.runner import AgentRunner
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,23 @@ except ImportError:  # pragma: no cover - best-effort fallback when optional dep
 _JSON_MIME_TYPE = "application/json"
 
 
+@dataclass(frozen=True)
+class ObservabilityBindings:
+    """Resolved observability callback bindings for a runner and its subtasks."""
+
+    callbacks: RunnerCallbacks
+    subtask_callbacks: RunnerCallbacks | None = None
+
+
+def apply_observability_bindings(
+    runner: "AgentRunner",
+    bindings: ObservabilityBindings,
+) -> "AgentRunner":
+    """Attach observability-only subtask callbacks after runner construction."""
+    setattr(runner, "_subtask_callbacks", bindings.subtask_callbacks)
+    return runner
+
+
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None or raw == "":
@@ -80,6 +100,46 @@ def _phoenix_enabled() -> bool:
 def phoenix_callbacks_enabled() -> bool:
     """Tracing callbacks are injected only when ENABLE_PHOENIX is explicitly enabled."""
     return _env_flag("ENABLE_PHOENIX")
+
+
+def _compose_callbacks(
+    internal: RunnerCallbacks,
+    external: RunnerCallbacks | None,
+) -> RunnerCallbacks:
+    external = external or RunnerCallbacks()
+    return RunnerCallbacks(
+        before_agent=[*internal.before_agent, *external.before_agent],
+        after_agent=[*external.after_agent, *internal.after_agent],
+        before_model=[*internal.before_model, *external.before_model],
+        after_model=[*external.after_model, *internal.after_model],
+        before_tool=[*internal.before_tool, *external.before_tool],
+        after_tool=[*external.after_tool, *internal.after_tool],
+        before_loop_end=[*external.before_loop_end, *internal.before_loop_end],
+    )
+
+
+def build_observability_bindings(
+    *,
+    agent_id: str,
+    agent_name: str,
+    callbacks: RunnerCallbacks | None = None,
+) -> ObservabilityBindings:
+    """Build observability callbacks for a runner and its subtasks.
+
+    Observability remains opt-in at construction time, so AgentRunner itself only
+    consumes callbacks and does not create them.
+    """
+    if not phoenix_callbacks_enabled():
+        return ObservabilityBindings(callbacks=callbacks or RunnerCallbacks())
+
+    tracing_callbacks = create_tracing_callbacks(
+        agent_id=agent_id,
+        agent_name=agent_name,
+    )
+    return ObservabilityBindings(
+        callbacks=_compose_callbacks(tracing_callbacks, callbacks),
+        subtask_callbacks=tracing_callbacks,
+    )
 
 
 def init_phoenix(*, service_name: str = "ark-agentic") -> Any | None:
@@ -258,24 +318,24 @@ class _ManagedSpan:
         self.manager.__exit__(type(exc) if exc else None, exc, exc.__traceback__ if exc else None)
 
 
-def _get_span_store(ctx: CallbackContext) -> dict[str, _ManagedSpan]:
-    store = ctx.runtime.setdefault("_phoenix_spans", {})
-    return store
-
-
 def _start_managed_span(
     name: str,
     *,
-    attributes: dict[str, Any] | None = None,
     tracer_name: str,
+    attributes: dict[str, Any] | None = None,
 ) -> _ManagedSpan | None:
     tracer = get_tracer(tracer_name)
     if tracer is None:
         return None
     manager = tracer.start_as_current_span(name)
     span = manager.__enter__()
-    _set_span_attributes(span, attributes)
-    return _ManagedSpan(manager=manager, span=span)
+    handle = _ManagedSpan(manager=manager, span=span)
+    handle.set_attributes(attributes)
+    return handle
+
+
+def _get_span_store(ctx: CallbackContext) -> dict[str, _ManagedSpan]:
+    return ctx.runtime.setdefault("_phoenix_spans", {})
 
 
 def _close_span(

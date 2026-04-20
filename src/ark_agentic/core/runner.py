@@ -34,7 +34,6 @@ from .tools.base import AgentTool
 from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
-from .observability import create_tracing_callbacks, phoenix_callbacks_enabled
 from .types import (
     AgentMessage,
     AgentToolResult,
@@ -51,38 +50,6 @@ if TYPE_CHECKING:
     from ark_agentic.services.jobs.proactive_service import ProactiveServiceJob
 
 logger = logging.getLogger(__name__)
-
-
-def _compose_runner_callbacks(
-    internal: RunnerCallbacks,
-    external: RunnerCallbacks | None,
-) -> RunnerCallbacks:
-    external = external or RunnerCallbacks()
-    return RunnerCallbacks(
-        before_agent=[*internal.before_agent, *external.before_agent],
-        after_agent=[*external.after_agent, *internal.after_agent],
-        before_model=[*internal.before_model, *external.before_model],
-        after_model=[*external.after_model, *internal.after_model],
-        before_tool=[*internal.before_tool, *external.before_tool],
-        after_tool=[*external.after_tool, *internal.after_tool],
-        before_loop_end=[*external.before_loop_end, *internal.before_loop_end],
-    )
-
-
-def _build_runner_callbacks(
-    *,
-    config: RunnerConfig,
-    callbacks: RunnerCallbacks | None,
-) -> RunnerCallbacks:
-    if not phoenix_callbacks_enabled():
-        return callbacks or RunnerCallbacks()
-    return _compose_runner_callbacks(
-        create_tracing_callbacks(
-            agent_id=config.skill_config.agent_id,
-            agent_name=config.prompt_config.agent_name,
-        ),
-        callbacks,
-    )
 
 
 # ============ Runner Config ============
@@ -217,11 +184,7 @@ class AgentRunner:
         self.session_manager = session_manager
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
-
-        self._callbacks = _build_runner_callbacks(
-            config=self.config,
-            callbacks=callbacks,
-        )
+        self._callbacks = callbacks or RunnerCallbacks()
 
         self._memory_manager = memory_manager
         self._proactive_job = proactive_job
