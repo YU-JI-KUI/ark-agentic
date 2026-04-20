@@ -174,6 +174,97 @@ class BaseFlowEvaluator(AgentTool, ABC):
         """子类必须定义阶段列表（有序）。"""
         ...
 
+    @staticmethod
+    def _extract_field(state_value: Any, fs: FieldSource) -> Any:
+        """按 FieldSource 声明从 session.state 值中提取字段值（与 CommitFlowStageTool 逻辑一致）。"""
+        if fs.transform is not None:
+            return fs.transform(state_value)
+        if fs.path:
+            value = state_value
+            for part in fs.path.split("."):
+                value = value.get(part) if isinstance(value, dict) else None
+            return value
+        return state_value
+
+    def _auto_commit_tool_stages(
+        self,
+        flow_ctx: dict[str, Any],
+        ctx: dict[str, Any],
+        state_delta: dict[str, Any],
+    ) -> None:
+        """自动提交只含 source='tool' 字段且数据已就绪的阶段。
+
+        当阶段的所有字段均来自工具输出（source='tool'）且对应 state_key
+        已存在于 session.state 时，无需 LLM 显式调用 commit_flow_stage，
+        evaluator 在评估前自动提取、校验并写入 _flow_context，触发阶段推进。
+
+        按阶段顺序处理：遇到无法自动提交的阶段（含 user 字段、数据缺失、校验失败）即停止，
+        不会跳过中间阶段去提交后续阶段。
+        """
+        for stage in self.stages:
+            if flow_ctx.get(f"stage_{stage.id}"):
+                continue  # 已提交，跳过
+
+            if not stage.field_sources:
+                break  # 无 field_sources 声明，需显式提交，停止
+
+            if any(fs.source == "user" for fs in stage.field_sources.values()):
+                break  # 含用户字段，需 LLM 收集，停止
+
+            # 全为 source="tool"，尝试提取数据
+            collected: dict[str, Any] = {}
+            all_available = True
+            for field_name, fs in stage.field_sources.items():
+                if not fs.state_key:
+                    all_available = False
+                    break
+                state_value = ctx.get(fs.state_key)
+                if state_value is None:
+                    all_available = False
+                    break
+                collected[field_name] = self._extract_field(state_value, fs)
+
+            if not all_available:
+                break  # 数据未就绪，停止
+
+            valid, _ = stage.validate_output(collected)
+            if not valid:
+                break  # 校验失败，停止
+
+            # 写入 flow_ctx（内存）和 state_delta（持久化）
+            flow_ctx[f"stage_{stage.id}"] = collected
+            state_delta[f"_flow_context.stage_{stage.id}"] = collected
+
+            # checkpoint 阶段：追加到 checkpoints 列表
+            if stage.checkpoint:
+                existing: list[dict[str, Any]] = list(flow_ctx.get("checkpoints") or [])
+                existing = [c for c in existing if c.get("stage_id") != stage.id]
+                existing.append({
+                    "stage_id": stage.id,
+                    "name": stage.name,
+                    "description": stage.description,
+                })
+                flow_ctx["checkpoints"] = existing
+                state_delta["_flow_context.checkpoints"] = existing
+
+            # 快照 delta（原始 state 值 + delta_state_keys），供 resume 时还原
+            stage_delta: dict[str, Any] = {}
+            for fs in stage.field_sources.values():
+                if fs.source == "tool" and fs.state_key and fs.state_key not in stage_delta:
+                    raw = ctx.get(fs.state_key)
+                    if raw is not None:
+                        stage_delta[fs.state_key] = raw
+            for key in stage.delta_state_keys:
+                if key not in stage_delta:
+                    raw = ctx.get(key)
+                    if raw is not None:
+                        stage_delta[key] = raw
+            if stage_delta:
+                flow_ctx[f"stage_{stage.id}_delta"] = stage_delta
+                state_delta[f"_flow_context.stage_{stage.id}_delta"] = stage_delta
+
+            logger.debug("AutoCommit stage '%s': fields=%s", stage.id, list(collected))
+
     async def execute(
         self, tool_call: ToolCall, context: dict[str, Any] | None = None
     ) -> AgentToolResult:
@@ -211,8 +302,7 @@ class BaseFlowEvaluator(AgentTool, ABC):
                                 f"（当前阶段：{task['current_stage']}）。"
                                 f"请先向用户展示该任务，等待用户明确答复后再操作：\n"
                                 f"  继续      → resume_task(flow_id=\"{task['flow_id']}\", action=\"resume\")\n"
-                                f"  废弃      → resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")\n"
-                                f"  重新开始  → resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")"
+                                f"  废弃      → resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")"
                                 f"，然后重新发起流程\n"
                                 f"⚠️ 严禁未得到用户答复前直接调用 resume_task。"
                             ),
@@ -226,12 +316,21 @@ class BaseFlowEvaluator(AgentTool, ABC):
             flow_ctx = {"flow_id": str(uuid.uuid4()), "skill_name": self.skill_name}
             init_flow_ctx = flow_ctx
 
+        # 自动提交只含 source="tool" 字段且数据已就绪的阶段
+        auto_commit_delta: dict[str, Any] = {}
+        self._auto_commit_tool_stages(flow_ctx, ctx, auto_commit_delta)
+
         completed, is_done = self._evaluate_stages(flow_ctx)
 
+        # 构建 state_delta：init_flow_ctx 优先设置（整体赋值），
+        # 再叠加 auto_commit_delta（点路径），最后写入 _flow_stage。
+        state_delta: dict[str, Any] = {}
+        if init_flow_ctx:
+            state_delta["_flow_context"] = init_flow_ctx
+        state_delta.update(auto_commit_delta)
+
         if is_done:
-            state_delta: dict[str, Any] = {"_flow_stage": "__completed__"}
-            if init_flow_ctx:
-                state_delta["_flow_context"] = init_flow_ctx
+            state_delta["_flow_stage"] = "__completed__"
             return AgentToolResult(
                 tool_call_id=tool_call.id,
                 result_type=ToolResultType.JSON,
@@ -250,9 +349,7 @@ class BaseFlowEvaluator(AgentTool, ABC):
         else:
             current_stage = self.stages[len(completed)]
 
-        state_delta = {"_flow_stage": current_stage.id}
-        if init_flow_ctx:
-            state_delta["_flow_context"] = init_flow_ctx
+        state_delta["_flow_stage"] = current_stage.id
 
         # 若当前阶段有需要从用户收集的字段，列入响应供模型规划
         user_fields = current_stage.user_required_fields()
