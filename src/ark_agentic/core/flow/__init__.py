@@ -5,7 +5,7 @@
   StageDefinition     — 阶段定义（Pydantic 校验 + reference 绑定）
   FlowEvaluatorRegistry — 全局单例注册表（skill_name → evaluator 实例）
   TaskRegistry        — active_tasks.json 读写（持久化 + TTL 清理）
-  persist_flow_context / inject_flow_hint — after_agent / before_agent hook 实现
+  FlowCallbacks       — persist_flow_context after_agent hook（待恢复任务检测已移入 BaseFlowEvaluator.execute()）
 """
 
 from .base_evaluator import BaseFlowEvaluator, FlowEvaluatorRegistry, StageDefinition

@@ -138,6 +138,9 @@ class ResumeTaskTool(AgentTool):
                     f"如需重新开始，请重新发起该业务流程。"
                 ),
             },
+            # 清空 session state 中的 _flow_context，防止 persist_flow_context
+            # after_agent hook 将刚删除的任务重新写回 active_tasks.json
+            metadata={"state_delta": {"_flow_context": {}}},
         )
 
     @staticmethod
@@ -172,6 +175,21 @@ class ResumeTaskTool(AgentTool):
                 flow_ctx[f"stage_{stage_id}"] = stage_info["data"]
             if stage_info.get("delta"):
                 flow_ctx[f"stage_{stage_id}_delta"] = stage_info["delta"]
+
+        # 从已完成的 checkpoint 阶段重建 checkpoints 历史，
+        # 使 rollback_flow_stage 在 resume 后仍能获取有效回退点列表。
+        from ..flow.base_evaluator import FlowEvaluatorRegistry
+        evaluator = FlowEvaluatorRegistry.get(task["skill_name"])
+        if evaluator:
+            checkpoints = [
+                {"stage_id": s.id, "name": s.name, "description": s.description}
+                for s in evaluator.stages
+                if s.checkpoint
+                and snapshot.get("stages", {}).get(s.id, {}).get("status") == "completed"
+            ]
+            if checkpoints:
+                flow_ctx["checkpoints"] = checkpoints
+
         return flow_ctx
 
     @staticmethod

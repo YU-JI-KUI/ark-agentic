@@ -80,6 +80,7 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 name="身份核验",
                 description="验证客户身份和保单信息",
                 required=True,
+                checkpoint=False, 
                 output_schema=IdentityVerifyOutput,
                 reference_file="identity_verify.md",
                 tools=["customer_info", "policy_query"],
@@ -136,9 +137,11 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 name="方案确认",
                 description="向用户展示方案并等待确认",
                 required=True,
+                checkpoint=True,   # 用户明确确认方案后持久化，断线可从执行阶段恢复
                 output_schema=PlanConfirmOutput,
                 reference_file="plan_confirm.md",
                 tools=["render_a2ui"],
+                delta_state_keys=["_plan_allocations"],  # render_a2ui 写入，resume 时还原供 submit_withdrawal 使用
                 field_sources={
                     "confirmed": FieldSource(
                         source="user",

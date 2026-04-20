@@ -131,7 +131,6 @@ def create_insurance_agent(
             # before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],  # DEBUG: 暂时禁用准入拦截
         ),
         RunnerCallbacks(
-            before_agent=[flow_callbacks.inject_flow_hint],
             after_agent=[flow_callbacks.persist_flow_context],
         ),
     )

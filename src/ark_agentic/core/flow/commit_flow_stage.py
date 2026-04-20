@@ -148,7 +148,19 @@ class CommitFlowStageTool(AgentTool):
         # 写入 _flow_context.stage_<id>（点路径，不覆盖同级其他 key）
         state_delta: dict[str, Any] = {f"_flow_context.stage_{stage_id}": collected}
 
-        # 快照 source="tool" 字段的原始 state 值（stage_delta），供恢复后下游工具（如 render_a2ui）使用。
+        # checkpoint 阶段：将完成记录追加到 _flow_context.checkpoints 供回退功能使用。
+        # 重复提交时替换同一 stage 的记录（幂等）。
+        if stage.checkpoint:
+            existing: list[dict[str, Any]] = list(flow_ctx.get("checkpoints") or [])
+            existing = [c for c in existing if c.get("stage_id") != stage_id]
+            existing.append({
+                "stage_id": stage_id,
+                "name": stage.name,
+                "description": stage.description,
+            })
+            state_delta["_flow_context.checkpoints"] = existing
+
+        # 快照 source="tool" 字段的原始 state 值（stage_delta），供恢复后下游工具（如 submit_withdrawal）使用。
         # 按 state_key 去重：同一 state_key 被多个字段引用时只存一份完整原始值。
         stage_delta: dict[str, Any] = {}
         for fs in stage.field_sources.values():
@@ -156,6 +168,12 @@ class CommitFlowStageTool(AgentTool):
                 raw = ctx.get(fs.state_key)
                 if raw is not None:
                     stage_delta[fs.state_key] = raw
+        # delta_state_keys: 额外快照的 state 键（不参与校验，仅用于 resume 还原）
+        for key in stage.delta_state_keys:
+            if key not in stage_delta:
+                raw = ctx.get(key)
+                if raw is not None:
+                    stage_delta[key] = raw
         if stage_delta:
             state_delta[f"_flow_context.stage_{stage_id}_delta"] = stage_delta
 

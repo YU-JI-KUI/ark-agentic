@@ -12,6 +12,7 @@ tags:
 required_tools:
   - withdraw_money_flow_evaluator
   - commit_flow_stage
+  - rollback_flow_stage
   - customer_info
   - policy_query
   - rule_engine
@@ -22,7 +23,7 @@ required_tools:
 
 # 保险取款流程（Agentic Native Flow）
 
-通过结构化 4 阶段 SOP 处理取款业务，流程由 `withdraw_money_flow_evaluator` 驱动。
+通过结构化 SOP 处理取款业务，流程由 `withdraw_money_flow_evaluator` 驱动。
 
 ## 核心规则
 
@@ -30,30 +31,24 @@ required_tools:
 2. 根据 evaluator 返回的 `current_stage.suggested_tools`，按阶段参考文档的操作指引执行
 3. 若 evaluator 响应包含 `user_required_fields`，需向用户展示方案并收集对应字段
 4. 收集完成后调用 `commit_flow_stage(stage_id=<stage_id>, user_data={...})` 提交阶段数据
-5. 再次调用 `withdraw_money_flow_evaluator` 确认阶段推进
-6. evaluator 返回 `flow_status=completed` 时流程结束
+5. 再次调用 `withdraw_money_flow_evaluator` 确认阶段推进，直至所有阶段完成。
 
-## 流程总览
+各阶段的字段来源和异常处理详见对应阶段参考文档。
 
-| 阶段 | ID | 工具 | 字段来源 |
-|------|-----|------|---------|
-| 身份核验 | identity_verify | customer_info, policy_query | 全部 tool |
-| 方案查询 | options_query | rule_engine | 全部 tool |
-| 方案确认 | plan_confirm | render_a2ui | 全部 user（需从用户收集） |
-| 执行取款 | execute | submit_withdrawal | 全部 tool |
+## 异常处理原则
 
-## 跨会话恢复
+- **工具调用失败**：告知用户具体失败原因，提示稍后重试；不调用 `commit_flow_stage`，流程停留在当前阶段，支持重试
+- **关键信息缺失**（user_id、身份未认证、无有效保单）：明确告知用户缺失内容，无法继续时终止流程
+- **用户中途退出**：若用户明确表示不再继续，停止流程；已完成阶段数据保留，支持后续通过 `resume_task` 恢复
 
-用户离开后重新进入时，若检测到未完成的流程：
-1. 调用 `resume_task(flow_id=<flow_id>)` 恢复上下文
-2. 调用 `withdraw_money_flow_evaluator` 查看当前阶段
-3. 按阶段 SOP 继续执行
+## 流程回退
 
-## commit_flow_stage 使用约定
+当用户希望修改已完成阶段的内容（如更换方案、重新查询等）：
 
-每个阶段的业务工具调用完成后，调用 `commit_flow_stage` 提交阶段数据：
-
-- **tool 来源字段**（如 `user_id`、`available_options`）：框架自动从 session.state 提取，**无需传递**
-- **user 来源字段**（如 `confirmed`、`amount`）：必须通过 `user_data` 参数提供
-
-各阶段的字段来源详见对应阶段参考文档。
+1. 查看 evaluator 响应中的 `available_checkpoints` 列表
+2. 根据用户意图找到最合适的回退点：
+   - **明确匹配**：告知用户将回退到「XX阶段」重新执行，等待用户确认
+   - **无法判断**：将 `available_checkpoints` 列表全部展示，请用户指定
+3. 用户确认后调用 `rollback_flow_stage(stage_id=<确认的 stage_id>)`
+4. 工具自动清除目标阶段及其后续所有阶段的数据
+5. 再次调用 `withdraw_money_flow_evaluator`，从目标阶段重新开始执行

@@ -28,8 +28,10 @@ from pydantic import BaseModel, ValidationError
 
 from ..tools.base import AgentTool, ToolParameter
 from ..types import AgentToolResult, ToolCall, ToolResultType
+from .task_registry import TaskRegistry
+import logging
 
-
+logger = logging.getLogger(__name__)
 # ── 字段来源声明 ──────────────────────────────────────────────────────────────
 
 
@@ -83,6 +85,13 @@ class StageDefinition:
     reference_file: str | None = None
     tools: list[str] = field(default_factory=list)
     field_sources: dict[str, FieldSource] = field(default_factory=dict)
+    # checkpoint=True: 该阶段完成后触发 persist_flow_context 写盘，保留跨会话恢复点。
+    # 无需每个阶段都持久化时，将非关键阶段设为 False 可减少 I/O。
+    checkpoint: bool = False
+    # delta_state_keys: 额外需要快照到 stage_delta 的 session.state 键。
+    # 这些键不参与 field_sources 校验，仅用于 resume 时还原工具输出到 session.state，
+    # 使下游工具（如 submit_withdrawal）在跨会话恢复后仍能读到原始数据。
+    delta_state_keys: list[str] = field(default_factory=list)
 
     def user_required_fields(self) -> list[dict[str, str]]:
         """返回 source="user" 的字段列表，供 evaluator 响应向模型描述。"""
@@ -150,6 +159,8 @@ class BaseFlowEvaluator(AgentTool, ABC):
 
     def __init__(self) -> None:
         self.name = f"{self.skill_name}_evaluator"
+        self._task_registry: TaskRegistry | None = None
+        self._ttl_hours: int = 72
 
     @property
     @abstractmethod
@@ -168,6 +179,46 @@ class BaseFlowEvaluator(AgentTool, ABC):
     ) -> AgentToolResult:
         ctx = context or {}
         flow_ctx: dict[str, Any] = dict(ctx.get("_flow_context") or {})
+
+        # 本会话首次调用（无 flow_id）且配置了 task_registry：检查是否有待恢复任务。
+        # 用 _pending_checked_{skill_name} 标记确保同一会话只检查一次，
+        # 避免用户拒绝恢复后每次调用都重复提示。
+        _pending_flag = f"_pending_checked_{self.skill_name}"
+        if (
+            not flow_ctx.get("flow_id")
+            and self._task_registry is not None
+            and not ctx.get(_pending_flag)
+        ):
+            user_id = str(ctx.get("user:id", ""))
+            if user_id:
+                active = self._task_registry.list_active(user_id, ttl_hours=self._ttl_hours)
+                logger.debug("Active tasks: %s", active)
+                pending = [t for t in active if t.get("skill_name") == self.skill_name]
+                if pending:
+                    task = pending[0]
+                    return AgentToolResult(
+                        tool_call_id=tool_call.id,
+                        result_type=ToolResultType.JSON,
+                        content={
+                            "status": "pending_task_detected",
+                            "pending_task": {
+                                "flow_id": task["flow_id"],
+                                "skill_name": task["skill_name"],
+                                "current_stage": task["current_stage"],
+                            },
+                            "instruction": (
+                                f"检测到用户有未完成的「{task['skill_name']}」任务"
+                                f"（当前阶段：{task['current_stage']}）。"
+                                f"请先向用户展示该任务，等待用户明确答复后再操作：\n"
+                                f"  继续      → resume_task(flow_id=\"{task['flow_id']}\", action=\"resume\")\n"
+                                f"  废弃      → resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")\n"
+                                f"  重新开始  → resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")"
+                                f"，然后重新发起流程\n"
+                                f"⚠️ 严禁未得到用户答复前直接调用 resume_task。"
+                            ),
+                        },
+                        metadata={"state_delta": {_pending_flag: True}},
+                    )
 
         # 初始化 flow_id（首次调用）
         init_flow_ctx: dict[str, Any] | None = None
@@ -215,6 +266,9 @@ class BaseFlowEvaluator(AgentTool, ABC):
         if user_fields:
             current_stage_info["user_required_fields"] = user_fields
 
+        # 将已记录的 checkpoint 列表暴露给 LLM，供回退决策使用
+        available_checkpoints: list[dict[str, Any]] = list(flow_ctx.get("checkpoints") or [])
+
         return AgentToolResult(
             tool_call_id=tool_call.id,
             result_type=ToolResultType.JSON,
@@ -223,6 +277,7 @@ class BaseFlowEvaluator(AgentTool, ABC):
                 "current_stage": current_stage_info,
                 "completed_stages": completed,
                 "progress": f"{len(completed)}/{len(self.stages)}",
+                "available_checkpoints": available_checkpoints,
                 "instruction": self._build_instruction(current_stage),
             },
             metadata={"state_delta": state_delta},
