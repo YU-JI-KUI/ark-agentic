@@ -10,6 +10,7 @@ Tool Service — 纯业务逻辑
 import ast
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ark_agentic.core.utils.env import resolve_agent_dir
@@ -25,6 +26,7 @@ class ToolMeta(BaseModel):
     description: str = ""
     group: str = ""
     file_path: str = ""
+    modified_at: str | None = None
     parameters: dict = Field(default_factory=dict)
 
 
@@ -95,6 +97,7 @@ def scaffold_tool(
     return meta or ToolMeta(
         name=name, description=description,
         file_path=f"tools/{name}.py",
+        modified_at=datetime.fromtimestamp(tool_file.stat().st_mtime, tz=timezone.utc).isoformat(),
     )
 
 
@@ -170,6 +173,7 @@ def parse_tool_file(
             description=description,
             group=group,
             file_path=file_path,
+            modified_at=datetime.fromtimestamp(tool_file.stat().st_mtime, tz=timezone.utc).isoformat(),
             parameters=parameters,
         )
 

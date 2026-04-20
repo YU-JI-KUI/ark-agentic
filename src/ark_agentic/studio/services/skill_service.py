@@ -11,6 +11,7 @@ import logging
 import re
 import shutil
 import yaml
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ark_agentic.core.utils.env import resolve_agent_dir
@@ -28,6 +29,7 @@ class SkillMeta(BaseModel):
     description: str = ""
     file_path: str = ""
     content: str = ""
+    modified_at: str | None = None
     version: str = ""
     invocation_policy: str = ""
     group: str = ""
@@ -98,6 +100,7 @@ def create_skill(
         description=description,
         file_path=f"skills/{slug}/SKILL.md",
         content=skill_file.read_text(encoding="utf-8"),
+        modified_at=datetime.fromtimestamp(skill_file.stat().st_mtime, tz=timezone.utc).isoformat(),
     )
 
 
@@ -150,6 +153,7 @@ def update_skill(
         description=final_desc,
         file_path=f"skills/{skill_id}/SKILL.md",
         content=final_content,
+        modified_at=datetime.fromtimestamp(skill_file.stat().st_mtime, tz=timezone.utc).isoformat(),
     )
 
 
@@ -271,6 +275,7 @@ def parse_skill_dir(skill_dir: Path) -> SkillMeta | None:
         description=description,
         file_path=str(skill_file.relative_to(skill_dir.parent.parent)),
         content=content,
+        modified_at=datetime.fromtimestamp(skill_file.stat().st_mtime, tz=timezone.utc).isoformat(),
         version=version,
         invocation_policy=invocation_policy,
         group=group,

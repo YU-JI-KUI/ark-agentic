@@ -1,24 +1,19 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import StudioLayout from './layouts/StudioLayout'
-import DashboardWelcome from './pages/DashboardWelcome'
-import AgentDetail, { SkillsViewTab, ToolsViewTab, SessionsViewTab, MemoryViewTab } from './pages/AgentDetail'
-import LoginPage from './pages/LoginPage'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
+import StudioShell from './layouts/StudioShell'
+import AgentWorkspacePage from './pages/AgentWorkspacePage'
+import LoginPage from './pages/LoginPage'
+import StudioDashboardPage from './pages/StudioDashboardPage'
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<ProtectedRoute />}>
-        <Route path="/" element={<StudioLayout />}>
-          <Route index element={<DashboardWelcome />} />
-          <Route path="agents/:agentId" element={<AgentDetail />}>
-            <Route index element={<Navigate to="skills" replace />} />
-            <Route path="skills" element={<SkillsViewTab />} />
-            <Route path="tools" element={<ToolsViewTab />} />
-            <Route path="sessions" element={<SessionsViewTab />} />
-            <Route path="memory" element={<MemoryViewTab />} />
-          </Route>
+        <Route path="/" element={<StudioShell />}>
+          <Route index element={<StudioDashboardPage />} />
+          <Route path="agents/:agentId" element={<Navigate to="overview" replace />} />
+          <Route path="agents/:agentId/:section" element={<AgentWorkspacePage />} />
         </Route>
       </Route>
     </Routes>

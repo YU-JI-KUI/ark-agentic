@@ -112,6 +112,7 @@ export interface SkillMeta {
     description: string
     file_path: string
     content: string
+    modified_at?: string | null
     version?: string
     invocation_policy?: string
     group?: string
@@ -123,6 +124,7 @@ export interface ToolMeta {
     description: string
     group: string
     file_path: string
+    modified_at?: string | null
     parameters: Record<string, unknown>
 }
 
@@ -285,4 +287,3 @@ export const api = {
         return res.json()
     },
 }
-
