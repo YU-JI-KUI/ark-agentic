@@ -7,7 +7,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  type WheelEvent as ReactWheelEvent,
 } from 'react'
 import { NavLink, Navigate, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import {
@@ -1708,12 +1707,6 @@ function ExecutionSection({
   const [focusedLane, setFocusedLane] = useState<TraceLane | null>(null)
   const [roundsDragging, setRoundsDragging] = useState(false)
   const roundsPanelRef = useRef<HTMLElement | null>(null)
-  const pageScrollStyleRef = useRef<{
-    htmlOverflow: string
-    bodyOverflow: string
-    workspaceOverflow: string
-    workspacePaddingRight: string
-  } | null>(null)
   const roundScrollerRef = useRef<HTMLDivElement | null>(null)
   const roundCardRefs = useRef<Record<number, HTMLButtonElement | null>>({})
   const traceLegendRefs = useRef<Record<TraceLane, HTMLButtonElement | null>>({
@@ -1828,48 +1821,45 @@ function ExecutionSection({
     })
   }, [rounds, scrollToRound, updateRoundCardMotion])
 
-  const lockPageScroll = useCallback(() => {
-    if (pageScrollStyleRef.current) return
-    const workspace = roundsPanelRef.current?.closest('.studio-workspace') as HTMLElement | null
-    const workspaceScrollbarWidth = workspace ? workspace.offsetWidth - workspace.clientWidth : 0
-    pageScrollStyleRef.current = {
-      htmlOverflow: document.documentElement.style.overflow,
-      bodyOverflow: document.body.style.overflow,
-      workspaceOverflow: workspace?.style.overflow ?? '',
-      workspacePaddingRight: workspace?.style.paddingRight ?? '',
-    }
-    document.documentElement.style.overflow = 'hidden'
-    document.body.style.overflow = 'hidden'
-    if (workspace) {
-      workspace.style.overflow = 'hidden'
-      workspace.style.paddingRight = `calc(4px + ${workspaceScrollbarWidth}px)`
-    }
-  }, [])
-
-  const unlockPageScroll = useCallback(() => {
-    if (!pageScrollStyleRef.current) return
-    const workspace = roundsPanelRef.current?.closest('.studio-workspace') as HTMLElement | null
-    document.documentElement.style.overflow = pageScrollStyleRef.current.htmlOverflow
-    document.body.style.overflow = pageScrollStyleRef.current.bodyOverflow
-    if (workspace) {
-      workspace.style.overflow = pageScrollStyleRef.current.workspaceOverflow
-      workspace.style.paddingRight = pageScrollStyleRef.current.workspacePaddingRight
-    }
-    pageScrollStyleRef.current = null
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      unlockPageScroll()
-    }
-  }, [unlockPageScroll])
-
   function shiftRoundWindow(direction: -1 | 1) {
     if (rounds.length === 0) return
     const nextIndex = (scrollRoundStart + direction + rounds.length) % rounds.length
     const nextRound = rounds[nextIndex]?.round
     if (nextRound) scrollToRound(nextRound)
   }
+
+  useEffect(() => {
+    const panel = roundsPanelRef.current
+    if (!panel) return
+    const panelElement = panel
+
+    function handleWheel(event: WheelEvent) {
+      if (!(event.target instanceof Node) || !panelElement.contains(event.target)) return
+
+      let dominantDelta =
+        Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+      if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) dominantDelta *= 24
+      if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+        dominantDelta *= roundScrollerRef.current?.clientWidth ?? panelElement.clientWidth
+      }
+      if (Math.abs(dominantDelta) < 8) return
+
+      event.preventDefault()
+      event.stopPropagation()
+      if (rounds.length <= 1) return
+
+      const now = Date.now()
+      if (now - lastWheelShiftAtRef.current < 220) return
+      lastWheelShiftAtRef.current = now
+
+      shiftRoundWindow(dominantDelta > 0 ? 1 : -1)
+    }
+
+    panelElement.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      panelElement.removeEventListener('wheel', handleWheel)
+    }
+  }, [rounds.length, scrollRoundStart, scrollToRound])
 
   function handleRoundScrollerPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType === 'mouse' && event.button !== 0) return
@@ -1912,30 +1902,6 @@ function ExecutionSection({
   function handleRoundCardSelect(roundNumber: number) {
     if (suppressCardClickRef.current) return
     scrollToRound(roundNumber)
-  }
-
-  function handleRoundsPanelWheel(event: ReactWheelEvent<HTMLElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    if (rounds.length <= 1) return
-
-    const dominantDelta =
-      Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX
-    if (Math.abs(dominantDelta) < 8) return
-
-    const now = Date.now()
-    if (now - lastWheelShiftAtRef.current < 220) return
-    lastWheelShiftAtRef.current = now
-
-    shiftRoundWindow(dominantDelta > 0 ? 1 : -1)
-  }
-
-  function handleRoundsPanelPointerEnter() {
-    lockPageScroll()
-  }
-
-  function handleRoundsPanelPointerLeave() {
-    unlockPageScroll()
   }
 
   function handleTraceLegendSelect(lane: TraceLane) {
@@ -1999,10 +1965,7 @@ function ExecutionSection({
       <div className="execution-stack">
         <section
           className="content-card execution-rounds-panel"
-          onWheelCapture={handleRoundsPanelWheel}
           ref={roundsPanelRef}
-          onPointerEnter={handleRoundsPanelPointerEnter}
-          onPointerLeave={handleRoundsPanelPointerLeave}
         >
           <div className="surface-heading execution-rounds-heading">
             <span>Rounds</span>
