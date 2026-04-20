@@ -78,9 +78,13 @@ export function MemoryIcon(props: IconProps) {
 export function AgentIcon(props: IconProps) {
   return (
     <IconBase {...props}>
-      <path d="M12 3.5 4 8v8l8 4.5 8-4.5V8l-8-4.5Z" />
-      <path d="M12 12V20.5" />
-      <path d="M20 8 12 12 4 8" />
+      <rect height="10" rx="3" width="12" x="6" y="8" />
+      <path d="M12 4.5v3" />
+      <path d="M9.5 12.5h.01" />
+      <path d="M14.5 12.5h.01" />
+      <path d="M9 17.5v2" />
+      <path d="M15 17.5v2" />
+      <path d="M8.5 2.5 12 4.5l3.5-2" />
     </IconBase>
   )
 }

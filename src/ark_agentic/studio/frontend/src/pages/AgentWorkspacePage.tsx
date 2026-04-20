@@ -555,6 +555,13 @@ function OverviewSection({ agentId }: { agentId: string }) {
   const recentFiles = [...snapshot.files]
     .sort((left, right) => getTimestampValue(right.modified_at) - getTimestampValue(left.modified_at))
     .slice(0, 3)
+  const skillDescribedCount = snapshot.skills.filter(skill => Boolean(skill.description?.trim())).length
+  const skillTaggedCount = snapshot.skills.filter(
+    skill =>
+      Boolean(skill.group?.trim()) ||
+      Boolean(skill.invocation_policy?.trim()) ||
+      Boolean(skill.tags?.length),
+  ).length
 
   function openSkillDetail(skillId: string) {
     void navigate(`/agents/${agentId}/skills?skill=${encodeURIComponent(skillId)}`)
@@ -630,9 +637,16 @@ function OverviewSection({ agentId }: { agentId: string }) {
           </div>
           <div className="signal-list">
             <div className="signal-card">
+              <strong>SKILLS 完整性信号</strong>
+              <p>
+                {skillDescribedCount}/{snapshot.skills.length} 已描述，{skillTaggedCount}/{snapshot.skills.length}{' '}
+                已配置分组、标签或调用策略。
+              </p>
+            </div>
+            <div className="signal-card">
               <strong>TOOLS 可靠性信号</strong>
               <p>
-                基于可用元数据：{reliability.label}。{reliability.documented}/{snapshot.tools.length} 已描述，
+                {reliability.documented}/{snapshot.tools.length} 已描述，
                 {` ${reliability.typed}/${snapshot.tools.length} 已解析 Schema。`}
               </p>
             </div>
