@@ -1,906 +1,415 @@
 # ark-agentic
 
-轻量级 ReAct Agent 框架，支持工具调用、技能系统、会话管理、流式输出和用户记忆。
+`ark-agentic` 是一个面向业务落地的 Agentic 基础框架，同时提供 `ark-agentic` CLI 用来生成业务项目脚手架。
 
-## 特性
+这份 README 不再把“框架开发”和“业务开发”混在一起，而是分成两条明确路径：
 
-- **ReAct 模式**: 推理-行动循环，支持并行工具调用
-- **多 LLM 支持**: DeepSeek, PA 内部模型 (JT/SX 系列), OpenAI 兼容端点
-- **技能系统**: Markdown 格式可复用指令集，支持 full/dynamic/semantic 三种加载模式
-- **会话管理**: JSONL 持久化 + 智能上下文压缩（LLM 摘要）+ Session State 状态管理
-- **用户记忆**: 文件级 MEMORY.md + heading-based upsert + Dream 周期蒸馏 + system prompt 全量注入
-- **AG-UI 流式协议**: 完整的 20 种事件类型，支持 4 种输出格式（agui/internal/enterprise/alone）
-- **A2UI 组件**: 支持富交互前端组件渲染（卡片、按钮、表单等）
-- **输出验证**: 自动检测 LLM 输出与工具结果的数值一致性，防止幻觉
-- **FastAPI 服务**: 生产就绪的 HTTP API，支持多协议 SSE 流式输出
+- 业务应用开发者：用 CLI 生成项目，专注写 agent、tools、skills、prompt 和业务逻辑。
+- 框架开发者：维护 `ark-agentic` 本身，包括核心运行时、CLI、API、Studio 和发布流程。
 
-## 安装
+如果你是新人，先判断自己属于哪一类，然后直接看对应章节。
+
+## 你应该看哪一部分
+
+### 业务应用开发者
+
+你关心的是：
+
+- 怎么创建一个新的业务 Agent 项目
+- 生成后的目录分别该改哪里
+- 怎么本地跑起来 CLI / API / Studio
+- 怎么在现有业务项目里继续加 agent
+
+直接看下方的“路径一：业务应用开发者”。
+
+### 框架开发者
+
+你关心的是：
+
+- 如何在这个仓库里开发 `ark-agentic`
+- 哪些目录属于框架代码，哪些只是示例或内部应用
+- 如何运行测试、构建 Studio、发布包
+
+直接看下方的“路径二：框架开发者”。
+
+## 路径一：业务应用开发者
+
+### 1. 你会得到什么
+
+`ark-agentic` CLI 会生成一个开箱可改的业务项目骨架，默认包含：
+
+- 一个可运行的 `default` agent
+- 一个终端交互入口
+- 可选的 FastAPI 服务入口
+- Studio 接入位
+- 业务工具、技能目录和基础测试目录
+
+业务团队的职责应该集中在这些事情上：
+
+- 定义业务工具
+- 编排 agent prompt 和能力边界
+- 接入业务系统
+- 按需扩展 API、UI 和多 agent 协作
+
+而不是从零搭框架运行时。
+
+### 2. 先安装 CLI
+
+当前提是你已经能从团队内部源或发布源安装 `ark-agentic` 包，常见方式如下：
 
 ```bash
-# 打包前端 Studio 
+uv tool install ark-agentic
+# 或
+pip install ark-agentic
+```
+
+### 3. 创建脚手架项目
+
+如果你已经安装并发布了 `ark-agentic` 包，直接使用命令：
+
+```bash
+ark-agentic init my-agent --api --llm-provider openai
+```
+
+如果你当前就在这个框架仓库里验证 CLI，可以直接运行：
+
+```bash
+uv run ark-agentic init my-agent --api --llm-provider openai
+```
+
+常用参数：
+
+- `--api`：生成 FastAPI 服务入口，并预留 Studio 接入
+- `--llm-provider {openai,pa-sx,pa-jt}`：生成对应的 `.env-sample`
+- `--memory`：当前仅保留记忆能力扩展入口；如果只是快速起项目，建议先不使用
+
+### 4. 初始化后的第一步
+
+```bash
+cd my-agent
+uv pip install -e .
+cp .env-sample .env
+```
+
+然后按你的模型供应商填写 `.env`。默认会生成类似下面的配置：
+
+```bash
+LLM_PROVIDER=openai
+MODEL_NAME=gpt-4o
+API_KEY=sk-xxx
+# LLM_BASE_URL=https://api.openai.com/v1
+```
+
+### 5. 脚手架目录怎么理解
+
+执行 `ark-agentic init my-agent --api` 后，核心目录大致如下：
+
+```text
+my-agent/
+├── .env-sample
+├── pyproject.toml
+├── pip.conf
+├── src/
+│   └── my_agent/
+│       ├── main.py
+│       ├── app.py
+│       ├── static/
+│       └── agents/
+│           ├── __init__.py
+│           └── default/
+│               ├── __init__.py
+│               ├── agent.py
+│               ├── agent.json
+│               ├── skills/
+│               └── tools/
+└── tests/
+```
+
+重点文件说明：
+
+- `src/<package>/agents/default/agent.py`
+  你的主入口。这里创建 `AgentRunner`、注册工具、配置会话和 prompt。
+- `src/<package>/agents/default/tools/`
+  放业务工具实现。通常业务开发最常改这里。
+- `src/<package>/main.py`
+  终端交互入口，适合快速验证 agent 行为。
+- `src/<package>/app.py`
+  HTTP 服务入口。加了 `--api` 才会生成。
+- `src/<package>/agents/default/agent.json`
+  agent 元信息，给 Studio 和管理侧使用。
+- `src/<package>/agents/default/skills/`
+  预留技能目录，按需添加 Markdown 技能文件。
+
+### 6. 第一次应该改哪几个地方
+
+建议按这个顺序：
+
+1. 改 `src/<package>/agents/default/agent.py`
+2. 在 `tools/` 下增加你的业务工具
+3. 填写 `.env`
+4. 跑通终端模式
+5. 再决定是否接 API / Studio / 多 agent
+
+`agent.py` 里通常最先改这几处：
+
+- `tool_registry.register(...)`：注册业务工具
+- `agent_name` / `agent_description`：描述 agent 的职责
+- `max_turns`：根据场景调整推理轮次
+- `SessionManager(...)`：按需调整会话持久化策略
+
+### 7. 如何启动业务项目
+
+终端交互模式：
+
+```bash
+uv run python -m my_agent.main
+```
+
+API 模式：
+
+```bash
+uv run python -m my_agent.app
+```
+
+启动后通常可用：
+
+- `GET /health`
+- `POST /chat`
+- `GET /docs`
+
+如果要启用 Studio：
+
+```bash
+export ENABLE_STUDIO=true
+uv run python -m my_agent.app
+```
+
+### 8. 如何继续加新的业务 Agent
+
+在已生成的业务项目根目录执行：
+
+```bash
+ark-agentic add-agent risk-engine
+```
+
+如果你还在这个框架仓库里本地验证：
+
+```bash
+uv run ark-agentic add-agent risk-engine
+```
+
+它会新增：
+
+- `src/<package>/agents/risk_engine/agent.py`
+- `src/<package>/agents/risk_engine/tools/`
+- `src/<package>/agents/risk_engine/skills/`
+- `src/<package>/agents/risk_engine/agent.json`
+
+新增后你还需要自己完成两件事：
+
+- 在业务项目的入口中注册这个 agent
+- 决定它是否暴露成独立 API 或和其他 agent 共用服务入口
+
+### 9. 业务开发者最小工作流
+
+最推荐的上手路径是：
+
+1. `ark-agentic init` 创建项目
+2. 先只改 `default/agent.py` 和 `tools/`
+3. 用 `python -m <package>.main` 验证单 agent 行为
+4. 确认业务逻辑后，再打开 `--api` 生成的 HTTP 服务
+5. 最后再考虑 Studio、记忆、可观测性和多 agent
+
+这样能避免一开始就把精力浪费在框架细节上。
+
+## 路径二：框架开发者
+
+### 1. 这个仓库的职责
+
+这个仓库维护的是 `ark-agentic` 底座本身，包括：
+
+- Agent 运行时
+- Tool / Skill / Session / Memory 等基础能力
+- CLI 脚手架生成器
+- FastAPI API 层
+- Studio 接入
+- 发布打包流程
+
+业务团队最终应该更多地依赖这个仓库发布出的包和 CLI，而不是直接在本仓库里改业务逻辑。
+
+### 2. 框架代码主要在哪些目录
+
+```text
+src/ark_agentic/
+├── cli/             # 脚手架 CLI
+├── core/            # 运行时核心：runner、tools、skills、stream、session、memory...
+├── api/             # FastAPI 路由与协议层
+├── observability/   # Phoenix 等观测集成
+├── studio/          # Studio 后端集成与前端资源
+├── services/        # Job / Notification 等服务能力
+├── agents/          # 仓库内置示例/内部 agent
+├── static/          # 示例页面静态资源
+└── app.py           # 仓库内统一演示服务入口
+```
+
+建议这样理解：
+
+- `core/`、`cli/`、`api/`、`studio/` 是框架主干
+- `agents/` 更多是示例、内部场景或回归验证资产
+- 发布给业务团队的重点是 CLI + 核心运行时，而不是仓库里的全部示例
+
+### 3. 本地开发环境
+
+安装 Python 依赖：
+
+```bash
+uv sync
+```
+
+如果你需要 Studio 前端资源，先构建前端：
+
+```bash
 npm install --prefix src/ark_agentic/studio/frontend
 npm run build --prefix src/ark_agentic/studio/frontend
 ```
 
-```bash
-uv add git+https://github.com/your-org/ark-agentic.git
-
-# 或本地开发
-uv pip install -e .
-```
-
-### 可选依赖
+常用开发命令：
 
 ```bash
-# PA-JT 系列模型（需要 RSA 签名）
-uv add 'ark-agentic[pa-jt]'
-
-# 开发环境（包含测试工具）
-uv add 'ark-agentic[dev]'
-
-# 全部依赖（含 PA-JT + dev）
-uv add 'ark-agentic[all]'
-```
-
-**注意**: Memory 系统使用纯文件存储（MEMORY.md），无需额外依赖；PA-SX 系列和 DeepSeek 模型无需额外依赖，只有 PA-JT 系列模型需要 `pycryptodome` 进行 RSA 签名。
-
-## 快速开始
-
-```python
-from ark_agentic.core.runner import AgentRunner
-from ark_agentic.core.session import SessionManager
-from ark_agentic.core.tools.registry import ToolRegistry
-from ark_agentic.core.llm import create_chat_model
-from ark_agentic.agents.insurance.tools import create_insurance_tools
-
-llm = create_chat_model("deepseek-chat", api_key="sk-xxx")
-tool_registry = ToolRegistry()
-tool_registry.register_all(create_insurance_tools())
-
-agent = AgentRunner(
-    llm=llm,
-    tool_registry=tool_registry,
-    session_manager=SessionManager(),
-)
-
-session_id = await agent.create_session()
-result = await agent.run(session_id, "我想取点钱")
-```
-
-## API 服务
-
-```bash
-export API_KEY=sk-xxx
-ark-agentic-api
-```
-
-### Phoenix 可观测性
-
-项目支持把 LangChain/Agent 链路发送到 Arize Phoenix。
-
-```bash
-export ENABLE_PHOENIX=true
-export PHOENIX_COLLECTOR_ENDPOINT=http://localhost:4317
-export PHOENIX_PROJECT_NAME=ark-agentic
-
-# 可选
-export PHOENIX_AUTO_INSTRUMENT=true
-export PHOENIX_BATCH=true
-```
-
-服务启动后会在 FastAPI lifespan 中自动初始化 Phoenix，并在退出时执行 shutdown 以 flush traces。
-
-### 端点
-
-```http
-POST /chat
-Content-Type: application/json
-
-{
-  "agent_id": "insurance",
-  "message": "用户消息",
-  "session_id": "可选会话ID",
-  "stream": true,
-  "user_id": "U001",
-  "context": {"custom_key": "value"},
-  "idempotency_key": "req-12345",
-  "history": [{"role": "user", "content": "历史消息"}],
-  "use_history": true,
-  "run_options": {"model": "gpt-4o", "temperature": 0.5}
-}
-```
-
-**SSE 事件格式** (支持多协议):
-
-```bash
-# 协议选择（通过 protocol 参数）
-curl -X POST http://localhost:8080/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "agent_id": "insurance",
-    "message": "查询保单",
-    "stream": true,
-    "protocol": "internal"
-  }'
-```
-
-**协议类型**:
-- `internal` (默认): 旧版 response.* 格式，向后兼容现有前端
-- `agui`: AG-UI 原生事件（20 种事件类型）
-- `enterprise`: 企业 AGUI 信封格式（带 source_bu_type/app_type）
-- `alone`: ALONE 协议（sa_* 事件）
-
-**AG-UI 原生事件示例** (protocol=agui):
-```json
-{
-  "type": "text_message_content",
-  "seq": 5,
-  "run_id": "uuid",
-  "session_id": "uuid",
-  "message_id": "msg-uuid",
-  "delta": "流式片段",
-  "turn": 1,
-  "content_kind": "text"
-}
-```
-
-*完整事件类型: `run_started`, `run_finished`, `run_error`, `step_started`, `step_finished`, `text_message_start`, `text_message_content`, `text_message_end`, `tool_call_start`, `tool_call_args`, `tool_call_end`, `tool_call_result`, `state_snapshot`, `state_delta`, `messages_snapshot`, `thinking_message_start`, `thinking_message_content`, `thinking_message_end`, `custom`, `raw`*
-
-**自定义 Headers**:
-```
-x-ark-session-key: 会话ID前缀
-x-ark-user-id: 用户ID
-x-ark-trace-id: 追踪ID
-x-ark-message-id: 消息ID
-```
-
-## Docker
-
-```bash
-docker build -t ark-agentic .
-
-docker run -d \
-  -p 8080:8080 \
-  -e API_KEY=sk-xxx \
-  -e SESSIONS_DIR=/data/sessions \
-  -e MEMORY_DIR=/data/memory \
-  -v ark-sessions:/data/sessions \
-  -v ark-memory:/data/memory \
-  ark-agentic
-```
-
-## CLI 示例
-
-```bash
-# Mock 模式演示（无需 API Key）
-python -m ark_agentic.agents.insurance.agent --mock --demo
-
-# 交互模式
-export API_KEY=sk-xxx
-python -m ark_agentic.agents.insurance.agent -i
-
-# 持久化 + Memory
-python -m ark_agentic.agents.insurance.agent -i \
-  --persistence --sessions-dir ./data/sessions \
-  --memory --memory-dir ./data/memory
-```
-
-## 框架 CLI (ark-agentic)
-
-在本仓库根目录，使用 `uv run` 直接调用 CLI（无需单独安装）：
-
-```bash
-cd /home/willis/codebase/ark-agentic-space/ark-agentic
-
-# 查看帮助
 uv run ark-agentic --help
-
-# 初始化新项目（默认 openai）
-uv run ark-agentic init my-agent
-
-# 指定 LLM 提供商
-uv run ark-agentic init my-openai-agent --llm-provider openai
-# 添加FastAPI，chat API支持流式和非流式
-uv run ark-agentic init my-pa-agent --llm-provider pa-sx --api
-
-# 在已生成项目中添加新的业务智能体
-cd my-agent
-uv run ark-agentic add-agent risk-engine
+uv run python -m ark_agentic.app
+uv run pytest
 ```
 
-`ark-agentic init` 会生成：
+### 4. 建议的框架开发验证顺序
 
-- `pyproject.toml`（依赖 `ark-agentic`）
-- `src/<package>/main.py`（交互式入口）
-- `src/<package>/agents/default/`（默认智能体骨架）
-- `.env-sample`（根据 `--llm-provider` 写入对应的环境变量占位符）
+每次改动后，至少做这三类验证：
 
-其中 `.env-sample` 的 LLM 部分示例：
+1. CLI 是否还能正常生成脚手架
+2. API 演示服务是否还能启动
+3. 单元测试 / 集成测试是否通过
 
-- 当 `--llm-provider=openai`（默认）:
+如果你改的是这些模块，优先看对应目录：
 
-  ```bash
-  LLM_PROVIDER=openai
-  MODEL_NAME=gpt-4o
-  API_KEY=sk-xxx
-  # LLM_BASE_URL=https://api.openai.com/v1
-  ```
+- 改脚手架：`src/ark_agentic/cli/`
+- 改运行时：`src/ark_agentic/core/`
+- 改 HTTP 协议：`src/ark_agentic/api/`
+- 改 Studio：`src/ark_agentic/studio/`
 
-- 当 `--llm-provider=pa-sx`:
+### 5. 发布方式
 
-  ```bash
-  LLM_PROVIDER=pa
-  MODEL_NAME=PA-SX-80B
-  API_KEY=your-sx-api-key
-  LLM_BASE_URL=https://pa-sx.example.com
-  ```
-
-- 当 `--llm-provider=pa-jt`:
-
-  ```bash
-  LLM_PROVIDER=pa
-  MODEL_NAME=PA-JT-80B
-  API_KEY=
-  LLM_BASE_URL=https://pa-jt.example.com
-  # PA-JT 签名必填
-  ```
-
-## 核心概念
-
-### 工具定义
-
-```python
-from ark_agentic.core.tools.base import AgentTool, ToolParameter
-from ark_agentic.core.types import AgentToolResult, ToolResultType
-
-class PolicyQuery(AgentTool):
-    name = "policy_query"
-    description = "查询用户保单信息"
-    parameters = [
-        ToolParameter(name="user_id", type="string", required=True),
-        ToolParameter(name="query_type", type="string", required=True),
-    ]
-
-    async def execute(self, tool_call, context=None):
-        # 返回 JSON 结果
-        return AgentToolResult.json_result(
-            tool_call_id=tool_call.id,
-            data={"policies": [...]}
-        )
-
-        # 或返回 A2UI 组件（富交互界面）
-        return AgentToolResult.a2ui_result(
-            tool_call_id=tool_call.id,
-            data={
-                "sessionId": context.get("session_id"),
-                "answerDict": {
-                    "result": {
-                        "answerList": [{
-                            "styleId": "0",
-                            "dataList": [
-                                {"component": "text", "text": "保单详情"},
-                                {"component": "button", "text": "查看", "action": "view"}
-                            ]
-                        }]
-                    }
-                }
-            }
-        )
-```
-
-**工具结果类型**:
-- `JSON`: 结构化数据
-- `TEXT`: 纯文本
-- `IMAGE`: Base64 图片
-- `A2UI`: 前端组件描述（卡片、按钮、表单等）
-- `ERROR`: 错误信息
-
-### 技能系统
-
-`skills/withdraw_money/SKILL.md`:
-```markdown
----
-name: withdraw_money
-description: 保险取款业务处理
-invocation_policy: auto
----
-
-# 取款业务
-
-## 规则
-- 部分领取: 最高 80% 账户价值
-- 保单贷款: 最高 80% 现金价值
-```
-
-**技能加载模式**（full / dynamic / semantic）为 Agent 级别配置：在创建 agent 时通过 `SkillConfig(default_load_mode=SkillLoadMode.full)` 等传入 `RunnerConfig(skill_config=...)`，使用 `ark_agentic.core.types.SkillLoadMode` 枚举。
-
-### 会话压缩
-
-```python
-from ark_agentic.core.compaction import CompactionConfig, LLMSummarizer
-from ark_agentic.core.llm import create_chat_model
-
-llm = create_chat_model("deepseek-chat", api_key="sk-xxx")
-
-session_manager = SessionManager(
-    compaction_config=CompactionConfig(
-        context_window=32000,
-        preserve_recent=4,  # 保留最近4轮对话
-    ),
-    summarizer=LLMSummarizer(llm),
-)
-```
-
-### Session State 管理
-
-```python
-# 工具可以写入 session state
-class SetPreferenceTool(AgentTool):
-    async def execute(self, tool_call, context=None):
-        return AgentToolResult.json_result(
-            tool_call.id,
-            {"ok": True},
-            metadata={"state_delta": {"user_preference": "option_a"}}
-        )
-
-# 其他工具可以读取 session state
-class GetPreferenceTool(AgentTool):
-    async def execute(self, tool_call, context=None):
-        preference = context.get("user_preference", "default")
-        return AgentToolResult.json_result(
-            tool_call.id,
-            {"preference": preference}
-        )
-```
-
-### 并行子任务系统
-
-`SpawnSubtasksTool` 支持在单次对话中并行执行多个独立子任务，适用于用户一句话包含多个独立意图的场景。
-
-```python
-from ark_agentic.core.subtask.tool import SpawnSubtasksTool, SubtaskConfig
-
-# 配置子任务参数
-subtask_config = SubtaskConfig(
-    max_concurrent=4,        # 最大并发数
-    timeout_seconds=300.0,   # 单任务超时
-    tools_deny={"memory_write"},  # 禁用的工具
-    keep_session=False,      # 完成后删除子会话
-    max_turns=5,             # 子任务最大轮次
-)
-
-# 注册到 runner
-runner.register_tool(SpawnSubtasksTool(runner, session_manager, subtask_config))
-```
-
-**使用示例**：用户说 "我要理赔，同时查查能领多少钱"
-
-工具会自动：
-1. 创建隔离的子会话
-2. 并行执行两个子任务
-3. 汇总结果并回传 state_delta
-4. 清理临时会话
-
-### 业务流程系统（Flow）
-
-多阶段有状态业务流程引擎，支持中断后跨会话恢复。`BaseFlowEvaluator` 驱动阶段遍历与 Pydantic 校验，`commit_flow_stage` 提交阶段数据，`resume_task` 在新会话恢复现场。
-
-#### 定义流程
-
-```python
-from ark_agentic.core.flow.base_evaluator import (
-    BaseFlowEvaluator, StageDefinition, FieldSource, FlowEvaluatorRegistry,
-)
-
-class MyFlowEvaluator(BaseFlowEvaluator):
-    @property
-    def skill_name(self) -> str:
-        return "my_flow"
-
-    @property
-    def stages(self) -> list[StageDefinition]:
-        return [
-            StageDefinition(
-                id="verify", name="身份核验", description="验证用户身份",
-                output_schema=VerifyOutput, tools=["identity_tool"],
-                field_sources={
-                    "user_id": FieldSource(source="tool", state_key="_identity_result", path="user_id"),
-                    "confirmed": FieldSource(source="user", description="用户是否确认"),
-                },
-            ),
-            # ... 更多阶段
-        ]
-
-evaluator = MyFlowEvaluator()
-FlowEvaluatorRegistry.register(evaluator)
-```
-
-#### 挂载到 Agent
-
-```python
-from ark_agentic.core.flow.callbacks import make_flow_callbacks
-from ark_agentic.core.flow.commit_flow_stage import CommitFlowStageTool
-from ark_agentic.core.tools.resume_task import ResumeTaskTool
-
-flow_callbacks = make_flow_callbacks(sessions_dir="./data/sessions")
-runner = AgentRunner(..., callbacks=RunnerCallbacks(
-    before_agent=[flow_callbacks.inject_flow_hint],
-    after_agent=[flow_callbacks.persist_flow_context],
-))
-runner.register_tool(CommitFlowStageTool())
-runner.register_tool(ResumeTaskTool(sessions_dir="./data/sessions"))
-runner.register_tool(evaluator)  # evaluator 本身也是工具
-```
-
-LLM 调用 evaluator 评估进度 → 执行阶段工具 → 调用 `commit_flow_stage` 提交数据 → 循环推进。用户中断后新会话会提示待恢复任务，由用户确认后调用 `resume_task(flow_id=..., action="resume")` 恢复现场，或 `action="discard"` 废弃。
-
----
-
-### 用户记忆系统
-
-三层记忆生命周期：**Session JSONL (raw) → MEMORY.md (distilled) → System Prompt (consumption)**。
-
-#### 启用
-
-```python
-from ark_agentic.core.memory.manager import build_memory_manager
-
-memory_manager = build_memory_manager("./data/memory")
-
-# 自动注册 memory_write 工具
-agent = AgentRunner(
-    llm=llm,
-    tool_registry=tool_registry,
-    session_manager=session_manager,
-    memory_manager=memory_manager,
-)
-```
-
-### Runner 生命周期回调
-
-`RunnerCallbacks` 提供 **7 个 hook**，覆盖 Agent 执行的完整生命周期。所有 hook 均为 `async`，返回 `CallbackResult | None`。
-
-#### 生命周期时序
-
-```
-run()
- │
- ├─ [before_agent]          # Agent 级，仅触发一次（请求预处理/权限拦截）
- │
- └─ ReAct Loop ──────────────────────────────────────────────────────┐
-     │                                                               │
-     ├─ [before_model]       # 每轮 LLM 调用前（可注入消息/短路）        │
-     ├─  LLM call                                                    │
-     ├─ [after_model]        # 每轮 LLM 响应后，持久化前（可替换响应）    │
-     │                                                               │
-     ├─ 有 tool_calls?                                               │
-     │   ├─ [before_tool]    # 每轮工具批执行前（可拦截/mock）           │
-     │   ├─  tool execute                                            │
-     │   └─ [after_tool]     # 每轮工具执行后（可替换工具结果）           │
-     │                                                               │
-     └─ 无 tool_calls（最终回答轮）                                    │
-         ├─ [before_loop_end] # 最终回答落地前（可校验/拒绝并重入 loop）  │
-         │   action=RETRY ──────────────────────────────────────────────┘
-         └─ _finalize_response → 返回给调用方
- │
- └─ [after_agent]            # Agent 级，仅触发一次（后处理/日志）
-```
-
-#### Hook 速查
-
-| Hook | 触发时机 | `action` 语义 | 常见用途 |
-|------|---------|--------------|----------|
-| `before_agent` | 进入 loop 前，一次 | `ABORT` → 拒绝请求，直接返回 response | 鉴权、输入过滤 |
-| `after_agent` | loop 结束后，一次 | — | 日志、后处理 |
-| `before_model` | 每轮 LLM 调用前 | `OVERRIDE` → 跳过 LLM，使用 `response` 作为输出 | mock、注入上下文 |
-| `after_model` | 每轮 LLM 响应后 | — | 响应过滤、内容替换 |
-| `before_tool` | 每轮工具批执行前 | `OVERRIDE` → 跳过真实工具，使用 `tool_results` | 工具 mock、权限检查 |
-| `after_tool` | 每轮工具执行后 | — | 结果增强、审计 |
-| `before_loop_end` | 最终回答（无工具调用）落地前 | `RETRY` → 注入纠正消息并 **continue loop**（触发模型自反思） | 输出校验、引用验证 |
-
-#### HookAction 枚举
-
-```python
-class HookAction(str, Enum):
-    PASS = "pass"      # 不干预，走默认流程
-    ABORT = "abort"    # before_agent: 拒绝请求，退出 run
-    OVERRIDE = "override"  # before_model / before_tool: 替换默认输出
-    RETRY = "retry"    # before_loop_end: 注入反馈，让模型重试
-```
-
-#### CallbackResult 字段
-
-```python
-@dataclass
-class CallbackResult:
-    action: HookAction = HookAction.PASS    # 声明回调意图
-    response: AgentMessage | None = None    # 替换或注入的消息
-    tool_results: list[...] | None = None   # 替换工具结果（before/after_tool）
-    context_updates: dict | None = None     # 合并到 input_context
-    event: CallbackEvent | None = None      # 向前端推送自定义事件
-```
-
-#### 示例：上下文预处理（before_agent）
-
-```python
-from ark_agentic.core.callbacks import CallbackContext, CallbackResult, RunnerCallbacks
-
-async def enrich_context(ctx: CallbackContext) -> CallbackResult | None:
-    return CallbackResult(
-        context_updates={"user:name": fetch_user_name(ctx.input_context.get("user:id"))}
-    )
-
-runner = AgentRunner(..., callbacks=RunnerCallbacks(before_agent=[enrich_context]))
-```
-
-#### 示例：输出引用校验（before_loop_end）
-
-`before_loop_end` 是专为输出质量校验设计的 hook。`action=RETRY` 不是终止 run，而是将纠正消息注入 session 后重入 ReAct loop，让模型自我修正后再次输出。
-
-```python
-from ark_agentic.core.validation import create_citation_validation_hook, EntityTrie
-
-trie = EntityTrie()
-trie.load_from_csv(csv_path)
-citation_hook = create_citation_validation_hook(
-    entity_trie=trie,
-)
-
-runner = AgentRunner(
-    ...,
-    callbacks=RunnerCallbacks(
-        before_agent=[enrich_context],
-        before_loop_end=[citation_hook],   # 通过 → 落地；retry → 注入反馈 + 重入 loop
-    ),
-)
-```
-
-校验失败时的自反思流程（无需 `record_citations`）：
-
-```
-LLM → 输出回答（无 tool_calls）
-before_loop_end：从 response.content 提取 claim，与 ``session.messages`` 中本轮 TOOL 消息 + 近期用户消息做 grounding
-  → 失败：注入 user 消息（含 UNGROUNDED 明细）→ continue ReAct loop
-  → 通过：_finalize_response → 前端收到纯自然语言
-```
-#### 存储结构
-
-```
-data/memory/
-└── {user_id}/
-    ├── MEMORY.md      # 蒸馏后的用户记忆（heading-based markdown）
-    └── .last_dream    # Dream 最后执行时间戳
-```
-
-每个用户的记忆是一个 Markdown 文件，使用 `## heading` 结构化，同名标题自动覆盖（upsert 语义）。
-
-#### 记忆生命周期
-
-| 阶段 | 触发时机 | 机制 |
-|------|----------|------|
-| **Write** | 对话中 | Agent 主动调用 `memory_write`（用户表达偏好/身份/决策时） |
-| **Flush** | 上下文压缩前 | `MemoryFlusher` 用 LLM 从完整对话提取新增记忆 → heading upsert |
-| **Read** | 每轮对话开始 | System prompt 自动注入用户 `MEMORY.md` 全文 |
-| **Dream** | 后台周期触发 | 读取近期 session + 当前记忆 → LLM 蒸馏 → optimistic merge 回写 |
-
-```
-# Agent 写记忆示例
-memory_write(content="## 风险偏好\n保守型，不接受本金亏损")
-```
-
-#### Dream 记忆蒸馏
-
-Dream 在每轮对话结束后自动检查触发条件（距上次 dream ≥ 24h 且新增 ≥ 3 个 session），满足则在后台异步执行：
-
-- 读取近期 session JSONL（user + assistant 消息，skip tool noise）
-- 结合当前 MEMORY.md + 当前日期 + 容量约束
-- LLM 单次调用蒸馏：合并语义相近标题、删除过期信息、提取潜在需求
-- **Optimistic merge** 回写：保留 dream 期间 memory_write 新增的标题，不丢失并发写入
-- `.bak` 备份保护
-
-Dream 是**保守操作**：有疑问时保留信息，不会删除可能仍然有效的内容。多用户并发时各 user 的 dream 独立运行，同一 user 不会重复触发。
-
-### PA Knowledge API（可选）
-
-```python
-from ark_agentic.core.tools import PAKnowledgeAPIConfig, create_pa_knowledge_api_tool
-
-# 创建 agent 后按需注册
-runner = create_insurance_agent(llm=llm)
-runner.register_tool(create_pa_knowledge_api_tool(PAKnowledgeAPIConfig(
-    tool_name="search_product_faq",
-    faq_url="https://xxx",
-    tenant_id="xxx",
-    kn_ids=["23"],
-    app_secret="xxx",
-    token_auth_url="https://pa-api.example/auth/token",
-)))
-```
-
-### LLM 客户端
-
-```python
-from ark_agentic.core.llm import create_chat_model
-
-# DeepSeek (从环境变量读取 API_KEY)
-llm = create_chat_model("deepseek-chat")
-
-# 显式指定 API key
-llm = create_chat_model("deepseek-chat", api_key="sk-xxx")
-
-# PA 内部模型 (SX 系列)
-llm = create_chat_model("PA-SX-80B")
-
-# PA 内部模型 (JT 系列)
-llm = create_chat_model("PA-JT-80B")
-
-# 自定义 OpenAI 兼容端点
-llm = create_chat_model(
-    "custom-model",
-    api_key="sk-xxx",
-    base_url="https://api.example.com/v1",
-)
-```
-
-## 项目结构
-
-```
-src/ark_agentic/
-├── core/
-│   ├── runner.py          # AgentRunner (ReAct 主循环, ~912 行)
-│   ├── session.py         # SessionManager (会话管理, ~405 行)
-│   ├── compaction.py      # 上下文压缩 (~547 行, LLM 摘要)
-│   ├── persistence.py     # JSONL 持久化 (~645 行)
-│   ├── callbacks.py       # 7 个生命周期 hook 协议 + RunnerCallbacks
-│   ├── validation.py      # 输出验证（幻觉检测）+ create_citation_validation_hook
-│   ├── types.py           # 核心类型定义 (~315 行)
-│   ├── llm/               # LLM 客户端 (LangChain-based)
-│   │   ├── factory.py     # create_chat_model()
-│   │   ├── pa_jt_llm.py   # PA-JT 系列支持
-│   │   ├── pa_sx_llm.py   # PA-SX 系列支持
-│   │   └── errors.py      # 错误分类
-│   ├── tools/             # 工具系统
-│   │   ├── base.py        # AgentTool 基类 (~227 行)
-│   │   ├── registry.py    # ToolRegistry
-│   │   ├── executor.py    # 工具执行器
-│   │   ├── render_a2ui.py # A2UI 渲染工具
-│   │   ├── resume_task.py # 流程恢复/废弃工具
-│   │   ├── memory.py      # Memory 工具 (~88 行)
-│   │   ├── read_skill.py  # ReadSkill 工具
-│   │   ├── demo_a2ui.py   # A2UI 演示工具
-│   │   ├── demo_state.py  # State 演示工具
-│   │   └── pa_knowledge_api.py  # PA 知识库 API (230 行)
-│   ├── flow/              # 业务流程引擎
-│   │   ├── base_evaluator.py   # BaseFlowEvaluator + StageDefinition + FieldSource
-│   │   ├── commit_flow_stage.py # CommitFlowStageTool（阶段数据提交）
-│   │   ├── callbacks.py        # persist_flow_context / inject_flow_hint
-│   │   └── task_registry.py    # active_tasks.json 读写 + TTL 清理
-│   ├── skills/            # 技能系统
-│   │   ├── base.py
-│   │   ├── loader.py
-│   │   ├── matcher.py
-│   │   └── semantic_matcher.py
-│   ├── memory/            # 用户记忆系统 (文件级, 无 DB 依赖)
-│   │   ├── manager.py     # MemoryManager (路径管理 + read/write)
-│   │   ├── user_profile.py  # heading-based upsert / preamble 保护
-│   │   ├── extractor.py   # MemoryFlusher (压缩前 LLM 提取)
-│   │   ├── dream.py       # MemoryDreamer (session reader + 周期蒸馏 + optimistic merge)
-│   │   └── types.py       # 类型定义
-│   ├── stream/            # AG-UI 流式协议
-│   │   ├── events.py      # 20 种 AG-UI 事件类型
-│   │   ├── event_bus.py   # StreamEventBus
-│   │   ├── output_formatter.py  # 4 种输出协议
-│   │   ├── agui_models.py # 企业 AGUI 信封
-│   │   ├── assembler.py   # 流式组装器
-│   │   └── thinking_tag_parser.py  # 思考标签解析器
-│   ├── subtask/           # 并行子任务系统
-│   │   └── tool.py        # SpawnSubtasksTool
-│   ├── utils/             # 工具函数
-│   │   ├── dates.py       # 日期处理
-│   │   ├── entities.py    # 实体识别
-│   │   ├── numbers.py     # 数值处理
-│   │   ├── grounding_cache.py  # Grounding 缓存
-│   │   └── env.py         # 环境变量
-│   ├── a2ui/              # A2UI 组件系统
-│   │   ├── blocks.py      # 区块定义
-│   │   ├── composer.py    # 组件组合器
-│   │   ├── renderer.py    # 渲染器
-│   │   ├── validator.py   # 验证器
-│   │   ├── flattener.py   # 扁平化处理
-│   │   ├── transforms.py  # 变换逻辑
-│   │   ├── contract_models.py  # 契约模型
-│   │   ├── guard.py       # 守卫逻辑
-│   │   ├── theme.py       # 主题配置
-│   │   └── preset_registry.py  # 预设注册表
-│   └── prompt/            # 提示词构建
-│       └── builder.py     # SystemPromptBuilder
-├── agents/
-│   ├── insurance/         # 保险智能体示例
-│   │   ├── agent.py       # 入口
-│   │   ├── api.py         # 工厂函数
-│   │   ├── tools/         # 业务工具
-│   │   │   ├── customer_info.py
-│   │   │   ├── policy_query.py
-│   │   │   ├── rule_engine.py
-│   │   │   ├── submit_withdrawal.py
-│   │   │   ├── flow_evaluator.py   # WithdrawalFlowEvaluator
-│   │   │   └── data_service.py
-│   │   └── skills/        # 业务技能
-│   │       ├── withdraw_money/
-│   │       ├── withdraw_money_flow/  # Flow 模式取款流程
-│   │       ├── clarify_need/
-│   │       └── rewrite_plan/
-│   ├── securities/        # 证券智能体
-│   │   ├── agent.py
-│   │   ├── tools/
-│   │   └── skills/
-│   └── meta_builder/      # Meta 构建器智能体
-│       ├── agent.py
-│       └── tools/
-├── studio/                # 管理控制台（可选）
-│   ├── api/               # REST API
-│   │   ├── agents.py
-│   │   ├── skills.py
-│   │   ├── tools.py
-│   │   ├── sessions.py
-│   │   └── memory.py
-│   ├── frontend/          # React 前端
-│   └── services/          # 服务层
-├── api/                   # FastAPI 路由
-│   ├── chat.py
-│   ├── deps.py
-│   └── models.py
-├── cli/                   # CLI 工具
-│   ├── main.py
-│   └── templates.py
-├── app.py                 # FastAPI 应用
-└── static/                # Web UI
-
-总计: ~30K+ 行代码（70+ Python 文件）
-```
-
-## 环境变量
-
-### 核心配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `LLM_PROVIDER` | LLM 提供商 (openai/pa) | `pa` |
-| `API_KEY` | OpenAI 兼容端点 API Key | - |
-| `MODEL_NAME` | 模型 id（PA 时为 PA-SX-80B 等，兼容时为 gpt-4o 等） | - |
-| `LLM_BASE_URL` | LLM API 基础 URL（非 OpenAI 时必填） | - |
-| `DEFAULT_TEMPERATURE` | LLM 温度 | `0.7` |
-| `API_HOST` | API 监听地址 | `0.0.0.0` |
-| `API_PORT` | API 端口 | `8080` |
-
-### 存储配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `SESSIONS_DIR` | 会话存储目录 | `data/ark_sessions` |
-| `MEMORY_DIR` | Memory 数据目录 | `data/ark_memory` |
-
-### 功能开关
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `ENABLE_STUDIO` | 启用 Studio 管理界面 | `false` |
-| `ENABLE_THINKING_TAGS` | 启用思考标签解析（<think>/<final> 流式区分思考态与最终回答） | `false` |
-| `LOG_LEVEL` | 日志级别 | `INFO` |
-| `EMBEDDING_MODEL_PATH` | Embedding 模型路径（记忆/检索） | - |
-| `AGENTS_ROOT` | 自定义 Agent 根目录 | - |
-
-**注意**: PA 模型专用变量（PA_SX_80B_APP_ID、PA_JT_OPEN_API_CODE 等）详见 `.env-sample`。
-
-## 测试
+发布脚本在 `scripts/publish.sh`：
 
 ```bash
-uv run pytest -v
-
-# 特定测试
-uv run pytest tests/unit/core/test_runner.py -v
-uv run pytest tests/unit/core/test_compaction.py -v
-
-# 运行真实 LLM compaction 集成测试（需要 API_KEY + RUN_LLM_INTEGRATION=1）
-export API_KEY=sk-xxx
-export RUN_LLM_INTEGRATION=1
-uv run pytest tests/unit/core/test_compaction.py -v
+./scripts/publish.sh --dry-run
+./scripts/publish.sh
 ```
 
-## 依赖管理
+这个脚本会做两件事：
 
-使用 `uv` 管理依赖 (PEP 723):
+1. 构建 Studio 前端
+2. 构建并上传 Python 包
+
+发布边界需要特别注意：
+
+- wheel 主要面向框架能力和 CLI
+- 仓库内的内部 agent、演示 app、部分静态资源不会作为业务脚手架依赖的一部分对外暴露
+
+也就是说，发布产物是“框架底座”，不是“整个仓库原样打包”。
+
+## CLI 参考
+
+### `ark-agentic init`
 
 ```bash
-# 添加依赖
-uv add httpx
-
-# 移除依赖
-uv remove httpx
-
-# 运行脚本
-uv run python script.py
+ark-agentic init <project_name> [--api] [--memory] [--llm-provider openai|pa-sx|pa-jt]
 ```
 
-## 性能优化
+用途：
 
-- **并行工具调用**: LLM 返回多个工具调用时，使用 `asyncio.gather()` 并行执行
-- **AG-UI 流式协议**: 事件驱动架构，支持细粒度流式推送（20 种事件类型）
-- **多协议适配**: 单一内部实现，输出层适配 4 种协议格式
-- **零 DB 记忆**: 纯文件 MEMORY.md，无 SQLite/向量库依赖，启动即用
-- **会话压缩**: 自动总结历史消息，保持上下文窗口稳定
-- **输出验证**: 自动检测数值幻觉，提升输出可靠性
+- 初始化一个新的业务 Agent 项目
 
-## 架构亮点
-
-### AG-UI 流式协议
-完整实现 AG-UI 标准的 20 种事件类型，支持：
-- **生命周期事件**: run_started, run_finished, run_error
-- **步骤事件**: step_started, step_finished
-- **文本流**: text_message_start, text_message_content, text_message_end
-- **思考流**: thinking_message_start, thinking_message_content, thinking_message_end（需启用 `ENABLE_THINKING_TAGS=true`）
-- **工具调用**: tool_call_start, tool_call_args, tool_call_end, tool_call_result
-- **状态同步**: state_snapshot, state_delta, messages_snapshot
-- **自定义扩展**: custom, raw
-
-### 多协议输出
-单一内部实现（AG-UI 原生事件），输出层适配 4 种协议：
-- **agui**: 裸 AG-UI 事件（原生输出）
-- **internal**: 旧版 response.* 格式（向后兼容）
-- **enterprise**: 企业 AGUI 信封（AGUIEnvelope 包装）
-- **alone**: ALONE 协议（sa_* 事件）
-
-### A2UI 组件系统
-工具可返回 `ToolResultType.A2UI`，支持富交互前端组件：
-- 卡片、按钮、表单、图表等
-- 通过 `on_ui_component()` 回调流式推送
-- 前端实时渲染交互界面
-
-### Session State
-跨工具调用的状态管理：
-- 工具通过 `metadata.state_delta` 写入状态
-- Runner 自动合并到 `session.state`
-- 后续工具通过 `context` 读取状态
-
-### 输出验证（后置 grounding）
-基于 `before_loop_end` hook 的确定性幻觉检测：
-- 模型只输出自然语言；系统从 `response.content` 提取实体（EntityTrie）、日期、业务数值
-- 工具事实从 `session.messages` 中最后一条 USER 之后的 TOOL 消息提取，与最近若干轮用户消息一起做子串命中校验
-- `retry` 路由下注入纠正反馈并重入 ReAct loop；`warn`/`safe` 正常落地
-
-### 用户记忆系统
-三层生命周期模型，详见 [docs/core/memory.md](docs/core/memory.md)：
-- **Session JSONL = raw layer**：原始对话记录，append-only
-- **MEMORY.md = distilled truth**：每用户一个文件，heading-based upsert
-- **System Prompt = consumption**：每轮全量注入，Agent 无需手动检索
-- **Dream 蒸馏**：后台周期性读取 session + memory → LLM 合并去重 → optimistic merge 回写
-- **零 DB 依赖**：纯文件存储，无 SQLite/向量库/embedding 模型
-
-## Studio 管理控制台
-
-通过 `ENABLE_STUDIO=true` 环境变量启用 Studio 管理界面。
-
-### 功能
-- **Agent 管理**: 查看、测试已注册的 Agent
-- **Skill 管理**: 浏览、编辑技能模板
-- **Tool 管理**: 查看可用工具列表
-- **Session 管理**: 查看会话历史、调试对话
-- **Memory 管理**: 查看、编辑用户记忆
-
-### 访问
-启用后访问 `/studio` 路径即可进入管理界面。
+### `ark-agentic add-agent`
 
 ```bash
-# 启用 Studio
-export ENABLE_STUDIO=true
-ark-agentic-api
-
-# 访问 http://localhost:8080/studio
+ark-agentic add-agent <agent_name>
 ```
 
-## TODOs
-- [P0] **存储层解耦**: 实现基于 Redis/Database 的 Session 和 Memory 存储，支持 Cloud-Native 分布式部署
-- [P1] **SubAgent 支持**: 参考 openclaw-main 实现子智能体注册、生命周期管理、结果公告机制
-- [P2] **Auth Profile / Failover**: 多 API Key 轮换、自动模型降级
-- [P2] **会话写锁**: 防止并发写入冲突
-- [P2] **远程嵌入支持**: OpenAI/Gemini Batch API 批量处理
+用途：
+
+- 在已有业务项目里新增一个 agent 模块骨架
+
+### `ark-agentic version`
+
+```bash
+ark-agentic version
+```
+
+用途：
+
+- 查看当前 CLI / 框架版本
+
+## 框架核心模型
+
+无论是仓库内示例，还是 CLI 生成的业务项目，本质上都围绕同一个运行模型：
+
+```text
+LLM
+ + ToolRegistry
+ + SessionManager
+ + RunnerConfig
+ => AgentRunner
+```
+
+对业务开发者来说，最重要的是这条边界：
+
+- 你负责定义 agent 能做什么
+- 框架负责把推理、工具调用、会话、流式输出和 API 协议跑起来
+
+这也是为什么脚手架的核心入口是 `create_<agent>_agent()`。
+
+## 常用环境变量
+
+最常见的是以下几组：
+
+### LLM 配置
+
+```bash
+LLM_PROVIDER=openai
+MODEL_NAME=gpt-4o
+API_KEY=sk-xxx
+# LLM_BASE_URL=https://api.openai.com/v1
+```
+
+### API / Studio
+
+```bash
+API_HOST=0.0.0.0
+API_PORT=8080
+ENABLE_STUDIO=true
+AGENTS_ROOT=./src/<package>/agents
+```
+
+### 可观测性
+
+```bash
+ENABLE_PHOENIX=true
+PHOENIX_COLLECTOR_ENDPOINT=http://localhost:4317
+PHOENIX_PROJECT_NAME=ark-agentic
+```
+
+## 新人建议阅读顺序
+
+如果你是业务应用开发者：
+
+1. 先执行 `ark-agentic init`
+2. 只看生成项目里的 `agent.py`、`tools/`、`.env-sample`
+3. 跑通终端模式后，再接 API
+
+如果你是框架开发者：
+
+1. 先看 `src/ark_agentic/cli/` 和 `src/ark_agentic/core/`
+2. 再看 `src/ark_agentic/api/` 和 `src/ark_agentic/studio/`
+3. 最后再去看仓库里的示例 agent
+
+这份 README 的目标不是枚举所有内部机制，而是让新人先找到正确入口、在正确层次上开始工作。
