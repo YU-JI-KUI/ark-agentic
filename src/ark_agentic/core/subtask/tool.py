@@ -205,7 +205,7 @@ class SpawnSubtasksTool(AgentTool):
         context: dict[str, Any],
         tools_allow: list[str] | None = None,
     ) -> dict[str, Any]:
-        from ..runner import AgentRunner, RunnerConfig
+        from ..runner import AgentRunner
 
         parent_session = self._session_manager.get_session(parent_session_id)
         initial_state: dict[str, Any] = {}
@@ -214,7 +214,7 @@ class SpawnSubtasksTool(AgentTool):
             initial_state = {k: v for k, v in parent_session.state.items() if k.startswith("user:")}
             user_id = parent_session.user_id
 
-        sub_session = self._session_manager.create_session_sync(
+        self._session_manager.create_session_sync(
             model=self._runner.config.model or "Qwen3-80B-Instruct",
             provider="ark",
             state=dict(initial_state),
@@ -234,7 +234,6 @@ class SpawnSubtasksTool(AgentTool):
         sub_config = replace(
             self._runner.config,
             auto_compact=False,
-            enable_output_validation=False,
             enable_subtasks=False,
         )
         if self._config.max_turns is not None:
@@ -247,6 +246,7 @@ class SpawnSubtasksTool(AgentTool):
             skill_loader=self._runner.skill_loader,
             config=sub_config,
             memory_manager=None,
+            callbacks=getattr(self._runner, "_subtask_callbacks", None),
         )
 
         start = time.monotonic()

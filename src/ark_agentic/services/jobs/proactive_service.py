@@ -24,8 +24,8 @@ from ..notifications.models import Notification
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
-    from ..tools.registry import ToolRegistry
-    from ..memory.manager import MemoryManager
+    from ark_agentic.core.tools.registry import ToolRegistry
+    from ark_agentic.core.memory.manager import MemoryManager
     from ..notifications.store import NotificationStore
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ class ProactiveServiceJob(BaseJob):
     ) -> None:
         from pathlib import Path
         from ..notifications.store import NotificationStore
-        from ..paths import get_notifications_base_dir
+        from ark_agentic.core.paths import get_notifications_base_dir
 
         self._get_llm = llm_factory
         self._tool_registry = tool_registry

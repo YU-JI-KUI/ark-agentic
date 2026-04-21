@@ -19,6 +19,10 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
+from ark_agentic.observability import (
+    apply_observability_bindings,
+    build_observability_bindings,
+)
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.callbacks import RunnerCallbacks, merge_runner_callbacks
@@ -138,14 +142,20 @@ def create_insurance_agent(
             after_agent=[flow_callbacks.persist_flow_context],
         ),
     )
+    observability = build_observability_bindings(
+        agent_id=skill_config.agent_id,
+        agent_name=runner_config.prompt_config.agent_name,
+        callbacks=callbacks,
+    )
 
-    return AgentRunner(
+    runner = AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
         session_manager=session_manager,
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
-        callbacks=callbacks,
+        callbacks=observability.callbacks,
         proactive_job=proactive_job,
     )
+    return apply_observability_bindings(runner, observability)
