@@ -15,8 +15,8 @@ from pathlib import Path
 from ark_agentic.core.a2ui import A2UITheme
 from ark_agentic.core.tools import BlocksConfig, RenderA2UITool, TemplateConfig
 
-from ..a2ui import create_insurance_blocks, create_insurance_components
-from ..a2ui.components import COMPONENT_SCHEMAS
+from ..a2ui import create_insurance_components
+from ..a2ui.components import BLOCK_DATA_SCHEMAS, COMPONENT_SCHEMAS
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
@@ -34,7 +34,6 @@ INSURANCE_THEME = A2UITheme(
     card_padding=16,
 )
 
-_THEMED_BLOCKS = create_insurance_blocks(INSURANCE_THEME)
 _THEMED_COMPONENTS = create_insurance_components(INSURANCE_THEME)
 
 _INSURANCE_STATE_KEYS = (
@@ -47,10 +46,10 @@ _INSURANCE_STATE_KEYS = (
 def _create_render_a2ui_tool() -> RenderA2UITool:
     return RenderA2UITool(
         blocks=BlocksConfig(
-            agent_blocks=_THEMED_BLOCKS,
             agent_components=_THEMED_COMPONENTS,
             theme=INSURANCE_THEME,
             component_schemas=COMPONENT_SCHEMAS,
+            block_data_schemas=BLOCK_DATA_SCHEMAS,
         ),
         group="insurance",
         state_keys=_INSURANCE_STATE_KEYS,

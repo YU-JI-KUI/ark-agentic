@@ -389,42 +389,44 @@ class TestRenderA2UITool:
 
     @pytest.mark.asyncio
     async def test_basic_render(self, tool, ctx):
-        blocks = json.dumps([
+        blocks = [
             {"type": "Card", "data": {"children": [
                 {"type": "KVRow", "data": {
                     "label": "Total",
                     "value": {"get": "total_available_incl_loan", "format": "currency"},
                 }},
             ]}},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
         assert result.content["event"] == "beginRendering"
 
     @pytest.mark.asyncio
-    async def test_invalid_blocks_json(self, tool, ctx):
+    async def test_blocks_string_rejected(self, tool, ctx):
+        """Fail-fast: blocks 升级为 array 后，字符串必须被 graceful 拒收。"""
         tc = ToolCall.create("render_a2ui", {"blocks": "not json"})
         result = await tool.execute(tc, context=ctx)
         assert result.is_error
-        assert "JSON" in result.content
+        assert "数组" in result.content
 
     @pytest.mark.asyncio
-    async def test_invalid_blocks_not_array(self, tool, ctx):
-        tc = ToolCall.create("render_a2ui", {"blocks": '{"x":1}'})
+    async def test_blocks_dict_rejected(self, tool, ctx):
+        tc = ToolCall.create("render_a2ui", {"blocks": {"x": 1}})
         result = await tool.execute(tc, context=ctx)
         assert result.is_error
+        assert "数组" in result.content
 
     @pytest.mark.asyncio
     async def test_no_transforms(self, tool, ctx):
-        blocks = json.dumps([{"type": "Divider", "data": {}}])
+        blocks = [{"type": "Divider", "data": {}}]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
 
     @pytest.mark.asyncio
     async def test_unknown_block_type_error(self, tool, ctx):
-        blocks = json.dumps([{"type": "FakeBlock", "data": {}}])
+        blocks = [{"type": "FakeBlock", "data": {}}]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert result.is_error
@@ -683,7 +685,7 @@ class TestStrictValidationMode:
     @pytest.mark.asyncio
     async def test_enforce_mode_returns_error(self, tool, ctx, monkeypatch):
         monkeypatch.setenv("A2UI_STRICT_VALIDATION", "enforce")
-        blocks = json.dumps([{"type": "Divider", "data": {}}])
+        blocks = [{"type": "Divider", "data": {}}]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
 
         from unittest.mock import patch
@@ -695,7 +697,7 @@ class TestStrictValidationMode:
     @pytest.mark.asyncio
     async def test_warn_mode_returns_a2ui_result(self, tool, ctx, monkeypatch):
         monkeypatch.setenv("A2UI_STRICT_VALIDATION", "warn")
-        blocks = json.dumps([{"type": "Divider", "data": {}}])
+        blocks = [{"type": "Divider", "data": {}}]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
 
         from unittest.mock import patch

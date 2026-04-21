@@ -176,22 +176,25 @@ class TestRenderA2UITool:
         return RenderA2UITool(blocks=BlocksConfig())
 
     @pytest.mark.asyncio
-    async def test_invalid_blocks_json(self, tool):
+    async def test_blocks_string_rejected(self, tool):
+        """blocks 升级为 array 后，字符串必须被 graceful 拒收。"""
         tc = ToolCall.create("render_a2ui", {"blocks": "not-json"})
         result = await tool.execute(tc, context={})
         assert result.is_error
+        assert "数组" in result.content
 
     @pytest.mark.asyncio
-    async def test_blocks_not_array(self, tool):
-        tc = ToolCall.create("render_a2ui", {"blocks": '{"x":1}'})
+    async def test_blocks_dict_rejected(self, tool):
+        tc = ToolCall.create("render_a2ui", {"blocks": {"x": 1}})
         result = await tool.execute(tc, context={})
         assert result.is_error
+        assert "数组" in result.content
 
     @pytest.mark.asyncio
     async def test_unknown_block_type(self, tool):
         tc = ToolCall.create(
             "render_a2ui",
-            {"blocks": json.dumps([{"type": "FakeBlock", "data": {}}])},
+            {"blocks": [{"type": "FakeBlock", "data": {}}]},
         )
         result = await tool.execute(tc, context={})
         assert result.is_error

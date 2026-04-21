@@ -171,11 +171,30 @@ _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+# Docs 子页消费的 README 单一事实源（src/ark_agentic/app.py -> parents[2] = repo root）
+_README_PATH = Path(__file__).resolve().parents[2] / "README.md"
+
 
 @app.get("/", include_in_schema=False)
 async def root():
+    """项目主页。home.html 缺失时 fallback 到保险 Demo，避免 500。"""
+    page = _STATIC_DIR / "home.html"
+    if page.is_file():
+        return FileResponse(str(page), media_type="text/html")
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/insurance")
+
+
+@app.get("/api/readme", include_in_schema=False)
+async def get_readme():
+    """返回项目根 README.md 纯文本，供 landing 页 Docs Tab 客户端渲染。"""
+    from fastapi.responses import PlainTextResponse, Response
+    if _README_PATH.is_file():
+        return PlainTextResponse(
+            _README_PATH.read_text(encoding="utf-8"),
+            media_type="text/markdown; charset=utf-8",
+        )
+    return Response(status_code=404, content="README.md not found")
 
 
 @app.get("/insurance", include_in_schema=False)

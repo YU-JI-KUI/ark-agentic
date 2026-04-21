@@ -1101,12 +1101,25 @@ class AgentRunner:
         *,
         skill_load_mode: str = "full",
     ) -> str:
-        """构建系统提示"""
-        tools = self.tool_registry.list_all()
+        """构建系统提示。
+
+        dynamic 模式下，若 state 含 `_active_skill_id` 则将该 skill 正文
+        注入 <active_skill> 段；此时传入 builder 的 tools 与
+        `_build_tools` 同源（经 `_filter_tools` 筛选），保证 system prompt
+        描述的工具集与 API tools schema 一致（避免 `include_tool_descriptions`
+        开启后出现"描述了 B 但 API 不给 B"的不一致）。
+        """
+        tools = self._filter_tools(state)
 
         skills = self._match_skills(
             state, session_id, skill_load_mode=skill_load_mode,
         )
+
+        active_skill: SkillEntry | None = None
+        if skill_load_mode != SkillLoadMode.full.value and self.skill_loader:
+            active_id = state.get("_active_skill_id") if state else None
+            if active_id:
+                active_skill = self.skill_loader.get_skill(active_id)
 
         prompt_config = self.config.prompt_config
 
@@ -1128,6 +1141,7 @@ class AgentRunner:
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
+            active_skill=active_skill,
             context=user_state,
             config=prompt_config,
             user_profile_content=profile_content,
@@ -1135,31 +1149,43 @@ class AgentRunner:
             enable_memory=self._memory_manager is not None,
         )
 
-    def _build_tools(
+    def _filter_tools(
         self, state: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """构建工具定义。
+    ) -> list[AgentTool]:
+        """按 skill_load_mode 与 _active_skill_id 筛选可见工具（单一事实源）。
 
         full 模式: 全部返回。
         dynamic 模式: always 工具始终可见；auto 工具仅在 state["_active_skill_id"]
-        对应的技能被 read_skill 激活后才暴露给 LLM。
+            对应的技能被 read_skill 激活后才暴露给 LLM。
+
+        `_build_tools` 与 `_build_system_prompt` 都以此为准，保证 API tools
+        schema 与 system prompt 中的工具描述（若开启）同源。
         """
         all_tools = self.tool_registry.list_all()
 
-        if not self.skill_loader or self.config.skill_config.load_mode == SkillLoadMode.full:
-            return [t.get_json_schema() for t in all_tools]
+        if (
+            not self.skill_loader
+            or self.config.skill_config.load_mode == SkillLoadMode.full
+        ):
+            return all_tools
 
         always = [t for t in all_tools if getattr(t, "visibility", "auto") == "always"]
 
         active_skill_id = (state or {}).get("_active_skill_id")
         if not active_skill_id:
-            return [t.get_json_schema() for t in always]
+            return always
 
         skill = self.skill_loader.get_skill(active_skill_id)
         allowed = set(skill.metadata.required_tools or []) if skill else set()
         seen = {t.name for t in always}
         skill_tools = [t for t in all_tools if t.name in allowed and t.name not in seen]
-        return [t.get_json_schema() for t in always + skill_tools]
+        return always + skill_tools
+
+    def _build_tools(
+        self, state: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """构建 API tools schema（`_filter_tools` 的薄包装）。"""
+        return [t.get_json_schema() for t in self._filter_tools(state)]
 
     def _get_llm(
         self,

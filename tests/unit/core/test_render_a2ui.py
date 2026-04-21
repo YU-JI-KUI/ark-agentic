@@ -145,7 +145,7 @@ def ctx():
 @pytest.mark.asyncio
 async def test_both_blocks_and_card_type_error(full_tool, ctx):
     tc = ToolCall.create("render_a2ui", {
-        "blocks": "[]",
+        "blocks": [{"type": "Card", "data": {"children": []}}],
         "card_type": "withdraw_summary",
     })
     result = await full_tool.execute(tc, ctx)
@@ -184,7 +184,7 @@ def agent_tool() -> RenderA2UITool:
 
 @pytest.mark.asyncio
 async def test_blocks_basic_render(agent_tool, ctx):
-    blocks = json.dumps([
+    blocks = [
         {"type": "Card", "data": {"children": [
             {"type": "SectionHeader", "data": {"title": "Test"}},
             {"type": "KVRow", "data": {
@@ -192,7 +192,7 @@ async def test_blocks_basic_render(agent_tool, ctx):
                 "value": {"get": "total_available_incl_loan", "format": "currency"},
             }},
         ]}},
-    ])
+    ]
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
     result = await agent_tool.execute(tc, context=ctx)
     assert not result.is_error
@@ -206,23 +206,25 @@ async def test_blocks_basic_render(agent_tool, ctx):
 
 
 @pytest.mark.asyncio
-async def test_blocks_invalid_json(agent_tool, ctx):
+async def test_blocks_string_rejected(agent_tool, ctx):
+    """Fail-fast: blocks 升级为 array 后，字符串被 graceful 拒收。"""
     tc = ToolCall.create("render_a2ui", {"blocks": "not json"})
     result = await agent_tool.execute(tc, context=ctx)
     assert result.is_error
-    assert "JSON" in result.content
+    assert "数组" in result.content
 
 
 @pytest.mark.asyncio
-async def test_blocks_not_array(agent_tool, ctx):
-    tc = ToolCall.create("render_a2ui", {"blocks": '{"x":1}'})
+async def test_blocks_dict_rejected(agent_tool, ctx):
+    tc = ToolCall.create("render_a2ui", {"blocks": {"x": 1}})
     result = await agent_tool.execute(tc, context=ctx)
     assert result.is_error
+    assert "数组" in result.content
 
 
 @pytest.mark.asyncio
 async def test_blocks_divider(agent_tool, ctx):
-    blocks = json.dumps([{"type": "Divider", "data": {}}])
+    blocks = [{"type": "Divider", "data": {}}]
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
     result = await agent_tool.execute(tc, context=ctx)
     assert not result.is_error
@@ -230,7 +232,7 @@ async def test_blocks_divider(agent_tool, ctx):
 
 @pytest.mark.asyncio
 async def test_blocks_unknown_type_error(agent_tool, ctx):
-    blocks = json.dumps([{"type": "FakeBlock", "data": {}}])
+    blocks = [{"type": "FakeBlock", "data": {}}]
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
     result = await agent_tool.execute(tc, context=ctx)
     assert result.is_error
@@ -239,7 +241,7 @@ async def test_blocks_unknown_type_error(agent_tool, ctx):
 @pytest.mark.asyncio
 async def test_blocks_with_surface_id(agent_tool, ctx, monkeypatch):
     monkeypatch.setenv("A2UI_STRICT_VALIDATION", "warn")
-    blocks = json.dumps([{"type": "Divider", "data": {}}])
+    blocks = [{"type": "Divider", "data": {}}]
     tc = ToolCall.create("render_a2ui", {"blocks": blocks, "surface_id": "surf-1"})
     result = await agent_tool.execute(tc, context=ctx)
     assert not result.is_error
@@ -249,7 +251,7 @@ async def test_blocks_with_surface_id(agent_tool, ctx, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_blocks_without_surface_id(agent_tool, ctx):
-    blocks = json.dumps([{"type": "Divider", "data": {}}])
+    blocks = [{"type": "Divider", "data": {}}]
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
     result = await agent_tool.execute(tc, context=ctx)
     assert not result.is_error
@@ -339,7 +341,7 @@ async def test_preset_success_returns_template_data_as_content(preset_tool):
     assert result.content["template"] == "demo_card"
     assert result.content["from_ctx"] == "sess-1"
     assert result.content["x"] == 42
-    assert result.metadata.get("llm_digest") == "preset-digest"
+    assert result.llm_digest == "preset-digest"
 
 
 @pytest.mark.asyncio
@@ -384,7 +386,7 @@ async def test_preset_blocks_mutually_exclusive():
     tool = RenderA2UITool(blocks=BlocksConfig(), preset=reg)
     tc = ToolCall.create(
         "render_a2ui",
-        {"preset_type": "p", "blocks": "[]"},
+        {"preset_type": "p", "blocks": [{"type": "Card", "data": {"children": []}}]},
     )
     result = await tool.execute(tc, {})
     assert result.is_error
@@ -407,7 +409,7 @@ def test_preset_only_schema_has_preset_type_not_surface_id(preset_tool):
 @pytest.mark.asyncio
 async def test_enforce_mode_returns_error(agent_tool, ctx, monkeypatch):
     monkeypatch.setenv("A2UI_STRICT_VALIDATION", "enforce")
-    blocks = json.dumps([{"type": "Divider", "data": {}}])
+    blocks = [{"type": "Divider", "data": {}}]
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
 
     from unittest.mock import patch
@@ -423,7 +425,7 @@ async def test_enforce_mode_returns_error(agent_tool, ctx, monkeypatch):
 @pytest.mark.asyncio
 async def test_warn_mode_returns_a2ui(agent_tool, ctx, monkeypatch):
     monkeypatch.setenv("A2UI_STRICT_VALIDATION", "warn")
-    blocks = json.dumps([{"type": "Divider", "data": {}}])
+    blocks = [{"type": "Divider", "data": {}}]
     tc = ToolCall.create("render_a2ui", {"blocks": blocks})
 
     from unittest.mock import patch
@@ -449,3 +451,135 @@ def test_schema_has_expected_params(full_tool):
     assert "surface_id" in params["properties"]
     assert "transforms" not in params["properties"]
     assert params["properties"]["card_type"].get("enum") == ["withdraw_summary"]
+
+
+# ---- blocks oneOf strict schema (insurance 装配路径) ----
+
+
+@pytest.fixture
+def insurance_tool() -> RenderA2UITool:
+    """Tool 装配与生产路径一致：只含 agent_components + block_data_schemas。"""
+    from ark_agentic.agents.insurance.a2ui import BLOCK_DATA_SCHEMAS, INSURANCE_COMPONENTS
+
+    return RenderA2UITool(
+        blocks=BlocksConfig(
+            agent_components=INSURANCE_COMPONENTS,
+            block_data_schemas=BLOCK_DATA_SCHEMAS,
+        ),
+        group="insurance",
+    )
+
+
+def _blocks_items(tool: RenderA2UITool) -> dict:
+    schema = tool.get_json_schema()
+    return schema["function"]["parameters"]["properties"]["blocks"]["items"]
+
+
+def _one_of(tool: RenderA2UITool) -> list[dict]:
+    return _blocks_items(tool)["oneOf"]
+
+
+def _branch_for_type(tool: RenderA2UITool, type_name: str) -> dict:
+    for branch in _one_of(tool):
+        if branch["properties"]["type"].get("const") == type_name:
+            return branch
+    raise AssertionError(f"oneOf 中未找到 type={type_name}")
+
+
+def test_blocks_schema_is_array_with_oneof(insurance_tool):
+    params = insurance_tool.get_json_schema()["function"]["parameters"]["properties"]
+    assert params["blocks"]["type"] == "array"
+    assert "oneOf" in params["blocks"]["items"]
+
+
+def test_blocks_schema_uses_oneof_length_matches_types(insurance_tool):
+    """insurance 装配：oneOf == 4（Card + 3 个业务组件，不含任何原子块）。"""
+    branches = _one_of(insurance_tool)
+    type_names = [b["properties"]["type"]["const"] for b in branches]
+    assert sorted(type_names) == [
+        "Card",
+        "WithdrawPlanCard",
+        "WithdrawSummaryHeader",
+        "WithdrawSummarySection",
+    ]
+
+
+def test_blocks_schema_excludes_primitives(insurance_tool):
+    """原子块（SectionHeader / KVRow / ...）不应出现在 insurance 的 tool schema。"""
+    branches = _one_of(insurance_tool)
+    type_names = {b["properties"]["type"]["const"] for b in branches}
+    primitives = {"SectionHeader", "KVRow", "AccentTotal", "HintText", "ActionButton", "Divider"}
+    assert type_names & primitives == set(), (
+        f"原子块不应被 insurance 的 render_a2ui 暴露：{type_names & primitives}"
+    )
+
+
+def test_blocks_schema_type_const_per_entry(insurance_tool):
+    """每条 oneOf 分支必须用 const 锁定 type，data 必须是 object。"""
+    for branch in _one_of(insurance_tool):
+        assert branch["type"] == "object"
+        assert branch["required"] == ["type", "data"]
+        assert "const" in branch["properties"]["type"]
+        assert branch["properties"]["data"]["type"] == "object"
+        assert branch.get("additionalProperties") is False
+
+
+def test_section_schema_uses_section_name_enum(insurance_tool):
+    """WithdrawSummarySection.data 必须是 section_name enum 且 required。"""
+    from ark_agentic.agents.insurance.a2ui import SECTION_TYPES
+
+    branch = _branch_for_type(insurance_tool, "WithdrawSummarySection")
+    data_schema = branch["properties"]["data"]
+    assert data_schema["required"] == ["section_name"]
+    assert data_schema["properties"]["section_name"]["enum"] == list(SECTION_TYPES)
+
+
+def test_header_schema_uses_sections_enum(insurance_tool):
+    from ark_agentic.agents.insurance.a2ui import SECTION_TYPES
+
+    branch = _branch_for_type(insurance_tool, "WithdrawSummaryHeader")
+    data_schema = branch["properties"]["data"]
+    sections_schema = data_schema["properties"]["sections"]
+    assert sections_schema["type"] == "array"
+    assert sections_schema["items"]["enum"] == list(SECTION_TYPES)
+
+
+def test_plan_card_schema_uses_channel_enum(insurance_tool):
+    from ark_agentic.agents.insurance.a2ui import CHANNEL_TYPES
+
+    branch = _branch_for_type(insurance_tool, "WithdrawPlanCard")
+    data_schema = branch["properties"]["data"]
+    channels_schema = data_schema["properties"]["channels"]
+    assert channels_schema["type"] == "array"
+    assert channels_schema["items"]["enum"] == list(CHANNEL_TYPES)
+    assert data_schema["required"] == ["title"]
+
+
+def test_card_children_injected_by_framework(insurance_tool):
+    """Card.data.children 由框架层注入（DIP）；业务层不负责声明。"""
+    branch = _branch_for_type(insurance_tool, "Card")
+    data_schema = branch["properties"]["data"]
+    assert "children" in data_schema["required"]
+    assert data_schema["properties"]["children"]["type"] == "array"
+    child_item = data_schema["properties"]["children"]["items"]
+    assert child_item["required"] == ["type", "data"]
+
+
+def test_blocks_json_schema_is_valid(insurance_tool):
+    """tool.get_json_schema() 必须是 Draft 2020-12 合法 schema。"""
+    from jsonschema import Draft202012Validator
+
+    schema = insurance_tool.get_json_schema()
+    Draft202012Validator.check_schema(
+        schema["function"]["parameters"]["properties"]["blocks"]
+    )
+
+
+def test_insurance_factory_tool_schema_matches_production(insurance_tool):
+    """装配层契约：insurance 生产工具与本测试 fixture 产生相同 oneOf 类型集合。"""
+    from ark_agentic.agents.insurance.tools import _create_render_a2ui_tool
+
+    prod_tool = _create_render_a2ui_tool()
+    prod_types = {b["properties"]["type"]["const"] for b in _one_of(prod_tool)}
+    fixture_types = {b["properties"]["type"]["const"] for b in _one_of(insurance_tool)}
+    assert prod_types == fixture_types

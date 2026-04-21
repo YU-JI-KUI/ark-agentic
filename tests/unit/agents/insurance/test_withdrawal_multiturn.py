@@ -98,22 +98,23 @@ class TestMultiTurnWithdrawalFlow:
         ctx = dict(base_ctx)
 
         # === Turn 1: render PlanCard (zero-cost: survival_fund + bonus) ===
-        blocks = json.dumps([
+        blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"],
                 "target": 0,
                 "title": "★ 推荐: 零成本领取",
                 "tag": "(不影响保障)",
             }},
-        ])
+        ]
         tc1 = ToolCall.create("render_a2ui", {"blocks": blocks})
         r1 = await render_tool.execute(tc1, context=ctx)
 
         assert not r1.is_error
         assert r1.llm_digest is not None
+        assert r1.llm_digest.startswith("[卡片:方案")
         assert "survival_fund" in r1.llm_digest
         assert "bonus" in r1.llm_digest
-        assert "总额: ¥" in r1.llm_digest
+        assert "total=" in r1.llm_digest
 
         delta1 = r1.metadata.get("state_delta", {})
         assert delta1["_submitted_channels"] == []
@@ -151,14 +152,14 @@ class TestMultiTurnWithdrawalFlow:
         assert "已提交办理" in str(r3b.content)
 
         # === Turn 4: ADJUST — new PlanCard resets _submitted_channels ===
-        blocks_adjust = json.dumps([
+        blocks_adjust = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["policy_loan"],
                 "target": 30000,
                 "title": "保单贷款",
                 "tag": "(需付利息)",
             }},
-        ])
+        ]
         tc4 = ToolCall.create("render_a2ui", {"blocks": blocks_adjust})
         r4 = await render_tool.execute(tc4, context=ctx)
 
@@ -183,25 +184,23 @@ class TestDigestPropagationChain:
     async def test_digest_format_for_execute_skill_parsing(
         self, render_tool: RenderA2UITool, base_ctx: dict,
     ) -> None:
-        """The digest must be parseable by execute_withdrawal skill:
-        '方案: {title} | channels: [...] | 总额: ¥{amount} | {channel_summary}'
-        """
-        blocks = json.dumps([
+        """digest 必须以 `[卡片:方案 …]` 锚点开头，含 channels=[…] / total=…，供 execute_withdrawal 字段匹配。"""
+        blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"],
                 "target": 50000,
                 "title": "★ 推荐: 零成本领取",
             }},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await render_tool.execute(tc, context=base_ctx)
 
         digest = result.llm_digest
         assert digest is not None
 
-        assert "方案:" in digest
-        assert "channels:" in digest
-        assert "总额: ¥" in digest
+        assert digest.startswith("[卡片:方案")
+        assert "channels=[" in digest
+        assert "total=" in digest
 
         assert "survival_fund" in digest
         assert "bonus" in digest
@@ -213,13 +212,13 @@ class TestDigestPropagationChain:
         self, render_tool: RenderA2UITool, base_ctx: dict,
     ) -> None:
         """Digest should be concise, not contain raw JSON or component IDs."""
-        blocks = json.dumps([
+        blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund"],
                 "target": 5000,
                 "title": "T",
             }},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await render_tool.execute(tc, context=base_ctx)
 
@@ -233,7 +232,7 @@ class TestDigestPropagationChain:
         self, render_tool: RenderA2UITool, base_ctx: dict,
     ) -> None:
         """Two PlanCards in one render_a2ui call produce two digest lines."""
-        blocks = json.dumps([
+        blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"],
                 "target": 10000,
@@ -244,7 +243,7 @@ class TestDigestPropagationChain:
                 "target": 30000,
                 "title": "备选: 贷款",
             }},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await render_tool.execute(tc, context=base_ctx)
 
@@ -262,13 +261,13 @@ class TestStateInvariantsAcrossTurns:
         self, render_tool: RenderA2UITool, base_ctx: dict,
     ) -> None:
         """Sum of allocations must not exceed what the channel actually has."""
-        blocks = json.dumps([
+        blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"],
                 "target": 999999,
                 "title": "Overshoot",
             }},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await render_tool.execute(tc, context=base_ctx)
 
@@ -287,13 +286,13 @@ class TestStateInvariantsAcrossTurns:
         self, render_tool: RenderA2UITool, submit_tool: SubmitWithdrawalTool, base_ctx: dict,
     ) -> None:
         """submit_withdrawal event payload amount must match what PlanCard allocated."""
-        blocks = json.dumps([
+        blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund"],
                 "target": 0,
                 "title": "生存金",
             }},
-        ])
+        ]
         tc1 = ToolCall.create("render_a2ui", {"blocks": blocks})
         r1 = await render_tool.execute(tc1, context=base_ctx)
 

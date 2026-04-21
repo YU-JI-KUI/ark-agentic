@@ -1,7 +1,10 @@
 """
 read_skill 工具
 
-在「仅元数据」模式下，模型通过此工具按 skill id 加载一个技能的完整 SKILL.md 内容。
+Skill 一等公民模型：
+- 正文由 runner 下一轮注入 system prompt 的 <active_skill> 段（以 `_active_skill_id` 为锚）
+- 本工具只返回"加载凭证 digest"，避免正文以 tool_result 形式重复占用上下文
+- 切换 skill 时，新 skill 正文直接替换 <active_skill>，旧正文随之退出上下文
 """
 
 from __future__ import annotations
@@ -14,22 +17,23 @@ from ..types import AgentToolResult, ToolCall
 
 
 class ReadSkillTool(AgentTool):
-    """按 skill id 加载一个技能的完整内容（SKILL.md 正文 + frontmatter 解析后的元数据）。"""
+    """按 skill id 激活一个技能：更新 `_active_skill_id`，下一轮 system prompt 注入正文。"""
 
     name = "read_skill"
     visibility = "always"
     thinking_hint = "正在读取技能文档…"
     description = (
-        "Load the full SKILL.md content of one skill by its id. "
-        "MUST be called before following any skill from <available_skills>. "
-        "The skill metadata is only a summary — call this to get complete "
-        "execution steps, output format, and constraints."
+        "Activate one skill by its id. After this call, the full SKILL.md body "
+        "will be injected as the current authoritative rules in the next turn's "
+        "system prompt. MUST be called before following any skill from "
+        "<available_skills>. Calling it with a different skill_id switches the "
+        "active skill; there is no need to re-read the same skill within a session."
     )
     parameters = [
         ToolParameter(
             name="skill_id",
             type="string",
-            description="The id of the skill to load (from <available_skills>, e.g. insurance.withdraw_money)",
+            description="The id of the skill to activate (from <available_skills>, e.g. insurance.withdraw_money)",
             required=True,
         ),
     ]
@@ -40,7 +44,7 @@ class ReadSkillTool(AgentTool):
     async def execute(
         self, tool_call: ToolCall, context: dict[str, Any] | None = None
     ) -> AgentToolResult:
-        """返回指定 id 的技能完整内容，或明确错误信息。"""
+        """激活 skill 并返回简短 digest；正文由下一轮 system prompt 携带。"""
         args = tool_call.arguments or {}
         skill_id = read_string_param(args, "skill_id", "")
 
@@ -59,16 +63,13 @@ class ReadSkillTool(AgentTool):
                 f"Error: unknown skill id '{skill_id}'. Use an id from the available skills list.",
             )
 
-        # 返回完整内容：frontmatter 已解析到 metadata，这里返回原始文件内容更完整（含正文）
-        # 我们返回 skill.content（正文）+ 元数据摘要，便于模型使用
-        parts = [
-            f"# {skill.metadata.name} (id: {skill.id})",
-            f"_{skill.metadata.description}_",
-            "",
-            skill.content,
-        ]
+        digest = (
+            f"Skill '{skill.metadata.name}' (id: {skill.id}) is now active. "
+            f"Its full content is available in <active_skill> in the system prompt; "
+            f"follow it as the authoritative rules for this turn."
+        )
         return AgentToolResult.text_result(
             tool_call.id,
-            "\n".join(parts),
+            digest,
             metadata={"state_delta": {"_active_skill_id": skill_id}},
         )

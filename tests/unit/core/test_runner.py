@@ -728,7 +728,7 @@ async def test_a2ui_marker_by_name_not_result_type(tmp_sessions_dir: Path) -> No
     session = runner.session_manager.create_session_sync()
 
     # Use "render_a2ui" name to match the name-based check in _build_messages
-    tc = ToolCall(id="call_name_test", name="render_a2ui", arguments={"blocks": "[]"})
+    tc = ToolCall(id="call_name_test", name="render_a2ui", arguments={"blocks": []})
     assistant_msg = AgentMessage.assistant(content="", tool_calls=[tc])
     session.add_message(assistant_msg)
 

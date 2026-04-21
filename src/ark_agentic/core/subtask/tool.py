@@ -236,7 +236,6 @@ class SpawnSubtasksTool(AgentTool):
         sub_config = replace(
             self._runner.config,
             auto_compact=False,
-            enable_output_validation=False,
             enable_subtasks=False,
         )
         if self._config.max_turns is not None:

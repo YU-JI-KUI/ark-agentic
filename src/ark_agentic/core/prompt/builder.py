@@ -17,6 +17,7 @@ from ..skills.base import (
     SkillConfig,
     build_skill_prompt,
     format_skills_metadata_for_prompt,
+    render_active_skill_section,
 )
 from ..tools.base import AgentTool
 from ..types import SkillEntry, SkillLoadMode
@@ -205,6 +206,19 @@ class SystemPromptBuilder:
                 self._sections.append(("available_skills", metadata))
         return self
 
+    def add_active_skill(
+        self, skill: SkillEntry | None,
+    ) -> SystemPromptBuilder:
+        """注入当前激活 skill 的正文段（dynamic 模式专用）。
+
+        None 或空内容时静默跳过（fail-safe）。与 <available_skills> 并存：
+        前者是"可选清单"，本段是"当前权威规则"。
+        """
+        if skill is None or not skill.content:
+            return self
+        self._sections.append(("active_skill", render_active_skill_section(skill)))
+        return self
+
     def add_custom_instructions(
         self, instructions: str | None = None
     ) -> SystemPromptBuilder:
@@ -269,11 +283,13 @@ class SystemPromptBuilder:
         user_profile_content: str = "",
         skill_config: SkillConfig | None = None,
         enable_memory: bool = False,
+        active_skill: SkillEntry | None = None,
     ) -> str:
         """快速构建系统提示
 
         Args:
-            tools: 可用工具列表
+            tools: 可用工具列表（dynamic 模式应传入当前 active skill 筛选后的子集，
+                保持与 API tools schema 同源）
             skills: 可用技能列表
             context: 上下文信息
             config: 提示配置（含 custom_instructions 等）
@@ -281,6 +297,8 @@ class SystemPromptBuilder:
             user_profile_content: 全局用户画像 (USER.md) 内容
             skill_config: 技能渲染配置（group 阈值、预算控制等）
             enable_memory: 是否注入 memory 写入协议（仅当 memory 系统启用时为 True）
+            active_skill: dynamic 模式下当前 _active_skill_id 对应的 SkillEntry；
+                正文会注入 <active_skill> 段作为会话的当前权威规则。None 时跳过。
         """
         effective_config = config or PromptConfig()
         builder = cls(effective_config)
@@ -294,6 +312,8 @@ class SystemPromptBuilder:
             builder.add_tools(tools, include_params=include_tool_params)
         if skills:
             builder.add_skills(skills, skill_config=skill_config)
+        if active_skill is not None:
+            builder.add_active_skill(active_skill)
         if context:
             builder.add_context(context)
         if user_profile_content:

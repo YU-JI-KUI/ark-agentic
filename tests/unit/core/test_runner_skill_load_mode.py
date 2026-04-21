@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -11,8 +12,15 @@ from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
+from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.tools.registry import ToolRegistry
-from ark_agentic.core.types import AgentMessage, MessageRole, SkillLoadMode
+from ark_agentic.core.types import (
+    AgentMessage,
+    AgentToolResult,
+    MessageRole,
+    SkillLoadMode,
+    ToolCall,
+)
 
 
 class _MockLLM:
@@ -151,3 +159,230 @@ def test_dynamic_mode_registers_read_skill_tool(tmp_sessions_dir: Path) -> None:
         )
         names = [t.name for t in runner.tool_registry.list_all()]
         assert "read_skill" in names
+
+
+# ============ active_skill injection (Skill 一等公民) ============
+
+
+class _AutoEchoTool(AgentTool):
+    """visibility=auto 的占位工具，用于验证 dynamic 模式下的 gating 行为。"""
+
+    name = "echo_auto"
+    description = "Echo back the input (auto-visibility test tool)."
+    visibility = "auto"
+    parameters = [
+        ToolParameter(name="text", type="string", description="text to echo"),
+    ]
+
+    async def execute(
+        self, tool_call: ToolCall, context: dict[str, Any] | None = None
+    ) -> AgentToolResult:
+        return AgentToolResult.text_result(
+            tool_call.id, str((tool_call.arguments or {}).get("text", "")),
+        )
+
+
+def _make_runner_with_two_skills(tmp_sessions_dir: Path):
+    """两个 dynamic skill + 一个 auto 工具，用于验证激活/切换与工具 gating。"""
+    import contextlib
+
+    @contextlib.contextmanager
+    def _ctx():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_a = Path(tmpdir) / "skill_a"
+            skill_a.mkdir()
+            (skill_a / "SKILL.md").write_text(
+                "---\n"
+                "name: Skill A\n"
+                "description: alpha\n"
+                "when_to_use: For alpha\n"
+                "required_tools: [echo_auto]\n"
+                "---\n\n"
+                "ALPHA_BODY_MARKER"
+            )
+
+            skill_b = Path(tmpdir) / "skill_b"
+            skill_b.mkdir()
+            (skill_b / "SKILL.md").write_text(
+                "---\n"
+                "name: Skill B\n"
+                "description: beta\n"
+                "when_to_use: For beta\n"
+                "---\n\n"
+                "BETA_BODY_MARKER"
+            )
+
+            skill_cfg = SkillConfig(
+                skill_directories=[tmpdir], load_mode=SkillLoadMode.dynamic,
+            )
+            loader = SkillLoader(skill_cfg)
+            loader.load_from_directories()
+
+            registry = ToolRegistry()
+            registry.register(_AutoEchoTool())
+
+            session_manager = SessionManager(tmp_sessions_dir)
+            session = session_manager.create_session_sync()
+            session_id = session.session_id
+            session_manager.add_message_sync(
+                session_id, AgentMessage.user("Hi", metadata={}),
+            )
+
+            runner = AgentRunner(
+                llm=_MockLLM(),
+                session_manager=session_manager,
+                tool_registry=registry,
+                skill_loader=loader,
+                config=RunnerConfig(skill_config=skill_cfg),
+            )
+            yield runner, session_id
+
+    return _ctx()
+
+
+def test_dynamic_active_skill_injects_body_and_gates_tools(
+    tmp_sessions_dir: Path,
+) -> None:
+    """激活 skill_a 后: prompt 含 <active_skill id="skill_a"> + ALPHA 正文;
+    auto 工具 echo_auto 因 required_tools 匹配而可见（原先只有 always 的 read_skill）。
+    """
+    with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
+        # 未激活: 正文不进 prompt, echo_auto 不可见
+        prompt_none = runner._build_system_prompt(
+            {}, session_id=session_id, skill_load_mode="dynamic",
+        )
+        assert "ALPHA_BODY_MARKER" not in prompt_none
+        assert "<active_skill" not in prompt_none
+        tools_none = {t.name for t in runner._filter_tools({})}
+        assert "read_skill" in tools_none
+        assert "echo_auto" not in tools_none
+
+        # 激活 skill_a: 正文注入 + auto 工具解锁
+        state_a = {"_active_skill_id": "skill_a"}
+        prompt_a = runner._build_system_prompt(
+            state_a, session_id=session_id, skill_load_mode="dynamic",
+        )
+        assert "<active_skill" in prompt_a
+        assert 'id="skill_a"' in prompt_a
+        assert "ALPHA_BODY_MARKER" in prompt_a
+        assert "BETA_BODY_MARKER" not in prompt_a
+        tools_a = {t.name for t in runner._filter_tools(state_a)}
+        assert "echo_auto" in tools_a
+        assert "read_skill" in tools_a
+
+
+def test_dynamic_active_skill_switch_replaces_body(tmp_sessions_dir: Path) -> None:
+    """切换 _active_skill_id: 旧 skill 正文退出上下文，新 skill 正文就位。"""
+    with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
+        prompt_a = runner._build_system_prompt(
+            {"_active_skill_id": "skill_a"},
+            session_id=session_id, skill_load_mode="dynamic",
+        )
+        prompt_b = runner._build_system_prompt(
+            {"_active_skill_id": "skill_b"},
+            session_id=session_id, skill_load_mode="dynamic",
+        )
+        assert "ALPHA_BODY_MARKER" in prompt_a
+        assert "BETA_BODY_MARKER" not in prompt_a
+        assert "BETA_BODY_MARKER" in prompt_b
+        assert "ALPHA_BODY_MARKER" not in prompt_b
+        assert 'id="skill_b"' in prompt_b
+
+
+def test_filter_tools_and_build_tools_are_consistent(
+    tmp_sessions_dir: Path,
+) -> None:
+    """_build_tools 必须是 _filter_tools 的薄包装: 两者工具集永远一致（单一事实源）。"""
+    with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, _):
+        for state in ({}, {"_active_skill_id": "skill_a"}, {"_active_skill_id": "skill_b"}):
+            filtered = {t.name for t in runner._filter_tools(state)}
+            schema_names = {
+                t["function"]["name"] for t in runner._build_tools(state)
+            }
+            assert filtered == schema_names, f"mismatch at state={state}"
+
+
+def test_dynamic_unknown_active_skill_id_is_safe(tmp_sessions_dir: Path) -> None:
+    """state 里带着陈旧/未知的 _active_skill_id 时: 不抛错, 无 <active_skill> 段。"""
+    with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
+        state = {"_active_skill_id": "ghost_skill"}
+        prompt = runner._build_system_prompt(
+            state, session_id=session_id, skill_load_mode="dynamic",
+        )
+        assert "<active_skill" not in prompt
+        tools = {t.name for t in runner._filter_tools(state)}
+        assert "echo_auto" not in tools  # 未知 id => allowed=空 => auto 工具不放行
+
+
+def test_dynamic_active_skill_cleared_unloads_body_and_tools(
+    tmp_sessions_dir: Path,
+) -> None:
+    """卸载: 从已激活回到无 _active_skill_id — <active_skill> 与 skill 专属 auto 工具一并消失。"""
+    with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
+        session = runner.session_manager.get_session_required(session_id)
+        session.update_state({"_active_skill_id": "skill_a"})
+        prompt_on = runner._build_system_prompt(
+            session.state, session_id=session_id, skill_load_mode="dynamic",
+        )
+        assert "ALPHA_BODY_MARKER" in prompt_on
+        assert "echo_auto" in {t.name for t in runner._filter_tools(session.state)}
+
+        session.state.pop("_active_skill_id", None)
+        prompt_off = runner._build_system_prompt(
+            session.state, session_id=session_id, skill_load_mode="dynamic",
+        )
+        assert "<active_skill" not in prompt_off
+        assert "ALPHA_BODY_MARKER" not in prompt_off
+        assert "echo_auto" not in {t.name for t in runner._filter_tools(session.state)}
+
+
+def test_multi_turn_merge_state_delta_then_prompt_and_tools(
+    tmp_sessions_dir: Path,
+) -> None:
+    """多轮: 模拟 read_skill 的 state_delta 经 _merge_tool_state_deltas 写入 session 后，
+    下一轮 _build_system_prompt / _filter_tools 读取同一 session.state 演进正确。
+    """
+    with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
+        session = runner.session_manager.get_session_required(session_id)
+
+        # Turn 0 — 无激活
+        p0 = runner._build_system_prompt(
+            session.state, session_id=session_id, skill_load_mode="dynamic",
+        )
+        assert "<active_skill" not in p0
+        assert "echo_auto" not in {t.name for t in runner._filter_tools(session.state)}
+
+        # Turn 1 — 等同 read_skill(skill_a) 合并后
+        AgentRunner._merge_tool_state_deltas(
+            session,
+            [
+                AgentToolResult.text_result(
+                    "tc1",
+                    "digest a",
+                    metadata={"state_delta": {"_active_skill_id": "skill_a"}},
+                ),
+            ],
+        )
+        p1 = runner._build_system_prompt(
+            session.state, session_id=session_id, skill_load_mode="dynamic",
+        )
+        assert "ALPHA_BODY_MARKER" in p1
+        assert "echo_auto" in {t.name for t in runner._filter_tools(session.state)}
+
+        # Turn 2 — 切换 skill_b（无 required_tools => echo_auto 重新门控掉）
+        AgentRunner._merge_tool_state_deltas(
+            session,
+            [
+                AgentToolResult.text_result(
+                    "tc2",
+                    "digest b",
+                    metadata={"state_delta": {"_active_skill_id": "skill_b"}},
+                ),
+            ],
+        )
+        p2 = runner._build_system_prompt(
+            session.state, session_id=session_id, skill_load_mode="dynamic",
+        )
+        assert "BETA_BODY_MARKER" in p2
+        assert "ALPHA_BODY_MARKER" not in p2
+        assert "echo_auto" not in {t.name for t in runner._filter_tools(session.state)}

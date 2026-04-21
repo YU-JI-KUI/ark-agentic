@@ -161,7 +161,7 @@ class TestWithdrawSummaryHeader:
 class TestWithdrawSummarySection:
     def test_zero_cost(self):
         output = build_withdraw_summary_section(
-            {"section": "zero_cost"},
+            {"section_name": "zero_cost"},
             _id_gen(),
             _SAMPLE_RAW_DATA,
         )
@@ -171,7 +171,7 @@ class TestWithdrawSummarySection:
 
     def test_loan(self):
         output = build_withdraw_summary_section(
-            {"section": "loan"},
+            {"section_name": "loan"},
             _id_gen(),
             _SAMPLE_RAW_DATA,
         )
@@ -185,7 +185,7 @@ class TestWithdrawSummarySection:
             ]
         }
         output = build_withdraw_summary_section(
-            {"section": "surrender"}, _id_gen(), raw,
+            {"section_name": "surrender"}, _id_gen(), raw,
         )
         total_texts = [c for c in output.components if "Text" in c.get("component", {})
                        and c["component"]["Text"].get("bold") is True
@@ -195,7 +195,7 @@ class TestWithdrawSummarySection:
 
     def test_zero_cost_total_color_is_accent(self):
         output = build_withdraw_summary_section(
-            {"section": "zero_cost"}, _id_gen(), _SAMPLE_RAW_DATA,
+            {"section_name": "zero_cost"}, _id_gen(), _SAMPLE_RAW_DATA,
         )
         total_texts = [c for c in output.components if "Text" in c.get("component", {})
                        and c["component"]["Text"].get("bold") is True
@@ -211,7 +211,7 @@ class TestWithdrawSummarySection:
             ]
         }
         output = build_withdraw_summary_section(
-            {"section": "loan"},
+            {"section_name": "loan"},
             _id_gen(),
             data_no_loan,
         )
@@ -220,7 +220,7 @@ class TestWithdrawSummarySection:
     def test_bonus_preset_excludes_survival_fund(self):
         """POL002 has both survival_fund and bonus; section=bonus must not list 生存金."""
         output = build_withdraw_summary_section(
-            {"section": "bonus"},
+            {"section_name": "bonus"},
             _id_gen(),
             _SAMPLE_RAW_DATA,
         )
@@ -231,7 +231,7 @@ class TestWithdrawSummarySection:
     def test_survival_fund_preset_excludes_bonus(self):
         """POL002 has both; section=survival_fund must not list 红利."""
         output = build_withdraw_summary_section(
-            {"section": "survival_fund"},
+            {"section_name": "survival_fund"},
             _id_gen(),
             _SAMPLE_RAW_DATA,
         )
@@ -312,16 +312,16 @@ class TestWithdrawPlanCard:
         assert output.state_delta is not None
 
     def test_digest_contains_channels_and_total(self):
-        """llm_digest must contain 'channels: [...]' and '总额: ¥...' for downstream ADJUST/execute."""
+        """llm_digest 必须以 `[卡片:方案` 锚点开头且含 channels=[…] / total=… 字段。"""
         output = build_withdraw_plan_card(
             {"channels": ["survival_fund", "bonus"], "target": 50000, "title": "零成本"},
             _id_gen(), _SAMPLE_RAW_DATA,
         )
-        assert "channels:" in output.llm_digest
+        assert output.llm_digest.startswith("[卡片:方案")
+        assert "channels=[" in output.llm_digest
         assert "survival_fund" in output.llm_digest
         assert "bonus" in output.llm_digest
-        assert "总额: ¥" in output.llm_digest
-        assert "方案:" in output.llm_digest
+        assert "total=" in output.llm_digest
 
     def test_digest_amount_matches_actual_allocation(self):
         """Digest total must match the actual allocated amount, not the target."""
@@ -397,14 +397,14 @@ class TestAgentPipeline:
 
     @pytest.mark.asyncio
     async def test_card_expansion(self, tool, ctx):
-        blocks = json.dumps([
+        blocks = [
             {"type": "Card", "data": {"children": [
                 {"type": "SectionHeader", "data": {"title": "保单A"}},
                 {"type": "KVRow", "data": {"label": "生存金", "value": "¥ 12,000"}},
                 {"type": "Divider"},
                 {"type": "AccentTotal", "data": {"label": "合计", "value": "¥ 12,000"}},
             ]}},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
@@ -419,13 +419,13 @@ class TestAgentPipeline:
 
     @pytest.mark.asyncio
     async def test_nested_card_expansion(self, tool, ctx):
-        blocks = json.dumps([
+        blocks = [
             {"type": "Card", "data": {"children": [
                 {"type": "Card", "data": {"children": [
                     {"type": "KVRow", "data": {"label": "A", "value": "B"}},
                 ]}},
             ]}},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
@@ -434,7 +434,7 @@ class TestAgentPipeline:
 
     @pytest.mark.asyncio
     async def test_card_max_depth_exceeded(self, tool, ctx):
-        blocks = json.dumps([
+        blocks = [
             {"type": "Card", "data": {"children": [
                 {"type": "Card", "data": {"children": [
                     {"type": "Card", "data": {"children": [
@@ -444,7 +444,7 @@ class TestAgentPipeline:
                     ]}},
                 ]}},
             ]}},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert result.is_error
@@ -452,10 +452,10 @@ class TestAgentPipeline:
 
     @pytest.mark.asyncio
     async def test_component_in_pipeline(self, tool, ctx):
-        blocks = json.dumps([
+        blocks = [
             {"type": "WithdrawSummaryHeader", "data": {"sections": ["zero_cost"]}},
-            {"type": "WithdrawSummarySection", "data": {"section": "zero_cost"}},
-        ])
+            {"type": "WithdrawSummarySection", "data": {"section_name": "zero_cost"}},
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
@@ -464,14 +464,14 @@ class TestAgentPipeline:
 
     @pytest.mark.asyncio
     async def test_mixed_blocks_and_components(self, tool, ctx):
-        blocks = json.dumps([
+        blocks = [
             {"type": "WithdrawSummaryHeader", "data": {"sections": ["zero_cost"]}},
             {"type": "Card", "data": {"children": [
                 {"type": "SectionHeader", "data": {"title": "Custom"}},
                 {"type": "KVRow", "data": {"label": "Key", "value": "Val"}},
             ]}},
             {"type": "ActionButton", "data": {"text": "Go", "action": {"name": "query", "args": {"queryMsg": "go"}}}},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
@@ -481,11 +481,11 @@ class TestAgentPipeline:
 
     @pytest.mark.asyncio
     async def test_plan_card_pipeline_clears_submitted_channels(self, tool, ctx):
-        blocks = json.dumps([
+        blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"], "target": 10000, "title": "Zero-cost",
             }},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
@@ -493,29 +493,30 @@ class TestAgentPipeline:
 
     @pytest.mark.asyncio
     async def test_plan_card_pipeline_digest_propagates(self, tool, ctx):
-        """render_a2ui result.llm_digest must contain channels and total for session history."""
-        blocks = json.dumps([
+        """render_a2ui 必须透传 PlanCard 的 `[卡片:方案 …]` 锚点 digest 供后续 skill 判定。"""
+        blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"], "target": 10000, "title": "零成本领取",
             }},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
         digest = result.llm_digest
         assert digest is not None, "render_a2ui must propagate llm_digest from PlanCard"
-        assert "channels:" in digest
+        assert digest.startswith("[卡片:方案")
+        assert "channels=[" in digest
         assert "survival_fund" in digest
-        assert "总额: ¥" in digest
+        assert "total=" in digest
 
     @pytest.mark.asyncio
     async def test_plan_card_pipeline_state_delta_resets_on_new_card(self, tool, ctx):
         """New PlanCard via pipeline must reset _submitted_channels even if prior state had submissions."""
-        blocks = json.dumps([
+        blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["policy_loan"], "target": 5000, "title": "贷款方案",
             }},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error
@@ -526,14 +527,14 @@ class TestAgentPipeline:
 
     @pytest.mark.asyncio
     async def test_transform_resolution_in_card_children(self, tool, ctx):
-        blocks = json.dumps([
+        blocks = [
             {"type": "Card", "data": {"children": [
                 {"type": "KVRow", "data": {
                     "label": "Total",
                     "value": {"get": "total_available_incl_loan", "format": "currency"},
                 }},
             ]}},
-        ])
+        ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await tool.execute(tc, context=ctx)
         assert not result.is_error

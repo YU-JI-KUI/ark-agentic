@@ -250,13 +250,13 @@ class TestSecurityInfoSearchTool:
 
     @pytest.mark.asyncio
     async def test_dividend_included(self, tool: SecurityInfoSearchTool):
-        call = self._make_call("600519", include_dividend=True)
+        call = self._make_call("601318", include_dividend=True)
         result = await tool.execute(call)
         data = result.content
         assert data["matched"] is True
         div = data.get("dividend_info")
         assert div is not None
-        assert div.get("dividend_per_share") is not None
+        assert div.get("dividend_list")
 
     @pytest.mark.asyncio
     async def test_dividend_excluded(self, tool: SecurityInfoSearchTool):
