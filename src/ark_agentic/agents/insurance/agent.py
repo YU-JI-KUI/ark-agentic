@@ -23,6 +23,10 @@ from ark_agentic.observability import (
     apply_observability_bindings,
     build_observability_bindings,
 )
+from ark_agentic.services.jobs import (
+    apply_proactive_job_bindings,
+    build_proactive_job_bindings,
+)
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.callbacks import RunnerCallbacks, merge_runner_callbacks
@@ -156,6 +160,10 @@ def create_insurance_agent(
         config=runner_config,
         memory_manager=memory_manager,
         callbacks=observability.callbacks,
-        proactive_job=proactive_job,
     )
-    return apply_observability_bindings(runner, observability)
+    apply_observability_bindings(runner, observability)
+    apply_proactive_job_bindings(
+        runner,
+        build_proactive_job_bindings(job=proactive_job),
+    )
+    return runner
