@@ -47,7 +47,6 @@ from .types import (
 )
 if TYPE_CHECKING:
     from .memory.manager import MemoryManager
-    from ark_agentic.services.jobs.proactive_service import ProactiveServiceJob
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +176,6 @@ class AgentRunner:
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
         callbacks: RunnerCallbacks | None = None,
-        proactive_job: ProactiveServiceJob | None = None,
     ) -> None:
         self.llm = llm
         self.tool_registry = tool_registry or ToolRegistry()
@@ -187,7 +185,6 @@ class AgentRunner:
         self._callbacks = callbacks or RunnerCallbacks()
 
         self._memory_manager = memory_manager
-        self._proactive_job = proactive_job
         self._flusher = None
         self._dreamer = None
         self._dream_tasks: dict[str, asyncio.Task[Any]] = {}
@@ -240,21 +237,16 @@ class AgentRunner:
         return self._memory_manager
 
     async def warmup(self) -> None:
-        """Warmup：若配置了 proactive_job，自动向全局 JobManager 注册。
+        """Warmup hook — 执行 services 模块附加的 _warmup_tasks。
 
-        宿主应用（app.py / lifespan）在 JobManager 启动前调用此方法，
-        框架负责把 job 注册进调度器，无需宿主感知 job 细节。
+        runner 本身不感知具体任务(job 注册、资源预热等);services 层通过
+        apply_*_bindings() 在构造后追加任务,此处仅负责依次触发。
         """
-        if self._proactive_job is None:
-            return  # 未配置主动服务 Job，跳过
-
-        from ark_agentic.services.jobs.manager import get_job_manager
-        job_manager = get_job_manager()
-        if job_manager is None:
-            return  # JobManager 尚未初始化（ENABLE_JOB_MANAGER=false）
-
-        job_manager.register(self._proactive_job)
-        logger.info("Registered proactive job '%s'", self._proactive_job.meta.job_id)
+        tasks = getattr(self, "_warmup_tasks", None)
+        if not tasks:
+            return
+        for task in tasks:
+            await task()
 
     def mark_memory_dirty(self) -> None:
         """保留接口兼容 — 无 SQLite 索引，无需刷新标记。"""

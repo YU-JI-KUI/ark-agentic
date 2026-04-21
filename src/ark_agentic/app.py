@@ -69,11 +69,22 @@ async def lifespan(app: FastAPI):
     # ── Step 1: 先初始化 JobManager 全局单例（如果启用）────────────────────
     # 必须在 agent warmup 之前设置，因为 warmup 时会自动向 JobManager 注册 Job
     if _env_flag("ENABLE_JOB_MANAGER"):
-        from ark_agentic.services.notifications.store import NotificationStore
-        from ark_agentic.services.notifications.delivery import NotificationDelivery
-        from ark_agentic.services.jobs.manager import JobManager, set_job_manager
-        from ark_agentic.services.jobs.scanner import UserShardScanner
-        from ark_agentic.core.paths import get_notifications_base_dir
+        try:
+            from ark_agentic.services.jobs import (
+                JobManager,
+                UserShardScanner,
+                set_job_manager,
+            )
+            from ark_agentic.services.notifications import (
+                NotificationDelivery,
+                NotificationStore,
+                get_notifications_base_dir,
+            )
+        except ImportError as e:
+            raise RuntimeError(
+                "ENABLE_JOB_MANAGER=1 requires 'ark-agentic[proactive]' extras. "
+                f"Install with: pip install 'ark-agentic[proactive]' (cause: {e})"
+            ) from e
 
         notification_store = NotificationStore(base_dir=get_notifications_base_dir())
         notification_delivery = NotificationDelivery()
@@ -164,7 +175,12 @@ async def _drop_windows_update_probes(request, call_next):
 
 # ---- 挂载路由 ----
 app.include_router(chat_api.router)
-app.include_router(notifications_api.router)
+# notifications/jobs API 仅在启用 ENABLE_JOB_MANAGER 时挂载
+# (依赖 services/jobs 的 apscheduler 与 services/notifications 的 fastapi 路由,
+#  通过 ark-agentic[proactive] extras 安装)
+if _env_flag("ENABLE_JOB_MANAGER"):
+    app.include_router(notifications_api.router)
+    logger.info("Mounted /api/notifications and /api/jobs routes")
 setup_studio_from_env(app, registry=_registry)
 
 # ---- 静态文件 & 测试 UI ----

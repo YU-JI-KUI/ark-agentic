@@ -105,7 +105,7 @@ class ProactiveServiceJob(BaseJob):
     ) -> None:
         from pathlib import Path
         from ..notifications.store import NotificationStore
-        from ark_agentic.core.paths import get_notifications_base_dir
+        from ..notifications.paths import get_notifications_base_dir
 
         self._get_llm = llm_factory
         self._tool_registry = tool_registry
