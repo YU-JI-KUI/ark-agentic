@@ -139,6 +139,28 @@ class RewriteURLAsyncTransport(httpx.AsyncBaseTransport):
         return await self._inner.handle_async_request(request)
 
 
+def wrap_async_transport(
+    transport: httpx.AsyncBaseTransport,
+    full_url: str | None = None,
+) -> httpx.AsyncBaseTransport:
+    """为任意异步 transport 叠加可选 URL 改写和 DEBUG_HTTP 包装。"""
+    wrapped = transport
+    if full_url:
+        wrapped = RewriteURLAsyncTransport(wrapped, full_url)
+    return debug_transport(wrapped)
+
+
+def wrap_sync_transport(
+    transport: httpx.BaseTransport,
+    full_url: str | None = None,
+) -> httpx.BaseTransport:
+    """为任意同步 transport 叠加可选 URL 改写和 DEBUG_HTTP 包装。"""
+    wrapped = transport
+    if full_url:
+        wrapped = RewriteURLTransport(wrapped, full_url)
+    return debug_sync_transport(wrapped)
+
+
 class SyncDebugTransport(httpx.BaseTransport):
     """装饰器 Transport：打印同步 request/response。"""
 
@@ -223,15 +245,17 @@ def debug_sync_transport(transport: httpx.BaseTransport) -> httpx.BaseTransport:
 
 def make_debug_client(full_url: str | None = None) -> httpx.AsyncClient:
     """构造带可选 URL 改写和 debug 的 httpx.AsyncClient。"""
-    transport: httpx.AsyncBaseTransport = httpx.AsyncHTTPTransport(retries=3)
-    if full_url:
-        transport = RewriteURLAsyncTransport(transport, full_url)
-    return httpx.AsyncClient(transport=debug_transport(transport))
+    transport: httpx.AsyncBaseTransport = wrap_async_transport(
+        httpx.AsyncHTTPTransport(retries=3),
+        full_url,
+    )
+    return httpx.AsyncClient(transport=transport)
 
 
 def make_debug_sync_client(full_url: str | None = None) -> httpx.Client:
     """构造带可选 URL 改写和 debug 的 httpx.Client。"""
-    transport: httpx.BaseTransport = httpx.HTTPTransport(retries=3)
-    if full_url:
-        transport = RewriteURLTransport(transport, full_url)
-    return httpx.Client(transport=debug_sync_transport(transport))
+    transport: httpx.BaseTransport = wrap_sync_transport(
+        httpx.HTTPTransport(retries=3),
+        full_url,
+    )
+    return httpx.Client(transport=transport)

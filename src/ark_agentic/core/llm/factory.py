@@ -45,6 +45,7 @@ class PAModelConfig:
     base_url: str
     model_name: str
     model_type: Literal["jt", "sx"]
+    rewrite_full_url: str | None = None
     # SX 系列
     api_key: str = ""
     trace_app_id: str = ""
@@ -55,6 +56,18 @@ class PAModelConfig:
     gpt_app_key: str = ""
     gpt_app_secret: str = ""
     scene_id: str = ""
+
+
+@dataclass(frozen=True)
+class ResolvedLLMEndpoint:
+    """解析后的 ChatOpenAI 端点配置。"""
+
+    sdk_base_url: str | None
+    rewrite_full_url: str | None
+
+    @property
+    def mode(self) -> str:
+        return "full_url" if self.rewrite_full_url else "base_url"
 
 
 def _load_pa_model_config(model: PAModel) -> PAModelConfig:
@@ -69,16 +82,16 @@ def _load_pa_model_config(model: PAModel) -> PAModelConfig:
     Raises:
         ValueError: 如果必需的环境变量缺失
     """
-    base_url = os.getenv("LLM_BASE_URL", "").strip()
-    if not base_url:
-        raise ValueError(
-            "LLM_BASE_URL is required for PA models. "
-            "Please set it in your .env file."
-        )
+    endpoint = _resolve_llm_endpoint(
+        os.getenv("LLM_BASE_URL", ""),
+        required=True,
+    )
+    assert endpoint.sdk_base_url is not None
 
     if model == PAModel.PA_JT_80B:
         return PAModelConfig(
-            base_url=base_url,
+            base_url=endpoint.sdk_base_url,
+            rewrite_full_url=endpoint.rewrite_full_url,
             model_name="PA-JT-80B",
             model_type="jt",
             open_api_code=os.getenv("PA_JT_OPEN_API_CODE", ""),
@@ -94,7 +107,8 @@ def _load_pa_model_config(model: PAModel) -> PAModelConfig:
         "PA_SX_80B_APP_ID" if model == PAModel.PA_SX_80B else "PA_SX_235B_APP_ID"
     )
     return PAModelConfig(
-        base_url=base_url,
+        base_url=endpoint.sdk_base_url,
+        rewrite_full_url=endpoint.rewrite_full_url,
         model_name=model.value,
         model_type="sx",
         api_key=os.getenv("API_KEY", ""),
@@ -195,29 +209,19 @@ def _is_true_env(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def _create_openai_compat_model(
-    model_name: str,
-    temperature: float,
-    max_tokens: int,
-    streaming: bool,
-    api_key: str | None,
+def _resolve_llm_endpoint(
     base_url: str | None,
-) -> "BaseChatModel":
-    """创建 OpenAI 兼容模型（API_KEY + LLM_BASE_URL）。"""
-    from langchain_openai import ChatOpenAI
-    from .debug_transport import (
-        derive_base_url_for_full_url,
-        make_debug_client,
-        make_debug_sync_client,
-    )
+    *,
+    required: bool,
+) -> ResolvedLLMEndpoint:
+    from .debug_transport import derive_base_url_for_full_url
 
-    effective_base_url = (base_url or os.getenv("LLM_BASE_URL", "") or "").strip()
+    effective_base_url = (base_url or "").strip() or None
     base_url_is_full_url = _is_true_env(os.getenv("LLM_BASE_URL_IS_FULL_URL"))
-    effective_api_key = _resolve_api_key(api_key)
-    if not effective_api_key:
+
+    if required and not effective_base_url:
         raise ValueError(
-            f"api_key is required for model '{model_name}'. "
-            "Pass it directly or set API_KEY env var."
+            "LLM_BASE_URL is required. Please set it in your .env file."
         )
     if base_url_is_full_url and not effective_base_url:
         raise ValueError(
@@ -230,11 +234,39 @@ def _create_openai_compat_model(
         if rewrite_full_url
         else effective_base_url
     )
+    return ResolvedLLMEndpoint(
+        sdk_base_url=sdk_base_url,
+        rewrite_full_url=rewrite_full_url,
+    )
+
+
+def _create_openai_compat_model(
+    model_name: str,
+    temperature: float,
+    max_tokens: int,
+    streaming: bool,
+    api_key: str | None,
+    base_url: str | None,
+) -> "BaseChatModel":
+    """创建 OpenAI 兼容模型（API_KEY + LLM_BASE_URL）。"""
+    from langchain_openai import ChatOpenAI
+    from .debug_transport import make_debug_client, make_debug_sync_client
+
+    effective_api_key = _resolve_api_key(api_key)
+    endpoint = _resolve_llm_endpoint(
+        base_url or os.getenv("LLM_BASE_URL", ""),
+        required=False,
+    )
+    if not effective_api_key:
+        raise ValueError(
+            f"api_key is required for model '{model_name}'. "
+            "Pass it directly or set API_KEY env var."
+        )
     logger.info(
         "Create OpenAI-compatible model | model=%s | url_mode=%s | base_url=%s",
         model_name,
-        "full_url" if rewrite_full_url else "base_url",
-        sdk_base_url or "<default>",
+        endpoint.mode,
+        endpoint.sdk_base_url or "<default>",
     )
 
     kwargs: dict[str, Any] = {
@@ -243,11 +275,11 @@ def _create_openai_compat_model(
         "temperature": temperature,
         "max_tokens": max_tokens,
         "streaming": streaming,
-        "http_client": make_debug_sync_client(rewrite_full_url),
-        "http_async_client": make_debug_client(rewrite_full_url),
+        "http_client": make_debug_sync_client(endpoint.rewrite_full_url),
+        "http_async_client": make_debug_client(endpoint.rewrite_full_url),
     }
-    if sdk_base_url:
-        kwargs["base_url"] = sdk_base_url
+    if endpoint.sdk_base_url:
+        kwargs["base_url"] = endpoint.sdk_base_url
 
     return ChatOpenAI(**kwargs)
 

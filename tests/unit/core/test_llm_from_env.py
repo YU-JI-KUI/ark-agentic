@@ -98,3 +98,53 @@ def test_create_chat_model_from_env_pa_valid_model_name(monkeypatch: pytest.Monk
     monkeypatch.setenv("PA_SX_80B_APP_ID", "test-app")
     llm = create_chat_model_from_env()
     assert llm is not None
+
+
+def test_create_chat_model_from_env_pa_sx_full_url_mode_rewrites_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PA-SX should reuse the same full-url rewrite path as OpenAI-compatible models."""
+    from ark_agentic.core.llm.debug_transport import DebugTransport, RewriteURLAsyncTransport
+    from ark_agentic.core.llm.pa_sx_llm import PASXTraceTransport
+
+    monkeypatch.setenv("LLM_PROVIDER", "pa")
+    monkeypatch.setenv("MODEL_NAME", "PA-SX-80B")
+    monkeypatch.setenv("LLM_BASE_URL", "https://service-host/chat/dialog")
+    monkeypatch.setenv("LLM_BASE_URL_IS_FULL_URL", "true")
+    monkeypatch.setenv("API_KEY", "test-key")
+    monkeypatch.setenv("PA_SX_80B_APP_ID", "test-app")
+
+    llm = create_chat_model_from_env()
+
+    assert llm is not None
+    assert getattr(llm, "openai_api_base", None) == "https://service-host/"
+    transport = getattr(llm, "http_async_client", None)._transport  # type: ignore[union-attr]  # noqa: SLF001
+    assert isinstance(transport, PASXTraceTransport)
+    inner = transport._transport  # noqa: SLF001
+    if isinstance(inner, DebugTransport):
+        inner = inner._inner  # noqa: SLF001
+    assert isinstance(inner, RewriteURLAsyncTransport)
+
+
+def test_create_chat_model_from_env_pa_jt_full_url_mode_rewrites_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PA-JT should also support LLM_BASE_URL_IS_FULL_URL via the shared endpoint resolver."""
+    from ark_agentic.core.llm.debug_transport import DebugTransport, RewriteURLAsyncTransport
+    from ark_agentic.core.llm.pa_jt_llm import PinganEAGWHeaderAsyncTransport
+
+    monkeypatch.setenv("LLM_PROVIDER", "pa")
+    monkeypatch.setenv("MODEL_NAME", "PA-JT-80B")
+    monkeypatch.setenv("LLM_BASE_URL", "https://service-host/chat/dialog")
+    monkeypatch.setenv("LLM_BASE_URL_IS_FULL_URL", "true")
+
+    llm = create_chat_model_from_env()
+
+    assert llm is not None
+    assert getattr(llm, "openai_api_base", None) == "https://service-host/"
+    transport = getattr(llm, "http_async_client", None)._transport  # type: ignore[union-attr]  # noqa: SLF001
+    assert isinstance(transport, PinganEAGWHeaderAsyncTransport)
+    inner = transport._transport  # noqa: SLF001
+    if isinstance(inner, DebugTransport):
+        inner = inner._inner  # noqa: SLF001
+    assert isinstance(inner, RewriteURLAsyncTransport)
