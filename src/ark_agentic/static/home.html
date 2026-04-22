@@ -281,7 +281,7 @@
   <main data-tab="home">
 
     <!-- Hero -->
-    <section id="hero" class="relative overflow-hidden pt-20 pb-28 bg-slate-950">
+    <section id="hero" class="relative overflow-hidden pt-16 pb-12 bg-slate-950">
       <div class="absolute inset-0 z-0">
         <img src="/static/assets/ark-logo.svg" alt=""
           class="w-full h-full object-contain opacity-20 pointer-events-none">
@@ -290,12 +290,12 @@
 
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div class="lg:grid lg:grid-cols-12 lg:gap-16 items-center">
-          <div class="lg:col-span-7 text-center lg:text-left mb-16 lg:mb-0">
-            <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white tracking-tight leading-[1.15] mb-5">
+          <div class="lg:col-span-7 text-center lg:text-left mb-10 lg:mb-0">
+            <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white tracking-tight leading-[1.25] mb-4">
               Agentic 智能体，<br class="hidden lg:block"><span
                 class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">重塑人与世界的交互范式</span>
             </h1>
-            <p class="text-xl sm:text-2xl font-medium text-cyan-100 mb-10 tracking-wide">
+            <p class="text-xl sm:text-2xl font-medium text-cyan-100 mb-8 tracking-wide">
               思考、行动，连接人与业务，创造价值
             </p>
             <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
@@ -315,32 +315,68 @@
             </div>
           </div>
 
-          <div class="lg:col-span-5 relative h-[250px] sm:h-[300px] flex items-center justify-center">
-            <div
-              class="w-full max-w-[400px] bg-white/95 backdrop-blur-sm rounded-xl shadow-2xl shadow-black/50 border border-slate-100/20 z-10 transform transition-transform hover:-translate-y-1">
-              <div class="border-b border-slate-200/80 px-6 py-4 flex items-center justify-between">
-                <span class="font-semibold text-slate-800 flex items-center gap-2">
-                  <svg class="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="16 18 22 12 16 6"></polyline>
-                    <polyline points="8 6 2 12 8 18"></polyline>
-                  </svg> Python · uv
-                </span>
-                <div class="w-2.5 h-2.5 rounded-full bg-blue-500"></div>
+          <div class="lg:col-span-5 relative flex items-center justify-center">
+            <figure
+              class="relative w-full max-w-[340px] aspect-[4/5] rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/50 bg-slate-900"
+              aria-label="ARK-AGENTIC 保险服务 Demo 录屏">
+              <img src="/static/assets/demo-snapshot.png"
+                class="absolute inset-0 w-full h-full object-cover object-bottom z-0 opacity-90 select-none pointer-events-none"
+                alt="ARK-AGENTIC 保险服务 Demo 截图" loading="eager" decoding="async">
+              <div
+                class="absolute inset-x-0 top-0 h-28 z-[1] pointer-events-none bg-gradient-to-b from-slate-950/80 to-transparent">
               </div>
-              <div class="p-6">
-                <code class="block bg-slate-100/80 text-slate-800 p-3 rounded-md border border-slate-200 text-sm font-mono mb-4">uv add ark-agentic</code>
-                <a href="#quickstart" class="text-blue-600 font-medium text-sm flex items-center gap-1 hover:text-blue-800 transition-colors">
-                  查看快速使用
-                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                    <polyline points="12 5 19 12 12 19"></polyline>
-                  </svg>
-                </a>
-              </div>
-            </div>
+              <video id="hero-demo-video"
+                class="absolute inset-0 w-full h-full object-cover object-bottom z-10 opacity-0 transition-opacity duration-500 bg-transparent"
+                muted loop playsinline preload="none">
+                <source src="/static/assets/home-insurance-demo.webm" type="video/webm">
+                <source src="/static/assets/home-insurance-demo.mp4" type="video/mp4">
+              </video>
+            </figure>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Try It -->
+    <section id="try-it" class="py-10 sm:py-12 bg-slate-50 border-y border-slate-200/80">
+      <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex flex-col md:flex-row items-center justify-center gap-5 md:gap-7">
+
+          <div class="flex items-center gap-2.5 text-slate-600">
+            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-cyan-100 text-cyan-700">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 17 10 11 4 5"></polyline>
+                <line x1="12" y1="19" x2="20" y2="19"></line>
+              </svg>
+            </span>
+            <span class="text-sm font-medium whitespace-nowrap">一键安装</span>
+          </div>
+
+          <div class="group flex sm:inline-flex items-center gap-5 bg-slate-950 rounded-lg border border-slate-800 shadow-lg shadow-slate-950/20 hover:shadow-xl hover:shadow-cyan-500/10 hover:border-slate-700 transition-all w-full sm:w-auto sm:min-w-[480px] md:min-w-[560px] px-6 sm:px-10 py-4">
+            <span class="text-slate-500 font-mono text-lg sm:text-xl select-none">$</span>
+            <code id="install-cmd" class="font-mono text-cyan-300 text-lg sm:text-xl font-semibold tracking-normal">uv add ark-agentic</code>
+            <button type="button" data-copy-target="#install-cmd"
+              class="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors border-l border-slate-700 pl-4 ml-auto"
+              aria-label="复制安装命令">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span data-copy-label>复制</span>
+            </button>
+          </div>
+
+          <a href="#quickstart"
+            class="group inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap">
+            查看完整示例
+            <svg class="w-3.5 h-3.5 transform transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="12 5 19 12 12 19"></polyline>
+            </svg>
+          </a>
         </div>
       </div>
     </section>
@@ -610,6 +646,55 @@ result = <span class="text-blue-400">await</span> agent.<span class="text-yellow
   </footer>
 
   <script>
+    (function setupCopyButtons() {
+      document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const target = document.querySelector(btn.dataset.copyTarget);
+          if (!target) return;
+          try {
+            await navigator.clipboard.writeText(target.textContent.trim());
+            const label = btn.querySelector('[data-copy-label]');
+            if (!label) return;
+            const prev = label.textContent;
+            label.textContent = '已复制';
+            setTimeout(function () { label.textContent = prev; }, 1500);
+          } catch (e) { /* silent */ }
+        });
+      });
+    })();
+
+    (function setupHeroDemoLazyPlay() {
+      const video = document.getElementById('hero-demo-video');
+      if (!video) return;
+      const fadeIn = function () {
+        video.classList.remove('opacity-0');
+        video.classList.add('opacity-100');
+      };
+      video.addEventListener('playing', fadeIn, { once: true });
+      const observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          video.load();
+          video.play().catch(function () {});
+          observer.disconnect();
+        });
+      }, { threshold: 0.1 });
+      observer.observe(video);
+    })();
+
+    (function setupHeroDemoFallback() {
+      const video = document.getElementById('hero-demo-video');
+      if (!video) return;
+      const sources = video.querySelectorAll('source');
+      let errorCount = 0;
+      sources.forEach(function (source) {
+        source.addEventListener('error', function () {
+          errorCount += 1;
+          if (errorCount >= sources.length) video.remove();
+        });
+      });
+    })();
+
     // ============================================================
     //   Data — 后续维护只需改这几个数组
     // ============================================================
@@ -713,21 +798,25 @@ result = <span class="text-blue-400">await</span> agent.<span class="text-yellow
       grid.innerHTML = FEATURES.map(f => {
         if (f.variant === 'more') {
           return `
-        <a href="#" data-tab-target="docs" class="rounded-2xl p-8 border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50/30 flex flex-col items-center justify-center text-center transition-all duration-300 group cursor-pointer">
-          <div class="bg-white w-12 h-12 rounded-full flex items-center justify-center shadow-sm mb-5 text-slate-400 group-hover:text-blue-500 group-hover:scale-110 transition-all">
-            ${iconSvg(f.icon, 'w-6 h-6')}
+        <a href="#" data-tab-target="docs" class="rounded-2xl p-7 border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50/30 flex flex-col transition-all duration-300 group cursor-pointer">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="bg-white w-10 h-10 rounded-full flex items-center justify-center shadow-sm text-slate-400 group-hover:text-blue-500 group-hover:scale-110 transition-all shrink-0">
+              ${iconSvg(f.icon, 'w-5 h-5')}
+            </div>
+            <h3 class="text-lg font-semibold text-slate-600 group-hover:text-blue-700 transition-colors">${escapeHtml(f.title)}</h3>
           </div>
-          <h3 class="text-lg font-semibold text-slate-600 group-hover:text-blue-700 mb-2 transition-colors">${escapeHtml(f.title)}</h3>
           <p class="text-slate-400 leading-relaxed text-sm">${escapeHtml(f.desc)}</p>
-          <span class="mt-4 text-xs font-medium text-slate-400 group-hover:text-blue-600 transition-colors">查看文档 →</span>
+          <span class="mt-3 text-xs font-medium text-slate-400 group-hover:text-blue-600 transition-colors">查看文档 →</span>
         </a>`;
         }
         return `
-        <div class="bg-slate-50 rounded-2xl p-8 border border-slate-100 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-50 transition-all duration-300 group">
-          <div class="bg-white w-12 h-12 rounded-xl flex items-center justify-center shadow-sm mb-6 border border-slate-100 group-hover:scale-110 transition-transform text-blue-600">
-            ${iconSvg(f.icon, 'w-6 h-6')}
+        <div class="bg-slate-50 rounded-2xl p-7 border border-slate-100 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-50 transition-all duration-300 group">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="bg-white w-10 h-10 rounded-xl flex items-center justify-center shadow-sm border border-slate-100 group-hover:scale-110 transition-transform text-blue-600 shrink-0">
+              ${iconSvg(f.icon, 'w-5 h-5')}
+            </div>
+            <h3 class="text-lg font-semibold text-slate-900">${escapeHtml(f.title)}</h3>
           </div>
-          <h3 class="text-xl font-semibold text-slate-900 mb-3">${escapeHtml(f.title)}</h3>
           <p class="text-slate-600 leading-relaxed text-sm">${escapeHtml(f.desc)}</p>
         </div>`;
       }).join('');
