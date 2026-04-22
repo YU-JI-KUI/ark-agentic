@@ -308,6 +308,37 @@ async def test_deny_list_excludes_spawn_subtasks(session_manager: SessionManager
 
 
 @pytest.mark.asyncio
+async def test_subtask_runner_does_not_inherit_parent_callbacks(
+    session_manager: SessionManager,
+) -> None:
+    """Subtask runner should rebuild its own internal callbacks, not reuse parent callbacks."""
+    runner = _make_mock_runner(session_manager, [_DummyTool()])
+    parent_session = session_manager.create_session_sync(
+        session_id="parent-008b", user_id="user_F2",
+    )
+
+    captured_callback_args: list[object | None] = []
+    original_init = AgentRunner.__init__
+
+    def capture_init(self, *args, **kwargs):
+        captured_callback_args.append(kwargs.get("callbacks"))
+        original_init(self, *args, **kwargs)
+
+    async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        return RunResult(response=AgentMessage.assistant("ok"), turns=1)
+
+    with patch.object(AgentRunner, "__init__", capture_init), \
+         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+        tool = SpawnSubtasksTool(runner, session_manager)
+        tc = ToolCall.create("spawn_subtasks", {
+            "tasks": [{"task": "test callbacks", "label": "cb"}],
+        })
+        await tool.execute(tc, {"session_id": "parent-008b"})
+
+    assert captured_callback_args[-1] is None
+
+
+@pytest.mark.asyncio
 async def test_subtask_timeout(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
     """Subtask that exceeds timeout returns timed_out status."""
     parent_session = session_manager.create_session_sync(

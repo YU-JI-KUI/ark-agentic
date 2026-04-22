@@ -85,7 +85,6 @@ from __future__ import annotations
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ark_agentic import AgentRunner, RunnerConfig, create_chat_model_from_env
-from ark_agentic.observability import apply_observability_bindings, build_observability_bindings
 from ark_agentic.core.tools import ToolRegistry
 from ark_agentic.core.paths import prepare_agent_data_dir
 from ark_agentic.core.session import SessionManager
@@ -116,19 +115,12 @@ def create_{agent_name_snake}_agent(
         ),
     )
 
-    observability = build_observability_bindings(
-        agent_id="default",
-        agent_name=runner_config.prompt_config.agent_name,
-    )
-
-    runner = AgentRunner(
+    return AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
         session_manager=session_manager,
         config=runner_config,
-        callbacks=observability.callbacks,
     )
-    return apply_observability_bindings(runner, observability)
 '''
 
 AGENT_INIT_TEMPLATE = '''\

@@ -8,13 +8,10 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from ..core.callbacks import CallbackContext, RunnerCallbacks
 from ..core.llm.errors import LLMError
-
-if TYPE_CHECKING:
-    from ..core.runner import AgentRunner
 
 logger = logging.getLogger(__name__)
 
@@ -58,44 +55,11 @@ except ImportError:  # pragma: no cover - best-effort fallback when optional dep
 
 _JSON_MIME_TYPE = "application/json"
 
-
-@dataclass(frozen=True)
-class ObservabilityBindings:
-    """Resolved observability callback bindings for a runner and its subtasks."""
-
-    callbacks: RunnerCallbacks
-    subtask_callbacks: RunnerCallbacks | None = None
-
-
-def apply_observability_bindings(
-    runner: "AgentRunner",
-    bindings: ObservabilityBindings,
-) -> "AgentRunner":
-    """Attach observability-only subtask callbacks after runner construction."""
-    setattr(runner, "_subtask_callbacks", bindings.subtask_callbacks)
-    return runner
-
-
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None or raw == "":
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _phoenix_enabled() -> bool:
-    if "ENABLE_PHOENIX" in os.environ:
-        return _env_flag("ENABLE_PHOENIX")
-    return any(
-        os.getenv(name)
-        for name in (
-            "PHOENIX_COLLECTOR_ENDPOINT",
-            "PHOENIX_PROJECT_NAME",
-            "PHOENIX_API_KEY",
-            "PHOENIX_CLIENT_HEADERS",
-        )
-    )
-
 
 def phoenix_callbacks_enabled() -> bool:
     """Tracing callbacks are injected only when ENABLE_PHOENIX is explicitly enabled."""
@@ -118,28 +82,21 @@ def _compose_callbacks(
     )
 
 
-def build_observability_bindings(
+def build_observability_callbacks(
     *,
     agent_id: str,
     agent_name: str,
     callbacks: RunnerCallbacks | None = None,
-) -> ObservabilityBindings:
-    """Build observability callbacks for a runner and its subtasks.
-
-    Observability remains opt-in at construction time, so AgentRunner itself only
-    consumes callbacks and does not create them.
-    """
+) -> RunnerCallbacks:
+    """Compose tracing callbacks with caller-provided runner callbacks."""
     if not phoenix_callbacks_enabled():
-        return ObservabilityBindings(callbacks=callbacks or RunnerCallbacks())
+        return callbacks or RunnerCallbacks()
 
     tracing_callbacks = create_tracing_callbacks(
         agent_id=agent_id,
         agent_name=agent_name,
     )
-    return ObservabilityBindings(
-        callbacks=_compose_callbacks(tracing_callbacks, callbacks),
-        subtask_callbacks=tracing_callbacks,
-    )
+    return _compose_callbacks(tracing_callbacks, callbacks)
 
 
 def init_phoenix(*, service_name: str = "ark-agentic") -> Any | None:
@@ -150,7 +107,7 @@ def init_phoenix(*, service_name: str = "ark-agentic") -> Any | None:
         return _PHOENIX_PROVIDER
     _PHOENIX_INITIALIZED = True
 
-    if not _phoenix_enabled():
+    if not phoenix_callbacks_enabled():
         logger.info("Phoenix tracing disabled")
         return None
 

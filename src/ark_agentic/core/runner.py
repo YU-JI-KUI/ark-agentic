@@ -182,7 +182,7 @@ class AgentRunner:
         self.session_manager = session_manager
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
-        self._callbacks = callbacks or RunnerCallbacks()
+        self._callbacks = self._resolve_runner_callbacks(callbacks)
 
         self._memory_manager = memory_manager
         self._flusher = None
@@ -231,6 +231,25 @@ class AgentRunner:
                 create_subtask_tool(self, self.session_manager)
             )
             logger.info("Registered spawn_subtasks tool")
+
+    def _resolve_runner_callbacks(
+        self,
+        callbacks: RunnerCallbacks | None,
+    ) -> RunnerCallbacks:
+        """Resolve business callbacks plus optional observability callbacks."""
+        from ark_agentic.observability import build_observability_callbacks
+
+        agent_id = (
+            self.config.skill_config.agent_id
+            or self.config.prompt_config.agent_name
+            or "agent"
+        )
+        agent_name = self.config.prompt_config.agent_name or agent_id
+        return build_observability_callbacks(
+            agent_id=agent_id,
+            agent_name=agent_name,
+            callbacks=callbacks,
+        )
 
     def _get_memory_for_user(self, user_id: str) -> "MemoryManager | None":
         """返回共享 MemoryManager（所有用户共用一个实例）。"""

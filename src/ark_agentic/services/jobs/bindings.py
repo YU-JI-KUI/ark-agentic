@@ -1,6 +1,6 @@
 """Proactive job bindings — agents factory 与 core runner 的解耦桥。
 
-参考 observability/phoenix.py 的 ObservabilityBindings 模式:
+模式:
   - agents factory 构造 Job + bindings
   - apply_proactive_job_bindings(runner, bindings) 挂到 runner 上
   - runner.warmup() 触发 _warmup_tasks,把 job 注册进 JobManager

@@ -81,7 +81,7 @@ def test_phoenix_callbacks_enabled_requires_explicit_env(monkeypatch) -> None:
     assert module.phoenix_callbacks_enabled() is False
 
 
-def test_build_observability_bindings_skip_tracing_when_disabled(monkeypatch) -> None:
+def test_build_observability_callbacks_skip_tracing_when_disabled(monkeypatch) -> None:
     from ark_agentic.core.callbacks import RunnerCallbacks
     from ark_agentic.observability import phoenix
 
@@ -89,17 +89,16 @@ def test_build_observability_bindings_skip_tracing_when_disabled(monkeypatch) ->
     monkeypatch.delenv("ENABLE_PHOENIX", raising=False)
 
     external = RunnerCallbacks()
-    bindings = module.build_observability_bindings(
+    callbacks = module.build_observability_callbacks(
         agent_id="insurance",
         agent_name="测试助手",
         callbacks=external,
     )
 
-    assert bindings.callbacks is external
-    assert bindings.subtask_callbacks is None
+    assert callbacks is external
 
 
-def test_build_observability_bindings_wrap_external_callbacks_when_enabled(monkeypatch) -> None:
+def test_build_observability_callbacks_wrap_external_callbacks_when_enabled(monkeypatch) -> None:
     from ark_agentic.core.callbacks import RunnerCallbacks
     from ark_agentic.observability import phoenix
 
@@ -115,22 +114,17 @@ def test_build_observability_bindings_wrap_external_callbacks_when_enabled(monke
         before_loop_end=[external_retry],
     )
 
-    bindings = module.build_observability_bindings(
+    callbacks = module.build_observability_callbacks(
         agent_id="insurance",
         agent_name="测试助手",
         callbacks=external,
     )
-    callbacks = bindings.callbacks
-    subtask_callbacks = bindings.subtask_callbacks
 
     assert len(callbacks.before_agent) == 2
     assert callbacks.before_agent[1] is external_before
     assert callbacks.after_agent[0] is external_after
     assert len(callbacks.after_agent) == 2
     assert callbacks.before_loop_end == [external_retry]
-    assert subtask_callbacks is not None
-    assert len(subtask_callbacks.before_agent) == 1
-    assert len(subtask_callbacks.after_agent) == 1
 
 
 class _FakeSpan:
