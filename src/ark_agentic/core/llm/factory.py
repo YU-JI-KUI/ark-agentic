@@ -191,6 +191,10 @@ def _resolve_api_key(api_key: str | None) -> str:
     return os.getenv("API_KEY", "")
 
 
+def _is_true_env(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _create_openai_compat_model(
     model_name: str,
     temperature: float,
@@ -201,15 +205,37 @@ def _create_openai_compat_model(
 ) -> "BaseChatModel":
     """创建 OpenAI 兼容模型（API_KEY + LLM_BASE_URL）。"""
     from langchain_openai import ChatOpenAI
-    from .debug_transport import make_debug_client
+    from .debug_transport import (
+        derive_base_url_for_full_url,
+        make_debug_client,
+        make_debug_sync_client,
+    )
 
     effective_base_url = (base_url or os.getenv("LLM_BASE_URL", "") or "").strip()
+    base_url_is_full_url = _is_true_env(os.getenv("LLM_BASE_URL_IS_FULL_URL"))
     effective_api_key = _resolve_api_key(api_key)
     if not effective_api_key:
         raise ValueError(
             f"api_key is required for model '{model_name}'. "
             "Pass it directly or set API_KEY env var."
         )
+    if base_url_is_full_url and not effective_base_url:
+        raise ValueError(
+            "LLM_BASE_URL is required when LLM_BASE_URL_IS_FULL_URL=true."
+        )
+
+    rewrite_full_url = effective_base_url if base_url_is_full_url else None
+    sdk_base_url = (
+        derive_base_url_for_full_url(effective_base_url)
+        if rewrite_full_url
+        else effective_base_url
+    )
+    logger.info(
+        "Create OpenAI-compatible model | model=%s | url_mode=%s | base_url=%s",
+        model_name,
+        "full_url" if rewrite_full_url else "base_url",
+        sdk_base_url or "<default>",
+    )
 
     kwargs: dict[str, Any] = {
         "model": model_name,
@@ -217,10 +243,11 @@ def _create_openai_compat_model(
         "temperature": temperature,
         "max_tokens": max_tokens,
         "streaming": streaming,
-        "http_async_client": make_debug_client(),
+        "http_client": make_debug_sync_client(rewrite_full_url),
+        "http_async_client": make_debug_client(rewrite_full_url),
     }
-    if effective_base_url:
-        kwargs["base_url"] = effective_base_url
+    if sdk_base_url:
+        kwargs["base_url"] = sdk_base_url
 
     return ChatOpenAI(**kwargs)
 
@@ -243,6 +270,7 @@ def create_chat_model_from_env(
     其他环境变量:
     - LLM_PROVIDER: pa | openai 等，默认 pa
     - API_KEY: OpenAI 兼容端点必填；PA-SX 端点鉴权用
+    - LLM_BASE_URL_IS_FULL_URL: true 时将 LLM_BASE_URL 视为最终完整请求地址
     - PA-JT 签名专用: PA_JT_OPEN_API_CODE / PA_JT_RSA_PRIVATE_KEY 等
     - PA-SX trace 专用: PA_SX_80B_APP_ID / PA_SX_235B_APP_ID
     """

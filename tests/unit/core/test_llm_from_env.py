@@ -46,6 +46,40 @@ def test_create_chat_model_from_env_openai_compat_uses_llm_base_url(monkeypatch:
     assert getattr(llm, "openai_api_base", None) == "https://custom.example.com/v1"
 
 
+def test_create_chat_model_from_env_full_url_mode_rewrites_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM_BASE_URL_IS_FULL_URL=true wires rewrite transports and uses a placeholder base URL."""
+    from ark_agentic.core.llm.debug_transport import RewriteURLAsyncTransport, RewriteURLTransport
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("API_KEY", "sk-test")
+    monkeypatch.setenv("MODEL_NAME", "gpt-4o")
+    monkeypatch.setenv("LLM_BASE_URL", "https://service-host/chat/dialog")
+    monkeypatch.setenv("LLM_BASE_URL_IS_FULL_URL", "true")
+
+    llm = create_chat_model_from_env()
+
+    assert llm is not None
+    assert getattr(llm, "openai_api_base", None) == "https://service-host/"
+    assert isinstance(getattr(llm, "http_client", None)._transport, RewriteURLTransport)  # type: ignore[union-attr]  # noqa: SLF001
+    assert isinstance(getattr(llm, "http_async_client", None)._transport, RewriteURLAsyncTransport)  # type: ignore[union-attr]  # noqa: SLF001
+
+
+def test_create_chat_model_from_env_full_url_mode_requires_llm_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM_BASE_URL_IS_FULL_URL=true requires a concrete LLM_BASE_URL value."""
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("API_KEY", "sk-test")
+    monkeypatch.setenv("MODEL_NAME", "gpt-4o")
+    monkeypatch.setenv("LLM_BASE_URL_IS_FULL_URL", "true")
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+
+    with pytest.raises(ValueError, match="LLM_BASE_URL is required"):
+        create_chat_model_from_env()
+
+
 def test_create_chat_model_from_env_pa_invalid_model_name_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """PA provider with invalid MODEL_NAME raises ValueError, no silent fallback."""
     monkeypatch.setenv("LLM_PROVIDER", "pa")

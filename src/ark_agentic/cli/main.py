@@ -73,6 +73,8 @@ def _render_env_sample(llm_provider: str, package_name: str = "") -> str:
                 "MODEL_NAME=gpt-4o",
                 "API_KEY=sk-xxx",
                 "# LLM_BASE_URL=https://api.openai.com/v1",
+                "# LLM_BASE_URL_IS_FULL_URL=false",
+                "# 完整请求 URL 示例: LLM_BASE_URL=https://service-host/chat/dialog  LLM_BASE_URL_IS_FULL_URL=true",
             ]
         )
 

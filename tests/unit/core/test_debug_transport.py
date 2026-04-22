@@ -27,7 +27,28 @@ class _FakeStream(httpx.AsyncByteStream):
         pass
 
 
+class _FakeSyncStream(httpx.SyncByteStream):
+    """Yields pre-defined chunks then closes."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+
+    def __iter__(self):
+        yield from self._chunks
+
+    def close(self) -> None:
+        pass
+
+
 def _make_request(
+    method: str = "POST",
+    url: str = "https://gw.example.com/v1/chat/completions",
+    body: bytes = b'{"model":"test"}',
+) -> httpx.Request:
+    return httpx.Request(method, url, content=body)
+
+
+def _make_sync_request(
     method: str = "POST",
     url: str = "https://gw.example.com/v1/chat/completions",
     body: bytes = b'{"model":"test"}',
@@ -52,6 +73,20 @@ class _OKTransport(httpx.AsyncBaseTransport):
 class _ErrorTransport(httpx.AsyncBaseTransport):
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         raise ConnectionError("connect timeout")
+
+
+class _SyncOKTransport(httpx.BaseTransport):
+    """Always returns a 200 with the given stream."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            headers={"content-type": "text/event-stream"},
+            stream=_FakeSyncStream(self._chunks),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -227,3 +262,55 @@ def test_make_debug_client_wraps_when_debug_on(monkeypatch: pytest.MonkeyPatch) 
     assert isinstance(client, httpx.AsyncClient)
     transport = client._transport  # noqa: SLF001
     assert isinstance(transport, mod.DebugTransport)
+
+
+@pytest.mark.asyncio
+async def test_rewrite_url_async_transport_rewrites_chat_completions_url() -> None:
+    """RewriteURLAsyncTransport replaces chat/completions with the configured full URL."""
+    from ark_agentic.core.llm.debug_transport import RewriteURLAsyncTransport
+
+    class _CaptureTransport(httpx.AsyncBaseTransport):
+        def __init__(self) -> None:
+            self.seen_url: httpx.URL | None = None
+
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            self.seen_url = request.url
+            return httpx.Response(status_code=200, stream=_FakeStream([]))
+
+    inner = _CaptureTransport()
+    transport = RewriteURLAsyncTransport(inner, "https://service-host/chat/dialog")
+    await transport.handle_async_request(_make_request())
+
+    assert str(inner.seen_url) == "https://service-host/chat/dialog"
+
+
+def test_rewrite_url_transport_rewrites_sync_chat_completions_url() -> None:
+    """RewriteURLTransport replaces chat/completions with the configured full URL."""
+    from ark_agentic.core.llm.debug_transport import RewriteURLTransport
+
+    class _CaptureTransport(httpx.BaseTransport):
+        def __init__(self) -> None:
+            self.seen_url: httpx.URL | None = None
+
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            self.seen_url = request.url
+            return httpx.Response(status_code=200, stream=_FakeSyncStream([]))
+
+    inner = _CaptureTransport()
+    transport = RewriteURLTransport(inner, "https://service-host/chat/dialog")
+    transport.handle_request(_make_sync_request())
+
+    assert str(inner.seen_url) == "https://service-host/chat/dialog"
+
+
+def test_derive_base_url_for_full_url_uses_origin() -> None:
+    from ark_agentic.core.llm.debug_transport import derive_base_url_for_full_url
+
+    assert derive_base_url_for_full_url("https://service-host/chat/dialog") == "https://service-host/"
+
+
+def test_derive_base_url_for_full_url_requires_absolute_url() -> None:
+    from ark_agentic.core.llm.debug_transport import derive_base_url_for_full_url
+
+    with pytest.raises(ValueError, match="absolute URL"):
+        derive_base_url_for_full_url("/chat/dialog")
