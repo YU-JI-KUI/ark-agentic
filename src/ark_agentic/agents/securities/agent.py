@@ -15,13 +15,15 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from ark_agentic.core.callbacks import CallbackContext, CallbackEvent, CallbackResult, HookAction, RunnerCallbacks
+from ark_agentic.core.callbacks import (
+    CallbackContext,
+    CallbackEvent,
+    CallbackResult,
+    HookAction,
+    RunnerCallbacks,
+)
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
-from ark_agentic.observability import (
-    apply_observability_bindings,
-    build_observability_bindings,
-)
 from ark_agentic.services.jobs import (
     apply_proactive_job_bindings,
     build_proactive_job_bindings,
@@ -33,7 +35,7 @@ from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.registry import ToolRegistry
-from ark_agentic.core.types import SkillLoadMode
+from ark_agentic.core.types import AgentMessage, SkillLoadMode
 from ark_agentic.core.validation import EntityTrie, create_citation_validation_hook
 
 from .tools import create_securities_tools
@@ -154,11 +156,6 @@ def create_securities_agent(
         before_agent=[_enrich_context, _auth_check],
         before_loop_end=[_citation_hook],
     )
-    observability = build_observability_bindings(
-        agent_id=skill_config.agent_id,
-        agent_name=runner_config.prompt_config.agent_name,
-        callbacks=existing_callbacks,
-    )
 
     # 构建证券专属主动服务 Job（memory 启用时），随 runner 一起交给框架调度
     proactive_job = None
@@ -181,9 +178,8 @@ def create_securities_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
-        callbacks=observability.callbacks,
+        callbacks=existing_callbacks,
     )
-    apply_observability_bindings(runner, observability)
     apply_proactive_job_bindings(
         runner,
         build_proactive_job_bindings(job=proactive_job),

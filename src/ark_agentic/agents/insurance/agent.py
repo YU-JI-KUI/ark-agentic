@@ -19,10 +19,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
-from ark_agentic.observability import (
-    apply_observability_bindings,
-    build_observability_bindings,
-)
 from ark_agentic.services.jobs import (
     apply_proactive_job_bindings,
     build_proactive_job_bindings,
@@ -146,11 +142,6 @@ def create_insurance_agent(
             after_agent=[flow_callbacks.persist_flow_context],
         ),
     )
-    observability = build_observability_bindings(
-        agent_id=skill_config.agent_id,
-        agent_name=runner_config.prompt_config.agent_name,
-        callbacks=callbacks,
-    )
 
     runner = AgentRunner(
         llm=llm,
@@ -159,9 +150,8 @@ def create_insurance_agent(
         skill_loader=skill_loader,
         config=runner_config,
         memory_manager=memory_manager,
-        callbacks=observability.callbacks,
+        callbacks=callbacks,
     )
-    apply_observability_bindings(runner, observability)
     apply_proactive_job_bindings(
         runner,
         build_proactive_job_bindings(job=proactive_job),

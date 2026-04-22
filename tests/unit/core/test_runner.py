@@ -1,5 +1,6 @@
 """Tests for AgentRunner core happy paths with ChatOpenAI backend."""
 
+import os
 import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -120,6 +121,7 @@ def _make_runner(
 
 
 def test_runner_never_auto_injects_tracing_callbacks(tmp_sessions_dir: Path) -> None:
+    os.environ.pop("ENABLE_PHOENIX", None)
     runner, _ = _make_runner(tmp_sessions_dir)
     assert runner._callbacks.before_agent == []
     assert runner._callbacks.after_agent == []
@@ -130,11 +132,40 @@ def test_runner_never_auto_injects_tracing_callbacks(tmp_sessions_dir: Path) -> 
 
 
 def test_runner_uses_callbacks_passed_by_caller(tmp_sessions_dir: Path) -> None:
+    os.environ.pop("ENABLE_PHOENIX", None)
     callback = AsyncMock(return_value=None)
     callbacks = RunnerCallbacks(before_agent=[callback])
     runner, _ = _make_runner(tmp_sessions_dir, callbacks=callbacks)
 
     assert runner._callbacks.before_agent == [callback]
+
+
+def test_runner_auto_injects_observability_when_enabled(
+    tmp_sessions_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENABLE_PHOENIX", "true")
+
+    runner, _ = _make_runner(tmp_sessions_dir)
+
+    assert len(runner._callbacks.before_agent) == 1
+    assert len(runner._callbacks.after_agent) == 1
+    assert len(runner._callbacks.before_model) == 1
+    assert len(runner._callbacks.after_model) == 1
+    assert len(runner._callbacks.before_tool) == 1
+    assert len(runner._callbacks.after_tool) == 1
+
+
+def test_runner_wraps_business_callbacks_with_observability_when_enabled(
+    tmp_sessions_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENABLE_PHOENIX", "true")
+    callback = AsyncMock(return_value=None)
+    business_callbacks = RunnerCallbacks(before_agent=[callback])
+    runner, _ = _make_runner(tmp_sessions_dir, callbacks=business_callbacks)
+
+    assert business_callbacks.before_agent == [callback]
+    assert len(runner._callbacks.before_agent) == 2
+    assert runner._callbacks.before_agent.count(callback) == 1
 
 
 # ============ Tests ============

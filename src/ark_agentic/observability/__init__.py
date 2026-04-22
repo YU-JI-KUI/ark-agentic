@@ -1,9 +1,7 @@
 """Observability helpers."""
 
 from .phoenix import (
-    ObservabilityBindings,
-    apply_observability_bindings,
-    build_observability_bindings,
+    build_observability_callbacks,
     create_tracing_callbacks,
     get_tracer,
     init_phoenix,
@@ -13,9 +11,7 @@ from .phoenix import (
 )
 
 __all__ = [
-    "ObservabilityBindings",
-    "apply_observability_bindings",
-    "build_observability_bindings",
+    "build_observability_callbacks",
     "create_tracing_callbacks",
     "get_tracer",
     "init_phoenix",

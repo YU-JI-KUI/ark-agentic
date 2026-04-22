@@ -246,7 +246,6 @@ class SpawnSubtasksTool(AgentTool):
             skill_loader=self._runner.skill_loader,
             config=sub_config,
             memory_manager=None,
-            callbacks=getattr(self._runner, "_subtask_callbacks", None),
         )
 
         start = time.monotonic()
