@@ -281,7 +281,7 @@
   <main data-tab="home">
 
     <!-- Hero -->
-    <section id="hero" class="relative overflow-hidden pt-16 pb-12 bg-slate-950">
+    <section id="hero" class="relative overflow-hidden pt-10 pb-8 bg-slate-950">
       <div class="absolute inset-0 z-0">
         <img src="/static/assets/ark-logo.svg" alt=""
           class="w-full h-full object-contain opacity-20 pointer-events-none">
@@ -317,20 +317,23 @@
 
           <div class="lg:col-span-5 relative flex items-center justify-center">
             <figure
-              class="relative w-full max-w-[340px] aspect-[4/5] rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/50 bg-slate-900"
+              class="relative w-full max-w-[340px] aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 ring-1 ring-white/5 bg-slate-900 shadow-[0_35px_70px_-20px_rgba(0,0,0,0.85),0_60px_100px_-25px_rgba(6,182,212,0.15),0_0_0_1px_rgba(255,255,255,0.04)]"
               aria-label="ARK-AGENTIC 保险服务 Demo 录屏">
               <img src="/static/assets/demo-snapshot.png"
-                class="absolute inset-0 w-full h-full object-cover object-bottom z-0 opacity-90 select-none pointer-events-none"
+                class="absolute inset-0 w-full h-full object-cover object-bottom z-0 opacity-95 select-none pointer-events-none"
                 alt="ARK-AGENTIC 保险服务 Demo 截图" loading="eager" decoding="async">
-              <div
-                class="absolute inset-x-0 top-0 h-28 z-[1] pointer-events-none bg-gradient-to-b from-slate-950/80 to-transparent">
-              </div>
               <video id="hero-demo-video"
                 class="absolute inset-0 w-full h-full object-cover object-bottom z-10 opacity-0 transition-opacity duration-500 bg-transparent"
                 muted loop playsinline preload="none">
                 <source src="/static/assets/home-insurance-demo.webm" type="video/webm">
                 <source src="/static/assets/home-insurance-demo.mp4" type="video/mp4">
               </video>
+              <div
+                class="absolute inset-x-0 top-0 h-44 z-[15] pointer-events-none bg-gradient-to-b from-slate-950 via-slate-950/70 to-transparent">
+              </div>
+              <div
+                class="absolute inset-x-0 bottom-0 h-20 z-[15] pointer-events-none bg-gradient-to-t from-slate-950/50 to-transparent">
+              </div>
             </figure>
           </div>
         </div>
