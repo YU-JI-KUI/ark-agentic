@@ -103,8 +103,7 @@ class ResumeTaskTool(AgentTool):
                 "current_stage": task.get("current_stage"),
                 "message": (
                     f"已恢复【{task.get('skill_name')}】流程，"
-                    f"当前在【{task.get('current_stage')}】阶段，"
-                    f"请调用对应的 flow_evaluator 查看当前进度。"
+                    f"当前在【{task.get('current_stage')}】阶段。"
                 ),
             },
             metadata={"state_delta": state_delta},
@@ -126,21 +125,31 @@ class ResumeTaskTool(AgentTool):
             logger.warning("Failed to discard task flow_id=%s: %s", flow_id, e)
             return AgentToolResult.error_result(tool_call.id, f"废弃任务失败: {e}")
 
+        skill_name = task.get("skill_name", "")
+
+        # state_delta 同时完成两件事，避免 discard 后的遗留副作用：
+        # 1. 清空 _flow_context — 防止 persist_flow_context 在本轮 after_agent 阶段
+        #    用旧数据把刚删除的任务记录重新写回。
+        # 2. 重置 _pending_checked_<skill> 为 False — 该 flag 的语义是"本 session 已
+        #    检测过同 skill 的 pending task"。用户 discard 后若重新发起相同流程，
+        #    保持 True 会让 before_model_flow_eval 跳过潜在的新 pending 检测。
+        state_delta: dict[str, Any] = {"_flow_context": {}}
+        if skill_name:
+            state_delta[f"_pending_checked_{skill_name}"] = False
+
         return AgentToolResult(
             tool_call_id=tool_call.id,
             result_type=ToolResultType.JSON,
             content={
                 "status": "discarded",
                 "flow_id": flow_id,
-                "skill_name": task.get("skill_name"),
+                "skill_name": skill_name,
                 "message": (
-                    f"【{task.get('skill_name')}】流程已废弃。"
+                    f"【{skill_name}】流程已废弃。"
                     f"如需重新开始，请重新发起该业务流程。"
                 ),
             },
-            # 清空 session state 中的 _flow_context，防止 persist_flow_context
-            # after_agent hook 将刚删除的任务重新写回 active_tasks.json
-            metadata={"state_delta": {"_flow_context": {}}},
+            metadata={"state_delta": state_delta},
         )
 
     @staticmethod

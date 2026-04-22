@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -27,6 +28,7 @@ from .llm.errors import LLMError, LLMErrorReason
 from .prompt.builder import SystemPromptBuilder, PromptConfig
 from .session import SessionManager
 from .skills.base import SkillConfig
+from .state_utils import apply_state_delta
 from .skills.loader import SkillLoader
 from .skills.matcher import SkillMatcher
 from .stream.event_bus import AgentEventHandler
@@ -183,6 +185,12 @@ class _LoopState:
             completion_tokens=self.total_completion_tokens,
             **overrides,
         )
+
+
+@functools.lru_cache(maxsize=128)
+def _read_reference_file(path: str) -> str:
+    """读取并缓存 reference 文件内容（进程级缓存，文件为只读静态资源）。"""
+    return Path(path).read_text(encoding="utf-8")
 
 
 # ============ Agent Runner ============
@@ -556,28 +564,8 @@ class AgentRunner:
         for tr in tool_results:
             state_delta = tr.metadata.get("state_delta")
             if state_delta and isinstance(state_delta, dict):
-                AgentRunner._apply_state_delta(session.state, state_delta)
+                apply_state_delta(session.state, state_delta)
                 session.updated_at = __import__("datetime").datetime.now()
-
-    @staticmethod
-    def _apply_state_delta(state: dict[str, Any], delta: dict[str, Any]) -> None:
-        """支持点路径（dot-path）的深度合并。
-
-        普通 key → state[key] = value（浅覆盖）
-        点路径 key（如 "_flow_context.stage_identity_verify"）→ 逐层 setdefault({}) 后赋值，
-        不整体替换父对象，避免清空同级其他 key。
-        """
-        for key, value in delta.items():
-            if "." in key:
-                parts = key.split(".")
-                obj = state
-                for part in parts[:-1]:
-                    if not isinstance(obj.get(part), dict):
-                        obj[part] = {}
-                    obj = obj[part]
-                obj[parts[-1]] = value
-            else:
-                state[key] = value
 
     @staticmethod
     def _merge_input_context(
@@ -1118,6 +1106,9 @@ class AgentRunner:
             )
             skills = match_result.matched_skills
 
+        # 将本轮匹配的 skill id 写入 state，供 before_model hook 判断活跃流程
+        state["_turn_matched_skills"] = {s.id for s in skills}
+
         # Dynamic reference 注入: 有 _flow_stage 时按阶段按需追加 reference 内容
         current_stage_id = state.get("_flow_stage")
         if current_stage_id and current_stage_id != "__completed__" and skills:
@@ -1178,9 +1169,9 @@ class AgentRunner:
 
         enriched = []
         for skill in skills:
-            # 尝试用完整 id 和短 id（去掉 agent 前缀）查找 evaluator
-            skill_short = skill.id.split(".")[-1]
-            evaluator = FlowEvaluatorRegistry.get(skill.id) or FlowEvaluatorRegistry.get(skill_short)
+            # Registry 在注册时同时登记短名和 "{namespace}.{skill_name}" 别名，
+            # 直接用 skill.id（全名）反查即可。
+            evaluator = FlowEvaluatorRegistry.get(skill.id)
 
             ref_filename: str | None = None
             if evaluator:
@@ -1190,10 +1181,10 @@ class AgentRunner:
                 ref_filename = stage_def.reference_file if stage_def else None
 
             if ref_filename:
-                from pathlib import Path
                 ref_path = Path(skill.path) / "references" / ref_filename
                 if ref_path.exists():
-                    ref_content = ref_path.read_text(encoding="utf-8")
+                    ref_content = _read_reference_file(str(ref_path))
+                    logger.info(f"skill {skill.id} loaded with reference: {ref_filename}")
                     enriched.append(replace(
                         skill,
                         content=(

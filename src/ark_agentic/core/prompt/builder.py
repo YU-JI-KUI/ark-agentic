@@ -303,9 +303,9 @@ class SystemPromptBuilder:
             builder.add_user_profile(user_profile_content)
         if enable_memory:
             builder.add_memory_instructions()
-        builder.add_custom_instructions()
         if flow_hint:
             builder.add_section("system_hint", flow_hint)
+        builder.add_custom_instructions()
 
         return builder.build()
 

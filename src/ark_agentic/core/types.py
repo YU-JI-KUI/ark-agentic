@@ -409,5 +409,9 @@ class SessionEntry:
         self.updated_at = datetime.now()
 
     def strip_temp_state(self) -> None:
-        """移除 temp: 前缀的临时状态键"""
-        self.state = {k: v for k, v in self.state.items() if not k.startswith("temp:")}
+        """移除 temp: 前缀的临时状态键以及 turn 级临时键（如 _turn_matched_skills）。"""
+        _TURN_TEMP_KEYS = {"_turn_matched_skills"}
+        self.state = {
+            k: v for k, v in self.state.items()
+            if not k.startswith("temp:") and k not in _TURN_TEMP_KEYS
+        }

@@ -17,7 +17,9 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 # from ark_agentic.agents.insurance.guard import InsuranceIntakeGuard, make_before_agent_callback  # DEBUG: 暂时禁用准入拦截
 from ark_agentic.agents.insurance.tools import create_insurance_tools
+from ark_agentic.agents.insurance.tools.flow_evaluator import withdrawal_flow_evaluator
 from ark_agentic.core.compaction import CompactionConfig
+from ark_agentic.core.flow.base_evaluator import FlowEvaluatorRegistry
 from ark_agentic.core.guardrails import create_guardrails_callbacks
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
@@ -70,6 +72,11 @@ def create_insurance_agent(
 
     tool_registry = ToolRegistry()
     tool_registry.register_all(create_insurance_tools(sessions_dir=sessions_dir))
+
+    # 显式注册 flow evaluator（取代原 flow_evaluator.py 模块顶层的 side-effect 注册）。
+    # 传入 namespace 后，Registry 同时登记短名 "withdraw_money_flow" 和全名 
+    # "insurance.withdraw_money_flow"，兼顾 flow_ctx.skill_name 和 SkillEntry.id 两种查询路径。
+    FlowEvaluatorRegistry.register(withdrawal_flow_evaluator, namespace="insurance")
 
     from ark_agentic.core.compaction import LLMSummarizer
     summarizer = LLMSummarizer(llm)
@@ -131,6 +138,8 @@ def create_insurance_agent(
             # before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],  # DEBUG: 暂时禁用准入拦截
         ),
         RunnerCallbacks(
+            before_model=[flow_callbacks.before_model_flow_eval],
+            after_tool=[flow_callbacks.after_tool_auto_commit],
             after_agent=[flow_callbacks.persist_flow_context],
         ),
     )

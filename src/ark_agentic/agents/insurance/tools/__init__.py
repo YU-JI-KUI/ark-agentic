@@ -8,6 +8,8 @@
 - RuleEngineTool: 规则引擎（计算取款方案、比较方案）
 - CustomerInfoTool: 客户信息（身份、联系方式、受益人、交易历史）
 - RenderA2UITool: 统一 A2UI 渲染（blocks 动态组合 / card_type 模板加载）
+- CollectUserFieldsTool: 向当前流程阶段提交用户收集的字段（Flow 专用）
+- RollbackFlowStageTool: 回退到指定 checkpoint 阶段（Flow 专用）
 """
 
 from pathlib import Path
@@ -26,8 +28,8 @@ from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
 from .customer_info import CustomerInfoTool
 from .submit_withdrawal import SubmitWithdrawalTool
-from .flow_evaluator import withdrawal_flow_evaluator  # noqa: F401 — import 触发 FlowEvaluatorRegistry 注册
-from ark_agentic.core.flow.commit_flow_stage import CommitFlowStageTool
+from .flow_evaluator import withdrawal_flow_evaluator
+from ark_agentic.core.flow.collect_user_fields import CollectUserFieldsTool
 from ark_agentic.core.flow.rollback_flow_stage import RollbackFlowStageTool
 
 _A2UI_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "a2ui" / "templates"
@@ -81,7 +83,7 @@ __all__ = [
     "CustomerInfoTool",
     "RenderA2UITool",
     "SubmitWithdrawalTool",
-    "CommitFlowStageTool",
+    "CollectUserFieldsTool",
     "withdrawal_flow_evaluator",
     "create_insurance_tools",
     "create_insurance_tools_minimal",
@@ -94,15 +96,9 @@ def create_insurance_tools(
     sessions_dir: "str | Path | None" = None,
 ) -> list:
     """创建保险工具集合（完整版）"""
-    from pathlib import Path
-    from ark_agentic.core.flow.task_registry import TaskRegistry
     from ark_agentic.core.tools.resume_task import ResumeTaskTool
 
     client = data_client or get_data_service_client()
-    _sessions_dir = Path(sessions_dir) if sessions_dir else Path("data/ark_sessions") / "insurance"
-
-    # 注入 task_registry，使 evaluator 在首次被调用时自动检测待恢复任务
-    withdrawal_flow_evaluator._task_registry = TaskRegistry(_sessions_dir)
 
     return [
         PolicyQueryTool(client=client),
@@ -110,10 +106,9 @@ def create_insurance_tools(
         CustomerInfoTool(client=client),
         _create_render_a2ui_tool(),
         SubmitWithdrawalTool(),
-        CommitFlowStageTool(),
+        CollectUserFieldsTool(),
         RollbackFlowStageTool(),
-        withdrawal_flow_evaluator,
-        ResumeTaskTool(sessions_dir=_sessions_dir),
+        ResumeTaskTool(sessions_dir=sessions_dir or "data/ark_sessions/insurance"),
     ]
 
 

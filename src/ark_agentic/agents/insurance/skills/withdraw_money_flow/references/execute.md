@@ -11,8 +11,8 @@
 
 ## 异常处理
 
-- `submit_withdrawal` 返回错误 → 告知用户失败原因，不调用 commit_flow_stage（流程停在 execute 阶段，可重试）
-- 网络超时 → 提示用户稍后查询取款状态，不调用 commit_flow_stage
+- `submit_withdrawal` 返回错误 → 告知用户失败原因；框架不会自动提交，流程停在 execute 阶段，可重试
+- 网络超时 → 提示用户稍后查询取款状态；框架不会自动提交失败结果
 - 用户希望修改方案 → 参照 SKILL.md「流程回退」规则，回退到 plan_confirm 阶段重新执行
 
 ## 输出约束

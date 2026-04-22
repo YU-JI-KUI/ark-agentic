@@ -1,16 +1,15 @@
-"""WithdrawalFlowEvaluator — 保险取款 4 阶段流程评估器。
+"""WithdrawalFlowEvaluator — 保险取款 5 阶段流程评估器。
 
 阶段:
   1. identity_verify — 身份核验（customer_info, policy_query）
   2. options_query   — 方案查询（rule_engine）
-  3. plan_confirm    — 方案确认，含 user_required_fields（render_a2ui）
-  4. execute         — 执行取款（submit_withdrawal）
+  3. plan_confirm    — 方案确认，含 user_required_fields（render_a2ui + collect_user_fields）
+  4. double_confirm  — 二次确认，收集 double_confirm:bool（collect_user_fields）
+  5. execute         — 执行取款（submit_withdrawal，全工具字段，自动提交）
 
-阶段数据写入方式:
-  每个阶段业务完成后，LLM 调用 commit_flow_stage(stage_id=..., user_data={...})。
-  框架按 field_sources 声明自动提取 tool 来源字段，LLM 仅需提供 user 来源字段。
-
-工具名: "withdraw_money_flow_evaluator"（注册到 required_tools 时使用此名）
+评估器不再是 LLM 工具，由 FlowCallbacks 的 Hook 自动驱动：
+  - after_tool_auto_commit: 自动提交 identity_verify / options_query / execute（全工具字段阶段）
+  - before_model_flow_eval: 评估当前阶段并注入提示词，列出待收集字段
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from pydantic import BaseModel
 from ark_agentic.core.flow.base_evaluator import (
     BaseFlowEvaluator,
     FieldSource,
-    FlowEvaluatorRegistry,
     StageDefinition,
 )
 
@@ -52,8 +50,14 @@ class PlanConfirmOutput(BaseModel):
     amount: float
 
 
+class DoubleConfirmOutput(BaseModel):
+    """二次确认阶段完成条件（全部由用户对话提供）"""
+
+    double_confirm: bool            # 用户再次明确确认，防误触
+
+
 class ExecuteOutput(BaseModel):
-    """执行阶段完成条件（submit_withdrawal 触发外部流程后写入）"""
+    """执行阶段完成条件（submit_withdrawal 触发外部流程后自动写入）"""
 
     submitted: bool                 # 是否已触发提交，映射自 _submitted_channels 非空
     channels: list[str]             # 已提交渠道列表，映射自 _submitted_channels
@@ -80,7 +84,7 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 name="身份核验",
                 description="验证客户身份和保单信息",
                 required=True,
-                checkpoint=False, 
+                checkpoint=False,
                 output_schema=IdentityVerifyOutput,
                 reference_file="identity_verify.md",
                 tools=["customer_info", "policy_query"],
@@ -158,6 +162,21 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 },
             ),
             StageDefinition(
+                id="double_confirm",
+                name="二次确认",
+                description="向用户展示最终取款摘要，要求再次明确确认后方可执行",
+                required=True,
+                output_schema=DoubleConfirmOutput,
+                reference_file="double_confirm.md",
+                tools=[],
+                field_sources={
+                    "double_confirm": FieldSource(
+                        source="user",
+                        description="用户是否再次确认办理（true/false）",
+                    ),
+                },
+            ),
+            StageDefinition(
                 id="execute",
                 name="执行取款",
                 description="提交取款操作",
@@ -180,6 +199,6 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
         ]
 
 
-# 全局单例，随模块 import 自动注册
+# 全局单例；注册由 agent factory 显式完成（见 agents/insurance/agent.py），
+# 以保证调用方明确控制注入的 namespace 并消除 import side effect。
 withdrawal_flow_evaluator = WithdrawalFlowEvaluator()
-FlowEvaluatorRegistry.register(withdrawal_flow_evaluator)

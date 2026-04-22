@@ -28,8 +28,7 @@ class RollbackFlowStageTool(AgentTool):
     name = "rollback_flow_stage"
     description = (
         "将流程回退到指定的 checkpoint 阶段，清除目标阶段及其后续所有阶段的数据。"
-        "回退后请再次调用对应的 flow_evaluator 确认当前阶段并重新执行。"
-        "只能回退到已完成的 checkpoint 阶段（从 evaluator 响应的 available_checkpoints 中获取）。"
+        "只能回退到已完成的 checkpoint 阶段（从 available_checkpoints 中获取）。"
     )
     parameters = [
         ToolParameter(
@@ -38,7 +37,7 @@ class RollbackFlowStageTool(AgentTool):
             required=True,
             description=(
                 "要回退到的 checkpoint 阶段 ID。"
-                "必须从 evaluator 响应的 available_checkpoints 列表中取值，"
+                "必须从 available_checkpoints 列表中取值，"
                 "并已得到用户明确确认。"
             ),
         ),
@@ -121,7 +120,6 @@ class RollbackFlowStageTool(AgentTool):
                 "message": (
                     f"已回退到【{target_stage.name}】阶段，"
                     f"已清除该阶段及后续 {len(stages_to_clear)} 个阶段的数据。"
-                    f"请再次调用 {evaluator.name} 确认当前阶段并重新开始。"
                 ),
             },
             metadata={"state_delta": state_delta},
