@@ -399,9 +399,25 @@
         <div class="lg:flex lg:items-start lg:justify-between gap-16">
           <div class="lg:w-1/3 mb-10 lg:mb-0">
             <h2 class="text-3xl font-bold text-white mb-4">快速使用</h2>
-            <p class="text-slate-400 mb-6 leading-relaxed">
-              参照 <code class="text-cyan-400 text-sm bg-slate-950 px-1.5 py-0.5 rounded">create_insurance_agent()</code> 提炼的最核心 5 步：LLM + Tools + Skills + Runner 四件套组装完毕即可驱动一次 ReAct。
-            </p>
+            <p class="text-slate-400 mb-4 leading-relaxed">6 步初始化你的 Agent：</p>
+            <ul class="space-y-2 mb-6">
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">1.</span><span>接入 LLM</span></li>
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">2.</span><span>注册 Tools</span></li>
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">3.</span><span>加载 Skills</span></li>
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">4.</span><span>组装 Runner</span></li>
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">5.</span><span>创建 Session</span></li>
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">6.</span><span>驱动 ReAct</span></li>
+            </ul>
+
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">最小环境变量</div>
+            <div class="bg-slate-950 rounded-lg border border-slate-800 p-4 mb-6 overflow-x-auto">
+              <pre class="text-xs font-mono leading-relaxed"><code><span class="text-slate-500"># 生产默认：Qwen3-next-80B-A3B-instruct</span>
+<span class="text-cyan-400">MODEL_NAME</span>=<span class="text-green-400">Qwen3-next-80B-A3B-instruct</span>
+<span class="text-cyan-400">LLM_PROVIDER</span>=<span class="text-green-400">openai</span>
+<span class="text-cyan-400">LLM_BASE_URL</span>=<span class="text-green-400">https://your-endpoint/v1</span>
+<span class="text-cyan-400">API_KEY</span>=<span class="text-green-400">sk-xxx</span></code></pre>
+            </div>
+
             <a href="#" data-tab-target="docs"
               class="text-cyan-400 font-medium flex items-center gap-2 hover:text-cyan-300 transition-colors">
               查看完整文档
@@ -431,7 +447,7 @@
 <span class="text-blue-400">from</span> <span class="text-white">ark_agentic.core.llm</span> <span class="text-blue-400">import</span> <span class="text-white">create_chat_model_from_env</span>
 <span class="text-blue-400">from</span> <span class="text-white">ark_agentic.agents.insurance.tools</span> <span class="text-blue-400">import</span> <span class="text-white">create_insurance_tools</span>
 
-<span class="text-slate-500"># 1. LLM（读取 MODEL_NAME / API_KEY / LLM_BASE_URL 环境变量）</span>
+<span class="text-slate-500"># 1. 接入 LLM（从环境变量读取配置）</span>
 llm = <span class="text-yellow-300">create_chat_model_from_env</span>()
 
 <span class="text-slate-500"># 2. 工具注册</span>
@@ -455,8 +471,10 @@ agent = <span class="text-yellow-300">AgentRunner</span>(
     config=<span class="text-yellow-300">RunnerConfig</span>(skill_config=skill_config),
 )
 
-<span class="text-slate-500"># 5. 驱动一次 ReAct</span>
+<span class="text-slate-500"># 5. 创建 Session</span>
 sid = <span class="text-blue-400">await</span> agent.<span class="text-yellow-300">create_session</span>()
+
+<span class="text-slate-500"># 6. 驱动 ReAct</span>
 result = <span class="text-blue-400">await</span> agent.<span class="text-yellow-300">run</span>(sid, <span class="text-green-400">"我想取点钱"</span>)</code></pre>
               </div>
             </div>

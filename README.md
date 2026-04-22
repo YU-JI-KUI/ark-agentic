@@ -5,7 +5,7 @@
 ## 特性
 
 - **ReAct 模式**: 推理-行动循环，支持并行工具调用
-- **多 LLM 支持**: DeepSeek, PA 内部模型 (JT/SX 系列), OpenAI 兼容端点
+- **多 LLM 支持**: PA 内部模型（JT/SX 系列）、任意 OpenAI 兼容 Chat 端点（自建推理服务或第三方 API）
 - **技能系统**: Markdown 格式可复用指令集，支持 full/dynamic/semantic 三种加载模式
 - **会话管理**: JSONL 持久化 + 智能上下文压缩（LLM 摘要）+ Session State 状态管理
 - **用户记忆**: 文件级 MEMORY.md + heading-based upsert + Dream 周期蒸馏 + system prompt 全量注入
@@ -36,7 +36,7 @@ uv add 'ark-agentic[dev]'
 uv add 'ark-agentic[all]'
 ```
 
-**注意**: Memory 系统使用纯文件存储（MEMORY.md），无需额外依赖；PA-SX 系列和 DeepSeek 模型无需额外依赖，只有 PA-JT 系列模型需要 `pycryptodome` 进行 RSA 签名。
+**注意**: Memory 系统使用纯文件存储（MEMORY.md），无需额外依赖；PA-SX 与标准 OpenAI 兼容 Chat 接口无需额外依赖；仅 PA-JT 系列需要 `pycryptodome` 做 RSA 签名。
 
 ## 快速开始
 
@@ -47,7 +47,11 @@ from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.llm import create_chat_model
 from ark_agentic.agents.insurance.tools import create_insurance_tools
 
-llm = create_chat_model("deepseek-chat", api_key="sk-xxx")
+llm = create_chat_model(
+    "Qwen3-next-80B-A3B-instruct",
+    api_key="sk-xxx",
+    base_url="https://your-llm-gateway/v1",
+)
 tool_registry = ToolRegistry()
 tool_registry.register_all(create_insurance_tools())
 
@@ -314,7 +318,11 @@ invocation_policy: auto
 from ark_agentic.core.compaction import CompactionConfig, LLMSummarizer
 from ark_agentic.core.llm import create_chat_model
 
-llm = create_chat_model("deepseek-chat", api_key="sk-xxx")
+llm = create_chat_model(
+    "Qwen3-next-80B-A3B-instruct",
+    api_key="sk-xxx",
+    base_url="https://your-llm-gateway/v1",
+)
 
 session_manager = SessionManager(
     compaction_config=CompactionConfig(
@@ -561,11 +569,15 @@ runner.register_tool(create_pa_knowledge_api_tool(PAKnowledgeAPIConfig(
 ```python
 from ark_agentic.core.llm import create_chat_model
 
-# DeepSeek (从环境变量读取 API_KEY)
-llm = create_chat_model("deepseek-chat")
+# OpenAI 兼容（API_KEY 可走环境变量）
+llm = create_chat_model("gpt-4o")
 
-# 显式指定 API key
-llm = create_chat_model("deepseek-chat", api_key="sk-xxx")
+# 显式 key / base_url（与 PA-SX 并列的典型生产路径）
+llm = create_chat_model(
+    "Qwen3-next-80B-A3B-instruct",
+    api_key="sk-xxx",
+    base_url="https://your-llm-gateway/v1",
+)
 
 # PA 内部模型 (SX 系列)
 llm = create_chat_model("PA-SX-80B")
