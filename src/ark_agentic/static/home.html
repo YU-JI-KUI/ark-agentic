@@ -283,9 +283,9 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div class="lg:grid lg:grid-cols-12 lg:gap-16 items-center">
           <div class="lg:col-span-7 text-center lg:text-left mb-10 lg:mb-0">
-            <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white tracking-tight leading-[1.15] mb-4 lg:flex lg:flex-col lg:gap-2">
+            <h1 class="text-4xl sm:text-5xl font-extrabold text-white tracking-tight leading-[1.15] mb-4 lg:flex lg:flex-col lg:gap-2">
               <span>Agentic 智能体，</span>
-              <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">重塑人与世界的交互范式</span>
+              <span class="lg:whitespace-nowrap text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">重塑客户和业务的交互范式</span>
             </h1>
             <p class="text-xl sm:text-2xl font-medium text-cyan-100 mb-8 tracking-wide">
               思考、行动，连接人与业务，创造价值
@@ -732,43 +732,50 @@ result = <span class="text-blue-400">await</span> agent.<span class="text-yellow
     }
 
     const FEATURES = [
-      { icon: 'terminal', title: 'Agentic Loop', points: [
-        '推理-行动-观察循环，支持并行工具调用',
-        'max_turns / 超时 / 子任务隔离开箱即用',
-      ] },
-      { icon: 'cpu', title: '多 LLM 支持', points: [
-        '生产默认 Qwen3-next-80B-A3B-instruct',
-        '原生支持 PA-SX / PA-JT 系列内网模型',
-        '兼容任意 OpenAI 协议端点（DeepSeek / GPT / Qwen）',
-      ] },
-      { icon: 'fileJson', title: '技能系统（Skills）', points: [
-        'Markdown 可复用指令集，按 eligibility 条件触发',
-        'full / dynamic 两种加载模式，运行时按需路由',
-      ] },
-      { icon: 'database', title: '会话管理', points: [
-        'JSONL append-only 持久化，支持断点续跑',
-        'LLM 摘要式上下文压缩，128k context 不溢出',
-      ] },
-      { icon: 'brain', title: '用户记忆', points: [
-        '文件级 MEMORY.md，heading-based upsert 精确更新',
-        'Dream 后台周期蒸馏，零 DB 依赖',
-      ] },
-      { icon: 'activity', title: 'AG-UI 流式协议', points: [
-        '20 种事件类型，思考链 / 工具调用全程可视',
-        '4 种输出协议适配（agui / internal / enterprise / alone）',
-      ] },
-      { icon: 'layout', title: 'A2UI 组件系统', points: [
-        '工具可返回富交互组件：卡片 / 按钮 / 表单 / 图表',
-        '通过 on_ui_component 流式推送，前后端解耦',
-      ] },
-      { icon: 'shield', title: '输出验证（防幻觉）', points: [
-        'before_loop_end hook 自反思校验',
-        '实体 / 数值 / 日期与 Tool 结果子串比对，失败自动 retry',
-      ] },
-      { variant: 'more', icon: 'plus', title: '更多能力持续建设', points: [
-        '主动学习 / MCP 工具协议 / 多 Agent 协作',
-        '查看文档获取最新能力',
-      ] },
+      {
+        icon: 'terminal', title: 'Agentic Loop',
+        desc: '推理-行动-观察循环，开箱即用',
+        tags: ['并行工具调用', '超时控制', '子任务隔离'],
+      },
+      {
+        icon: 'cpu', title: '多 LLM 支持',
+        desc: '一套接口，内网 / 公网模型自由切换',
+        tags: ['Qwen3-80B', 'PA-SX / PA-JT', 'OpenAI 协议'],
+      },
+      {
+        icon: 'fileJson', title: '技能系统 · Skills',
+        desc: 'Markdown 可复用指令集，按上下文按需路由',
+        tags: ['full / dynamic', 'eligibility', '热加载'],
+      },
+      {
+        icon: 'database', title: '会话管理',
+        desc: 'JSONL 持久化 + LLM 摘要式上下文压缩',
+        tags: ['128k context', '断点续跑', 'State 快照'],
+      },
+      {
+        icon: 'brain', title: '用户记忆',
+        desc: '文件级 MEMORY.md，可观测、零 DB 依赖',
+        tags: ['heading upsert', 'Dream 蒸馏', '每轮注入'],
+      },
+      {
+        icon: 'activity', title: 'AG-UI 流式协议',
+        desc: '统一内部事件流，多端一次适配',
+        tags: ['20 种事件', '4 种协议', '流式推送'],
+      },
+      {
+        icon: 'layout', title: 'A2UI 组件系统',
+        desc: '工具直出富交互组件，前后端解耦',
+        tags: ['卡片 / 按钮', '表单', '图表'],
+      },
+      {
+        icon: 'shield', title: '输出验证 · 防幻觉',
+        desc: 'LLM 输出实时校验，失败自动 retry',
+        tags: ['子串比对', 'before_loop_end', 'Auto Retry'],
+      },
+      {
+        variant: 'more', icon: 'plus', title: '更多能力持续建设',
+        desc: 'MCP 协议 / 主动学习 / 多 Agent 协作',
+      },
     ];
 
     const STUDIO_CAPS = [
@@ -831,10 +838,10 @@ result = <span class="text-blue-400">await</span> agent.<span class="text-yellow
 
     function renderFeatures() {
       const grid = document.getElementById('features-grid');
-      const bulletList = (points, dotClass, textClass) => `
-        <ul class="space-y-1.5">
-          ${points.map(p => `<li class="text-sm ${textClass} leading-relaxed flex gap-2"><span class="${dotClass} font-bold mt-0.5 shrink-0">·</span><span>${escapeHtml(p)}</span></li>`).join('')}
-        </ul>`;
+      const tagChips = (tags) => !tags || !tags.length ? '' : `
+        <div class="flex flex-wrap gap-1.5 mt-auto pt-2">
+          ${tags.map(t => `<span class="inline-flex items-center text-[11px] font-medium text-slate-500 bg-white border border-slate-200 rounded-full px-2.5 py-0.5 whitespace-nowrap">${escapeHtml(t)}</span>`).join('')}
+        </div>`;
       grid.innerHTML = FEATURES.map(f => {
         if (f.variant === 'more') {
           return `
@@ -845,19 +852,20 @@ result = <span class="text-blue-400">await</span> agent.<span class="text-yellow
             </div>
             <h3 class="text-lg font-semibold text-slate-600 group-hover:text-blue-700 transition-colors">${escapeHtml(f.title)}</h3>
           </div>
-          ${bulletList(f.points, 'text-slate-400 group-hover:text-blue-500', 'text-slate-400 group-hover:text-blue-600/80')}
-          <span class="mt-3 text-xs font-medium text-slate-400 group-hover:text-blue-600 transition-colors">查看文档 →</span>
+          <p class="text-sm text-slate-400 group-hover:text-blue-600/80 leading-relaxed">${escapeHtml(f.desc)}</p>
+          <span class="mt-auto pt-4 text-xs font-medium text-slate-400 group-hover:text-blue-600 transition-colors">查看文档 →</span>
         </a>`;
         }
         return `
-        <div class="bg-slate-50 rounded-2xl p-7 border border-slate-100 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-50 transition-all duration-300 group">
-          <div class="flex items-center gap-3 mb-3">
+        <div class="bg-slate-50 rounded-2xl p-7 border border-slate-100 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-50 transition-all duration-300 group flex flex-col">
+          <div class="flex items-center gap-3 mb-2.5">
             <div class="bg-white w-10 h-10 rounded-xl flex items-center justify-center shadow-sm border border-slate-100 group-hover:scale-110 transition-transform text-blue-600 shrink-0">
               ${iconSvg(f.icon, 'w-5 h-5')}
             </div>
-            <h3 class="text-lg font-semibold text-slate-900">${escapeHtml(f.title)}</h3>
+            <h3 class="text-base font-semibold text-slate-900">${escapeHtml(f.title)}</h3>
           </div>
-          ${bulletList(f.points, 'text-blue-500', 'text-slate-600')}
+          <p class="text-sm text-slate-600 leading-relaxed mb-4">${escapeHtml(f.desc)}</p>
+          ${tagChips(f.tags)}
         </div>`;
       }).join('');
     }
