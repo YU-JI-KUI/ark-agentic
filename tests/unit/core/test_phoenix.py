@@ -12,7 +12,25 @@ from ark_agentic.core.runner import RunResult
 from ark_agentic.core.types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
 
 
-def test_init_phoenix_skips_when_disabled(monkeypatch) -> None:
+def test_init_phoenix_registers_without_legacy_enable_flag(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _Provider:
+        pass
+
+    provider = _Provider()
+
+    def _register(**kwargs):
+        captured.update(kwargs)
+        return provider
+
+    phoenix_pkg = types.ModuleType("phoenix")
+    otel_mod = types.ModuleType("phoenix.otel")
+    otel_mod.register = _register
+    phoenix_pkg.otel = otel_mod
+
+    monkeypatch.setitem(sys.modules, "phoenix", phoenix_pkg)
+    monkeypatch.setitem(sys.modules, "phoenix.otel", otel_mod)
     monkeypatch.delenv("ENABLE_PHOENIX", raising=False)
     monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
     monkeypatch.delenv("PHOENIX_PROJECT_NAME", raising=False)
@@ -22,7 +40,8 @@ def test_init_phoenix_skips_when_disabled(monkeypatch) -> None:
     from ark_agentic.observability import phoenix
 
     module = importlib.reload(phoenix)
-    assert module.init_phoenix() is None
+    assert module.init_phoenix(service_name="ark-agentic") is provider
+    assert captured["project_name"] == "ark-agentic"
 
 
 def test_init_phoenix_registers_and_shutdowns(monkeypatch) -> None:
@@ -48,7 +67,6 @@ def test_init_phoenix_registers_and_shutdowns(monkeypatch) -> None:
 
     monkeypatch.setitem(sys.modules, "phoenix", phoenix_pkg)
     monkeypatch.setitem(sys.modules, "phoenix.otel", otel_mod)
-    monkeypatch.setenv("ENABLE_PHOENIX", "true")
     monkeypatch.setenv("PHOENIX_PROJECT_NAME", "ark-tests")
     monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:4317")
 
@@ -63,69 +81,6 @@ def test_init_phoenix_registers_and_shutdowns(monkeypatch) -> None:
 
     module.shutdown_phoenix()
     assert provider.shutdown_called is True
-
-
-def test_phoenix_callbacks_enabled_requires_explicit_env(monkeypatch) -> None:
-    from ark_agentic.observability import phoenix
-
-    module = importlib.reload(phoenix)
-
-    monkeypatch.delenv("ENABLE_PHOENIX", raising=False)
-    monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:4317")
-    assert module.phoenix_callbacks_enabled() is False
-
-    monkeypatch.setenv("ENABLE_PHOENIX", "true")
-    assert module.phoenix_callbacks_enabled() is True
-
-    monkeypatch.setenv("ENABLE_PHOENIX", "false")
-    assert module.phoenix_callbacks_enabled() is False
-
-
-def test_build_observability_callbacks_skip_tracing_when_disabled(monkeypatch) -> None:
-    from ark_agentic.core.callbacks import RunnerCallbacks
-    from ark_agentic.observability import phoenix
-
-    module = importlib.reload(phoenix)
-    monkeypatch.delenv("ENABLE_PHOENIX", raising=False)
-
-    external = RunnerCallbacks()
-    callbacks = module.build_observability_callbacks(
-        agent_id="insurance",
-        agent_name="测试助手",
-        callbacks=external,
-    )
-
-    assert callbacks is external
-
-
-def test_build_observability_callbacks_wrap_external_callbacks_when_enabled(monkeypatch) -> None:
-    from ark_agentic.core.callbacks import RunnerCallbacks
-    from ark_agentic.observability import phoenix
-
-    module = importlib.reload(phoenix)
-    monkeypatch.setenv("ENABLE_PHOENIX", "true")
-
-    external_before = object()
-    external_after = object()
-    external_retry = object()
-    external = RunnerCallbacks(
-        before_agent=[external_before],
-        after_agent=[external_after],
-        before_loop_end=[external_retry],
-    )
-
-    callbacks = module.build_observability_callbacks(
-        agent_id="insurance",
-        agent_name="测试助手",
-        callbacks=external,
-    )
-
-    assert len(callbacks.before_agent) == 2
-    assert callbacks.before_agent[1] is external_before
-    assert callbacks.after_agent[0] is external_after
-    assert len(callbacks.after_agent) == 2
-    assert callbacks.before_loop_end == [external_retry]
-
 
 class _FakeSpan:
     def __init__(self, name: str) -> None:
@@ -168,9 +123,9 @@ class _FakeTracer:
 
 @pytest.mark.asyncio
 async def test_tracing_callbacks_capture_agent_model_and_tool_spans(monkeypatch) -> None:
-    from ark_agentic.observability import phoenix
+    from ark_agentic.observability import tracing
 
-    module = importlib.reload(phoenix)
+    module = importlib.reload(tracing)
     tracer = _FakeTracer()
     monkeypatch.setattr(module, "get_tracer", lambda name: tracer)
 
@@ -299,9 +254,9 @@ async def test_tracing_callbacks_capture_agent_model_and_tool_spans(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_tracing_callbacks_create_one_tool_span_per_tool_call(monkeypatch) -> None:
-    from ark_agentic.observability import phoenix
+    from ark_agentic.observability import tracing
 
-    module = importlib.reload(phoenix)
+    module = importlib.reload(tracing)
     tracer = _FakeTracer()
     monkeypatch.setattr(module, "get_tracer", lambda name: tracer)
 
@@ -339,9 +294,9 @@ async def test_tracing_callbacks_create_one_tool_span_per_tool_call(monkeypatch)
 @pytest.mark.asyncio
 async def test_tracing_callbacks_close_pending_model_span_on_error(monkeypatch) -> None:
     from ark_agentic.core.llm.errors import LLMError, LLMErrorReason
-    from ark_agentic.observability import phoenix
+    from ark_agentic.observability import tracing
 
-    module = importlib.reload(phoenix)
+    module = importlib.reload(tracing)
     tracer = _FakeTracer()
     monkeypatch.setattr(module, "get_tracer", lambda name: tracer)
 

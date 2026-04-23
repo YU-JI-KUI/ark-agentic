@@ -248,7 +248,7 @@ src/ark_agentic/
 ├── cli/             # 脚手架 CLI
 ├── core/            # 运行时核心：runner、tools、skills、stream、session、memory...
 ├── api/             # FastAPI 路由与协议层
-├── observability/   # Phoenix 等观测集成
+├── observability/   # Phoenix / Langfuse 等观测集成
 ├── studio/          # Studio 后端集成与前端资源
 ├── services/        # Job / Notification 等服务能力
 ├── agents/          # 仓库内置示例/内部 agent
@@ -400,10 +400,25 @@ AGENTS_ROOT=./src/<package>/agents
 
 ### 可观测性
 
+按 provider 选择安装依赖：
+
 ```bash
-ENABLE_PHOENIX=true
+pip install "ark-agentic[phoenix]"
+# 或
+pip install "ark-agentic[langfuse]"
+```
+
+```bash
+ENABLE_OBSERVABILITY=true
+OBSERVABILITY_PROVIDER=Phoenix  # Phoenix 或 Langfuse
 PHOENIX_COLLECTOR_ENDPOINT=http://localhost:4317
 PHOENIX_PROJECT_NAME=ark-agentic
+
+# Langfuse 示例
+# OBSERVABILITY_PROVIDER=Langfuse
+# LANGFUSE_SECRET_KEY=sk-lf-xxx
+# LANGFUSE_PUBLIC_KEY=pk-lf-xxx
+# LANGFUSE_BASE_URL=https://cloud.langfuse.com
 ```
 
 ## 新人建议阅读顺序

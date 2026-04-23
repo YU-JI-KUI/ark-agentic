@@ -121,6 +121,7 @@ def _make_runner(
 
 
 def test_runner_never_auto_injects_tracing_callbacks(tmp_sessions_dir: Path) -> None:
+    os.environ.pop("ENABLE_OBSERVABILITY", None)
     os.environ.pop("ENABLE_PHOENIX", None)
     runner, _ = _make_runner(tmp_sessions_dir)
     assert runner._callbacks.before_agent == []
@@ -132,6 +133,7 @@ def test_runner_never_auto_injects_tracing_callbacks(tmp_sessions_dir: Path) -> 
 
 
 def test_runner_uses_callbacks_passed_by_caller(tmp_sessions_dir: Path) -> None:
+    os.environ.pop("ENABLE_OBSERVABILITY", None)
     os.environ.pop("ENABLE_PHOENIX", None)
     callback = AsyncMock(return_value=None)
     callbacks = RunnerCallbacks(before_agent=[callback])
@@ -143,7 +145,7 @@ def test_runner_uses_callbacks_passed_by_caller(tmp_sessions_dir: Path) -> None:
 def test_runner_auto_injects_observability_when_enabled(
     tmp_sessions_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ENABLE_PHOENIX", "true")
+    monkeypatch.setenv("ENABLE_OBSERVABILITY", "true")
 
     runner, _ = _make_runner(tmp_sessions_dir)
 
@@ -158,7 +160,7 @@ def test_runner_auto_injects_observability_when_enabled(
 def test_runner_wraps_business_callbacks_with_observability_when_enabled(
     tmp_sessions_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ENABLE_PHOENIX", "true")
+    monkeypatch.setenv("ENABLE_OBSERVABILITY", "true")
     callback = AsyncMock(return_value=None)
     business_callbacks = RunnerCallbacks(before_agent=[callback])
     runner, _ = _make_runner(tmp_sessions_dir, callbacks=business_callbacks)
