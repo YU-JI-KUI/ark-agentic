@@ -1,97 +1,138 @@
-**"非侵入式 Agentic Native TaskFlow"** 设计文档。
+# 设计文档：Agentic Native TaskFlow
 
-这份方案的核心思想是：**不修改框架底层，通过"资源引用（Reference）+ 状态工具（Evaluator）+ 增量状态（State Delta）"实现复杂 SOP 编排。**
+> **更新日期**: 2026-04-20
 
 ---
-
-# 设计文档：基于资源引用与状态工具的 Agentic Native TaskFlow 方案
 
 ## 1. 设计哲学
 
-* **最小侵入性 (Minimal-Intrusive)**：不改动 `AgentRunner` 的核心 ReAct 循环逻辑；
-  需要在框架层新增 `SkillLoader` reference 扫描、`_build_system_prompt()` Dynamic 注入、
-  以及 `state_delta` 点路径合并三处改动，改动均为增量扩展，不破坏现有行为。
-* **智能体原生 (Agentic Native)**：将流程编排从"框架硬编码"下沉为"Agent 的工具决策与知识检索"。
-* **按需内化 (Lazy Loading)**：通过 `reference` 解决 SKILL 臃肿问题，仅在需要时加载指令。
-* **状态驱动 (State-Driven)**：利用现有 `session.state` 实现跨会话的任务持久化与恢复。
+* **最小侵入性 (Minimal-Intrusive)**：不改动 `AgentRunner` 的核心 ReAct 循环逻辑；框架层新增 `SkillLoader` reference 按需加载、`FlowCallbacks` 三个 Hook、`state_delta` 点路径合并，均为增量扩展。
+* **智能体原生 (Agentic Native)**：流程编排不依赖 LLM 主动调用评估器，而是由框架 Hook 在每轮 ReAct 循环的关键节点自动驱动评估与提交。
+* **按需内化 (Lazy Loading)**：通过 `reference` 解决 SKILL 臃肿问题，仅在进入对应阶段时加载该阶段的 reference 文档。
+* **状态驱动 (State-Driven)**：利用 `session.state` 实现跨会话的任务持久化与恢复。
 
 **与传统 DAG 编排引擎的区别**：
-- 传统方案在 ReAct 之上叠加编排层（FlowEngine），需要新增 FlowEngine / Store / Router 三个框架模块，框架代码维护成本高。
-- 本方案将编排能力"溶解"到工具和状态中，零改动 AgentRunner，每个业务独立实现 Evaluator，互不影响。
 
-**核心信任链**：
+| 维度 | 传统 DAG 编排（FlowEngine） | Agentic Native（本方案） |
+|------|---------------------------|-------------------------|
+| 框架改动 | 新增 FlowEngine/Store/Router 三模块 | 零改动，仅增加 Hook 和工具 |
+| 步骤执行 | 框架强制顺序执行 | Hook 自动评估 + Agent 遵循 SOP |
+| 工具隔离 | ephemeral session + tools 白名单 | reference SOP 中指定（知识引导） |
+| 数据校验 | 无（condition 表达式仅做路由） | Pydantic schema 严格校验 |
+| 回退支持 | 需修改 DAG 拓扑 | rollback_flow_stage 通用工具 |
+| 持久化粒度 | 每步写盘 | checkpoint 阶段写盘（可配置） |
+| 灵活性 | 固定 DAG，变更需修改 frontmatter | Agent 可灵活应对异常和用户意图变更 |
+
+---
+
+## 2. 核心架构
+
+### 2.1 Hook 驱动模式
+
+Evaluator 不是 LLM 工具，而是由 `FlowCallbacks` 的三个 Hook 自动驱动的确定性状态机：
 
 ```
-flow_evaluator（确定性状态机）
-  → 首次调用时检测是否有待恢复任务（InEvaluator Pending Detection）
-  → state_delta 写入 _flow_stage
-    → 框架自动注入当前阶段 reference
+┌─────────────────────────────────────────────────────────────────┐
+│ ReAct Loop（每轮）                                               │
+│                                                                  │
+│  ┌─ before_model_flow_eval ──────────────────────────────────┐  │
+│  │ 1. 确定活跃 evaluator（_flow_context.skill_name /          │  │
+│  │    _turn_matched_skills 反查 Registry）                     │  │
+│  │ 2. 检测 pending task（每轮直检 TaskRegistry）               │  │
+│  │ 3. 初始化 flow_id（首次调用，无活跃流程且无 pending）       │  │
+│  │ 4. 调用 evaluator.evaluate() 获取当前阶段                   │  │
+│  │ 5. state_delta 写入 session.state                          │  │
+│  │ 6. 注入流程状态提示 + 当前阶段 reference 到 system message  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                          ↓                                       │
+│                    LLM 调用                                      │
+│                          ↓                                       │
+│  ┌─ after_tool_auto_commit ──────────────────────────────────┐  │
+│  │ 1. 读取 _flow_context + skill_name                        │  │
+│  │ 2. 调用 evaluator.auto_commit_tool_stages()               │  │
+│  │     → 只含 source="tool" 字段且数据已就绪的阶段自动提交    │  │
+│  │ 3. state_delta + _flow_context 同步回 session.state       │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                          ↓                                       │
+│                     ... 下一轮 ...                                │
+│                                                                  │
+│  ┌─ persist_flow_context（after_agent，整个 run 结束后）──────┐  │
+│  │ 1. evaluator.get_restorable_state() 序列化                │  │
+│  │ 2. checkpoint 检查：仅最后完成阶段标记了 checkpoint=True   │  │
+│  │    时写盘；__completed__ 时始终写盘（触发清理）             │  │
+│  │ 3. render_task_name() → TaskRegistry.upsert()             │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2.2 核心信任链
+
+```
+before_model_flow_eval（每轮自动运行）
+  → 检测 pending task（直检 TaskRegistry）
+  → evaluate() → state_delta 写入 _flow_stage
+    → 注入流程状态 + 当前阶段 reference 到 system message
       → Agent 按 SOP 执行业务工具（结果写入 session.state）
-        → Agent 调用 commit_flow_stage(stage_id, user_data)
-            → 框架按 field_sources 自动提取 tool 来源字段
-            → LLM 提供 user 来源字段（via user_data）
-            → Pydantic 校验通过 → 写入 _flow_context.stage_<id>
-            → checkpoint 阶段 → 追加到 _flow_context.checkpoints
-          → flow_evaluator 再评估（Pydantic 校验通过 → 进入下一阶段）
-  → after_agent: persist_flow_context（仅 checkpoint 阶段触发写盘）
+        → after_tool_auto_commit：全 tool 字段阶段自动提交
+        → collect_user_fields：含 user 字段阶段由 LLM 提交
+          → Pydantic 校验通过 → 写入 _flow_context.stage_<id>
+          → checkpoint 阶段 → 追加到 _flow_context.checkpoints
+        → 下一轮 before_model_flow_eval 再评估 → 进入下一阶段
+  → after_agent: persist_flow_context（仅 checkpoint 阶段写盘）
 ```
 
 ---
 
-## 2. 核心组件设计
+## 3. 核心组件
 
-### 2.1 SKILL 结构与 Reference 定义
+### 3.1 BaseFlowEvaluator（ABC）
 
-`references/` 是 SKILL 目录下的**可选子目录**，与 `SKILL.md` 同级。`SKILL.md` 的 frontmatter 中不再声明 `references:` 索引，reference 文档通过正文中的相对路径直接引用。
+```python
+class BaseFlowEvaluator(ABC):
+    """流程评估器基类（框架层）。
 
-**目录结构**：
+    由 FlowCallbacks 的 Hook 自动驱动，业务层仅需实现 skill_name 和 stages。
+    """
 
-```
-skills/withdraw_money_flow/
-├── SKILL.md                  # 主 SKILL 文件
-└── references/               # 可选：阶段 SOP 文档
-    ├── identity_verify.md
-    ├── options_query.md
-    ├── plan_confirm.md
-    └── execute.md
-```
+    @property
+    @abstractmethod
+    def skill_name(self) -> str: ...
 
-**SKILL.md frontmatter 示例**：
+    @property
+    @abstractmethod
+    def stages(self) -> list[StageDefinition]: ...
 
-```yaml
-required_tools:
-  - withdraw_money_flow_evaluator
-  - commit_flow_stage
-  - rollback_flow_stage
-  - customer_info
-  - policy_query
-  - rule_engine
-  - render_a2ui
-  - submit_withdrawal
-  - resume_task
-```
+    @property
+    def task_name_template(self) -> str:
+        """任务名模板，默认退化为 skill_name，业务层按需覆写。
+        可用变量来自已完成阶段 data（展平）+ flow_ctx 顶层键。
+        未就绪变量渲染为字面量 "{待定}"。
+        """
+        return self.skill_name
 
-**SKILL.md 流程回退规则**（通用，不依赖具体阶段名称）：
+    def evaluate(self, flow_ctx, state) -> FlowEvalResult:
+        """运行一次完整流程评估（供 before_model hook 调用）。"""
 
-```markdown
-## 流程回退
+    def auto_commit_tool_stages(self, flow_ctx, state, state_delta):
+        """自动提交只含 source='tool' 字段且数据已就绪的阶段（供 after_tool hook 调用）。"""
 
-当用户希望修改已完成阶段的内容（如更换方案、重新查询等）：
+    def render_task_name(self, flow_ctx) -> str:
+        """按 task_name_template 渲染任务名。"""
 
-1. 查看 evaluator 响应中的 `available_checkpoints` 列表
-2. 根据用户意图找到最合适的回退点：
-   - **明确匹配**：告知用户将回退到「XX阶段」重新执行，等待用户确认
-   - **无法判断**：将 `available_checkpoints` 列表全部展示，请用户指定
-3. 用户确认后调用 `rollback_flow_stage(stage_id=<确认的 stage_id>)`
-4. 工具自动清除目标阶段及其后续所有阶段的数据
-5. 再次调用 flow_evaluator，从目标阶段重新开始执行
+    def get_restorable_state(self, flow_ctx) -> dict:
+        """序列化为可持久化格式（写入 active_tasks.json）。"""
 ```
 
----
+**关键方法说明**：
 
-### 2.2 流程评估工具 (FlowEvaluator) — 基类 + 业务继承模式
+| 方法 | 调用方 | 说明 |
+|------|--------|------|
+| `evaluate()` | `before_model_flow_eval` | 遍历阶段，确定当前阶段，输出 `FlowEvalResult` |
+| `auto_commit_tool_stages()` | `after_tool_auto_commit` | 按序处理全 tool 字段阶段，遇 user 字段/数据缺失即停 |
+| `render_task_name()` | `persist_flow_context` | 模板渲染，缺失变量返回 "{待定}" |
+| `get_restorable_state()` | `persist_flow_context` | 转换为 active_tasks.json 快照格式 |
 
-**这是最核心的变更**。框架层提供 `BaseFlowEvaluator` 抽象基类，每个业务流程继承它并仅需定义阶段列表，本质是一个**确定性状态机**包装为 AgentTool：
+### 3.2 FieldSource — 字段来源声明
 
 ```python
 @dataclass
@@ -99,374 +140,216 @@ class FieldSource:
     """阶段 schema 字段的数据来源声明。
 
     source="tool": 框架从 session.state[state_key] 自动提取，LLM 无需传值。
-    source="user": LLM 必须通过 commit_flow_stage(user_data=...) 明确提供。
+    source="user": LLM 必须通过 collect_user_fields(fields=...) 明确提供。
 
-    提取逻辑（source="tool" 时，优先级：transform > path > 直接取值）：
-      transform: 调用 transform(state_value) 得到字段值
-      path:      按点路径遍历 state_value（如 "identity.verified"）
+    提取逻辑（仅 source="tool" 时有效，优先级：transform > path > 直接取值）：
+      transform: 若提供，调用 transform(state_value) 得到字段值
+      path:      若提供，按点路径遍历 state_value（如 "identity.verified"）
       否则：     直接使用 state_value 本身
     """
     source: Literal["tool", "user"] = "user"
     state_key: str | None = None
     path: str | None = None
-    transform: Callable | None = None
-    description: str | None = None  # 仅 source="user" 时有意义，供 evaluator 向模型说明
+    transform: Callable[[Any], Any] | None = None
+    description: str | None = None  # 仅 source="user" 时有意义，注入提示词
+```
 
+### 3.3 StageDefinition — 阶段定义
 
+```python
 @dataclass
 class StageDefinition:
-    """阶段定义。
-
-    checkpoint=True: 该阶段完成后触发 persist_flow_context 写盘，建立跨会话恢复点。
-                     同时记录到 _flow_context.checkpoints，作为 rollback_flow_stage 的合法目标。
-
-    delta_state_keys: 额外快照的 session.state 键（不参与 field_sources 校验）。
-                      用于 resume 时将工具原始输出还原到 session.state，
-                      使下游工具（如 submit_withdrawal 读取 _plan_allocations）在恢复后可用。
-    """
     id: str
     name: str
     description: str
-    required: bool = True
+    required: bool = True               # False 时无数据视为 skipped
     output_schema: type[BaseModel] | None = None
-    reference_file: str | None = None
+    reference_file: str | None = None   # references/ 下的文件名
     tools: list[str] = field(default_factory=list)
     field_sources: dict[str, FieldSource] = field(default_factory=dict)
-    checkpoint: bool = False
-    delta_state_keys: list[str] = field(default_factory=list)
+    checkpoint: bool = False            # 完成后触发持久化
+    delta_state_keys: list[str] = field(default_factory=list)  # 额外快照的 state key
 ```
 
-#### Evaluator 内置待恢复任务检测
-
-`BaseFlowEvaluator.execute()` 在首次调用时（无 `_flow_context.flow_id`）自动检测是否存在待恢复任务，**不依赖 `before_agent` hook**：
-
-```
-优势：
-  - 只有在 SKILL 被实际调用时才触发检测（用户问无关问题不受影响）
-  - 检测结果以工具结果形式返回，LLM 在同一轮决策中处理
-  - session 内只检测一次（_pending_checked_{skill_name} 标记防止重复）
-```
+### 3.4 FlowEvalResult — 评估结果
 
 ```python
-class BaseFlowEvaluator(AgentTool, ABC):
-    def __init__(self) -> None:
-        self.name = f"{self.skill_name}_evaluator"
-        self._task_registry: TaskRegistry | None = None  # 由 create_agent_tools() 注入
-        self._ttl_hours: int = 72
-
-    async def execute(self, tool_call, context=None):
-        ctx = context or {}
-        flow_ctx = dict(ctx.get("_flow_context") or {})
-
-        # ── 待恢复任务检测（session 内只执行一次）──
-        _pending_flag = f"_pending_checked_{self.skill_name}"
-        if (
-            not flow_ctx.get("flow_id")
-            and self._task_registry is not None
-            and not ctx.get(_pending_flag)
-        ):
-            user_id = str(ctx.get("user:id", ""))
-            if user_id:
-                active = self._task_registry.list_active(user_id, ttl_hours=self._ttl_hours)
-                pending = [t for t in active if t.get("skill_name") == self.skill_name]
-                if pending:
-                    task = pending[0]
-                    return AgentToolResult(
-                        content={
-                            "status": "pending_task_detected",
-                            "pending_task": {
-                                "flow_id": task["flow_id"],
-                                "skill_name": task["skill_name"],
-                                "current_stage": task["current_stage"],
-                            },
-                            "instruction": "...",  # 继续/废弃/重新开始操作指引
-                        },
-                        metadata={"state_delta": {_pending_flag: True}},
-                    )
-
-        # ── 正常流程评估 ──
-        if not flow_ctx.get("flow_id"):
-            flow_ctx = {"flow_id": str(uuid.uuid4()), "skill_name": self.skill_name}
-
-        completed, is_done = self._evaluate_stages(flow_ctx)
-
-        if is_done:
-            return AgentToolResult(content={"flow_status": "completed", ...})
-
-        current_stage = ...
-        available_checkpoints = list(flow_ctx.get("checkpoints") or [])  # 供 rollback 决策使用
-
-        return AgentToolResult(
-            content={
-                "flow_status": "in_progress",
-                "current_stage": current_stage_info,
-                "completed_stages": completed,
-                "available_checkpoints": available_checkpoints,  # ★ LLM 据此决定回退目标
-                "instruction": self._build_instruction(current_stage),
-            },
-            metadata={"state_delta": state_delta},
-        )
+@dataclass
+class FlowEvalResult:
+    is_done: bool
+    current_stage: StageDefinition | None
+    completed_stages: list[dict[str, Any]]
+    state_delta: dict[str, Any]
+    available_checkpoints: list[dict[str, Any]]
 ```
 
-**业务层继承示例**（取款流）：
+### 3.5 FlowEvaluatorRegistry — 全局注册表
 
 ```python
-class WithdrawalFlowEvaluator(BaseFlowEvaluator):
-    @property
-    def skill_name(self) -> str:
-        return "withdraw_money_flow"
+class FlowEvaluatorRegistry:
+    """全局单例注册表，skill 标识 → evaluator 实例映射。
 
-    @property
-    def stages(self) -> list[StageDefinition]:
-        return [
-            StageDefinition(
-                id="identity_verify",
-                name="身份核验",
-                checkpoint=True,   # 完成后持久化，断线可从方案查询阶段恢复
-                output_schema=IdentityVerifyOutput,
-                reference_file="identity_verify.md",
-                tools=["customer_info", "policy_query"],
-                field_sources={
-                    "user_id":         FieldSource("tool", "_customer_info_result", "user_id"),
-                    "id_card_verified": FieldSource("tool", "_customer_info_result", "identity.verified"),
-                    "policy_ids":      FieldSource("tool", "_policy_query_result",
-                        transform=lambda r: [p["policy_id"] for p in r.get("policyAssertList", [])]),
-                },
-            ),
-            StageDefinition(
-                id="options_query",
-                name="方案查询",
-                checkpoint=False,  # 纯查询，可重新执行，不建立恢复点
-                output_schema=OptionsQueryOutput,
-                reference_file="options_query.md",
-                tools=["rule_engine"],
-                field_sources={
-                    "available_options": FieldSource("tool", "_rule_engine_result", "options"),
-                    "total_cash_value":  FieldSource("tool", "_rule_engine_result", "total_available_excl_loan"),
-                    "max_withdrawal":    FieldSource("tool", "_rule_engine_result", "total_available_incl_loan"),
-                },
-            ),
-            StageDefinition(
-                id="plan_confirm",
-                name="方案确认",
-                checkpoint=True,   # 用户明确确认方案后持久化，断线可从执行阶段恢复
-                output_schema=PlanConfirmOutput,
-                reference_file="plan_confirm.md",
-                tools=["render_a2ui"],
-                field_sources={
-                    "confirmed":       FieldSource("user", description="用户是否确认方案"),
-                    "selected_option": FieldSource("user", description="选中方案（channels + target）"),
-                    "amount":          FieldSource("user", description="最终取款金额（元）"),
-                },
-                delta_state_keys=["_plan_allocations"],  # render_a2ui 写入，resume 时还原供 submit_withdrawal 使用
-            ),
-            StageDefinition(
-                id="execute",
-                name="执行取款",
-                checkpoint=False,  # 最终态，__completed__ 路径自动清理记录
-                output_schema=ExecuteOutput,
-                reference_file="execute.md",
-                tools=["submit_withdrawal"],
-                field_sources={
-                    "submitted": FieldSource("tool", "_submitted_channels",
-                        transform=lambda channels: bool(channels)),
-                    "channels":  FieldSource("tool", "_submitted_channels"),
-                },
-            ),
-        ]
+    标识策略：以 evaluator.skill_name（短名）为主键；
+    注册时若提供 namespace（如 "insurance"），同时登记
+    "{namespace}.{skill_name}" 别名，使 SkillEntry.id 全名也能命中。
+    """
+    _registry: dict[str, BaseFlowEvaluator] = {}
 
-# 业务层初始化（create_insurance_tools() 中）
-withdrawal_flow_evaluator._task_registry = TaskRegistry(sessions_dir)
-FlowEvaluatorRegistry.register(withdrawal_flow_evaluator)
+    @classmethod
+    def register(cls, evaluator, *, namespace=None): ...
+
+    @classmethod
+    def get(cls, skill_name) -> BaseFlowEvaluator | None: ...
+
+    @classmethod
+    def values(cls) -> list[BaseFlowEvaluator]: ...  # 去重
 ```
 
 ---
 
-### 2.2.1 CommitFlowStageTool — 阶段数据提交工具
-
-**问题背景**：业务工具（`customer_info`、`rule_engine` 等）将结果写入各自的 state key（如 `_customer_info_result`），字段名和路径与阶段 schema 不一定一致，且部分字段来自用户对话而非工具调用。
-
-**解决方案**：`CommitFlowStageTool` 按 `StageDefinition.field_sources` 声明完成以下工作：
-
-1. `source="tool"` 字段：从 `session.state[state_key]` 自动提取（支持点路径和 transform）
-2. `source="user"` 字段：从 `user_data` 参数取值（要求 LLM 从对话上下文提供）
-3. Pydantic 校验合并后的数据
-4. 写入 `_flow_context.stage_<id>`（点路径，不覆盖同级 key）
-5. **捕获 stage delta**：将 `source="tool"` 字段对应的 `state_key` 原始值写入 `stage_<id>_delta`，供跨会话恢复时还原工具上下文
-6. **额外 delta 捕获**：将 `delta_state_keys` 中的 state key 一并写入 `stage_<id>_delta`（不参与 schema 校验，用于 resume 还原下游工具依赖）
-7. **checkpoint 记录**：若 `stage.checkpoint=True`，将 `{stage_id, name, description}` 追加到 `_flow_context.checkpoints`，供 `rollback_flow_stage` 使用
+## 4. FlowCallbacks — 三个生命周期 Hook
 
 ```python
-# 写入 _flow_context.stage_<id>
-state_delta = {f"_flow_context.stage_{stage_id}": collected}
+class FlowCallbacks:
+    def __init__(self, sessions_dir: Path, ttl_hours: int = 72,
+                 skill_loader: SkillLoader | None = None): ...
 
-# checkpoint 阶段：记录到 checkpoints 历史（幂等，重复提交时替换）
-if stage.checkpoint:
-    existing = [c for c in flow_ctx.get("checkpoints", []) if c["stage_id"] != stage_id]
-    existing.append({"stage_id": stage_id, "name": stage.name, "description": stage.description})
-    state_delta["_flow_context.checkpoints"] = existing
+    # Hook 1: before_model — 每轮 LLM 调用前
+    async def before_model_flow_eval(self, ctx, *, turn, messages, **_): ...
 
-# 捕获 delta（source="tool" 字段 + delta_state_keys）
-stage_delta = {}
-for fs in stage.field_sources.values():
-    if fs.source == "tool" and fs.state_key not in stage_delta:
-        raw = ctx.get(fs.state_key)
-        if raw is not None:
-            stage_delta[fs.state_key] = raw
-for key in stage.delta_state_keys:      # ★ 额外快照（如 _plan_allocations）
-    if key not in stage_delta:
-        raw = ctx.get(key)
-        if raw is not None:
-            stage_delta[key] = raw
-if stage_delta:
-    state_delta[f"_flow_context.stage_{stage_id}_delta"] = stage_delta
+    # Hook 2: after_tool — 工具执行后
+    async def after_tool_auto_commit(self, ctx, *, turn, results, **_): ...
+
+    # Hook 3: after_agent — 整个 run 结束后
+    async def persist_flow_context(self, ctx, *, response): ...
 ```
 
-**字段来源决策树**：
+### 4.1 before_model_flow_eval
 
-```
-对于阶段的每个 schema 字段：
-  ├── source="tool"
-  │     ├── transform 有值 → transform(session.state[state_key])
-  │     ├── path 有值     → 点路径遍历 session.state[state_key]
-  │     └── 否则          → session.state[state_key] 直接赋值
-  └── source="user"       → user_data[field_name]（LLM 必须提供）
+每轮 LLM 调用前自动运行，核心流程：
 
-额外写入 delta（不校验）：
-  delta_state_keys 中的每个 key → session.state[key] 原始值
-```
+1. **确定 evaluator**：优先 `_flow_context.skill_name`，其次 `_turn_matched_skills` 反查 Registry
+2. **Pending task 检测**：无 `flow_id` 时直检 `TaskRegistry.list_active()`，将结果以 JSON 数组注入 system message
+3. **初始化 flow_id**：首次调用且无 pending 时，通过 `TaskRegistry.generate_flow_id()` 生成短 ID
+4. **运行评估**：调用 `evaluator.evaluate(flow_ctx, state)`
+5. **写入 state**：`state_delta` 通过 `apply_delta()` 点路径合并
+6. **注入提示词**：流程状态 + 当前阶段 reference
+
+### 4.2 after_tool_auto_commit
+
+工具执行后自动运行：
+
+1. 读取 `_flow_context` + `skill_name`，反查 evaluator
+2. 调用 `evaluator.auto_commit_tool_stages(flow_ctx, state, state_delta)`
+3. 有变更时同步回 `session.state`
+
+**自动提交逻辑**：按阶段顺序遍历，遇到以下情况即停止：
+- 阶段已有数据（`stage_<id>` 非空）
+- 无 `field_sources` 声明（需显式提交）
+- 含 `source="user"` 字段（需 LLM 收集）
+- 数据未就绪（state_key 缺失）
+- Pydantic 校验失败
+
+### 4.3 persist_flow_context
+
+整个 run 结束后持久化：
+
+1. 序列化 `evaluator.get_restorable_state(flow_ctx)`
+2. **Checkpoint 检查**：仅最后完成阶段标记了 `checkpoint=True` 时写盘
+3. `__completed__` 时始终写盘（触发 TaskRegistry 自动删除记录）
+4. `_needs_persist=True`（rollback 设置）时强制写盘
+5. 每次写盘重渲染 `task_name`
 
 ---
 
-### 2.2.2 RollbackFlowStageTool — 阶段回退工具
+## 5. Reference 动态注入
 
-允许在流程中途回退到任意已完成的 checkpoint 阶段，清除目标阶段及其后续所有阶段的数据。
+### 5.1 加载策略
 
-**设计原则**：
-- 只能回退到 `checkpoint=True` 且已完成的阶段（`_flow_context.checkpoints` 中有记录）
-- 清除目标阶段及后续所有阶段的 `stage_<id>` 和 `stage_<id>_delta`
-- 同步从 `_flow_context.checkpoints` 移除已清除阶段的记录
-- LLM 负责意图判断和用户确认，工具只执行清除操作
+| 条件 | 加载模式 | 注入路径 |
+|------|---------|---------|
+| SKILL 无 `references/` 目录 | 无注入 | — |
+| SKILL 有 `references/`，无 flow evaluator | FULL（全量） | `SkillLoader._append_references_full()` |
+| SKILL 有 `references/` + flow evaluator 已注册 | Dynamic（按阶段） | `FlowCallbacks._build_stage_reference_block()` |
 
-**交互流程**：
+### 5.2 判断机制
 
+`SkillLoader._load_skill_file()` 加载 SKILL.md 时，调用 `_is_flow_managed(skill_id)` 判断：
+
+```python
+def _is_flow_managed(self, skill_id: str) -> bool:
+    """skill 是否被 FlowEvaluatorRegistry 接管。
+    同时检查短名和全名（带 agent_id 前缀），与 Registry 的别名机制对齐。
+    """
+    from ..flow.base_evaluator import FlowEvaluatorRegistry
+    if FlowEvaluatorRegistry.get(skill_id) is not None:
+        return True
+    if self.config.agent_id:
+        full_id = f"{self.config.agent_id}.{skill_id}"
+        if FlowEvaluatorRegistry.get(full_id) is not None:
+            return True
+    return False
 ```
-用户："我想换一个方案"（处于 execute 阶段）
-  │
-  ▼
-LLM 读取 available_checkpoints: [
-    {"stage_id": "identity_verify", "name": "身份核验", ...},
-    {"stage_id": "plan_confirm",    "name": "方案确认", ...}
-]
-  │
-  ▼
-LLM 判断意图匹配 plan_confirm → 告知用户：
-"我将为您回退到「方案确认」阶段，重新选择方案，是否确认？"
-  │
-用户确认
-  │
-  ▼
-LLM 调用 rollback_flow_stage(stage_id="plan_confirm")
-  → 清除 stage_plan_confirm、stage_plan_confirm_delta
-  → 清除 stage_execute、stage_execute_delta
-  → 更新 _flow_context.checkpoints（移除 plan_confirm 记录）
-  │
-  ▼
-LLM 调用 flow_evaluator
-  → 检测 plan_confirm 无数据 → current_stage = plan_confirm
-  → 重新展示方案，收集用户确认
+
+- **flow-managed skill**：`_is_flow_managed` 返回 True，跳过全量追加，由 `before_model_flow_eval` 按当前阶段动态注入
+- **普通 skill**：全量追加所有 reference 文件
+
+### 5.3 Dynamic 注入路径
+
+`FlowCallbacks._build_stage_reference_block()` 在 before_model hook 中统一注入：
+
+1. 从 `evaluator.stages` 中找到当前阶段的 `StageDefinition.reference_file`
+2. 通过 `skill_loader.get_skill()` 定位 SKILL 目录的 `path`
+3. 读取 `path/references/<reference_file>`（复用 `_read_reference_file` 的 lru_cache）
+4. 注入到 system message：`### 当前阶段参考: {stage_id}\n\n{content}`
+
+---
+
+## 6. LLM 可调用工具
+
+### 6.1 CollectUserFieldsTool
+
+向当前阶段提交 `source="user"` 的字段。框架自动推断当前阶段（无需 stage_id），并自动提取 `source="tool"` 字段：
+
+```python
+class CollectUserFieldsTool(AgentTool):
+    name = "collect_user_fields"
+    description = "向当前流程阶段提交用户提供的信息。"
+    # 参数: fields (object, required) — source="user" 的字段键值对
 ```
+
+### 6.2 RollbackFlowStageTool
+
+回退到指定 checkpoint 阶段，清除目标及后续所有阶段数据：
 
 ```python
 class RollbackFlowStageTool(AgentTool):
-    """将流程回退到指定 checkpoint 阶段，清除目标及后续所有阶段的已完成数据。"""
     name = "rollback_flow_stage"
-
-    async def execute(self, tool_call, context=None):
-        target_stage_id = tool_call.arguments["stage_id"]
-        flow_ctx = (context or {}).get("_flow_context") or {}
-        evaluator = FlowEvaluatorRegistry.get(flow_ctx.get("skill_name", ""))
-
-        # 校验：必须是 checkpoint 且已在 checkpoints 历史中
-        target_stage = next(s for s in evaluator.stages if s.id == target_stage_id)
-        if not target_stage.checkpoint:
-            return error("只能回退到 checkpoint 阶段")
-        recorded = flow_ctx.get("checkpoints") or []
-        if not any(c["stage_id"] == target_stage_id for c in recorded):
-            return error("目标阶段尚未完成，无需回退")
-
-        # 清除目标及后续阶段
-        target_idx = [s.id for s in evaluator.stages].index(target_stage_id)
-        stages_to_clear = evaluator.stages[target_idx:]
-        state_delta = {}
-        for stage in stages_to_clear:
-            state_delta[f"_flow_context.stage_{stage.id}"] = {}
-            state_delta[f"_flow_context.stage_{stage.id}_delta"] = {}
-
-        # 更新 checkpoints 历史
-        cleared_ids = {s.id for s in stages_to_clear}
-        state_delta["_flow_context.checkpoints"] = [
-            c for c in recorded if c["stage_id"] not in cleared_ids
-        ]
-
-        return AgentToolResult(
-            content={
-                "status": "rolled_back",
-                "target_stage": {"id": target_stage_id, "name": target_stage.name},
-                "cleared_stages": [s.id for s in stages_to_clear],
-                "message": f"已回退到【{target_stage.name}】阶段，请再次调用 {evaluator.name} 重新执行。",
-            },
-            metadata={"state_delta": state_delta},
-        )
+    # 参数: stage_id (string, required) — 必须从 available_checkpoints 中取值
 ```
 
----
+### 6.3 ResumeTaskTool
 
-### 2.3 Reference 框架级透明注入
-
-Reference 的加载对 SKILL 完全透明——SKILL.md 不需要显式提及 reference 文件，框架根据加载模式自动处理。
-
-#### FULL 模式（全量注入）
-
-**注入点**：`SkillLoader._load_skill_file()` 加载 SKILL.md 时，自动扫描 `references/` 子目录，将所有 `.md` 文件内容追加到 `SkillEntry.content`。
-
-**适用场景**：reference 文件较少或内容较短的 SKILL。
-
-#### Dynamic 模式（状态驱动按需注入）
-
-**注入点**：`AgentRunner._build_system_prompt()` 读取 `session.state["_flow_stage"]`，仅注入当前阶段对应的 reference。
+恢复或废弃中断流程：
 
 ```python
-# AgentRunner._build_system_prompt() 中
-current_stage_id = state.get("_flow_stage")
-if current_stage_id and current_stage_id != "__completed__" and skills:
-    skills = self._enrich_skills_with_stage_reference(skills, current_stage_id)
+class ResumeTaskTool(AgentTool):
+    name = "resume_task"
+    # 参数: flow_id (string, required), action (enum["resume", "discard"], default="resume")
 ```
-
-`_enrich_skills_with_stage_reference()` 通过 `FlowEvaluatorRegistry.get(skill.id)` 反查 evaluator，使用 `StageDefinition.reference_file` 字段定位文件（与 `stage.id` 解耦），避免文件名不一致导致静默失败。
-
-**适用场景**：多阶段流程，每个阶段的 reference 内容较大。
-
-#### 模式选择（自动判断，无需配置）
-
-| 条件 | 使用模式 |
-|------|---------|
-| SKILL 无 `references/` 目录 | 无注入 |
-| SKILL 有 `references/`，无 `_flow_stage` | FULL |
-| SKILL 有 `references/` + `_flow_stage` 已设置 | Dynamic |
 
 ---
 
-### 2.4 上下文管理与 `state_delta`
+## 7. 上下文数据结构
 
-**`_flow_context` 内部结构**：
+### 7.1 `_flow_context` 运行时格式
 
 ```python
 session.state["_flow_context"] = {
-    "flow_id": "uuid-xxx",
+    "flow_id": "260420-a1b2",
     "skill_name": "withdraw_money_flow",
 
-    # 各阶段数据（commit_flow_stage 写入）
+    # 各阶段数据
     "stage_identity_verify": {"user_id": "U001", "id_card_verified": True, "policy_ids": [...]},
     "stage_identity_verify_delta": {"_customer_info_result": {...}, "_policy_query_result": {...}},
 
@@ -474,17 +357,16 @@ session.state["_flow_context"] = {
     "stage_options_query_delta": {"_rule_engine_result": {...}},
 
     "stage_plan_confirm": {"confirmed": True, "selected_option": {...}, "amount": 2000.0},
-    "stage_plan_confirm_delta": {"_plan_allocations": [...]},  # delta_state_keys 捕获
+    "stage_plan_confirm_delta": {"_plan_allocations": [...]},
 
-    # checkpoint 历史（commit_flow_stage 在 checkpoint 阶段时维护）
+    # checkpoint 历史
     "checkpoints": [
-        {"stage_id": "identity_verify", "name": "身份核验", "description": "验证客户身份和保单信息"},
-        {"stage_id": "plan_confirm",    "name": "方案确认", "description": "向用户展示方案并等待确认"},
+        {"stage_id": "plan_confirm", "name": "方案确认", "description": "..."},
     ],
 }
 ```
 
-**点路径 state_delta 合并**（`AgentRunner._apply_state_delta()`）：
+### 7.2 state_delta 点路径合并
 
 ```python
 # ✅ 正确：点路径格式，不整体替换父对象
@@ -494,53 +376,30 @@ metadata={"state_delta": {"_flow_context.stage_identity_verify": {...}}}
 metadata={"state_delta": {"_flow_context": {"stage_identity_verify": {...}}}}
 ```
 
----
-
-## 3. 持久化与跨会话恢复机制
-
-### 3.1 任务注册表 (Task Registry)
-
-* **文件路径**：`{sessions_dir}/{user_id}/active_tasks.json`
-* `TaskRegistry.upsert()` 在 `current_stage="__completed__"` 时自动删除该记录
-
-每个 stage 快照包含三个子字段：
-
-| 字段 | 说明 |
-|------|------|
-| `status` | `"completed"` \| `"pending"` |
-| `data` | 经 Pydantic 校验的 schema 数据 |
-| `delta` | `source="tool"` 字段 + `delta_state_keys` 的 state_key 原始值，恢复后还原到 `session.state` 顶层 |
+### 7.3 active_tasks.json 持久化格式
 
 ```json
 {
   "active_tasks": [
     {
-      "flow_id": "uuid-xxx",
+      "flow_id": "260420-a1b2",
       "skill_name": "withdraw_money_flow",
+      "task_name": "资金领取（2000元）任务",
       "current_stage": "execute",
       "last_session_id": "session_xxx",
       "updated_at": 1744444900000,
       "resume_ttl_hours": 72,
       "flow_context_snapshot": {
+        "flow_id": "260420-a1b2",
+        "current_stage": "execute",
         "stages": {
           "identity_verify": {
             "status": "completed",
-            "data": {"user_id": "U001", "id_card_verified": true, "policy_ids": ["POL001"]},
-            "delta": {
-              "_customer_info_result": {...},
-              "_policy_query_result": {...}
-            }
+            "data": {"user_id": "U001", ...},
+            "delta": {"_customer_info_result": {...}, ...}
           },
-          "options_query": {
-            "status": "completed",
-            "data": {"available_options": [...], ...},
-            "delta": {"_rule_engine_result": {...}}
-          },
-          "plan_confirm": {
-            "status": "completed",
-            "data": {"confirmed": true, "selected_option": {...}, "amount": 2000.0},
-            "delta": {"_plan_allocations": [...]}  // delta_state_keys 捕获
-          },
+          "options_query": {"status": "completed", "data": {...}, "delta": {...}},
+          "plan_confirm": {"status": "completed", "data": {...}, "delta": {...}},
           "execute": {"status": "pending", "data": {}, "delta": {}}
         }
       }
@@ -551,297 +410,208 @@ metadata={"state_delta": {"_flow_context": {"stage_identity_verify": {...}}}}
 
 ---
 
-### 3.2 持久化 Hook：`persist_flow_context` (after_agent)
+## 8. Pending Task 检测
 
-**Checkpoint 检查机制**：仅在最后一个已完成阶段标记了 `checkpoint=True` 时写盘。流程全部完成时（`__completed__`）始终写盘，触发 TaskRegistry 自动删除记录。
+### 8.1 检测机制
 
-```python
-async def persist_flow_context(self, ctx: CallbackContext, *, response: AgentMessage):
-    flow_ctx = session.state.get("_flow_context")
-    restorable = evaluator.get_restorable_state(flow_ctx)
-    current_stage_id = restorable["current_stage"]
+每轮 `before_model_flow_eval` 直检 `TaskRegistry.list_active()`：
 
-    # 非 __completed__ 时检查 checkpoint
-    if current_stage_id != "__completed__":
-        completed_ids = [
-            s.id for s in evaluator.stages
-            if restorable["stages"].get(s.id, {}).get("status") == "completed"
-        ]
-        if not completed_ids:
-            return None
-        last_completed = next(s for s in evaluator.stages if s.id == completed_ids[-1])
-        if not last_completed.checkpoint:
-            return None  # 非 checkpoint 阶段，跳过写盘
+- 用户做决定前：JSON 提示持续可见
+- 用户选择 discard：`resume_task` 删除记录 + 清空 `_flow_context`
+- 用户选择 resume：`resume_task` 还原 `_flow_context`
+- 下一轮自然不再触发
 
-    registry.upsert(user_id, flow_id, ..., current_stage=current_stage_id)
-```
+### 8.2 提示词格式
 
-**取款流写盘时机**：
+以 JSON 数组形式注入 system message：
 
-| 完成阶段 | checkpoint | 是否写盘 |
-|---------|-----------|---------|
-| identity_verify | ✓ | **写盘** |
-| options_query | ✗ | 跳过（可重新查询）|
-| plan_confirm | ✓ | **写盘** |
-| execute → __completed__ | N/A | **写盘（清理记录）** |
-
----
-
-### 3.3 恢复路径
-
-#### Step 1: Evaluator 侧检测（InEvaluator Pending Detection）
-
-替代原先的 `before_agent` hook。当用户问题触发相关 SKILL、LLM 调用 `flow_evaluator` 时，evaluator 首次执行检查 `TaskRegistry`，返回待恢复任务信息。
-
-```
-优点：
-  - 只在用户问题实际相关时触发（用户问天气 → LLM 不调用 flow_evaluator → 零拦截）
-  - 同一 session 内只检测一次（_pending_checked_{skill} 标记）
-  - 检测结果以工具结果形式融入 ReAct 循环，无需系统提示污染
-```
-
-#### Step 2: `resume_task` 工具
-
-支持 `action="resume"` 和 `action="discard"` 两种操作。
-
-```python
-class ResumeTaskTool(AgentTool):
-    def _handle_resume(self, tool_call, task):
-        """还原 _flow_context + delta + checkpoints 到 session.state。"""
-        flow_ctx = self._snapshot_to_flow_context(task)
-        # _snapshot_to_flow_context 内部重建 checkpoints 列表（从 checkpoint 阶段逆推）
-        tool_state = self._extract_delta_state(task)
-        state_delta = {"_flow_context": flow_ctx}
-        state_delta.update(tool_state)  # 还原 _rule_engine_result、_plan_allocations 等
-
-    def _handle_discard(self, ...):
-        registry.remove(user_id, flow_id)
-        # ★ 清空 _flow_context，防止 persist_flow_context 重新写入已废弃任务
-        return AgentToolResult(..., metadata={"state_delta": {"_flow_context": {}}})
-
-    def _snapshot_to_flow_context(self, task) -> dict:
-        """snapshot → _flow_context 运行时格式，同时重建 checkpoints 列表。"""
-        flow_ctx = {"flow_id": ..., "skill_name": ...}
-        for stage_id, stage_info in snapshot["stages"].items():
-            if stage_info["status"] == "completed":
-                flow_ctx[f"stage_{stage_id}"] = stage_info["data"]
-            if stage_info.get("delta"):
-                flow_ctx[f"stage_{stage_id}_delta"] = stage_info["delta"]
-        # 重建 checkpoints（从 evaluator.stages 定义中过滤已完成的 checkpoint 阶段）
-        evaluator = FlowEvaluatorRegistry.get(task["skill_name"])
-        flow_ctx["checkpoints"] = [
-            {"stage_id": s.id, "name": s.name, "description": s.description}
-            for s in evaluator.stages
-            if s.checkpoint and snapshot["stages"].get(s.id, {}).get("status") == "completed"
-        ]
-        return flow_ctx
-```
-
-#### Step 3: 继续执行
-
-恢复后 Agent 调用 `flow_evaluator`，读取已恢复的 `_flow_context`，校验前序阶段数据完整后返回当前阶段并继续。`_plan_allocations` 等下游工具依赖的 state key 已通过 `delta` 还原，`submit_withdrawal` 等工具可正常运行。
-
----
-
-## 4. 整体架构图
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ SKILL.md (withdraw_money_flow)                                  │
-│  required_tools: [withdraw_money_flow_evaluator, commit_flow_  │
-│                   stage, rollback_flow_stage, ..., resume_task] │
-│  正文: 流程概述 + 流程回退规则（通用，不依赖阶段名）            │
-└──────────────┬──────────────────────────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────────────────────────┐
-│ AgentRunner（最小改动：+Dynamic注入 / +点路径合并）              │
-│                                                                 │
-│  ReAct Loop:                                                    │
-│   ┌─────────────────────────────────────────────────────────┐  │
-│   │ 1. LLM 调用 flow_evaluator                              │  │
-│   │    → 首次调用：检测待恢复任务（InEvaluator Detection）  │  │
-│   │    → 返回: current_stage + available_checkpoints        │  │
-│   │    → state_delta 更新 _flow_stage                       │  │
-│   │                                                         │  │
-│   │ 2. 框架自动注入当前阶段的 reference 内容                │  │
-│   │                                                         │  │
-│   │ 3. LLM 按 SOP 调用业务工具                             │  │
-│   │                                                         │  │
-│   │ 4. LLM 调用 commit_flow_stage                          │  │
-│   │    → 提取 tool 来源字段 + 校验 + 写入 stage data       │  │
-│   │    → checkpoint 阶段 → 追加 checkpoints 记录           │  │
-│   │    → delta_state_keys → 写入 stage delta               │  │
-│   │                                                         │  │
-│   │ 5a. LLM 调用 flow_evaluator 确认推进                   │  │
-│   │    → 下一阶段重复 2-4                                   │  │
-│   │                                                         │  │
-│   │ 5b. 用户要求回退 → LLM 查 available_checkpoints        │  │
-│   │    → 用户确认 → rollback_flow_stage(stage_id)          │  │
-│   │    → 清除目标及后续阶段数据                            │  │
-│   │    → 重新调用 flow_evaluator 从目标阶段执行             │  │
-│   └─────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  Hooks（不改动接口）：                                           │
-│   after_agent → persist_flow_context（仅 checkpoint 阶段写盘） │
-└──────────────┬──────────────────────────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────────────────────────┐
-│ 持久化层                                                        │
-│  {sessions_dir}/{user_id}/active_tasks.json                     │
-│   → stages[].data（schema 数据）                                │
-│   → stages[].delta（工具原始输出快照）                          │
-│   → current_stage, updated_at, resume_ttl_hours                 │
-└─────────────────────────────────────────────────────────────────┘
+```json
+[
+  {
+    "task_name": "资金领取（2000元）任务",
+    "flow_id": "260420-a1b2",
+    "current_stage": "execute",
+    "last_runtime": "2026-04-20 14:30:00"
+  }
+]
 ```
 
 ---
 
-## 5. 执行流程详解
+## 9. 执行流程详解
 
-### 5.1 新建流程
+### 9.1 新建流程（取款示例）
 
 ```
 1. 用户说"我要取钱"
 2. SkillMatcher 匹配到 withdraw_money_flow SKILL
-3. LLM 调用 withdraw_money_flow_evaluator
-   → _flow_context 为空，_task_registry 检测无待恢复任务
-   → 初始化: {flow_id: uuid, skill_name: ...}
-   → state_delta 设置 _flow_stage = "identity_verify"
-4. 下一轮 system prompt 自动包含 references/identity_verify.md
-5. LLM 按 SOP 调用 customer_info, policy_query
-6. LLM 调用 commit_flow_stage(stage_id="identity_verify", user_data={})
-   → 自动提取 tool 字段 → Pydantic 校验 → 写入 stage_identity_verify
-   → identity_verify.checkpoint=True → 追加 checkpoints 记录
-7. LLM 调用 flow_evaluator
-   → Pydantic 校验 IdentityVerifyOutput ✓ → current_stage = options_query
-8. after_agent: persist_flow_context
-   → last_completed=identity_verify（checkpoint=True）→ 写盘
-9. 重复直到 plan_confirm 阶段
-10. commit_flow_stage(plan_confirm) → checkpoints 追加 plan_confirm 记录
-11. after_agent: 写盘（plan_confirm checkpoint=True）
-12. 进入 execute 阶段 → submit_withdrawal → commit_flow_stage(execute)
-13. flow_evaluator 返回 flow_status="completed"
-14. after_agent: persist（__completed__）→ TaskRegistry 自动删除记录
+3. before_model_flow_eval:
+   → _flow_context 为空
+   → TaskRegistry 检测无待恢复任务
+   → 初始化: {flow_id: "260420-a1b2", skill_name: "withdraw_money_flow"}
+   → evaluate() → current_stage = identity_verify
+   → 注入流程状态 + identity_verify.md reference
+4. LLM 按 SOP 调用 customer_info, policy_query
+5. after_tool_auto_commit:
+   → identity_verify 全为 tool 字段 → 自动提交
+   → state_delta 写入 _flow_context.stage_identity_verify
+6. 下一轮 before_model_flow_eval:
+   → evaluate() → current_stage = options_query
+   → 注入 options_query.md reference
+7. LLM 调用 rule_engine
+8. after_tool_auto_commit: options_query 自动提交
+9. 下一轮 before_model_flow_eval:
+   → current_stage = plan_confirm
+   → 提示词列出 user_required_fields: confirmed, selected_option, amount
+10. LLM 向用户确认方案后调用 collect_user_fields(fields={confirmed: true, ...})
+11. 下一轮 before_model_flow_eval: current_stage = double_confirm
+12. LLM 向用户二次确认后调用 collect_user_fields(fields={double_confirm: true})
+13. 下一轮 before_model_flow_eval: current_stage = execute
+14. LLM 调用 submit_withdrawal
+15. after_tool_auto_commit: execute 自动提交
+16. 下一轮 before_model_flow_eval: is_done=True → __completed__
+17. persist_flow_context: __completed__ → TaskRegistry 自动删除记录
 ```
 
-### 5.2 跨会话恢复
+### 9.2 跨会话恢复
 
 ```
 1. 用户新会话说"我要取钱"
-2. LLM 调用 withdraw_money_flow_evaluator
-   → _flow_context 为空，_task_registry 检测到未完成任务（execute 阶段）
-   → 返回 pending_task_detected，写入 _pending_checked_ 标记
+2. before_model_flow_eval:
+   → _flow_context 为空
+   → TaskRegistry 检测到未完成任务（execute 阶段）
+   → 注入 pending task JSON 列表
 3. LLM 向用户展示未完成任务，等待确认
-4. 用户选择继续 → LLM 调用 resume_task(flow_id=..., action="resume")
+4. 用户选择继续 → LLM 调用 resume_task(flow_id="260420-a1b2", action="resume")
    → 还原 _flow_context（含 checkpoints 列表）
    → 还原 _plan_allocations 等 delta 到 session.state 顶层
-5. LLM 调用 flow_evaluator
-   → 读取恢复的 _flow_context，前序阶段 Pydantic 校验通过
-   → current_stage = execute
-   → available_checkpoints = [identity_verify, plan_confirm]
+5. 下一轮 before_model_flow_eval:
+   → evaluate() → current_stage = execute
+   → 注入 execute.md reference
 6. LLM 按 execute 阶段 SOP 调用 submit_withdrawal
-   → _plan_allocations 已从 delta 还原，submit_withdrawal 正常读取
 ```
 
-### 5.3 流程回退（用户改方案）
+### 9.3 流程回退
 
 ```
 1. 用户在 execute 阶段说"我想换一个方案"
-2. LLM 调用 flow_evaluator
-   → 返回 available_checkpoints: [identity_verify, plan_confirm]
-3. LLM 判断意图匹配 plan_confirm，告知用户将回退到「方案确认」阶段
+2. before_model_flow_eval:
+   → 提示词中显示 available_checkpoints: [plan_confirm]
+3. LLM 判断意图匹配 plan_confirm → 告知用户将回退
 4. 用户确认 → LLM 调用 rollback_flow_stage(stage_id="plan_confirm")
    → 清除 stage_plan_confirm、stage_plan_confirm_delta
+   → 清除 stage_double_confirm、stage_double_confirm_delta
    → 清除 stage_execute、stage_execute_delta
    → _flow_context.checkpoints 移除 plan_confirm 记录
-5. LLM 调用 flow_evaluator
-   → plan_confirm 无数据 → current_stage = plan_confirm
-   → available_checkpoints = [identity_verify]
-6. 重新展示方案（render_a2ui）→ 用户选新方案
-7. commit_flow_stage(plan_confirm) → 写入新方案数据
-   → 追加新的 checkpoints 记录
-8. after_agent: persist（plan_confirm checkpoint=True）→ 新方案写盘
-9. 进入 execute 阶段 → submit_withdrawal 使用新 _plan_allocations
+5. 下一轮 before_model_flow_eval:
+   → current_stage = plan_confirm
+   → 重新展示方案，收集用户确认
 ```
 
 ---
 
-## 6. 与传统 DAG 编排方案的对比
+## 10. 日志体系
 
-| 维度 | 传统 DAG 编排（FlowEngine） | Agentic Native（本方案） |
-|------|---------------------------|-------------------------|
-| 框架改动 | 新增 FlowEngine/Store/Router 三模块 | 零改动，仅增加工具和 Hook |
-| 步骤执行 | 框架强制顺序执行 | FlowEvaluator 确定性评估 + Agent 遵循 |
-| 工具隔离 | ephemeral session + tools 白名单 | reference SOP 中指定（知识引导） |
-| 数据校验 | 无（condition 表达式仅做路由） | Pydantic schema 严格校验 |
-| 回退支持 | 需修改 DAG 拓扑 | rollback_flow_stage 通用工具 |
-| 持久化粒度 | 每步写盘 | checkpoint 阶段写盘（可配置） |
-| 灵活性 | 固定 DAG，变更需修改 frontmatter | Agent 可灵活应对异常和用户意图变更 |
-| 可维护性 | 框架代码维护成本高 | 每个业务独立 Evaluator，互不影响 |
+框架在关键节点输出结构化日志，便于追踪流程状态：
+
+| 日志标签 | 级别 | 输出位置 | 示例 |
+|---------|------|---------|------|
+| `[FlowEval]` | INFO | `evaluate()` | `skill=withdraw_money_flow flow_id=260420-a → stage=plan_confirm (方案确认) progress=2/5 completed=['identity_verify', 'options_query']` |
+| `[AutoCommit]` | INFO | `auto_commit_tool_stages()` | `skill=withdraw_money_flow stage=identity_verify (身份核验) fields=['user_id', 'id_card_verified', 'policy_ids'] checkpoint=False` |
+| `[AutoCommit]` | DEBUG | `auto_commit_tool_stages()` | `skill=withdraw_money_flow stopped: stage 'plan_confirm' has user-source fields` |
 
 ---
 
-## 7. 新增文件清单
+## 11. task_name 模板渲染
+
+`BaseFlowEvaluator.task_name_template` 支持从已完成阶段数据动态渲染任务名：
+
+```python
+# 业务层覆写
+@property
+def task_name_template(self) -> str:
+    return "资金领取（{amount:.0f}元）任务"
+
+# 渲染规则
+# - 命名空间：已完成阶段 data 展平 < flow_ctx 顶层键（后者胜出）
+# - 缺失变量渲染为 "{待定}"（_Missing.__format__ 处理任意 format_spec）
+# - 渲染失败时降级为 skill_name
+```
+
+**渲染时机**：每次 `persist_flow_context` 写盘时重新渲染，阶段推进后模板中的 `{待定}` 会被已提交的阶段数据替换。
+
+---
+
+## 12. 文件清单
 
 ```
 src/ark_agentic/
 ├── core/
 │   ├── flow/
-│   │   ├── base_evaluator.py          # BaseFlowEvaluator + StageDefinition(checkpoint/delta_state_keys)
-│   │   │                              # + FlowEvaluatorRegistry + InEvaluator Pending Detection
-│   │   ├── task_registry.py           # TaskRegistry（active_tasks.json 管理）
-│   │   ├── commit_flow_stage.py       # CommitFlowStageTool（含 checkpoint 记录 + delta_state_keys）
-│   │   ├── rollback_flow_stage.py     # RollbackFlowStageTool（回退到 checkpoint 阶段）
-│   │   └── callbacks.py               # FlowCallbacks: persist_flow_context（checkpoint 检查）
-│   └── tools/
-│       └── resume_task.py             # ResumeTaskTool（discard 清空 _flow_context / resume 重建 checkpoints）
+│   │   ├── __init__.py              # 模块导出
+│   │   ├── base_evaluator.py        # BaseFlowEvaluator(ABC) + FieldSource + StageDefinition
+│   │   │                            # + FlowEvalResult + FlowEvaluatorRegistry
+│   │   │                            # + task_name_template / render_task_name
+│   │   ├── callbacks.py             # FlowCallbacks: 3 个 Hook
+│   │   │                            #   before_model_flow_eval / after_tool_auto_commit
+│   │   │                            #   / persist_flow_context
+│   │   │                            #   + _build_stage_reference_block (Dynamic reference 注入)
+│   │   ├── collect_user_fields.py   # CollectUserFieldsTool
+│   │   ├── rollback_flow_stage.py   # RollbackFlowStageTool（回退到 checkpoint 阶段）
+│   │   └── task_registry.py         # TaskRegistry（active_tasks.json + generate_flow_id）
+│   ├── tools/
+│   │   └── resume_task.py           # ResumeTaskTool（resume/discard）
+│   ├── skills/
+│   │   └── loader.py                # SkillLoader._is_flow_managed() 判断加载模式
+│   └── runner.py                    # _read_reference_file(lru_cache)
 │
 └── agents/insurance/
+    ├── agent.py                     # FlowEvaluatorRegistry.register(namespace="insurance")
+    │                                # FlowCallbacks 注入 RunnerCallbacks
     ├── tools/
-    │   └── flow_evaluator.py          # WithdrawalFlowEvaluator（4 阶段 + checkpoint + delta_state_keys）
+    │   ├── flow_evaluator.py        # WithdrawalFlowEvaluator（5 阶段 + task_name_template）
+    │   └── __init__.py              # create_insurance_tools() 不含 evaluator
     └── skills/withdraw_money_flow/
-        ├── SKILL.md                   # 含流程回退通用规则
-        └── references/
+        ├── SKILL.md                 # required_tools 不含 evaluator/commit_flow_stage
+        └── references/              # Dynamic 模式，按阶段注入
             ├── identity_verify.md
             ├── options_query.md
             ├── plan_confirm.md
+            ├── double_confirm.md
             └── execute.md
 ```
 
 ---
 
-## 8. 关键设计决策记录
+## 13. 关键设计决策
 
-### D1: Pending Task Detection 移入 Evaluator
+### D1: Evaluator 由 Hook 自动驱动
 
-**原设计**：`inject_flow_hint` 作为 `before_agent` hook，每条用户消息都触发磁盘 I/O 并注入系统提示。
+Evaluator 不是 AgentTool，由 `FlowCallbacks` 的三个 Hook 自动驱动。理由：
+- 避免依赖 LLM 主动调用评估器，确保流程状态始终同步
+- 自动提交纯 tool 字段阶段减少 LLM 轮次消耗
+- `collect_user_fields` 无需 stage_id 参数，降低 LLM 出错概率
 
-**现设计**：检测逻辑移入 `BaseFlowEvaluator.execute()`，仅在相关 SKILL 被实际调用时触发。
+### D2: Pending Task 检测每轮直检 Registry
 
-**理由**：前置拦截对所有用户输入生效，无关问题被系统提示污染，LLM 偏离用户意图。移入 Evaluator 后，无关问题零开销，检测结果以工具结果形式融入 ReAct 循环。
+每轮直接读 `TaskRegistry.list_active()`，无短路标记。理由：用户可能在后续轮才决定 resume/discard，每轮直检确保 JSON 提示持续可见，做完决定后下一轮自然不再触发。
 
-### D2: Checkpoint 写盘策略
+### D3: Reference 单一注入路径
 
-**原设计**：每个 `after_agent` 均写盘。
+flow-managed skill 的 reference 统一由 `FlowCallbacks._build_stage_reference_block()` 在 before_model hook 中按当前阶段注入。`SkillLoader._is_flow_managed()` 判断有 evaluator 的 SKILL 跳过全量追加，避免重复加载。
 
-**现设计**：只有最后完成的阶段标记了 `checkpoint=True` 时才写盘。
+### D4: Checkpoint 写盘策略
 
-**理由**：减少不必要的磁盘 I/O；非 checkpoint 阶段（如 `options_query`）可重新执行，无需持久化。
-
-### D3: delta_state_keys 捕获机制
-
-**问题**：`plan_confirm` 阶段的 `field_sources` 全为 `source="user"`，`_plan_allocations`（由 `render_a2ui` 写入）未被捕获到 delta，resume 后 `submit_withdrawal` 报"可用渠道: 无"。
-
-**解决**：`StageDefinition.delta_state_keys` 允许声明额外需要快照的 state key，不参与 schema 校验，仅用于 resume 还原。
-
-### D4: RollbackFlowStageTool 通用设计
-
-**原做法**：在 `execute.md` 中硬编码"改方案时需重新 commit_flow_stage"的操作序列。
-
-**现设计**：通用 `rollback_flow_stage` 工具 + SKILL.md 级别的通用回退规则，不依赖任何具体阶段名称，适用于所有业务流程。
+仅在最后完成的阶段标记了 `checkpoint=True` 时写盘。`__completed__` 时始终写盘触发清理。非 checkpoint 阶段不写盘（如 `options_query` 可重新执行）。
 
 ### D5: discard 时清空 _flow_context
 
-**问题**：若用户在 session 中已 resume 过任务（`_flow_context` 已写入 state），再选择 discard，`persist_flow_context` after_agent hook 会把刚删除的任务重新写回 active_tasks.json。
+`_handle_discard` 返回 `state_delta: {"_flow_context": {}}`，防止 `persist_flow_context` 在本轮 after_agent 阶段把刚删除的任务记录重新写回。
 
-**修复**：`_handle_discard` 返回 `state_delta: {"_flow_context": {}}`，清空 session state 中的 `_flow_context`。
+### D6: task_name_template 动态渲染
+
+每次 `persist_flow_context` 写盘时重新渲染，阶段推进后模板中原本的 `{待定}` 会被已提交的阶段数据替换为具体值（如金额）。`_Missing.__format__` 处理任意 format_spec（如 `{amount:.0f}`），避免类型差异导致 ValueError。
+
+### D7: 短 flow_id 生成
+
+`TaskRegistry.generate_flow_id()` 生成 `YYMMDD-HHHH` 格式（日期前缀 + 4位hex），per-user 查重，碰撞时重试最多 8 次后扩至 8 位 hex。比纯 UUID 更利于日志排查和人工检索。

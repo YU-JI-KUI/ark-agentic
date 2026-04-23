@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -56,16 +57,44 @@ def _append_to_system_message(messages: list[dict[str, Any]], content: str) -> N
 # ── 格式化辅助 ────────────────────────────────────────────────────────────────
 
 
-def _format_pending_task(task: dict[str, Any]) -> str:
-    """格式化 pending task 注入内容（提示词层面）。"""
+def _format_ms_ts(ms: int | None) -> str:
+    """把 epoch 毫秒格式化为 'YYYY-MM-DD HH:MM:SS'（本地时区）。ms 缺失/无效返回空串。"""
+    if not ms:
+        return ""
+    try:
+        return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, OSError):
+        return ""
+
+
+def _format_pending_tasks_json(tasks: list[dict[str, Any]]) -> str:
+    """格式化 pending task 列表为 JSON 数组形式的提示词。
+
+    输出结构：[{task_name, flow_id, current_stage, last_runtime}]。
+    - task_name 缺失时回退到 skill_name，兼容旧 active_tasks 记录。
+    - last_runtime 由 updated_at（epoch ms）格式化为可读字符串。
+    - 即便只有 1 条任务也用数组，降低 LLM 解析歧义。
+    """
+    payload = [
+        {
+            "task_name": t.get("task_name") or t.get("skill_name", ""),
+            "flow_id": t.get("flow_id", ""),
+            "current_stage": t.get("current_stage", ""),
+            "last_runtime": _format_ms_ts(t.get("updated_at")),
+        }
+        for t in tasks
+    ]
+    tasks_json = json.dumps(payload, ensure_ascii=False, indent=2)
     return (
-        f"## ⚠️ 检测到未完成的流程任务\n\n"
-        f"用户有未完成的「{task['skill_name']}」任务（当前阶段：{task['current_stage']}）。\n"
-        f"请先向用户说明情况，等待用户明确答复：\n"
-        f"- 继续任务 → 调用 resume_task(flow_id=\"{task['flow_id']}\", action=\"resume\")\n"
-        f"- 放弃任务 → 调用 resume_task(flow_id=\"{task['flow_id']}\", action=\"discard\")，"
-        f"然后重新发起流程\n\n"
-        f"⚠️ 严禁未得到用户明确答复前直接调用 resume_task。"
+        "## 检测到未完成的流程任务\n\n"
+        "以下任务仍未完成（JSON 数组，每项对应一个可恢复的流程）：\n\n"
+        "```json\n"
+        f"{tasks_json}\n"
+        "```\n\n"
+        "请先向用户列出这些任务并等待明确答复后，再调用工具：\n"
+        "- 继续某项 → `resume_task(flow_id=\"<数组中对应条目的 flow_id>\", action=\"resume\")`\n"
+        "- 放弃某项 → `resume_task(flow_id=\"<数组中对应条目的 flow_id>\", action=\"discard\")`\n\n"
+        "严禁未得到用户明确答复前调用 resume_task。"
     )
 
 
@@ -121,10 +150,18 @@ class FlowCallbacks:
         )
     """
 
-    def __init__(self, sessions_dir: Path, ttl_hours: int = 72) -> None:
+    def __init__(
+        self,
+        sessions_dir: Path,
+        ttl_hours: int = 72,
+        skill_loader: Any | None = None,
+    ) -> None:
         self._sessions_dir = sessions_dir
         self._ttl_hours = ttl_hours
         self._task_registry = TaskRegistry(sessions_dir)
+        # skill_loader 用于运行期按当前阶段定位 reference 文件（path/references/<file>）。
+        # 取代 runner._enrich_skills_with_stage_reference，统一注入路径并消除"加载两次"。
+        self._skill_loader = skill_loader
         # 向所有已注册 evaluator 注入 task_registry（若尚未注入）
         for ev in FlowEvaluatorRegistry.values():
             if ev._task_registry is None:
@@ -140,14 +177,14 @@ class FlowCallbacks:
         messages: list[dict[str, Any]],
         **_: Any,
     ) -> CallbackResult | None:
-        """before_model hook: 评估流程状态，将当前阶段信息注入到 system message。
+        """before_model hook: 评估流程状态，将当前阶段信息和阶段 reference 注入到 system message。
 
         流程：
         1. 确定活跃的 evaluator（通过 _flow_context.skill_name 或 _turn_matched_skills）
-        2. 检测 pending task（仅首次，无 flow_id 时触发）
-        3. 初始化 flow_id（若无活跃流程）
+        2. 检测 pending task（每轮都检测，直到 LLM 调 resume_task 处理）
+        3. 初始化 flow_id（若无活跃流程且无 pending）
         4. 调用 evaluate() 获取当前阶段
-        5. 将状态写入 session.state，将提示词注入 messages
+        5. 将状态写入 session.state，将状态提示和当前阶段 reference 注入 messages
         """
         state = ctx.session.state
 
@@ -158,6 +195,7 @@ class FlowCallbacks:
         # Registry 在注册时同时登记短名与 "{namespace}.{skill_name}" 别名，
         # 调用方无需关心前缀差异。
         evaluator: BaseFlowEvaluator | None = None
+        matched_full_id: str | None = None
         if flow_ctx.get("skill_name"):
             evaluator = FlowEvaluatorRegistry.get(flow_ctx["skill_name"])
 
@@ -167,15 +205,18 @@ class FlowCallbacks:
                 ev = FlowEvaluatorRegistry.get(sid)
                 if ev is not None:
                     evaluator = ev
+                    matched_full_id = sid
                     break
 
         if evaluator is None:
             return None
 
-        # ── Pending task 检测（首次，无 flow_id）────────────────────────────
-        _pending_flag = f"_pending_checked_{evaluator.skill_name}"
-        if not flow_ctx.get("flow_id") and not state.get(_pending_flag):
-            state[_pending_flag] = True  # 标记为已检测，避免重复
+        # ── Pending task 检测（每轮直检 registry，无短路 flag）──────────────
+        # 旧版用 _pending_checked_<skill> flag 在第一轮置 True 后跳过后续轮检测，
+        # 但若用户在后续轮才决定 resume/discard，提示词里就不再有 flow_id，LLM 无从下手。
+        # 改为每轮直接读 registry：用户做决定前 JSON 提示持续可见；做完决定后
+        # （discard 移除记录 / resume 写入 flow_ctx），下一轮自然不会再触发。
+        if not flow_ctx.get("flow_id"):
             user_id = str(state.get("user:id", ""))
             if user_id and evaluator._task_registry:
                 active = evaluator._task_registry.list_active(
@@ -183,13 +224,23 @@ class FlowCallbacks:
                 )
                 pending = [t for t in active if t.get("skill_name") == evaluator.skill_name]
                 if pending:
-                    logger.debug("Pending task detected for user %s: %s", user_id, pending[0])
-                    _append_to_system_message(messages, _format_pending_task(pending[0]))
+                    logger.debug(
+                        "Pending task(s) detected for user %s skill=%s count=%d",
+                        user_id, evaluator.skill_name, len(pending),
+                    )
+                    _append_to_system_message(messages, _format_pending_tasks_json(pending))
                     return None  # 等待 LLM 向用户呈现，不初始化新流程
 
-        # ── 初始化 flow_id（首次调用，无活跃流程）───────────────────────────
+        # ── 初始化 flow_id（首次调用，无活跃流程，且无 pending 任务）────────
         if not flow_ctx.get("flow_id"):
-            flow_ctx = {"flow_id": str(uuid.uuid4()), "skill_name": evaluator.skill_name}
+            user_id = str(state.get("user:id", ""))
+            # 短 flow_id 依赖 TaskRegistry 的 per-user 查重；无 user_id 时降级为纯时间前缀
+            new_flow_id = (
+                self._task_registry.generate_flow_id(user_id)
+                if user_id
+                else f"{datetime.now().strftime('%y%m%d')}-{uuid.uuid4().hex[:4]}"
+            )
+            flow_ctx = {"flow_id": new_flow_id, "skill_name": evaluator.skill_name}
             state["_flow_context"] = flow_ctx
             logger.debug(
                 "Flow initialized: flow_id=%s skill=%s",
@@ -207,14 +258,55 @@ class FlowCallbacks:
         # ── 注入提示词 ──────────────────────────────────────────────────────
         _append_to_system_message(messages, _format_flow_status(result, evaluator))
 
-        logger.debug(
-            "FlowEval [turn=%d] skill=%s stage=%s done=%s",
-            turn,
-            evaluator.skill_name,
-            result.current_stage.id if result.current_stage else "__completed__",
-            result.is_done,
-        )
+        # 注入当前阶段 reference：单一注入路径，避免 loader 全量 dump + runner 二次 enrich 的双重加载
+        if result.current_stage is not None:
+            ref_block = self._build_stage_reference_block(
+                evaluator, result.current_stage.id, matched_full_id
+            )
+            if ref_block:
+                _append_to_system_message(messages, ref_block)
+
+        # evaluate() 内部已输出 [FlowEval] 日志，此处不再重复
         return None
+
+    def _build_stage_reference_block(
+        self,
+        evaluator: BaseFlowEvaluator,
+        current_stage_id: str,
+        matched_full_id: str | None,
+    ) -> str | None:
+        """构造当前阶段的 reference 注入文本块（找不到则返回 None，自然降级）。"""
+        if current_stage_id == "__completed__" or self._skill_loader is None:
+            return None
+        stage_def = next(
+            (s for s in evaluator.stages if s.id == current_stage_id), None
+        )
+        if stage_def is None or not stage_def.reference_file:
+            return None
+
+        # 优先用本轮匹配的 full skill id 反查 path；缺失则按 evaluator.skill_name 兜底
+        skill_entry = None
+        if matched_full_id:
+            skill_entry = self._skill_loader.get_skill(matched_full_id)
+        if skill_entry is None:
+            for sk in self._skill_loader.list_skills():
+                if sk.id.endswith(f".{evaluator.skill_name}") or sk.id == evaluator.skill_name:
+                    skill_entry = sk
+                    break
+        if skill_entry is None:
+            return None
+
+        ref_path = Path(skill_entry.path) / "references" / stage_def.reference_file
+        if not ref_path.exists():
+            logger.warning("[FlowEval] reference file not found: %s", ref_path)
+            return None
+        try:
+            from ..runner import _read_reference_file  # 复用运行器侧的 lru_cache
+            ref_content = _read_reference_file(str(ref_path))
+        except Exception as e:
+            logger.warning("[FlowEval] failed to read reference %s: %s", ref_path, e)
+            return None
+        return f"### 当前阶段参考: {current_stage_id}\n\n{ref_content}"
 
     # ── after_tool ────────────────────────────────────────────────────────────
 
@@ -252,8 +344,8 @@ class FlowCallbacks:
             # 同步 _flow_context 整体（因为 flow_ctx 副本做了 in-place 修改）
             state["_flow_context"] = flow_ctx
             ctx.session.updated_at = datetime.now()
-            logger.debug(
-                "AutoCommit [turn=%d] skill=%s delta_keys=%s",
+            logger.info(
+                "[AutoCommit] turn=%d skill=%s delta_keys=%s",
                 turn, skill_name, list(state_delta),
             )
 
@@ -305,6 +397,10 @@ class FlowCallbacks:
                     )
                     return None
 
+            # 每次写盘都重渲染 task_name；阶段推进后，模板中原本的 {待定} 变量
+            # 会被已提交的 stage data 替换为具体值（如 amount）。
+            task_name = evaluator.render_task_name(flow_ctx)
+
             registry = TaskRegistry(base_dir=self._sessions_dir)
             registry.upsert(
                 user_id=str(user_id),
@@ -313,11 +409,12 @@ class FlowCallbacks:
                 current_stage=current_stage_id,
                 last_session_id=session.session_id,
                 flow_context_snapshot=restorable,
+                task_name=task_name,
                 resume_ttl_hours=self._ttl_hours,
             )
             logger.debug(
-                "Persisted flow '%s' stage='%s' for user %s",
-                flow_ctx["flow_id"], current_stage_id, user_id,
+                "Persisted flow '%s' stage='%s' task_name='%s' for user %s",
+                flow_ctx["flow_id"], current_stage_id, task_name, user_id,
             )
         except Exception:
             logger.warning("Failed to persist flow context", exc_info=True)

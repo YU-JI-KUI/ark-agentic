@@ -1109,10 +1109,8 @@ class AgentRunner:
         # 将本轮匹配的 skill id 写入 state，供 before_model hook 判断活跃流程
         state["_turn_matched_skills"] = {s.id for s in skills}
 
-        # Dynamic reference 注入: 有 _flow_stage 时按阶段按需追加 reference 内容
-        current_stage_id = state.get("_flow_stage")
-        if current_stage_id and current_stage_id != "__completed__" and skills:
-            skills = self._enrich_skills_with_stage_reference(skills, current_stage_id)
+        # Reference 注入：现已统一由 FlowCallbacks.before_model_flow_eval 按当前阶段注入，
+        # 这里不再做 enrichment，避免 loader 全量 dump + runner enrich 的双重加载。
 
         prompt_config = self.config.prompt_config
 
@@ -1155,53 +1153,6 @@ class AgentRunner:
             enable_memory=self._memory_manager is not None,
             flow_hint=flow_hint,
         )
-
-    @staticmethod
-    def _enrich_skills_with_stage_reference(
-        skills: list, current_stage_id: str
-    ) -> list:
-        """根据 _flow_stage，将当前阶段 reference 文件内容追加到对应 SkillEntry.content。
-
-        通过 FlowEvaluatorRegistry 反查 evaluator，使用 StageDefinition.reference_file
-        （而非直接拼接 stage.id），避免文件名与 stage.id 不一致导致静默失败。
-        """
-        from .flow.base_evaluator import FlowEvaluatorRegistry
-
-        enriched = []
-        for skill in skills:
-            # Registry 在注册时同时登记短名和 "{namespace}.{skill_name}" 别名，
-            # 直接用 skill.id（全名）反查即可。
-            evaluator = FlowEvaluatorRegistry.get(skill.id)
-
-            ref_filename: str | None = None
-            if evaluator:
-                stage_def = next(
-                    (s for s in evaluator.stages if s.id == current_stage_id), None
-                )
-                ref_filename = stage_def.reference_file if stage_def else None
-
-            if ref_filename:
-                ref_path = Path(skill.path) / "references" / ref_filename
-                if ref_path.exists():
-                    ref_content = _read_reference_file(str(ref_path))
-                    logger.info(f"skill {skill.id} loaded with reference: {ref_filename}")
-                    enriched.append(replace(
-                        skill,
-                        content=(
-                            skill.content
-                            + f"\n\n---\n### 当前阶段参考: {current_stage_id}\n\n"
-                            + ref_content
-                        ),
-                    ))
-                    continue
-                else:
-                    import warnings
-                    warnings.warn(
-                        f"[FlowEvaluator] reference file not found: {ref_path}",
-                        stacklevel=4,
-                    )
-            enriched.append(skill)
-        return enriched
 
     def _build_tools(self) -> list[dict[str, Any]]:
         """构建工具定义"""

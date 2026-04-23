@@ -198,6 +198,57 @@ class BaseFlowEvaluator(ABC):
         """子类必须定义阶段列表（有序）。"""
         ...
 
+    @property
+    def task_name_template(self) -> str:
+        """任务名模板（供 persist_flow_context 渲染进 active_tasks.json）。
+
+        可用变量来自已完成阶段 data（展平）+ flow_ctx 顶层键；
+        未就绪的变量渲染为字面量 "{待定}"。
+        默认实现退化为 skill_name，业务层按需覆写。
+        """
+        return self.skill_name
+
+    def render_task_name(self, flow_ctx: dict[str, Any]) -> str:
+        """按 task_name_template 渲染任务名。
+
+        命名空间优先级：完成阶段 data 展平 < flow_ctx 顶层键（同名时后者胜出）。
+        缺失变量返回字面量 "{待定}" 而非抛异常，避免模板错误打断流程持久化。
+        """
+        ns: dict[str, Any] = {}
+        for key, value in flow_ctx.items():
+            if (
+                key.startswith("stage_")
+                and not key.endswith("_delta")
+                and isinstance(value, dict)
+            ):
+                ns.update(value)
+        for key, value in flow_ctx.items():
+            if not key.startswith("stage_"):
+                ns[key] = value
+
+        # _Missing 需同时支持普通 {x} 和带格式规约的 {x:.0f} 两种占位形式。
+        # 对任意 format_spec 都返回字面量 "{待定}"，避免模板变量类型（float/int/str）
+        # 差异导致 format_map 抛 ValueError。
+        class _Missing:
+            def __format__(self, spec: str) -> str:
+                return "{待定}"
+
+            def __str__(self) -> str:
+                return "{待定}"
+
+        class _SafeDict(dict):
+            def __missing__(self, key: str) -> "_Missing":
+                return _Missing()
+
+        try:
+            return self.task_name_template.format_map(_SafeDict(ns))
+        except Exception:
+            logger.warning(
+                "render_task_name failed for skill=%s template=%r",
+                self.skill_name, self.task_name_template,
+            )
+            return self.skill_name
+
     @staticmethod
     def _extract_field(state_value: Any, fs: FieldSource) -> Any:
         """按 FieldSource 声明从 session.state 值中提取字段值。"""
@@ -227,6 +278,13 @@ class BaseFlowEvaluator(ABC):
 
         if is_done:
             state_delta["_flow_stage"] = "__completed__"
+            logger.info(
+                "[FlowEval] skill=%s flow_id=%s → completed (%d/%d stages done)",
+                self.skill_name,
+                flow_ctx.get("flow_id", "?")[:8],
+                len(completed),
+                len(self.stages),
+            )
             return FlowEvalResult(
                 is_done=True,
                 current_stage=None,
@@ -242,6 +300,19 @@ class BaseFlowEvaluator(ABC):
             current_stage = self.stages[len(completed)]
 
         state_delta["_flow_stage"] = current_stage.id
+
+        # 日志：当前阶段、进度、已完成阶段列表
+        completed_ids = [s["id"] for s in completed]
+        logger.info(
+            "[FlowEval] skill=%s flow_id=%s → stage=%s (%s) progress=%d/%d completed=%s",
+            self.skill_name,
+            flow_ctx.get("flow_id", "?")[:8],
+            current_stage.id,
+            current_stage.name,
+            len(completed),
+            len(self.stages),
+            completed_ids,
+        )
 
         return FlowEvalResult(
             is_done=False,
@@ -265,14 +336,17 @@ class BaseFlowEvaluator(ABC):
         按阶段顺序处理：遇到无法自动提交的阶段（含 user 字段、数据缺失、校验失败）即停止，
         不会跳过中间阶段去提交后续阶段。
         """
+        stop_reason = ""
         for stage in self.stages:
             if flow_ctx.get(f"stage_{stage.id}"):
                 continue  # 已提交，跳过
 
             if not stage.field_sources:
+                stop_reason = f"stage '{stage.id}' has no field_sources"
                 break  # 无 field_sources 声明，需显式提交，停止
 
             if any(fs.source == "user" for fs in stage.field_sources.values()):
+                stop_reason = f"stage '{stage.id}' has user-source fields"
                 break  # 含用户字段，需 LLM 通过 collect_user_fields 收集，停止
 
             # 全为 source="tool"，尝试提取数据
@@ -289,10 +363,14 @@ class BaseFlowEvaluator(ABC):
                 collected[field_name] = self._extract_field(state_value, fs)
 
             if not all_available:
+                missing = [fs.state_key for fs in stage.field_sources.values()
+                           if fs.source == "tool" and state.get(fs.state_key) is None]
+                stop_reason = f"stage '{stage.id}' missing state keys: {missing}"
                 break  # 数据未就绪，停止
 
-            valid, _ = stage.validate_output(collected)
+            valid, errors = stage.validate_output(collected)
             if not valid:
+                stop_reason = f"stage '{stage.id}' validation failed: {errors}"
                 break  # 校验失败，停止
 
             # 写入 flow_ctx（内存）和 state_delta（后续持久化）
@@ -327,7 +405,13 @@ class BaseFlowEvaluator(ABC):
                 flow_ctx[f"stage_{stage.id}_delta"] = stage_delta
                 state_delta[f"_flow_context.stage_{stage.id}_delta"] = stage_delta
 
-            logger.debug("AutoCommit stage '%s': fields=%s", stage.id, list(collected))
+            logger.info(
+                "[AutoCommit] skill=%s stage=%s (%s) fields=%s checkpoint=%s",
+                self.skill_name, stage.id, stage.name, list(collected), stage.checkpoint,
+            )
+
+        if stop_reason:
+            logger.debug("[AutoCommit] skill=%s stopped: %s", self.skill_name, stop_reason)
 
     # ── 内部辅助 ──────────────────────────────────────────────────────────────
 

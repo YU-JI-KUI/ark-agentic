@@ -77,6 +77,13 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
         return "withdraw_money_flow"
 
     @property
+    def task_name_template(self) -> str:
+        # amount 来自 stage_plan_confirm.amount（PlanConfirmOutput，float）；
+        # :.0f 让整数金额显示为 "2000" 而非 "2000.0"。
+        # 方案确认前渲染为 "资金领取（{待定}元）任务"，确认后刷新为具体金额。
+        return "资金领取（{amount:.0f}元）任务"
+
+    @property
     def stages(self) -> list[StageDefinition]:
         return [
             StageDefinition(

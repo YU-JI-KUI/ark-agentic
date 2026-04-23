@@ -132,7 +132,7 @@ def create_insurance_agent(
             cron=proactive_cron,
         )
 
-    flow_callbacks = FlowCallbacks(sessions_dir=sessions_dir)
+    flow_callbacks = FlowCallbacks(sessions_dir=sessions_dir, skill_loader=skill_loader)
     callbacks = merge_runner_callbacks(
         RunnerCallbacks(
             # before_agent=[make_before_agent_callback(InsuranceIntakeGuard(llm))],  # DEBUG: 暂时禁用准入拦截

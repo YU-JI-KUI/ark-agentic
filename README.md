@@ -377,150 +377,79 @@ runner.register_tool(SpawnSubtasksTool(runner, session_manager, subtask_config))
 
 ### 业务流程系统（Flow）
 
-将多步骤业务 SOP 编排为有状态的流程，支持 Pydantic 校验、中断恢复、用户回退到任意历史节点。
+多阶段有状态业务流程引擎，由框架 Hook 自动驱动，支持中断后跨会话恢复。
 
-**核心工具**：
+**核心设计**：`BaseFlowEvaluator` 不是 LLM 工具，而是由 `FlowCallbacks` 的三个 Hook 自动驱动的确定性状态机：
+- `before_model`：每轮评估流程状态，注入当前阶段信息 + reference 到提示词
+- `after_tool`：自动提交只含工具字段的阶段（`source="tool"`）
+- `after_agent`：持久化到 `active_tasks.json`（仅 checkpoint 阶段写盘）
 
-| 工具 | 职责 |
-|------|------|
-| `{skill}_evaluator` | 遍历阶段、Pydantic 校验、返回当前阶段和可回退节点 |
-| `commit_flow_stage` | 提交阶段完成数据（自动提取 tool 字段，LLM 提供 user 字段）|
-| `rollback_flow_stage` | 回退到指定 checkpoint 阶段，清除该阶段及后续所有数据 |
-| `resume_task` | 新会话恢复（`action="resume"`）或废弃（`action="discard"`）中断的流程 |
-
-#### 1. 定义流程
+#### 定义流程
 
 ```python
-from pydantic import BaseModel
 from ark_agentic.core.flow.base_evaluator import (
     BaseFlowEvaluator, StageDefinition, FieldSource, FlowEvaluatorRegistry,
 )
 
-class VerifyOutput(BaseModel):
-    user_id: str
-    confirmed: bool
-
 class MyFlowEvaluator(BaseFlowEvaluator):
     @property
     def skill_name(self) -> str:
-        return "my_flow"  # 对应 SKILL 目录名
+        return "my_flow"
+
+    @property
+    def task_name_template(self) -> str:
+        # 可选：动态渲染任务名，缺失变量显示为 "{待定}"
+        return "我的流程（{amount:.0f}元）任务"
 
     @property
     def stages(self) -> list[StageDefinition]:
         return [
             StageDefinition(
-                id="verify",
-                name="身份核验",
-                description="验证用户身份",
-                checkpoint=True,              # 该阶段完成后持久化，可作为回退目标
-                output_schema=VerifyOutput,
-                tools=["identity_tool"],
+                id="verify", name="身份核验", description="验证用户身份",
+                output_schema=VerifyOutput, tools=["identity_tool"],
                 field_sources={
                     # source="tool": 框架自动从 session.state 提取
                     "user_id": FieldSource(source="tool", state_key="_identity_result", path="user_id"),
-                    # source="user": LLM 从对话中收集后通过 commit_flow_stage(user_data=...) 提供
-                    "confirmed": FieldSource(source="user", description="用户是否确认身份"),
+                    # source="user": LLM 通过 collect_user_fields 提供
+                    "confirmed": FieldSource(source="user", description="用户是否确认"),
                 },
-            ),
-            StageDefinition(
-                id="confirm",
-                name="方案确认",
-                checkpoint=True,
-                output_schema=ConfirmOutput,
-                tools=["render_plan"],
-                field_sources={...},
-                delta_state_keys=["_plan_data"],  # 额外快照：resume 后供下游工具读取
             ),
             # ... 更多阶段
         ]
+
+evaluator = MyFlowEvaluator()
+FlowEvaluatorRegistry.register(evaluator, namespace="my_agent")
 ```
 
-**`StageDefinition` 关键字段**：
-
-| 字段 | 说明 |
-|------|------|
-| `checkpoint=True` | 完成后写盘持久化，可作为 `rollback_flow_stage` 的目标 |
-| `delta_state_keys` | 额外快照的 session state key（不参与 schema 校验，resume 时还原给下游工具）|
-| `field_sources` | `source="tool"` 自动提取；`source="user"` 由 LLM 从对话收集 |
-| `reference_file` | 当前阶段的 SOP 文档（框架按阶段动态注入到 system prompt）|
-
-#### 2. 注册并挂载到 Agent
+#### 挂载到 Agent
 
 ```python
 from ark_agentic.core.flow.callbacks import FlowCallbacks
-from ark_agentic.core.flow.commit_flow_stage import CommitFlowStageTool
+from ark_agentic.core.flow.collect_user_fields import CollectUserFieldsTool
 from ark_agentic.core.flow.rollback_flow_stage import RollbackFlowStageTool
 from ark_agentic.core.tools.resume_task import ResumeTaskTool
-from ark_agentic.core.callbacks import RunnerCallbacks
 
-SESSIONS_DIR = "./data/sessions"
-
-evaluator = MyFlowEvaluator()
-evaluator._task_registry = TaskRegistry(SESSIONS_DIR)  # 注入：首次调用时检测待恢复任务
-FlowEvaluatorRegistry.register(evaluator)
-
-fc = FlowCallbacks(sessions_dir=SESSIONS_DIR)
-
+flow_callbacks = FlowCallbacks(
+    sessions_dir="./data/sessions",
+    skill_loader=skill_loader,  # 用于按阶段动态注入 reference
+)
 runner = AgentRunner(
     ...,
-    callbacks=RunnerCallbacks(after_agent=[fc.persist_flow_context]),
+    callbacks=RunnerCallbacks(
+        before_model=[flow_callbacks.before_model_flow_eval],
+        after_tool=[flow_callbacks.after_tool_auto_commit],
+        after_agent=[flow_callbacks.persist_flow_context],
+    ),
 )
-runner.register_tool(evaluator)                        # evaluator 本身是工具
-runner.register_tool(CommitFlowStageTool())
+runner.register_tool(CollectUserFieldsTool())
 runner.register_tool(RollbackFlowStageTool())
-runner.register_tool(ResumeTaskTool(sessions_dir=SESSIONS_DIR))
+runner.register_tool(ResumeTaskTool(sessions_dir="./data/sessions"))
+# 注意：evaluator 不是工具，不需要 register_tool
 ```
 
-#### 3. 编写 SKILL.md
+**自动流转**：框架每轮 before_model 自动评估阶段 → 纯工具字段阶段在 after_tool 自动提交 → 含用户字段阶段由 LLM 调用 `collect_user_fields` 提交 → 循环推进。Reference 按当前阶段动态注入（非全量加载）。
 
-在 SKILL 目录的 `references/` 下为每个阶段创建 SOP 文档（框架根据 `_flow_stage` 自动按需注入）：
-
-```
-skills/my_flow/
-├── SKILL.md          # 声明 required_tools + 通用规则（含流程回退说明）
-└── references/
-    ├── verify.md     # 身份核验阶段操作指引
-    └── confirm.md    # 方案确认阶段操作指引
-```
-
-`SKILL.md` 需在 frontmatter 中声明工具，正文描述通用规则（含回退），无需显式引用 reference 文件：
-
-```markdown
----
-required_tools:
-  - my_flow_evaluator
-  - commit_flow_stage
-  - rollback_flow_stage
-  - resume_task
-  - identity_tool
-  - render_plan
----
-
-## 执行规则
-1. 每个阶段前调用 `my_flow_evaluator` 确认当前阶段
-2. 按阶段参考文档执行业务工具
-3. 完成后调用 `commit_flow_stage(stage_id=..., user_data={...})` 提交数据
-
-## 流程回退
-用户要修改已完成的内容时：查看 evaluator 响应的 `available_checkpoints`，
-确认回退目标后调用 `rollback_flow_stage(stage_id=...)` 清除数据，再重新执行对应阶段。
-```
-
-#### 运行时行为
-
-```
-新建流程:
-  LLM 调用 evaluator → 评估阶段 → 执行工具 → commit_flow_stage → evaluator 推进
-  checkpoint 阶段完成 → after_agent 写盘 → 可断线恢复
-
-中断恢复（新会话）:
-  LLM 再次调用 evaluator → 检测到待恢复任务 → 提示用户选择
-  → resume_task(action="resume") → 恢复 _flow_context + 工具输出 → 继续执行
-
-流程回退（用户改变主意）:
-  LLM 查看 available_checkpoints → 用户确认 → rollback_flow_stage(stage_id=...)
-  → 清除目标阶段及后续数据 → evaluator 重新从该阶段执行
-```
+**跨会话恢复**：用户中断后新会话会以 JSON 列表展示待恢复任务，由用户确认后调用 `resume_task(flow_id=..., action="resume")` 恢复现场，或 `action="discard"` 废弃。
 
 ---
 
@@ -758,12 +687,13 @@ src/ark_agentic/
 │   │   ├── demo_a2ui.py   # A2UI 演示工具
 │   │   ├── demo_state.py  # State 演示工具
 │   │   └── pa_knowledge_api.py  # PA 知识库 API (230 行)
-│   ├── flow/              # 业务流程引擎
-│   │   ├── base_evaluator.py   # BaseFlowEvaluator + StageDefinition + FieldSource + FlowEvaluatorRegistry
-│   │   ├── commit_flow_stage.py # CommitFlowStageTool（阶段提交 + checkpoint 记录）
-│   │   ├── rollback_flow_stage.py # RollbackFlowStageTool（回退到 checkpoint 阶段）
-│   │   ├── callbacks.py        # FlowCallbacks: persist_flow_context（checkpoint 写盘）
-│   │   └── task_registry.py    # active_tasks.json 读写 + TTL 清理
+│   ├── flow/              # 业务流程引擎（Hook 驱动）
+│   │   ├── base_evaluator.py   # BaseFlowEvaluator(ABC) + StageDefinition + FieldSource
+│   │   │                            # + FlowEvaluatorRegistry + task_name_template
+│   │   ├── callbacks.py        # FlowCallbacks: 3 个 Hook + Dynamic reference 注入
+│   │   ├── collect_user_fields.py # CollectUserFieldsTool（替代原 CommitFlowStageTool）
+│   │   ├── rollback_flow_stage.py # RollbackFlowStageTool（回退到 checkpoint）
+│   │   └── task_registry.py    # active_tasks.json + generate_flow_id
 │   ├── skills/            # 技能系统
 │   │   ├── base.py
 │   │   ├── loader.py
