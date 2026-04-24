@@ -3,7 +3,7 @@
 
 查询用户保单数据，标准化为每张保单一条记录，包含四个可用金额字段和费率信息。
 基于保单数据中的四个金额字段进行确定性计算：
-  - bounusAmt           红利
+  - bonusAmt           红利
   - loanAmt             可贷款额度
   - survivalFundAmt     生存金 / 满期金
   - policyRefundAmount  退保金额（部分领取 / 全额退保）
@@ -243,7 +243,7 @@ class RuleEngineTool(AgentTool):
             policy_year = _compute_policy_year(effective_date) if effective_date else 6
 
             survival = float(pol.get("survivalFundAmt", 0) or 0)
-            bonus = float(pol.get("bounusAmt", 0) or 0)
+            bonus = float(pol.get("bonusAmt", 0) or 0)
             loan = float(pol.get("loanAmt", 0) or 0)
             refund = float(pol.get("policyRefundAmount", 0) or 0)
             total = survival + bonus + loan + refund
@@ -360,7 +360,7 @@ class RuleEngineTool(AgentTool):
                 "生存金领取",
             ),
             "bonus": (
-                ["bonus_amt", "bounusAmt"],
+                ["bonus_amt", "bonusAmt"],
                 "红利领取",
             ),
             "partial_withdrawal": (
