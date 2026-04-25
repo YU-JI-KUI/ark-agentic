@@ -178,7 +178,7 @@ async def test_no_current_tool_fallback_to_history_downgrades_to_not_retry(
         session.add_message(AgentMessage.user("看看账户"))
         # 当前轮：无工具调用消息
         cb = create_citation_validation_hook(entity_trie=trie)
-        ctx = CallbackContext(user_input="看看账户", input_context={}, session=session)
+        ctx = CallbackContext(run_id="test", user_input="看看账户", input_context={}, session=session)
         # answer 只含 150000，来自历史缓存
         response = AgentMessage.assistant(content="您的总资产为 150000 元")
         result = await cb(ctx, response=response)
@@ -196,7 +196,7 @@ async def test_phase2_does_not_trigger_when_phase1_passes() -> None:
         session.add_message(AgentMessage.user("查资产"))
         _inject_tool_turn(session, "c1", "account", {"total_assets": 150000})
         cb = create_citation_validation_hook()
-        ctx = CallbackContext(user_input="查资产", input_context={}, session=session)
+        ctx = CallbackContext(run_id="test", user_input="查资产", input_context={}, session=session)
         response = AgentMessage.assistant(content="总资产 150000 元")
         result = await cb(ctx, response=response)
         assert result is None
@@ -214,7 +214,7 @@ async def test_phase2_still_retries_when_history_also_misses() -> None:
         session.add_message(AgentMessage.user("查资产"))
         # 当前轮无工具
         cb = create_citation_validation_hook()
-        ctx = CallbackContext(user_input="查资产", input_context={}, session=session)
+        ctx = CallbackContext(run_id="test", user_input="查资产", input_context={}, session=session)
         # answer 含大量无来源数据
         response = AgentMessage.assistant(
             content="总资产 999999 元，收益 888888 元，市值 777777 元"

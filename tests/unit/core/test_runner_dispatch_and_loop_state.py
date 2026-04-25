@@ -91,6 +91,7 @@ class TestRunHooksEventDispatch:
 
         minimal_runner._callbacks = RunnerCallbacks(before_agent=[hook])
         cb_ctx = CallbackContext(
+            run_id="r1",
             user_input="ok",
             input_context={},
             session=SessionEntry(session_id="s1", user_id="u1"),
@@ -114,6 +115,7 @@ class TestRunHooksEventDispatch:
 
         minimal_runner._callbacks = RunnerCallbacks(before_agent=[hook])
         cb_ctx = CallbackContext(
+            run_id="r1",
             user_input="ok",
             input_context={},
             session=SessionEntry(session_id="s1", user_id="u1"),

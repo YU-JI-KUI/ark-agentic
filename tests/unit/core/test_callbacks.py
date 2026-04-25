@@ -16,14 +16,23 @@ from ark_agentic.core.types import SessionEntry
 def test_callback_context_fields() -> None:
     sess = SessionEntry(session_id="s1", user_id="u1")
     ctx = CallbackContext(
+        run_id="r1",
         user_input="hi",
         input_context={"k": 1},
         session=sess,
+        metadata={"user_id": "u1", "model": "gpt-4"},
     )
     assert ctx.user_input == "hi"
     assert ctx.input_context["k"] == 1
     assert ctx.session.session_id == "s1"
-    assert ctx.runtime == {}
+    assert ctx.run_id == "r1"
+    assert ctx.metadata["model"] == "gpt-4"
+
+
+def test_callback_context_metadata_defaults_to_empty() -> None:
+    sess = SessionEntry(session_id="s1", user_id="u1")
+    ctx = CallbackContext(run_id="r1", user_input="hi", input_context={}, session=sess)
+    assert ctx.metadata == {}
 
 
 def test_runner_callbacks_default_lists() -> None:
@@ -32,8 +41,10 @@ def test_runner_callbacks_default_lists() -> None:
     assert rc.after_agent == []
     assert rc.before_model == []
     assert rc.after_model == []
+    assert rc.on_model_error == []
     assert rc.before_tool == []
     assert rc.after_tool == []
+    assert rc.before_loop_end == []
 
 
 def test_merge_runner_callbacks_preserves_order() -> None:
