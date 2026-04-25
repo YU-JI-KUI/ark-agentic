@@ -31,17 +31,13 @@ required_tools:
 
 ## 触发 / 不触发
 
-**触发**：用户表达了与取款相关的咨询、方案生成、方案调整意图。
+**触发**：用户表达与取款相关的咨询、方案生成、方案调整意图。
 
-**不触发**（由「取款执行」技能处理）：
+**不触发**（交「取款执行」处理）：最近 render_a2ui digest 以 `[卡片:方案` 开头 **且** 用户明确选择该方案中某渠道办理。
 
-- 对话中已展示过 PlanCard，且用户表达了确认/选择/办理意图
-- "办理方案1"、"就第一个"、"确认"、"办理"
-- "领生存金"（当对话中已有包含 survival_fund 的 PlanCard 时）
-
-**当「取款执行」不适用时自动接管**：
-
-「取款执行」因前置条件不满足（无 PlanCard 或渠道不匹配）时，本技能自动接管，走 PLAN 意图生成新 PlanCard。
+**兜底**：以下情况本技能主导 SUMMARY / PLAN / ADJUST 流程：
+- digest 只有 `[卡片:总览/…]` 或无 A2UI 渲染历史
+- 「取款执行」因条件不满足（渠道不在方案 channels 里、无 PlanCard 等）回退
 
 ---
 
@@ -51,12 +47,12 @@ required_tools:
 
 | 优先级 | 意图 | 判断条件 | 示例 |
 |--------|------|---------|------|
-| 1 | **ADJUST** | 对话中已有 PlanCard + 修改语义 | "不要贷款"、"少取"、"多取"、"换方案" |
+| 1 | **ADJUST** | 最近 digest 含 `[卡片:方案` + 修改语义 | "不要贷款"、"少取"、"多取"、"换方案" |
 | 2 | **PLAN** | (a) 有金额 (b) 渠道+行动动词 (c) Summary后选渠道/金额 | "取五万"、"领取生存金"、"办理贷款" |
 | 3 | **SUMMARY** | 其余咨询类 | "能取多少"、"帮我看看"、"只看零成本" |
 
 **补充规则**：
-- ADJUST 无 PlanCard → 降级为 PLAN
+- ADJUST 时最近 digest 无 `[卡片:方案` → 降级为 PLAN
 - 疑问句即使含"取"字仍为 SUMMARY（"能取多少" ≠ "领取"）
 - SUMMARY 筛选：提取 sections 参数，"只看零成本" → sections=["zero_cost"]
 
@@ -130,14 +126,14 @@ target 为负数 → 直接回复"取款金额需要为正数"，不调工具。
 ```json
 [
   {"type": "WithdrawSummaryHeader", "data": {"sections": ["zero_cost", "loan", "partial_withdrawal", "surrender"]}},
-  {"type": "WithdrawSummarySection", "data": {"section": "zero_cost"}},
-  {"type": "WithdrawSummarySection", "data": {"section": "loan"}},
-  {"type": "WithdrawSummarySection", "data": {"section": "partial_withdrawal"}},
-  {"type": "WithdrawSummarySection", "data": {"section": "surrender"}}
+  {"type": "WithdrawSummarySection", "data": {"section_name": "zero_cost"}},
+  {"type": "WithdrawSummarySection", "data": {"section_name": "loan"}},
+  {"type": "WithdrawSummarySection", "data": {"section_name": "partial_withdrawal"}},
+  {"type": "WithdrawSummarySection", "data": {"section_name": "surrender"}}
 ]
 ```
 
-筛选时只传对应 sections 和 section，结构相同。
+筛选时只传对应 sections 和 section_name，结构相同。
 
 ### PLAN 渲染
 
@@ -183,7 +179,7 @@ target 为负数 → 直接回复"取款金额需要为正数"，不调工具。
 
 ### ADJUST 渲染
 
-1. 从上轮 PlanCard digest 中读取 `channels: [...]` 和 `总额: ¥...`
+1. 从最近一条 `[卡片:方案` digest 中读取 `channels=[…]` 和 `total=…`
 2. 应用用户变更（见下表）
 3. 重新 `rule_engine(list_options)` + `render_a2ui`
 

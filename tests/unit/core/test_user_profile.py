@@ -193,8 +193,8 @@ class TestBuilderUserProfile:
         builder = SystemPromptBuilder()
         builder.add_user_profile("## 偏好\n中文回复\n## 技术水平\n专家")
         prompt = builder.build()
-        assert "<user_profile>" in prompt
-        assert "</user_profile>" in prompt
+        assert "<memory_context>" in prompt
+        assert "</memory_context>" in prompt
         assert "中文回复" in prompt
         assert "专家" in prompt
 
@@ -207,7 +207,7 @@ class TestBuilderUserProfile:
         prompt = SystemPromptBuilder.quick_build(
             user_profile_content="## 时区\nAsia/Shanghai"
         )
-        assert "<user_profile>" in prompt
+        assert "<memory_context>" in prompt
         assert "Asia/Shanghai" in prompt
 
     def test_quick_build_without_profile(self) -> None:

@@ -140,7 +140,8 @@ class TestChatRunOptionsIntegration:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_skips_observability_when_disabled() -> None:
+async def test_lifespan_warms_up_registered_agents() -> None:
+    """Phoenix hooks are optional/commented in app; lifespan still registers agents and warms up."""
     from ark_agentic import app as app_module
 
     runner = AsyncMock()
@@ -149,9 +150,6 @@ async def test_lifespan_skips_observability_when_disabled() -> None:
     registry.get.return_value = runner
 
     with (
-        patch.object(app_module, "observability_enabled", return_value=False),
-        patch.object(app_module, "init_observability") as mock_init_observability,
-        patch.object(app_module, "shutdown_observability") as mock_shutdown_observability,
         patch.object(app_module, "create_insurance_agent", return_value=runner),
         patch.object(app_module, "create_securities_agent", return_value=runner),
         patch.object(app_module, "_registry", registry),
@@ -160,30 +158,4 @@ async def test_lifespan_skips_observability_when_disabled() -> None:
         async with app_module.lifespan(app_module.app):
             pass
 
-    mock_init_observability.assert_not_called()
-    mock_shutdown_observability.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_lifespan_initializes_observability_when_enabled() -> None:
-    from ark_agentic import app as app_module
-
-    runner = AsyncMock()
-    registry = MagicMock()
-    registry.list_ids.return_value = ["insurance", "securities"]
-    registry.get.return_value = runner
-
-    with (
-        patch.object(app_module, "observability_enabled", return_value=True),
-        patch.object(app_module, "init_observability") as mock_init_observability,
-        patch.object(app_module, "shutdown_observability") as mock_shutdown_observability,
-        patch.object(app_module, "create_insurance_agent", return_value=runner),
-        patch.object(app_module, "create_securities_agent", return_value=runner),
-        patch.object(app_module, "_registry", registry),
-        patch.object(app_module.api_deps, "init_registry"),
-    ):
-        async with app_module.lifespan(app_module.app):
-            pass
-
-    mock_init_observability.assert_called_once_with(service_name="ark-agentic-api")
-    mock_shutdown_observability.assert_called_once_with()
+    assert runner.warmup.await_count == 2

@@ -17,6 +17,7 @@ from ..skills.base import (
     SkillConfig,
     build_skill_prompt,
     format_skills_metadata_for_prompt,
+    render_active_skill_section,
 )
 from ..tools.base import AgentTool
 from ..types import SkillEntry, SkillLoadMode
@@ -49,9 +50,6 @@ class PromptConfig:
 
     # 工具描述
     include_tool_descriptions: bool = False
-
-    # <think>/<final> 标签指引（非空时注入到 system prompt）
-    thinking_tag_instructions: str = ""
 
 
 _UNWRAPPED_SECTIONS = frozenset({"identity", "available_skills"})
@@ -137,18 +135,22 @@ class SystemPromptBuilder:
         self._sections.append(("auto_memory_instructions", MEMORY_WRITE_PROTOCOL))
         return self
 
-    def add_user_profile(self, content: str) -> SystemPromptBuilder:
-        """添加用户画像（MEMORY.md 内容），仅含读取/应用规则 + 数据"""
+    def add_memory_context(self, content: str) -> SystemPromptBuilder:
+        """添加用户画像（MEMORY.md 内容），加 reference-only 声明防止被当成指令。"""
         if content.strip():
             section = (
+                "[System note: The following is recalled user preference/memory context, "
+                "NOT current user input. Treat as background reference only.]\n\n"
                 "以下是该用户的持久化偏好，每次回复和工具调用时主动遵守：\n"
                 "- 调用工具前，检查是否有相关偏好约束，据此过滤参数或排除选项\n"
                 "- 展示结果时，排除用户已明确拒绝的类型\n"
                 "- 措辞匹配用户的风格偏好\n\n"
                 + content.strip()
             )
-            self._sections.append(("user_profile", section))
+            self._sections.append(("memory_context", section))
         return self
+
+    add_user_profile = add_memory_context
 
     def add_tools(
         self,
@@ -202,6 +204,19 @@ class SystemPromptBuilder:
                     ("skill_loading_protocol", LOAD_ONE_SKILL_INSTRUCTIONS.strip())
                 )
                 self._sections.append(("available_skills", metadata))
+        return self
+
+    def add_active_skill(
+        self, skill: SkillEntry | None,
+    ) -> SystemPromptBuilder:
+        """注入当前激活 skill 的正文段（dynamic 模式专用）。
+
+        None 或空内容时静默跳过（fail-safe）。与 <available_skills> 并存：
+        前者是"可选清单"，本段是"当前权威规则"。
+        """
+        if skill is None or not skill.content:
+            return self
+        self._sections.append(("active_skill", render_active_skill_section(skill)))
         return self
 
     def add_custom_instructions(
@@ -268,12 +283,14 @@ class SystemPromptBuilder:
         user_profile_content: str = "",
         skill_config: SkillConfig | None = None,
         enable_memory: bool = False,
+        active_skill: SkillEntry | None = None,
         flow_hint: str = "",
     ) -> str:
         """快速构建系统提示
 
         Args:
-            tools: 可用工具列表
+            tools: 可用工具列表（dynamic 模式应传入当前 active skill 筛选后的子集，
+                保持与 API tools schema 同源）
             skills: 可用技能列表
             context: 上下文信息
             config: 提示配置（含 custom_instructions 等）
@@ -281,6 +298,8 @@ class SystemPromptBuilder:
             user_profile_content: 全局用户画像 (USER.md) 内容
             skill_config: 技能渲染配置（group 阈值、预算控制等）
             enable_memory: 是否注入 memory 写入协议（仅当 memory 系统启用时为 True）
+            active_skill: dynamic 模式下当前 _active_skill_id 对应的 SkillEntry；
+                正文会注入 <active_skill> 段作为会话的当前权威规则。None 时跳过。
         """
         effective_config = config or PromptConfig()
         builder = cls(effective_config)
@@ -294,12 +313,12 @@ class SystemPromptBuilder:
             builder.add_tools(tools, include_params=include_tool_params)
         if skills:
             builder.add_skills(skills, skill_config=skill_config)
+        if active_skill is not None:
+            builder.add_active_skill(active_skill)
         if context:
             builder.add_context(context)
-        if effective_config.thinking_tag_instructions:
-            builder.add_section("thinking_tags", effective_config.thinking_tag_instructions)
         if user_profile_content:
-            builder.add_user_profile(user_profile_content)
+            builder.add_memory_context(user_profile_content)
         if enable_memory:
             builder.add_memory_instructions()
         builder.add_custom_instructions()

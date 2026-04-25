@@ -47,7 +47,7 @@ class FlowCallbacks:
 
     # ── before_agent ──────────────────────────────────────────────────────────
 
-    async def inject_flow_hint(self, ctx: CallbackContext) -> CallbackResult | None:
+    async def inject_flow_hint(self, ctx: CallbackContext, **kwargs: Any) -> CallbackResult | None:
         """检查用户的 active tasks，将提示注入 session state 供 _build_system_prompt 读取。"""
         user_id = ctx.session.state.get("user:id")
         if not user_id:
@@ -102,6 +102,7 @@ class FlowCallbacks:
         ctx: CallbackContext,
         *,
         response: AgentMessage,
+        **kwargs: Any,
     ) -> CallbackResult | None:
         """持久化 _flow_context 到 active_tasks.json。"""
         session = ctx.session

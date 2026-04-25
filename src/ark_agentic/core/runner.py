@@ -8,10 +8,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, NamedTuple, TYPE_CHECKING
+from uuid import uuid4
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -24,6 +24,7 @@ from .callbacks import (
 )
 from .llm.caller import LLMCaller
 from .llm.errors import LLMError, LLMErrorReason
+from .llm.sampling import SamplingConfig
 from .prompt.builder import SystemPromptBuilder, PromptConfig
 from .session import SessionManager
 from .skills.base import SkillConfig
@@ -34,12 +35,20 @@ from .tools.base import AgentTool
 from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry
 from .tools.memory import create_memory_tools
+from .observability.decorators import (
+    add_span_attributes,
+    add_span_input,
+    add_span_output,
+    traced_agent,
+    traced_chain,
+)
 from .types import (
     AgentMessage,
     AgentToolResult,
     MessageRole,
     RunOptions,
     SessionEntry,
+    SkillEntry,
     SkillLoadMode,
     ToolCall,
     ToolLoopAction,
@@ -51,6 +60,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _build_runner_callbacks(
+    *,
+    config: RunnerConfig,
+    callbacks: RunnerCallbacks | None,
+) -> RunnerCallbacks:
+    """Business hooks only — observability is handled by OTel decorators."""
+    return callbacks or RunnerCallbacks()
+
+
 # ============ Runner Config ============
 
 
@@ -60,16 +78,15 @@ class RunnerConfig:
 
     # LLM 参数
     model: str | None = None
-    temperature: float = float(os.getenv("DEFAULT_TEMPERATURE", "0.7"))
-    max_tokens: int = 4096
+    sampling: SamplingConfig = field(default_factory=SamplingConfig.for_chat)
+
+    # LLM 调用重试（指数退避 + 抖动，仅对 retryable 错误生效）
+    max_retries: int = 3
 
     # 执行控制
     max_turns: int = 10  # 最大对话轮数（防止无限循环）
     max_tool_calls_per_turn: int = 5  # 单轮最大工具调用数
     tool_timeout: float = 30.0  # 单个工具执行超时（秒）
-
-    # 思考标签：启用后 system prompt 注入 <think>/<final> 指引，流式解析器按标签路由
-    enable_thinking_tags: bool = False
 
     # 自动压缩
     auto_compact: bool = True
@@ -125,7 +142,7 @@ class _RunParams(NamedTuple):
     """Resolved per-run parameters (pure computation result)."""
 
     model: str | None
-    temperature: float
+    sampling_override: SamplingConfig | None
     skill_load_mode: str
 
 
@@ -182,7 +199,10 @@ class AgentRunner:
         self.session_manager = session_manager
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
-        self._callbacks = self._resolve_runner_callbacks(callbacks)
+        self._callbacks = _build_runner_callbacks(
+            config=self.config,
+            callbacks=callbacks,
+        )
 
         self._memory_manager = memory_manager
         self._flusher = None
@@ -193,7 +213,7 @@ class AgentRunner:
         # LLMCaller / ToolExecutor (SRP)
         self._llm_caller = LLMCaller(
             llm,
-            enable_thinking_tags=self.config.enable_thinking_tags,
+            max_retries=self.config.max_retries,
         )
         self._tool_executor = ToolExecutor(
             self.tool_registry,
@@ -204,11 +224,21 @@ class AgentRunner:
         if memory_manager is not None:
             from .memory.extractor import MemoryFlusher
 
-            self._flusher = MemoryFlusher(self._llm_caller.get_llm)
+            # Memory flush 是结构化 JSON 抽取任务，需要低温度 + 可复现 seed
+            extraction_sampling = SamplingConfig.for_extraction()
+            self._flusher = MemoryFlusher(
+                lambda: self._llm_caller.get_llm(sampling_override=extraction_sampling)
+            )
 
             if self.config.enable_dream:
                 from .memory.dream import MemoryDreamer
-                self._dreamer = MemoryDreamer(self._llm_caller.get_llm)
+
+                summarization_sampling = SamplingConfig.for_summarization()
+                self._dreamer = MemoryDreamer(
+                    lambda: self._llm_caller.get_llm(
+                        sampling_override=summarization_sampling
+                    )
+                )
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
@@ -232,25 +262,6 @@ class AgentRunner:
             )
             logger.info("Registered spawn_subtasks tool")
 
-    def _resolve_runner_callbacks(
-        self,
-        callbacks: RunnerCallbacks | None,
-    ) -> RunnerCallbacks:
-        """Resolve business callbacks plus optional observability callbacks."""
-        from ark_agentic.observability import build_observability_callbacks
-
-        agent_id = (
-            self.config.skill_config.agent_id
-            or self.config.prompt_config.agent_name
-            or "agent"
-        )
-        agent_name = self.config.prompt_config.agent_name or agent_id
-        return build_observability_callbacks(
-            agent_id=agent_id,
-            agent_name=agent_name,
-            callbacks=callbacks,
-        )
-
     def _get_memory_for_user(self, user_id: str) -> "MemoryManager | None":
         """返回共享 MemoryManager（所有用户共用一个实例）。"""
         return self._memory_manager
@@ -273,6 +284,7 @@ class AgentRunner:
     async def close_memory(self) -> None:
         """保留接口兼容 — 无需释放资源。"""
 
+    @traced_agent("agent.run")
     async def run(
         self,
         session_id: str,
@@ -292,6 +304,28 @@ class AgentRunner:
         """
         input_context = input_context or {}
         params = self._resolve_run_params(run_options)
+        run_id = uuid4().hex
+        run_metadata: dict[str, Any] = {
+            "user_id": user_id,
+            "agent_id": self.config.skill_config.agent_id,
+            "agent_name": self.config.prompt_config.agent_name,
+            "model": params.model,
+            "stream": stream,
+            "skill_load_mode": params.skill_load_mode,
+            "correlation_id": input_context.get("temp:trace_id"),
+        }
+        add_span_attributes({
+            "session.id": session_id,
+            "user.id": user_id,
+            "ark.run_id": run_id,
+            "ark.agent_id": self.config.skill_config.agent_id,
+            "ark.agent_name": self.config.prompt_config.agent_name,
+            "ark.model": params.model,
+            "ark.stream": stream,
+            "ark.skill_load_mode": params.skill_load_mode,
+            "ark.correlation_id": input_context.get("temp:trace_id"),
+        })
+        add_span_input({"user_input": user_input, "input_context": input_context})
         prepared = await self._prepare_session(
             session_id,
             user_id,
@@ -300,18 +334,15 @@ class AgentRunner:
             handler=handler,
             history=history,
             use_history=use_history,
-            runtime={
-                "run": {
-                "user_id": user_id,
-                "stream": stream,
-                "model": params.model,
-                "skill_load_mode": params.skill_load_mode,
-                "agent_id": self.config.skill_config.agent_id,
-                "agent_name": self.config.prompt_config.agent_name,
-            }
-        },
+            run_id=run_id,
+            run_metadata=run_metadata,
         )
         if isinstance(prepared, RunResult):
+            add_span_attributes({
+                "ark.aborted": True,
+                "ark.turns": 0,
+            })
+            add_span_output({"response": prepared.response.content})
             return prepared
 
         cb_ctx = prepared
@@ -320,7 +351,7 @@ class AgentRunner:
                 session_id,
                 use_streaming=stream,
                 model_override=params.model,
-                temperature_override=params.temperature,
+                sampling_override=params.sampling_override,
                 skill_load_mode=params.skill_load_mode,
                 handler=handler,
                 cb_ctx=cb_ctx,
@@ -328,8 +359,18 @@ class AgentRunner:
         finally:
             await self.session_manager.sync_pending_messages(session_id, user_id)
 
-        cb_ctx.runtime["run_result"] = result
         await self._finalize_run(session_id, user_id, result, cb_ctx, handler)
+        add_span_attributes({
+            "ark.turns": result.turns,
+            "ark.tool_calls_count": result.tool_calls_count,
+            "ark.prompt_tokens": result.prompt_tokens,
+            "ark.completion_tokens": result.completion_tokens,
+            "ark.stopped_by_limit": result.stopped_by_limit,
+        })
+        add_span_output({
+            "content": result.response.content,
+            "has_tool_calls": bool(result.response.tool_calls),
+        })
         return result
 
     async def run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
@@ -345,7 +386,7 @@ class AgentRunner:
             session_id,
             use_streaming=False,
             model_override=params.model,
-            temperature_override=params.temperature,
+            sampling_override=params.sampling_override,
             skill_load_mode=params.skill_load_mode,
         )
 
@@ -354,11 +395,17 @@ class AgentRunner:
     def _resolve_run_params(self, run_options: RunOptions | None) -> _RunParams:
         """Pure parameter resolution from run_options + config defaults."""
         model = (run_options.model if run_options else None) or self.config.model
-        temperature = self.config.temperature
+        sampling_override: SamplingConfig | None = None
         if run_options and run_options.temperature is not None:
-            temperature = run_options.temperature
+            sampling_override = self.config.sampling.model_copy(
+                update={"temperature": run_options.temperature}
+            )
         skill_load_mode = self.config.skill_config.load_mode.value
-        return _RunParams(model=model, temperature=temperature, skill_load_mode=skill_load_mode)
+        return _RunParams(
+            model=model,
+            sampling_override=sampling_override,
+            skill_load_mode=skill_load_mode,
+        )
 
     async def _prepare_session(
         self,
@@ -370,7 +417,8 @@ class AgentRunner:
         handler: AgentEventHandler | None,
         history: list[dict[str, Any]] | None,
         use_history: bool,
-        runtime: dict[str, Any] | None = None,
+        run_id: str,
+        run_metadata: dict[str, Any],
     ) -> RunResult | CallbackContext:
         """Lazy init, before_agent hooks, context merge, history merge, record user message, auto-compact.
 
@@ -379,10 +427,11 @@ class AgentRunner:
         session = self.session_manager.get_session_required(session_id)
         session.user_id = user_id
         cb_ctx = CallbackContext(
+            run_id=run_id,
             user_input=user_input,
             input_context=input_context,
             session=session,
-            runtime=runtime or {},
+            metadata=run_metadata,
         )
 
         r = await self._run_hooks(
@@ -399,11 +448,11 @@ class AgentRunner:
             self.session_manager.add_message_sync(session_id, resp)
             await self.session_manager.sync_pending_messages(session_id, user_id)
             result = RunResult(response=resp)
-            cb_ctx.runtime["run_result"] = result
             cb_result = await self._run_hooks(
                 self._callbacks.after_agent,
                 cb_ctx,
                 response=result.response,
+                result=result,
                 context=cb_ctx.input_context,
                 handler=handler,
             )
@@ -460,6 +509,7 @@ class AgentRunner:
             self._callbacks.after_agent,
             cb_ctx,
             response=result.response,
+            result=result,
             context=cb_ctx.input_context,
             handler=handler,
         )
@@ -630,68 +680,29 @@ class AgentRunner:
         *,
         use_streaming: bool = True,
         model_override: str | None = None,
-        temperature_override: float | None = None,
+        sampling_override: SamplingConfig | None = None,
         skill_load_mode: str = "full",
         handler: AgentEventHandler | None = None,
         cb_ctx: CallbackContext | None = None,
     ) -> RunResult:
         """ReAct loop: LLM → Tool → LLM → ... → Response"""
         ls = _LoopState()
-        session = self.session_manager.get_session_required(session_id)
         logger.info("[RUN] session=%s streaming=%s", session_id[:8], use_streaming)
 
         while ls.turns < self.config.max_turns:
             ls.turns += 1
-            state = session.state
-            messages = self._build_messages(
-                session_id, state, skill_load_mode=skill_load_mode
-            )
-            tools = self._build_tools()
-            logger.info(
-                "Turn %d | messages=%d tools=%d model=%s",
-                ls.turns,
-                len(messages),
-                len(tools),
-                model_override or self.config.model,
-            )
-
-            model_result = await self._model_phase(
+            result = await self._run_turn(
                 session_id,
                 ls,
-                messages,
-                tools,
-                state,
                 use_streaming=use_streaming,
                 model_override=model_override,
-                temperature_override=temperature_override,
+                sampling_override=sampling_override,
+                skill_load_mode=skill_load_mode,
                 handler=handler,
                 cb_ctx=cb_ctx,
             )
-            if isinstance(model_result, RunResult):
-                return model_result
-
-            response = model_result
-            if response.tool_calls:
-                stop = await self._tool_phase(
-                    session_id,
-                    ls,
-                    response,
-                    session,
-                    state,
-                    handler=handler,
-                    cb_ctx=cb_ctx,
-                )
-                if stop is not None:
-                    return stop
-                continue
-
-            result = await self._complete_phase(
-                session_id, ls, response, state,
-                handler=handler, cb_ctx=cb_ctx,
-            )
-            if result is None:
-                continue
-            return result
+            if result is not None:
+                return result
 
         logger.warning(
             "[RUN_LIMIT] session=%s max_turns=%d", session_id[:8], self.config.max_turns
@@ -704,6 +715,71 @@ class AgentRunner:
         return ls.make_result(last_assistant, stopped_by_limit=True)
 
     # ---- Phase methods (SRP: each handles one phase of a ReAct turn) ----
+
+    @traced_chain("agent.turn")
+    async def _run_turn(
+        self,
+        session_id: str,
+        ls: _LoopState,
+        *,
+        use_streaming: bool,
+        model_override: str | None,
+        sampling_override: SamplingConfig | None,
+        skill_load_mode: str,
+        handler: AgentEventHandler | None,
+        cb_ctx: CallbackContext | None,
+    ) -> RunResult | None:
+        """One ReAct turn. Returns RunResult to terminate, or None to continue."""
+        add_span_attributes({"ark.turn": ls.turns})
+        session = self.session_manager.get_session_required(session_id)
+        state = session.state
+        messages = self._build_messages(
+            session_id, state,
+            skill_load_mode=skill_load_mode,
+        )
+        tools = self._build_tools(state=state)
+        logger.info(
+            "Turn %d | messages=%d tools=%d model=%s",
+            ls.turns,
+            len(messages),
+            len(tools),
+            model_override or self.config.model,
+        )
+
+        model_result = await self._model_phase(
+            session_id,
+            ls,
+            messages,
+            tools,
+            state,
+            use_streaming=use_streaming,
+            model_override=model_override,
+            sampling_override=sampling_override,
+            handler=handler,
+            cb_ctx=cb_ctx,
+        )
+        if isinstance(model_result, RunResult):
+            return model_result
+
+        response = model_result
+        if response.tool_calls:
+            stop = await self._tool_phase(
+                session_id,
+                ls,
+                response,
+                session,
+                state,
+                handler=handler,
+                cb_ctx=cb_ctx,
+            )
+            if stop is not None:
+                return stop
+            return None
+
+        return await self._complete_phase(
+            session_id, ls, response, state,
+            handler=handler, cb_ctx=cb_ctx,
+        )
 
     async def _complete_phase(
         self,
@@ -731,6 +807,7 @@ class AgentRunner:
             ls, response, session_id=session_id, handler=handler,
         )
 
+    @traced_chain("agent.model_phase")
     async def _model_phase(
         self,
         session_id: str,
@@ -741,22 +818,27 @@ class AgentRunner:
         *,
         use_streaming: bool,
         model_override: str | None,
-        temperature_override: float | None,
+        sampling_override: SamplingConfig | None,
         handler: AgentEventHandler | None,
         cb_ctx: CallbackContext | None,
     ) -> AgentMessage | RunResult:
         """before_model → LLM call → after_model → persist → tokens → finish_reason."""
-        if cb_ctx is not None:
-            cb_ctx.runtime["model_phase"] = {
-                "streaming": use_streaming,
-                "tool_schema_count": len(tools),
-                "model_override": model_override or self.config.model,
-            }
+        add_span_attributes({
+            "ark.turn": ls.turns,
+            "ark.streaming": use_streaming,
+            "ark.message_count": len(messages),
+            "ark.tool_count": len(tools),
+            "ark.model": model_override or self.config.model,
+        })
+        add_span_input({"messages": messages})
         bm = await self._run_hooks(
             self._callbacks.before_model,
             cb_ctx,
             turn=ls.turns,
             messages=messages,
+            streaming=use_streaming,
+            model=model_override or self.config.model,
+            tool_count=len(tools),
             context=state,
             handler=handler,
         )
@@ -779,7 +861,7 @@ class AgentRunner:
                         messages,
                         tools,
                         model_override=model_override,
-                        temperature_override=temperature_override,
+                        sampling_override=sampling_override,
                         content_callback=_on_content,
                         thinking_callback=_on_thinking,
                     )
@@ -788,11 +870,16 @@ class AgentRunner:
                         messages,
                         tools,
                         model_override=model_override,
-                        temperature_override=temperature_override,
+                        sampling_override=sampling_override,
                     )
             except LLMError as e:
-                if cb_ctx is not None:
-                    cb_ctx.runtime["model_error"] = e
+                await self._run_hooks(
+                    self._callbacks.on_model_error,
+                    cb_ctx,
+                    turn=ls.turns,
+                    error=e,
+                    handler=handler,
+                )
                 logger.error(
                     "[LLM_ERROR] turn=%d reason=%s retryable=%s",
                     ls.turns,
@@ -845,12 +932,29 @@ class AgentRunner:
         )
         self.session_manager.add_message_sync(session_id, response)
 
+        add_span_attributes({
+            "ark.finish_reason": finish_reason,
+            "ark.prompt_tokens": turn_prompt,
+            "ark.completion_tokens": turn_completion,
+            "ark.response_content_length": len(response.content or ""),
+            "ark.tool_call_count": len(response.tool_calls or []),
+        })
+        add_span_output({
+            "content": response.content,
+            "tool_calls": [
+                {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                for tc in (response.tool_calls or [])
+            ],
+            "finish_reason": finish_reason,
+        })
+
         if finish_reason == "length":
             logger.warning("Response truncated (max_tokens) in session %s", session_id)
             return ls.make_result(response, stopped_by_limit=True)
 
         return response
 
+    @traced_chain("agent.tool_phase")
     async def _tool_phase(
         self,
         session_id: str,
@@ -871,6 +975,15 @@ class AgentRunner:
             [tc.name for tc in tool_calls],
         )
         ls.all_tool_calls.extend(tool_calls)
+        add_span_attributes({
+            "ark.turn": ls.turns,
+            "ark.tool_count": len(tool_calls),
+            "ark.tool_names": ",".join(tc.name for tc in tool_calls),
+        })
+        add_span_input([
+            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+            for tc in tool_calls
+        ])
 
         bt = await self._run_hooks(
             self._callbacks.before_tool,
@@ -909,6 +1022,23 @@ class AgentRunner:
         tool_message = AgentMessage.tool(tool_results)
         self.session_manager.add_message_sync(session_id, tool_message)
 
+        add_span_attributes({
+            "ark.result_count": len(tool_results),
+            "ark.error_count": sum(1 for r in tool_results if r.is_error),
+            "ark.stop_result_count": sum(
+                1 for r in tool_results if r.loop_action == ToolLoopAction.STOP
+            ),
+        })
+        add_span_output([
+            {
+                "tool_call_id": r.tool_call_id,
+                "is_error": r.is_error,
+                "result_type": getattr(r.result_type, "value", r.result_type),
+                "loop_action": getattr(r.loop_action, "value", r.loop_action),
+            }
+            for r in tool_results
+        ])
+
         stop_results = [
             tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP
         ]
@@ -943,7 +1073,7 @@ class AgentRunner:
         session_id: str,
         handler: AgentEventHandler | None,
     ) -> RunResult:
-        """Final turn: thinking-tags fallback."""
+        """Final turn summary."""
         logger.info(
             "[RUN_END] session=%s turns=%d tool_calls=%d tokens=%d/%d",
             session_id[:8],
@@ -952,12 +1082,6 @@ class AgentRunner:
             ls.total_prompt_tokens,
             ls.total_completion_tokens,
         )
-
-        if self.config.enable_thinking_tags and handler:
-            fallback = response.metadata.get("thinking_fallback_content")
-            if fallback:
-                handler.on_content_delta(fallback, ls.turns)
-
         return ls.make_result(response)
 
     def _build_messages(
@@ -1049,20 +1173,20 @@ class AgentRunner:
 
         return messages
 
-    def _build_system_prompt(
+    def _match_skills(
         self,
         state: dict[str, Any],
         session_id: str | None = None,
         *,
         skill_load_mode: str = "full",
-    ) -> str:
-        """构建系统提示"""
-        tools = self.tool_registry.list_all()
+    ) -> list[SkillEntry]:
+        """统一技能匹配入口，供 _run_loop 一次匹配、多处复用。"""
+        if not self.skill_matcher:
+            return []
 
-        # 将已注册的工具名注入，供 skill 资格检查使用
+        tools = self.tool_registry.list_all()
         skill_context = {**state, "available_tools": {t.name for t in tools}}
 
-        # 提取最近的用户查询（供 skill matcher 做相关性判断）
         user_query: str | None = None
         if session_id:
             session = self.session_manager.get_session(session_id)
@@ -1072,14 +1196,38 @@ class AgentRunner:
                         user_query = msg.content
                         break
 
-        # 获取匹配的技能
-        skills = []
-        if self.skill_matcher:
-            match_result = self.skill_matcher.match(
-                query=user_query, context=skill_context,
-                skill_load_mode=skill_load_mode,
-            )
-            skills = match_result.matched_skills
+        match_result = self.skill_matcher.match(
+            query=user_query, context=skill_context,
+            skill_load_mode=skill_load_mode,
+        )
+        return match_result.matched_skills
+
+    def _build_system_prompt(
+        self,
+        state: dict[str, Any],
+        session_id: str | None = None,
+        *,
+        skill_load_mode: str = "full",
+    ) -> str:
+        """构建系统提示。
+
+        dynamic 模式下，若 state 含 `_active_skill_id` 则将该 skill 正文
+        注入 <active_skill> 段；此时传入 builder 的 tools 与
+        `_build_tools` 同源（经 `_filter_tools` 筛选），保证 system prompt
+        描述的工具集与 API tools schema 一致（避免 `include_tool_descriptions`
+        开启后出现"描述了 B 但 API 不给 B"的不一致）。
+        """
+        tools = self._filter_tools(state)
+
+        skills = self._match_skills(
+            state, session_id, skill_load_mode=skill_load_mode,
+        )
+
+        active_skill: SkillEntry | None = None
+        if skill_load_mode != SkillLoadMode.full.value and self.skill_loader:
+            active_id = state.get("_active_skill_id") if state else None
+            if active_id:
+                active_skill = self.skill_loader.get_skill(active_id)
 
         # Dynamic reference 注入: 有 _flow_stage 时按阶段按需追加 reference 内容
         current_stage_id = state.get("_flow_stage")
@@ -1087,18 +1235,6 @@ class AgentRunner:
             skills = self._enrich_skills_with_stage_reference(skills, current_stage_id)
 
         prompt_config = self.config.prompt_config
-
-        # 当 enable_thinking_tags=True 且 prompt_config 未自定义指令时，自动填充默认模板
-        if (
-            self.config.enable_thinking_tags
-            and not prompt_config.thinking_tag_instructions
-        ):
-            from .stream.thinking_tag_parser import DEFAULT_THINKING_TAG_INSTRUCTIONS
-
-            prompt_config = replace(
-                prompt_config,
-                thinking_tag_instructions=DEFAULT_THINKING_TAG_INSTRUCTIONS,
-            )
 
         # 默认只注入 user: 前缀的状态到提示词，减少噪声
         user_state = {k: v for k, v in state.items() if k.startswith("user:")}
@@ -1120,6 +1256,7 @@ class AgentRunner:
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
+            active_skill=active_skill,
             context=user_state,
             config=prompt_config,
             user_profile_content=profile_content,
@@ -1127,6 +1264,44 @@ class AgentRunner:
             enable_memory=self._memory_manager is not None,
             flow_hint=flow_hint,
         )
+
+    def _filter_tools(
+        self, state: dict[str, Any] | None = None,
+    ) -> list[AgentTool]:
+        """按 skill_load_mode 与 _active_skill_id 筛选可见工具（单一事实源）。
+
+        full 模式: 全部返回。
+        dynamic 模式: always 工具始终可见；auto 工具仅在 state["_active_skill_id"]
+            对应的技能被 read_skill 激活后才暴露给 LLM。
+
+        `_build_tools` 与 `_build_system_prompt` 都以此为准，保证 API tools
+        schema 与 system prompt 中的工具描述（若开启）同源。
+        """
+        all_tools = self.tool_registry.list_all()
+
+        if (
+            not self.skill_loader
+            or self.config.skill_config.load_mode == SkillLoadMode.full
+        ):
+            return all_tools
+
+        always = [t for t in all_tools if getattr(t, "visibility", "auto") == "always"]
+
+        active_skill_id = (state or {}).get("_active_skill_id")
+        if not active_skill_id:
+            return always
+
+        skill = self.skill_loader.get_skill(active_skill_id)
+        allowed = set(skill.metadata.required_tools or []) if skill else set()
+        seen = {t.name for t in always}
+        skill_tools = [t for t in all_tools if t.name in allowed and t.name not in seen]
+        return always + skill_tools
+
+    def _build_tools(
+        self, state: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """构建 API tools schema（`_filter_tools` 的薄包装）。"""
+        return [t.get_json_schema() for t in self._filter_tools(state)]
 
     @staticmethod
     def _enrich_skills_with_stage_reference(
@@ -1175,17 +1350,16 @@ class AgentRunner:
             enriched.append(skill)
         return enriched
 
-    def _build_tools(self) -> list[dict[str, Any]]:
-        """构建工具定义"""
-        return [tool.get_json_schema() for tool in self.tool_registry.list_all()]
-
     def _get_llm(
         self,
         model_override: str | None = None,
-        temperature_override: float | None = None,
+        sampling_override: SamplingConfig | None = None,
     ) -> BaseChatModel:
-        """向后兼容 — 委托给 LLMCaller.get_llm。"""
-        return self._llm_caller.get_llm(model_override, temperature_override)
+        """委托给 LLMCaller.get_llm（支持模型 / 采样参数覆盖）。"""
+        return self._llm_caller.get_llm(
+            model_override=model_override,
+            sampling_override=sampling_override,
+        )
 
     # ============ 便捷方法 ============
 

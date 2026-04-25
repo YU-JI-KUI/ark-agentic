@@ -13,7 +13,6 @@ from typing import Any
 from ark_agentic.core.tools.base import (
     AgentTool,
     ToolParameter,
-    read_string_param,
     read_string_param_required,
 )
 from ark_agentic.core.types import AgentToolResult, ToolCall
@@ -46,13 +45,7 @@ class PolicyQueryTool(AgentTool):
             type="string",
             description="查询类型",
             required=True,
-            enum=["list", "detail", "cash_value", "withdrawal_limit"],
-        ),
-        ToolParameter(
-            name="policy_id",
-            type="string",
-            description="保单ID（查询详情时必需）",
-            required=False,
+            enum=["list"],
         ),
     ]
 
@@ -66,17 +59,8 @@ class PolicyQueryTool(AgentTool):
         args = tool_call.arguments
         user_id = read_string_param_required(args, "user_id")
         query_type = read_string_param_required(args, "query_type")
-        policy_id = read_string_param(args, "policy_id")
-
-        # 参数校验
-        if query_type in ("detail", "cash_value") and not policy_id:
-            return AgentToolResult.error_result(
-                tool_call.id, f"查询{query_type}需要提供 policy_id"
-            )
 
         extra: dict[str, str] = {"query_type": query_type}
-        if policy_id:
-            extra["policy_id"] = policy_id
 
         try:
             result = await self._client.call(

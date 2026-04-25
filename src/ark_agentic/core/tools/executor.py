@@ -11,6 +11,7 @@ import asyncio
 import logging
 from typing import Any
 
+from ..observability.decorators import traced_tool
 from ..stream.event_bus import AgentEventHandler
 from ..types import (
     AgentToolResult,
@@ -60,6 +61,7 @@ class ToolExecutor:
 
         return list(results)
 
+    @traced_tool
     async def _execute_single(
         self,
         tc: ToolCall,

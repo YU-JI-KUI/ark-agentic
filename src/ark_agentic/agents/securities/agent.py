@@ -15,6 +15,8 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from typing import Any
+
 from ark_agentic.core.callbacks import (
     CallbackContext,
     CallbackEvent,
@@ -109,7 +111,6 @@ def create_securities_agent(
         pass
 
     runner_config = RunnerConfig(
-        max_tokens=4096,
         max_turns=10,
         enable_dream=enable_dream,
         prompt_config=PromptConfig(
@@ -126,12 +127,12 @@ def create_securities_agent(
 
     from .tools.service.param_mapping import enrich_securities_context, _get_context_value
 
-    async def _enrich_context(ctx: CallbackContext) -> CallbackResult | None:
+    async def _enrich_context(ctx: CallbackContext, **kwargs: Any) -> CallbackResult | None:
         return CallbackResult(
             context_updates=enrich_securities_context(ctx.input_context),
         )
 
-    async def _auth_check(ctx: CallbackContext) -> CallbackResult | None:
+    async def _auth_check(ctx: CallbackContext, **kwargs: Any) -> CallbackResult | None:
         login_flag = _get_context_value(ctx.input_context, "loginflag")
         if str(login_flag) != "1":
             return None

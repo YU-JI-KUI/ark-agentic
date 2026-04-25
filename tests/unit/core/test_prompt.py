@@ -243,6 +243,42 @@ class TestSystemPromptBuilder:
         assert "</instructions>" in prompt
 
 
+class TestMemoryContext:
+    """Tests for add_memory_context and backward-compat alias."""
+
+    def test_memory_context_adds_isolation_declaration(self) -> None:
+        builder = SystemPromptBuilder()
+        builder.add_memory_context("## 风险偏好\n保守型")
+        prompt = builder.build()
+
+        assert "<memory_context>" in prompt
+        assert "NOT current user input" in prompt
+        assert "background reference only" in prompt
+        assert "保守型" in prompt
+
+    def test_memory_context_empty_content_skipped(self) -> None:
+        builder = SystemPromptBuilder()
+        builder.add_memory_context("   ")
+        assert len(builder._sections) == 0
+
+    def test_add_user_profile_is_alias(self) -> None:
+        assert SystemPromptBuilder.add_user_profile is SystemPromptBuilder.add_memory_context
+
+    def test_alias_produces_same_output(self) -> None:
+        b1 = SystemPromptBuilder()
+        b1.add_memory_context("## 偏好\nA")
+        b2 = SystemPromptBuilder()
+        b2.add_user_profile("## 偏好\nA")
+        assert b1.build() == b2.build()
+
+    def test_quick_build_uses_memory_context_section(self) -> None:
+        prompt = SystemPromptBuilder.quick_build(user_profile_content="## 身份\n张三")
+        assert "<memory_context>" in prompt
+        assert "<user_profile>" not in prompt
+        assert "NOT current user input" in prompt
+        assert "张三" in prompt
+
+
 class TestQuickBuild:
     """Tests for quick_build class method."""
 

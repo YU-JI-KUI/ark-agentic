@@ -1,8 +1,6 @@
 """Tests for A2UITheme: defaults, override, immutability, backward-compat aliases,
 and integration with BlockComposer / RenderA2UITool."""
 
-import json
-
 import pytest
 from pydantic import ValidationError
 
@@ -173,7 +171,7 @@ class TestHandleBlocksTheme:
 
     @pytest.mark.asyncio
     async def test_root_column_uses_custom_theme(self, themed_tool):
-        blocks = json.dumps([{"type": "Divider", "data": {}}])
+        blocks = [{"type": "Divider", "data": {}}]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await themed_tool.execute(tc, context={"session_id": "s1"})
         assert not result.is_error
@@ -205,10 +203,10 @@ class TestExpandCardTheme:
 
     @pytest.mark.asyncio
     async def test_card_picks_up_theme_values(self, themed_card_tool):
-        blocks = json.dumps([{
+        blocks = [{
             "type": "Card",
             "data": {"children": [{"type": "Divider", "data": {}}]},
-        }])
+        }]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await themed_card_tool.execute(tc, context={})
         assert not result.is_error
@@ -230,14 +228,14 @@ class TestExpandCardTheme:
 
     @pytest.mark.asyncio
     async def test_card_data_overrides_theme_padding(self, themed_card_tool):
-        blocks = json.dumps([{
+        blocks = [{
             "type": "Card",
             "data": {
                 "padding": 32,
                 "gap": 4,
                 "children": [{"type": "Divider", "data": {}}],
             },
-        }])
+        }]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
         result = await themed_card_tool.execute(tc, context={})
         assert not result.is_error

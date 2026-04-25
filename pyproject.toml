@@ -11,6 +11,12 @@ dependencies = [
     "langchain-openai>=0.3",
     "langchain-core>=0.3",
     "flashtext>=2.7",
+    # Observability: api+sdk are required because core/observability/decorators.py
+    # imports `opentelemetry.trace` unconditionally; under NoOp tracer they're
+    # zero-cost. Provider-specific exporters live in optional groups below.
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "openinference-semantic-conventions",
 ]
 
 [project.optional-dependencies]
@@ -19,12 +25,15 @@ server = [
     "fastapi>=0.128.0",
     "uvicorn[standard]>=0.40.0",
 ]
-phoenix = [
-    "arize-phoenix-otel",
+tracing = [
+    "opentelemetry-exporter-otlp-proto-http",
     "openinference-instrumentation-langchain",
 ]
+phoenix = [
+    "ark-agentic[tracing]",
+]
 langfuse = [
-    "langfuse>=4.0.0",
+    "ark-agentic[tracing]",
 ]
 jobs = [
     "apscheduler>=3.11",
@@ -96,6 +105,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-timeout>=2.3.0",
+    "jsonschema>=4.26.0",
 ]
 securities = [
     "akshare>=1.18.43",

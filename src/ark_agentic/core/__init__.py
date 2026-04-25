@@ -34,12 +34,15 @@ from .callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
+    HookAction,
     BeforeAgentCallback,
     AfterAgentCallback,
     BeforeModelCallback,
     AfterModelCallback,
+    OnModelErrorCallback,
     BeforeToolCallback,
     AfterToolCallback,
+    BeforeLoopEndCallback,
     RunnerCallbacks,
     merge_runner_callbacks,
 )
@@ -68,6 +71,17 @@ from .llm import (
     LLMError,
     LLMErrorReason,
 )
+from .observability import (
+    add_span_attributes,
+    add_span_input,
+    add_span_output,
+    get_tracer,
+    setup_tracing_from_env,
+    shutdown_tracing,
+    traced_agent,
+    traced_chain,
+    traced_tool,
+)
 
 __all__ = [
     # Types
@@ -92,12 +106,15 @@ __all__ = [
     "CallbackContext",
     "CallbackEvent",
     "CallbackResult",
+    "HookAction",
     "BeforeAgentCallback",
     "AfterAgentCallback",
     "BeforeModelCallback",
     "AfterModelCallback",
+    "OnModelErrorCallback",
     "BeforeToolCallback",
     "AfterToolCallback",
+    "BeforeLoopEndCallback",
     "RunnerCallbacks",
     "merge_runner_callbacks",
     # Runner
@@ -126,4 +143,14 @@ __all__ = [
     "create_chat_model_from_env",
     "LLMError",
     "LLMErrorReason",
+    # Observability
+    "add_span_attributes",
+    "add_span_input",
+    "add_span_output",
+    "get_tracer",
+    "setup_tracing_from_env",
+    "shutdown_tracing",
+    "traced_agent",
+    "traced_chain",
+    "traced_tool",
 ]

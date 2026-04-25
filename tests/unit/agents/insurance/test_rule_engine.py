@@ -1,4 +1,6 @@
-"""Unit tests for RuleEngineTool amount validation."""
+"""Unit tests for RuleEngineTool amount handling (aligned with intake guard + tool behavior)."""
+
+import pytest
 
 from ark_agentic.agents.insurance.tools.rule_engine import RuleEngineTool
 from ark_agentic.core.types import ToolCall, ToolResultType
@@ -9,8 +11,9 @@ class _DummyClient:
         return {"policyAssertList": []}
 
 
+@pytest.mark.asyncio
 class TestRuleEngineAmountValidation:
-    async def test_list_options_negative_amount_rejected(self) -> None:
+    async def test_list_options_negative_amount_returns_json(self) -> None:
         tool = RuleEngineTool(client=_DummyClient())
         tc = ToolCall(
             id="r1",
@@ -24,11 +27,10 @@ class TestRuleEngineAmountValidation:
 
         result = await tool.execute(tc, context={})
 
-        assert result.result_type == ToolResultType.ERROR
-        assert "INVALID_AMOUNT_NON_POSITIVE" in str(result.content)
-        assert "必须为正数" in str(result.content)
+        assert result.result_type == ToolResultType.JSON
+        assert result.content["requested_amount"] == -10000
 
-    async def test_calculate_detail_negative_amount_rejected(self) -> None:
+    async def test_calculate_detail_negative_amount_returns_json(self) -> None:
         tool = RuleEngineTool(client=_DummyClient())
         tc = ToolCall(
             id="r2",
@@ -47,10 +49,11 @@ class TestRuleEngineAmountValidation:
 
         result = await tool.execute(tc, context={})
 
-        assert result.result_type == ToolResultType.ERROR
-        assert "INVALID_AMOUNT_NON_POSITIVE" in str(result.content)
+        assert result.result_type == ToolResultType.JSON
+        assert result.content["success"] is True
+        assert result.content["actual_amount"] == -1
 
-    async def test_zero_amount_rejected(self) -> None:
+    async def test_zero_amount_list_options_returns_json(self) -> None:
         tool = RuleEngineTool(client=_DummyClient())
         tc = ToolCall(
             id="r3",
@@ -64,5 +67,5 @@ class TestRuleEngineAmountValidation:
 
         result = await tool.execute(tc, context={})
 
-        assert result.result_type == ToolResultType.ERROR
-        assert "INVALID_AMOUNT_NON_POSITIVE" in str(result.content)
+        assert result.result_type == ToolResultType.JSON
+        assert result.content["requested_amount"] == 0

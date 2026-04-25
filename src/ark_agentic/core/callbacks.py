@@ -1,6 +1,6 @@
 """Runner 生命周期回调
 
-7 个 hook 覆盖 Agent 执行全生命周期:
+8 个 hook 覆盖 Agent 执行全生命周期:
 
   Agent 级 (run 方法, 各触发一次):
     before_agent → after_agent
@@ -11,12 +11,18 @@
   ReAct Loop 级 (仅在最终 response 轮触发，一次或多次):
     before_loop_end
 
+  错误路径 (独立 hook，与成功路径互斥):
+    on_model_error
+
 所有 hook 返回 CallbackResult | None。
 CallbackResult.action (HookAction enum) 声明回调的意图：
   PASS     — 不干预，走默认流程
   ABORT    — before_agent: 拒绝请求，退出 run
   OVERRIDE — before_model / before_tool: 替换默认输出
   RETRY    — before_loop_end: 注入反馈，让模型重试
+
+所有 hook Protocol 末尾带 **kwargs: Any，runner 可透传执行上下文元数据
+（如 streaming, model, tool_count），callback 按需 kwargs.get() 取值。
 """
 
 from __future__ import annotations
@@ -26,6 +32,8 @@ from enum import Enum
 from typing import Any, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .llm.errors import LLMError
+    from .runner import RunResult
     from .types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
 
 
@@ -69,15 +77,19 @@ class CallbackContext:
     """回调共享上下文 — 传递给所有 hook。
 
     Attributes:
+        run_id: 本次 run 的唯一标识（与 OTel span 的 ark.run_id 同源）
         user_input: 原始用户输入
         input_context: 请求级上下文 dict（通过 CallbackResult.context_updates 修改）
         session: 当前 SessionEntry（只读引用）
-        runtime: 当前 run 的临时运行态，仅在本次执行期间可见，不会持久化
+        metadata: 开放字典 — runner 写入 run 级元数据（user_id, model, agent_id…），
+                  callback 可读取也可写入私有数据（约定 _ 前缀避免冲突）。
+                  扩展新字段只需 runner 多写一行，callback 多读一行，零 struct 变更。
     """
+    run_id: str
     user_input: str
     input_context: dict[str, Any]
     session: "SessionEntry"
-    runtime: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # ============ Hook Protocols ============
@@ -90,30 +102,69 @@ class BeforeAgentCallback(Protocol):
     context_updates → merge into input_context before loop entry.
     event → runner dispatches via handler.
     """
-    async def __call__(self, ctx: CallbackContext) -> CallbackResult | None: ...
+    async def __call__(self, ctx: CallbackContext, **kwargs: Any) -> CallbackResult | None: ...
 
 
 class AfterAgentCallback(Protocol):
-    """after_agent: fires once after the ReAct loop completes."""
-    async def __call__(self, ctx: CallbackContext, *, response: "AgentMessage") -> CallbackResult | None: ...
+    """after_agent: fires once after the ReAct loop completes.
+
+    kwargs includes ``result: RunResult`` — the final aggregated outcome.
+    """
+    async def __call__(
+        self,
+        ctx: CallbackContext,
+        *,
+        response: "AgentMessage",
+        result: "RunResult",
+        **kwargs: Any,
+    ) -> CallbackResult | None: ...
 
 
 class BeforeModelCallback(Protocol):
     """before_model: fires before each LLM call.
 
     action=OVERRIDE + response → skip LLM call, use response as model output.
-    Does NOT fire on LLMError turns.
+    kwargs may include: ``streaming`` (bool), ``model`` (str|None), ``tool_count`` (int).
     """
-    async def __call__(self, ctx: CallbackContext, *, turn: int, messages: list[dict[str, Any]]) -> CallbackResult | None: ...
+    async def __call__(
+        self,
+        ctx: CallbackContext,
+        *,
+        turn: int,
+        messages: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> CallbackResult | None: ...
 
 
 class AfterModelCallback(Protocol):
     """after_model: fires after successful LLM response, before persist.
 
     response override → replace the model's response before it is persisted.
-    Does NOT fire on LLMError.
+    Does NOT fire on LLMError — see OnModelErrorCallback.
     """
-    async def __call__(self, ctx: CallbackContext, *, turn: int, response: "AgentMessage") -> CallbackResult | None: ...
+    async def __call__(
+        self,
+        ctx: CallbackContext,
+        *,
+        turn: int,
+        response: "AgentMessage",
+        **kwargs: Any,
+    ) -> CallbackResult | None: ...
+
+
+class OnModelErrorCallback(Protocol):
+    """on_model_error: fires when an LLM call raises LLMError.
+
+    Independent hook (SRP) — mutually exclusive with after_model for the same turn.
+    """
+    async def __call__(
+        self,
+        ctx: CallbackContext,
+        *,
+        turn: int,
+        error: "LLMError",
+        **kwargs: Any,
+    ) -> CallbackResult | None: ...
 
 
 class BeforeToolCallback(Protocol):
@@ -121,7 +172,14 @@ class BeforeToolCallback(Protocol):
 
     action=OVERRIDE + tool_results → skip tool execution, use these results.
     """
-    async def __call__(self, ctx: CallbackContext, *, turn: int, tool_calls: list["ToolCall"]) -> CallbackResult | None: ...
+    async def __call__(
+        self,
+        ctx: CallbackContext,
+        *,
+        turn: int,
+        tool_calls: list["ToolCall"],
+        **kwargs: Any,
+    ) -> CallbackResult | None: ...
 
 
 class AfterToolCallback(Protocol):
@@ -129,7 +187,14 @@ class AfterToolCallback(Protocol):
 
     tool_results override → replace the tool results.
     """
-    async def __call__(self, ctx: CallbackContext, *, turn: int, results: list["AgentToolResult"]) -> CallbackResult | None: ...
+    async def __call__(
+        self,
+        ctx: CallbackContext,
+        *,
+        turn: int,
+        results: list["AgentToolResult"],
+        **kwargs: Any,
+    ) -> CallbackResult | None: ...
 
 
 class BeforeLoopEndCallback(Protocol):
@@ -140,7 +205,13 @@ class BeforeLoopEndCallback(Protocol):
     message and continue the ReAct loop, allowing the model to self-correct.
     action=PASS / None → proceed to _finalize_response normally.
     """
-    async def __call__(self, ctx: CallbackContext, *, response: "AgentMessage") -> CallbackResult | None: ...
+    async def __call__(
+        self,
+        ctx: CallbackContext,
+        *,
+        response: "AgentMessage",
+        **kwargs: Any,
+    ) -> CallbackResult | None: ...
 
 
 # ============ Callbacks Container ============
@@ -153,6 +224,7 @@ class RunnerCallbacks:
     after_agent: list[AfterAgentCallback] = field(default_factory=list)
     before_model: list[BeforeModelCallback] = field(default_factory=list)
     after_model: list[AfterModelCallback] = field(default_factory=list)
+    on_model_error: list[OnModelErrorCallback] = field(default_factory=list)
     before_tool: list[BeforeToolCallback] = field(default_factory=list)
     after_tool: list[AfterToolCallback] = field(default_factory=list)
     before_loop_end: list[BeforeLoopEndCallback] = field(default_factory=list)
@@ -166,6 +238,7 @@ def merge_runner_callbacks(*items: RunnerCallbacks) -> RunnerCallbacks:
         merged.after_agent.extend(item.after_agent)
         merged.before_model.extend(item.before_model)
         merged.after_model.extend(item.after_model)
+        merged.on_model_error.extend(item.on_model_error)
         merged.before_tool.extend(item.before_tool)
         merged.after_tool.extend(item.after_tool)
         merged.before_loop_end.extend(item.before_loop_end)

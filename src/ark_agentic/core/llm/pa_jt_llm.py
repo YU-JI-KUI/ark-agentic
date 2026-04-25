@@ -16,13 +16,14 @@ from urllib.parse import urlencode
 
 import httpx
 
+from .sampling import SamplingConfig
+
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from .factory import PAModelConfig
 
 logger = logging.getLogger(__name__)
 
-# ---- 可选依赖：pycryptodome ----
 try:
     from Crypto.Hash import SHA256
     from Crypto.PublicKey import RSA
@@ -68,8 +69,6 @@ def hmac_sign(app_key: str, app_secret: str, request_time: str) -> str:
 
 
 # ============ JT Transport ============
-# 仅注入鉴权 Header，不修改 body。Body 由 ChatOpenAI(extra_body=...) 在构造请求时一次写入，
-# 由上游计算 Content-Length，从源头避免「改 body 导致 Content-Length 不一致」。
 
 
 class PinganEAGWHeaderAsyncTransport(httpx.AsyncBaseTransport):
@@ -126,21 +125,20 @@ class PinganEAGWHeaderAsyncTransport(httpx.AsyncBaseTransport):
 def create_pa_jt_llm(
     config: "PAModelConfig",
     *,
-    temperature: float,
-    max_tokens: int,
-    streaming: bool,
-    enable_thinking: bool = False,
-    extra_body_override: dict[str, Any] | None = None,
+    sampling: SamplingConfig,
+    streaming: bool = False,
 ) -> "BaseChatModel":
-    """构建 PA-JT 系列 ChatOpenAI。Body 通过 extra_body 在构造时注入，从源头保证 Content-Length 正确。"""
+    """构建 PA-JT 系列 ChatOpenAI。
+
+    Body 通过 extra_body 在构造时注入，从源头保证 Content-Length 正确。
+    采样参数（temperature/top_p/top_k/rep_penalty/min_p/seed/enable_thinking）
+    统一由 SamplingConfig.to_chat_openai_kwargs() 与 to_extra_body() 分层注入。
+    """
     from langchain_openai import ChatOpenAI
-    from .debug_transport import wrap_async_transport
+    from .debug_transport import debug_transport
 
     transport = PinganEAGWHeaderAsyncTransport(
-        base_transport=wrap_async_transport(
-            httpx.AsyncHTTPTransport(retries=3),
-            config.rewrite_full_url,
-        ),
+        base_transport=debug_transport(httpx.AsyncHTTPTransport(retries=3)),
         api_code=config.open_api_code,
         gateway_credential=config.open_api_credential,
         gateway_key=config.rsa_private_key,
@@ -153,22 +151,15 @@ def create_pa_jt_llm(
 
     jt_extra_body: dict[str, Any] = {
         "scene_id": config.scene_id,
-        "seed": 42,
-        "chat_template_kwargs": {
-            "enable_thinking": enable_thinking,
-            "thinking": enable_thinking,
-        },
+        **sampling.to_extra_body(),
     }
-    if extra_body_override:
-        jt_extra_body.update(extra_body_override)
 
     return ChatOpenAI(
         base_url=config.base_url,
         api_key="EMPTY",
         model=config.model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
         streaming=streaming,
         http_async_client=http_client,
         extra_body=jt_extra_body,
+        **sampling.to_chat_openai_kwargs(),
     )

@@ -40,6 +40,7 @@ class MemoryWriteTool(AgentTool):
     """Memory 写入工具 — Agent 增量更新用户记忆"""
 
     name = "memory_write"
+    visibility = "always"
     thinking_hint = "正在保存记忆…"
     description = (
         "[持久写入] 增量更新长期记忆。只写变化的标题，其他自动保留。"

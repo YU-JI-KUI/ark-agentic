@@ -39,16 +39,22 @@ def read_skill_tool():
 
 
 @pytest.mark.asyncio
-async def test_read_skill_valid_id_returns_content(read_skill_tool: ReadSkillTool) -> None:
-    """Valid skill_id returns skill content (name, description, body)."""
+async def test_read_skill_valid_id_returns_digest(read_skill_tool: ReadSkillTool) -> None:
+    """Skill 一等公民：valid skill_id 只返回加载凭证 digest（含 name/id、不含正文），
+    同时 metadata.state_delta 写入 `_active_skill_id`，正文由下一轮 system prompt 注入。
+    """
     tc = ToolCall.create("read_skill", {"skill_id": "test_skill"})
     result = await read_skill_tool.execute(tc, context=None)
     assert not result.is_error
-    assert result.content is not None
     text = result.content if isinstance(result.content, str) else str(result.content)
+    # digest 应包含 skill 身份标识
     assert "Test Skill" in text
-    assert "Full skill body content here." in text
     assert "test_skill" in text
+    # digest 应明确指示"下一轮 system prompt 有正文"，且不重复正文
+    assert "active" in text.lower()
+    assert "Full skill body content here." not in text
+    # 必须写 state_delta，runner 借此在下一轮注入 <active_skill>
+    assert result.metadata.get("state_delta") == {"_active_skill_id": "test_skill"}
 
 
 @pytest.mark.asyncio

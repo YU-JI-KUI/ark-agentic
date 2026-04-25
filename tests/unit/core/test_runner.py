@@ -120,54 +120,25 @@ def _make_runner(
     return runner, tool
 
 
-def test_runner_never_auto_injects_tracing_callbacks(tmp_sessions_dir: Path) -> None:
-    os.environ.pop("ENABLE_OBSERVABILITY", None)
-    os.environ.pop("ENABLE_PHOENIX", None)
+def test_runner_callbacks_are_business_only(
+    tmp_sessions_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Observability is now handled by OTel decorators, not callback injection.
+
+    A runner built with no external callbacks should have empty hook lists —
+    nothing auto-injected.
+    """
+    monkeypatch.delenv("TRACING", raising=False)
     runner, _ = _make_runner(tmp_sessions_dir)
     assert runner._callbacks.before_agent == []
     assert runner._callbacks.after_agent == []
     assert runner._callbacks.before_model == []
     assert runner._callbacks.after_model == []
+    assert runner._callbacks.on_model_error == []
     assert runner._callbacks.before_tool == []
     assert runner._callbacks.after_tool == []
-
-
-def test_runner_uses_callbacks_passed_by_caller(tmp_sessions_dir: Path) -> None:
-    os.environ.pop("ENABLE_OBSERVABILITY", None)
-    os.environ.pop("ENABLE_PHOENIX", None)
-    callback = AsyncMock(return_value=None)
-    callbacks = RunnerCallbacks(before_agent=[callback])
-    runner, _ = _make_runner(tmp_sessions_dir, callbacks=callbacks)
-
-    assert runner._callbacks.before_agent == [callback]
-
-
-def test_runner_auto_injects_observability_when_enabled(
-    tmp_sessions_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("ENABLE_OBSERVABILITY", "true")
-
-    runner, _ = _make_runner(tmp_sessions_dir)
-
-    assert len(runner._callbacks.before_agent) == 1
-    assert len(runner._callbacks.after_agent) == 1
-    assert len(runner._callbacks.before_model) == 1
-    assert len(runner._callbacks.after_model) == 1
-    assert len(runner._callbacks.before_tool) == 1
-    assert len(runner._callbacks.after_tool) == 1
-
-
-def test_runner_wraps_business_callbacks_with_observability_when_enabled(
-    tmp_sessions_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("ENABLE_OBSERVABILITY", "true")
-    callback = AsyncMock(return_value=None)
-    business_callbacks = RunnerCallbacks(before_agent=[callback])
-    runner, _ = _make_runner(tmp_sessions_dir, callbacks=business_callbacks)
-
-    assert business_callbacks.before_agent == [callback]
-    assert len(runner._callbacks.before_agent) == 2
-    assert runner._callbacks.before_agent.count(callback) == 1
+    assert runner._callbacks.before_loop_end == []
 
 
 # ============ Tests ============
@@ -749,7 +720,7 @@ async def test_a2ui_marker_by_name_not_result_type(tmp_sessions_dir: Path) -> No
     session = runner.session_manager.create_session_sync()
 
     # Use "render_a2ui" name to match the name-based check in _build_messages
-    tc = ToolCall(id="call_name_test", name="render_a2ui", arguments={"blocks": "[]"})
+    tc = ToolCall(id="call_name_test", name="render_a2ui", arguments={"blocks": []})
     assistant_msg = AgentMessage.assistant(content="", tool_calls=[tc])
     session.add_message(assistant_msg)
 

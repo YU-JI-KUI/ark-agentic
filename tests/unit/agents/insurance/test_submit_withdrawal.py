@@ -5,6 +5,7 @@ import pytest
 from ark_agentic.agents.insurance.tools.submit_withdrawal import (
     SubmitWithdrawalTool,
     _build_stop_message,
+    _build_submit_digest,
     _find_remaining_channels,
     _resolve_policies_from_state,
 )
@@ -191,6 +192,33 @@ class TestBuildStopMessage:
         assert msg.count("红利领取") == 1
 
 
+class TestBuildSubmitDigest:
+    """结构化 llm_digest：[办理:已提交 channel=… remaining=[…]]，供 execute_withdrawal STEP 0 续办判定。"""
+
+    def test_no_remaining(self) -> None:
+        digest = _build_submit_digest("policy_loan", [])
+        assert digest == "[办理:已提交 channel=policy_loan remaining=[]]"
+
+    def test_with_remaining(self) -> None:
+        digest = _build_submit_digest(
+            "survival_fund", [{"channel": "bonus", "amount": 5200}]
+        )
+        assert digest == "[办理:已提交 channel=survival_fund remaining=[bonus]]"
+
+    def test_multiple_remaining_deduped(self) -> None:
+        digest = _build_submit_digest(
+            "survival_fund",
+            [
+                {"channel": "bonus", "amount": 500},
+                {"channel": "bonus", "amount": 700},
+                {"channel": "policy_loan", "amount": 3000},
+            ],
+        )
+        assert digest == (
+            "[办理:已提交 channel=survival_fund remaining=[bonus,policy_loan]]"
+        )
+
+
 class TestSubmitWithdrawalToolExecute:
     @pytest.fixture
     def tool(self) -> SubmitWithdrawalTool:
@@ -218,12 +246,28 @@ class TestSubmitWithdrawalToolExecute:
         assert result.loop_action == ToolLoopAction.STOP
         assert "已启动保单贷款办理流程" in str(result.content)
         assert "待办理" not in str(result.content)
+        assert result.llm_digest == "[办理:已提交 channel=policy_loan remaining=[]]"
         assert len(result.events) == 1
         ev = result.events[0]
         assert isinstance(ev, CustomToolEvent)
         assert ev.custom_type == "start_flow"
         assert ev.payload["flow_type"] == "E027Flow"
         assert ev.payload["query_msg"] == "保单号-L1，金额-5000"
+
+    @pytest.mark.asyncio
+    async def test_happy_path_multi_channel_digest_carries_remaining(
+        self, tool: SubmitWithdrawalTool
+    ) -> None:
+        tc = ToolCall(
+            id="c_digest",
+            name="submit_withdrawal",
+            arguments={"operation_type": "shengcunjin"},
+        )
+        ctx = _multi_channel_ctx()
+        result = await tool.execute(tc, context=ctx)
+        assert result.llm_digest == (
+            "[办理:已提交 channel=survival_fund remaining=[bonus]]"
+        )
 
     @pytest.mark.asyncio
     async def test_multi_channel_first_submit_shows_remaining(

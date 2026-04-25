@@ -266,24 +266,16 @@ class MockDataServiceClient:
     @staticmethod
     def _mock_policy_query(user_id: str, params: dict[str, Any]) -> dict[str, Any]:
         qt = params.get("query_type", "list")
-        pid = params.get("policy_id")
 
         if qt == "list":
             return {
-                "user_id": user_id,
                 "policyAssertList": [
                     {
                         "policy_id": "POL001",
                         "product_name": "平安福终身寿险",
                         "product_type": "whole_life",
-                        "status": "active",
                         "effective_date": "2019-03-15",
-                        "premium": 12000,
-                        "payment_years": 20,
-                        "paid_years": 5,
-                        "sum_insured": 500000,
-                        "account_value": 0,
-                        "bounusAmt": 0,
+                        "bonusAmt": 0,
                         "loanAmt": 33600,
                         "survivalFundAmt": 0,
                         "policyRefundAmount": 42000,
@@ -292,14 +284,8 @@ class MockDataServiceClient:
                         "policy_id": "POL002",
                         "product_name": "金瑞人生年金险",
                         "product_type": "annuity",
-                        "status": "active",
                         "effective_date": "2021-06-01",
-                        "premium": 50000,
-                        "payment_years": 5,
-                        "paid_years": 3,
-                        "sum_insured": 0,
-                        "account_value": 168000,
-                        "bounusAmt": 5200,
+                        "bonusAmt": 5200,
                         "loanAmt": 0,
                         "survivalFundAmt": 12000,
                         "policyRefundAmount": 160000,
@@ -308,164 +294,11 @@ class MockDataServiceClient:
                         "policy_id": "POL003",
                         "product_name": "智盈人生万能险",
                         "product_type": "universal_life",
-                        "status": "active",
                         "effective_date": "2022-09-01",
-                        "premium": 30000,
-                        "payment_years": 10,
-                        "paid_years": 3,
-                        "sum_insured": 200000,
-                        "account_value": 95000,
-                        "bounusAmt": 0,
+                        "bonusAmt": 0,
                         "loanAmt": 0,
                         "survivalFundAmt": 0,
                         "policyRefundAmount": 85000,
-                    },
-                ],
-                "total_count": 3,
-            }
-
-        if qt == "detail":
-            if pid == "POL001":
-                return {
-                    "policy_id": "POL001",
-                    "product_name": "平安福终身寿险",
-                    "product_type": "whole_life",
-                    "status": "active",
-                    "effective_date": "2019-03-15",
-                    "premium": 12000,
-                    "payment_frequency": "annual",
-                    "payment_years": 20,
-                    "paid_years": 5,
-                    "sum_insured": 500000,
-                    "cash_value": 42000,
-                    "bounusAmt": 0,
-                    "loanAmt": 33600,
-                    "survivalFundAmt": 0,
-                    "policyRefundAmount": 42000,
-                    "riders": [
-                        {"name": "重疾险", "sum_insured": 300000},
-                        {"name": "意外险", "sum_insured": 100000},
-                    ],
-                }
-            if pid == "POL002":
-                return {
-                    "policy_id": "POL002",
-                    "product_name": "金瑞人生年金险",
-                    "product_type": "annuity",
-                    "status": "active",
-                    "effective_date": "2021-06-01",
-                    "premium": 50000,
-                    "payment_frequency": "annual",
-                    "payment_years": 5,
-                    "paid_years": 3,
-                    "account_value": 168000,
-                    "cash_value": 165000,
-                    "bounusAmt": 5200,
-                    "loanAmt": 0,
-                    "survivalFundAmt": 12000,
-                    "policyRefundAmount": 160000,
-                }
-            if pid == "POL003":
-                return {
-                    "policy_id": "POL003",
-                    "product_name": "智盈人生万能险",
-                    "product_type": "universal_life",
-                    "status": "active",
-                    "effective_date": "2022-09-01",
-                    "premium": 30000,
-                    "payment_frequency": "annual",
-                    "payment_years": 10,
-                    "paid_years": 3,
-                    "sum_insured": 200000,
-                    "account_value": 95000,
-                    "cash_value": 88000,
-                    "bounusAmt": 0,
-                    "loanAmt": 0,
-                    "survivalFundAmt": 0,
-                    "policyRefundAmount": 85000,
-                }
-            return {"error": f"保单 {pid} 不存在"}
-
-        if qt == "cash_value":
-            if pid == "POL001":
-                return {
-                    "policy_id": "POL001",
-                    "cash_value": 42000,
-                    "loan_rate": 0.8,
-                    "bounusAmt": 0,
-                    "loanAmt": 33600,
-                    "survivalFundAmt": 0,
-                    "policyRefundAmount": 42000,
-                }
-            if pid == "POL002":
-                return {
-                    "policy_id": "POL002",
-                    "account_value": 168000,
-                    "cash_value": 165000,
-                    "bounusAmt": 5200,
-                    "loanAmt": 0,
-                    "survivalFundAmt": 12000,
-                    "policyRefundAmount": 160000,
-                }
-            if pid == "POL003":
-                return {
-                    "policy_id": "POL003",
-                    "account_value": 95000,
-                    "cash_value": 88000,
-                    "bounusAmt": 0,
-                    "loanAmt": 0,
-                    "survivalFundAmt": 0,
-                    "policyRefundAmount": 85000,
-                }
-            return {"error": f"保单 {pid} 不存在"}
-
-        if qt == "withdrawal_limit":
-            # 汇总各保单可用的取款渠道，与 list 中的四个金额字段一致
-            return {
-                "user_id": user_id,
-                "total_withdrawal_available": 337800,
-                "details": [
-                    {
-                        "policy_id": "POL001",
-                        "type": "loan",
-                        "available": 33600,
-                        "source_field": "loanAmt",
-                        "description": "保单贷款",
-                    },
-                    {
-                        "policy_id": "POL001",
-                        "type": "surrender",
-                        "available": 42000,
-                        "source_field": "policyRefundAmount",
-                        "description": "退保",
-                    },
-                    {
-                        "policy_id": "POL002",
-                        "type": "survival_fund",
-                        "available": 12000,
-                        "source_field": "survivalFundAmt",
-                        "description": "生存金领取",
-                    },
-                    {
-                        "policy_id": "POL002",
-                        "type": "bonus",
-                        "available": 5200,
-                        "source_field": "bounusAmt",
-                        "description": "红利领取",
-                    },
-                    {
-                        "policy_id": "POL002",
-                        "type": "partial_withdrawal",
-                        "available": 160000,
-                        "source_field": "policyRefundAmount",
-                        "description": "部分领取",
-                    },
-                    {
-                        "policy_id": "POL003",
-                        "type": "partial_withdrawal",
-                        "available": 85000,
-                        "source_field": "policyRefundAmount",
-                        "description": "万能险部分领取",
                     },
                 ],
             }

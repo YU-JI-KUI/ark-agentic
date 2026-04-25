@@ -115,6 +115,24 @@ def _build_stop_message(
     return msg
 
 
+def _build_submit_digest(
+    channel: str,
+    remaining: list[dict[str, Any]],
+) -> str:
+    """结构化 LLM digest：供 execute_withdrawal STEP 0 做字段匹配续办判定。
+
+    格式：``[办理:已提交 channel=<ch> remaining=[<ch1>,<ch2>]]``
+    """
+    remaining_channels: list[str] = []
+    seen: set[str] = set()
+    for alloc in remaining:
+        ch = alloc.get("channel", "")
+        if ch and ch not in seen:
+            seen.add(ch)
+            remaining_channels.append(ch)
+    return f"[办理:已提交 channel={channel} remaining=[{','.join(remaining_channels)}]]"
+
+
 class SubmitWithdrawalTool(AgentTool):
     name = "submit_withdrawal"
     description = (
@@ -173,6 +191,7 @@ class SubmitWithdrawalTool(AgentTool):
         remaining = _find_remaining_channels(channel, ctx)
         already = already_submitted | {channel}
         content = _build_stop_message(channel, remaining)
+        digest = _build_submit_digest(channel, remaining)
 
         query_msg = "，".join(
             f"保单号-{p['policy_no']}，金额-{p['amount']}"
@@ -190,4 +209,5 @@ class SubmitWithdrawalTool(AgentTool):
                     payload={"flow_type": source_type, "query_msg": query_msg},
                 ),
             ],
+            llm_digest=digest,
         )

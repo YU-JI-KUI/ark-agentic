@@ -78,7 +78,6 @@ async def base_agent(memory_dir: Path, base_sessions_dir: Path):
     )
 
     runner_config = RunnerConfig(
-        max_tokens=4096,
         max_turns=10,
         prompt_config=PromptConfig(
             agent_name="记忆测试助手",

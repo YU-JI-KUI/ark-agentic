@@ -39,6 +39,19 @@ from .withdraw_a2ui_utils import (
 
 logger = logging.getLogger(__name__)
 
+SECTION_TYPES: tuple[str, ...] = (
+    "zero_cost",
+    "survival_fund",
+    "bonus",
+    "loan",
+    "partial_withdrawal",
+    "surrender",
+)
+"""WithdrawSummary 板块枚举；与 `_section_presets` 字面量对齐。"""
+
+CHANNEL_TYPES: tuple[str, ...] = _ALL_CHANNELS
+"""取款渠道枚举；单一事实源来自 withdraw_a2ui_utils._ALL_CHANNELS。"""
+
 
 def _parse_options(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract options list from raw_data, with resilient parsing."""
@@ -109,6 +122,10 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "total_color": t.hint_color,
         },
     }
+
+    assert tuple(_section_presets.keys()) == SECTION_TYPES, (
+        "_section_presets 的键顺序必须与 SECTION_TYPES 常量保持一致"
+    )
 
     # -- Shared helper --
 
@@ -211,9 +228,13 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "children": {"explicitList": [col_id]},
         })
 
-        digest = f"[已向用户展示卡片] 汇总: 总可领{'(含贷款)' if has_loan_section else ''} ¥{total:,.2f}"
-        if has_loan_section:
-            digest += f" | 不含贷款 ¥{total_excl_loan:,.2f}"
+        loan_flag = "true" if has_loan_section else "false"
+        digest = (
+            f"[卡片:总览/合计 total={total:.2f} loan_included={loan_flag}]"
+            f" 总可领 ¥{total:,.2f}"
+        )
+        if has_loan_section and total > 0:
+            digest += f" · 不含贷款 ¥{total_excl_loan:,.2f}"
 
         return A2UIOutput(components=[card, col] + comps, llm_digest=digest)
 
@@ -223,7 +244,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
         raw_data: dict[str, Any],
     ) -> A2UIOutput:
         """Section card for withdraw summary."""
-        section_name = data.get("section")
+        section_name = data.get("section_name")
         if section_name and section_name in _section_presets:
             preset = _section_presets[section_name]
             channels = preset["channels"]
@@ -305,8 +326,11 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "children": {"explicitList": [col_id]},
         })
 
-        detail = "; ".join(f"{item['label']} {item['value']}" for item in items)
-        digest = f"[已向用户展示卡片] 渠道: {title} | 合计: ¥{total_sum:,.2f} | {detail}"
+        detail = " · ".join(f"{item['label']} {item['value']}" for item in items)
+        digest = (
+            f"[卡片:总览/板块 name={section_name} total={total_sum:.2f}]"
+            f" {title} · {detail}"
+        )
 
         return A2UIOutput(components=[card, col] + comps, llm_digest=digest)
 
@@ -417,10 +441,14 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
         by_ch: dict[str, float] = {}
         for _, ch, amt in allocs:
             by_ch[ch] = by_ch.get(ch, 0) + amt
-        ch_summary = ", ".join(
+        ch_summary = " · ".join(
             f"{_CHANNEL_LABELS.get(ch, ch)} ¥{amt:,.2f}" for ch, amt in by_ch.items()
         )
-        digest = f"[已向用户展示卡片] 方案: {title} | channels: {actual_channels} | 总额: ¥{actual_total:,.2f} | {ch_summary}"
+        channels_str = ",".join(actual_channels)
+        digest = (
+            f"[卡片:方案 title=\"{title}\" channels=[{channels_str}] total={actual_total:.2f}]"
+            f" {ch_summary}"
+        )
 
         return A2UIOutput(
             components=[card, col] + comps,
@@ -441,17 +469,69 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
 INSURANCE_COMPONENTS: dict[str, Any] = create_insurance_components()
 
 COMPONENT_SCHEMAS: dict[str, str] = {
-    "WithdrawSummaryHeader": (
-        "总览头部(总金额)。data: {sections?: [zero_cost/loan/survival_fund/bonus"
-        "/partial_withdrawal/surrender], exclude_policies?: [str]}"
-    ),
-    "WithdrawSummarySection": (
-        "总览分组卡片。data: {section: zero_cost/loan/survival_fund/bonus"
-        "/partial_withdrawal/surrender}"
-    ),
-    "WithdrawPlanCard": (
-        "取款方案卡(自动分配金额)。data: {channels: [survival_fund/bonus"
-        "/partial_withdrawal/policy_loan/surrender], target: number(0=全额), "
-        "title: str, tag?: str, reason?: str, exclude_policies?: [str]}"
-    ),
+    "WithdrawSummaryHeader": "总览头：合计所选板块的可领金额",
+    "WithdrawSummarySection": "板块卡：列出单板块各保单可领明细",
+    "WithdrawPlanCard": "方案卡：按目标金额在候选渠道自动分配",
+}
+
+BLOCK_DATA_SCHEMAS: dict[str, dict[str, Any]] = {
+    "WithdrawSummaryHeader": {
+        "type": "object",
+        "properties": {
+            "sections": {
+                "type": "array",
+                "description": "要展示的板块列表；缺省=全部。",
+                "items": {"type": "string", "enum": list(SECTION_TYPES)},
+            },
+            "exclude_policies": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "additionalProperties": True,
+    },
+    "WithdrawSummarySection": {
+        "type": "object",
+        "required": ["section_name"],
+        "properties": {
+            "section_name": {
+                "type": "string",
+                "description": "要展示的单个板块。",
+                "enum": list(SECTION_TYPES),
+            },
+            "exclude_policies": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "additionalProperties": True,
+    },
+    "WithdrawPlanCard": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+            "channels": {
+                "type": "array",
+                "description": "候选渠道；缺省=全渠道。",
+                "items": {"type": "string", "enum": list(CHANNEL_TYPES)},
+            },
+            "target": {
+                "type": "number",
+                "description": "目标金额；0 或缺省=全额。",
+            },
+            "title": {"type": "string"},
+            "tag": {"type": "string"},
+            "tag_color": {"type": "string"},
+            "reason": {"type": "string"},
+            "button_variant": {
+                "type": "string",
+                "enum": ["primary", "secondary"],
+            },
+            "exclude_policies": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "additionalProperties": True,
+    },
 }

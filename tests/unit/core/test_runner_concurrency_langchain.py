@@ -71,10 +71,12 @@ class TestRunnerConcurrency:
     @pytest.fixture
     def runner_config(self):
         """创建 Runner 配置"""
+        from ark_agentic.core.llm.sampling import SamplingConfig
+
         return RunnerConfig(
             model="mock",
-            temperature=0.7,
-            max_turns=3
+            sampling=SamplingConfig.for_chat(temperature=0.7),
+            max_turns=3,
         )
 
     @pytest.fixture
