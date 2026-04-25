@@ -90,12 +90,10 @@ def create_meta_builder_from_env(
         skill_config=skill_config,
     )
 
-    runner = AgentRunner(
+    return AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
         session_manager=session_manager,
         skill_loader=skill_loader,
         config=runner_config,
     )
-
-    return runner

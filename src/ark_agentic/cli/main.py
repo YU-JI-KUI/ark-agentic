@@ -73,6 +73,8 @@ def _render_env_sample(llm_provider: str, package_name: str = "") -> str:
                 "MODEL_NAME=gpt-4o",
                 "API_KEY=sk-xxx",
                 "# LLM_BASE_URL=https://api.openai.com/v1",
+                "# LLM_BASE_URL_IS_FULL_URL=false",
+                "# 完整请求 URL 示例: LLM_BASE_URL=https://service-host/chat/dialog  LLM_BASE_URL_IS_FULL_URL=true",
             ]
         )
 
@@ -102,7 +104,7 @@ def _cmd_init(args: argparse.Namespace) -> None:
         if include_api else ""
     )
 
-    ark_dep = '"ark-agentic[memory]>=0.1.0",' if include_memory else '"ark-agentic>=0.1.0",'
+    ark_dep = '"ark-agentic>=0.1.0",'
 
     fmt = dict(
         project_name=project_name,
@@ -145,7 +147,7 @@ def _cmd_init(args: argparse.Namespace) -> None:
     print()
     print("后续步骤:")
     print(f"  cd {project_name}")
-    print("  uv pip install -e '.[server]'")
+    print("  uv pip install -e .")
     if include_api:
         print(f"  uv run python -m {package_name}.app")
         print("  # 启用 Studio: 设置 ENABLE_STUDIO=true")

@@ -22,17 +22,6 @@ logging.basicConfig(
     force=True,
 )
 
-# 抑制第三方库的 DEBUG 日志（即使 LOG_LEVEL=DEBUG）
-# for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
-#     logging.getLogger(_lib).setLevel(logging.WARNING)
-
-# Windows Update 证书探测会触发 uvicorn 的 "Invalid HTTP request received" 警告，静默掉。
-# logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
-
-# if _log_level == logging.DEBUG:
-#     # set_debug(True) 会把 LLM 完整输入输出打到 stdout（ConsoleCallbackHandler），噪音过大。
-#     # DEBUG 级别的 LangChain 内部日志通过标准 logging 控制，无需开启 LangChain debug 模式。
-#     pass
 
 from pathlib import Path
 
@@ -62,33 +51,6 @@ def _env_flag(name: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Step 1: 先初始化 JobManager 全局单例（如果启用）────────────────────
-    # 必须在 agent warmup 之前设置，因为 warmup 时会自动向 JobManager 注册 Job
-    # if _env_flag("ENABLE_JOB_MANAGER"):
-    #     from ark_agentic.core.notifications.store import NotificationStore
-    #     from ark_agentic.core.notifications.delivery import NotificationDelivery
-    #     from ark_agentic.core.jobs.manager import JobManager, set_job_manager
-    #     from ark_agentic.core.jobs.scanner import UserShardScanner
-    #     from ark_agentic.core.paths import get_notifications_base_dir
-
-    #     notification_store = NotificationStore(base_dir=get_notifications_base_dir())
-    #     notification_delivery = NotificationDelivery()
-    #     app.state.notification_store = notification_store
-    #     app.state.notification_delivery = notification_delivery
-
-    #     scanner = UserShardScanner(
-    #         max_concurrent=int(os.getenv("JOB_MAX_CONCURRENT", "50")),
-    #         batch_size=int(os.getenv("JOB_BATCH_SIZE", "500")),
-    #         shard_index=int(os.getenv("JOB_SHARD_INDEX", "0")),
-    #         total_shards=int(os.getenv("JOB_TOTAL_SHARDS", "1")),
-    #     )
-    #     job_manager = JobManager(
-    #         notification_store=notification_store,
-    #         delivery=notification_delivery,
-    #         scanner=scanner,
-    #     )
-    #     set_job_manager(job_manager)  # 设置全局单例
-    #     app.state.job_manager = job_manager
 
     tracer_provider = setup_tracing_from_env(service_name="ark-agentic-api")
 
@@ -111,17 +73,8 @@ async def lifespan(app: FastAPI):
         await runner.warmup()
         logger.info("Agent '%s' warmed up", agent_id)
 
-    # ── Step 4: 所有 Job 注册完毕，启动调度器 ─────────────────────────────
-    # if hasattr(app.state, "job_manager"):
-    #     await app.state.job_manager.start()
-    #     logger.info("JobManager started")
-
     logger.info("Unified API started with agents: %s", _registry.list_ids())
     yield
-
-    # if hasattr(app.state, "job_manager"):
-    #     await app.state.job_manager.stop()
-    #     logger.info("JobManager stopped")
 
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
@@ -145,14 +98,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# # Windows Update / CryptSvc 会把证书吊销列表请求（disallowedcertstl.cab 等）
-# # 路由到本机监听端口，产生无意义的 404 日志。直接静默返回 204。
-# @app.middleware("http")
-# async def _drop_windows_update_probes(request, call_next):
-#     if "/msdownload/update/" in request.url.path:
-#         from fastapi.responses import Response
-#         return Response(status_code=204)
-#     return await call_next(request)
 
 # ---- 挂载路由 ----
 app.include_router(chat_api.router)
@@ -164,7 +109,6 @@ _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
-# Docs 子页消费的 README 单一事实源（src/ark_agentic/app.py -> parents[2] = repo root）
 _README_PATH = Path(__file__).resolve().parents[2] / "README.md"
 
 
@@ -221,11 +165,6 @@ def main() -> None:
     import asyncio
     import sys
     import uvicorn
-
-    # # ProactorEventLoop (Windows default) raises OSError: [WinError 64] on abrupt
-    # # client disconnects. Switch to SelectorEventLoop to avoid these spurious errors.
-    # if sys.platform == "win32":
-    #     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", "8080"))

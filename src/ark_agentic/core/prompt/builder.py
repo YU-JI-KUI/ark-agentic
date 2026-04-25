@@ -284,6 +284,7 @@ class SystemPromptBuilder:
         skill_config: SkillConfig | None = None,
         enable_memory: bool = False,
         active_skill: SkillEntry | None = None,
+        flow_hint: str = "",
     ) -> str:
         """快速构建系统提示
 
@@ -321,6 +322,8 @@ class SystemPromptBuilder:
         if enable_memory:
             builder.add_memory_instructions()
         builder.add_custom_instructions()
+        if flow_hint:
+            builder.add_section("system_hint", flow_hint)
 
         return builder.build()
 

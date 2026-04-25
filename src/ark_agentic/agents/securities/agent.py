@@ -15,9 +15,21 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from ark_agentic.core.callbacks import CallbackContext, CallbackEvent, CallbackResult, HookAction, RunnerCallbacks
+from typing import Any
+
+from ark_agentic.core.callbacks import (
+    CallbackContext,
+    CallbackEvent,
+    CallbackResult,
+    HookAction,
+    RunnerCallbacks,
+)
 from ark_agentic.core.compaction import CompactionConfig
 from ark_agentic.core.memory.manager import build_memory_manager
+from ark_agentic.services.jobs import (
+    apply_proactive_job_bindings,
+    build_proactive_job_bindings,
+)
 from ark_agentic.core.paths import get_memory_base_dir, prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
@@ -25,7 +37,7 @@ from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
 from ark_agentic.core.tools.registry import ToolRegistry
-from ark_agentic.core.types import SkillLoadMode
+from ark_agentic.core.types import AgentMessage, SkillLoadMode
 from ark_agentic.core.validation import EntityTrie, create_citation_validation_hook
 
 from .tools import create_securities_tools
@@ -115,12 +127,12 @@ def create_securities_agent(
 
     from .tools.service.param_mapping import enrich_securities_context, _get_context_value
 
-    async def _enrich_context(ctx: CallbackContext) -> CallbackResult | None:
+    async def _enrich_context(ctx: CallbackContext, **kwargs: Any) -> CallbackResult | None:
         return CallbackResult(
             context_updates=enrich_securities_context(ctx.input_context),
         )
 
-    async def _auth_check(ctx: CallbackContext) -> CallbackResult | None:
+    async def _auth_check(ctx: CallbackContext, **kwargs: Any) -> CallbackResult | None:
         login_flag = _get_context_value(ctx.input_context, "loginflag")
         if str(login_flag) != "1":
             return None
@@ -160,7 +172,7 @@ def create_securities_agent(
             cron=proactive_cron,
         )
 
-    return AgentRunner(
+    runner = AgentRunner(
         llm=llm,
         tool_registry=tool_registry,
         session_manager=session_manager,
@@ -168,5 +180,9 @@ def create_securities_agent(
         config=runner_config,
         memory_manager=memory_manager,
         callbacks=existing_callbacks,
-        proactive_job=proactive_job,
     )
+    apply_proactive_job_bindings(
+        runner,
+        build_proactive_job_bindings(job=proactive_job),
+    )
+    return runner

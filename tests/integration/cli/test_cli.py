@@ -50,6 +50,7 @@ def test_render_env_sample_openai_contains_api_key_and_model():
     assert "API_KEY=" in out
     assert "MODEL_NAME=" in out
     assert "LLM_PROVIDER=openai" in out
+    assert "LLM_BASE_URL_IS_FULL_URL=false" in out
     assert "mypkg" in out or "AGENTS_ROOT" in out
 
 

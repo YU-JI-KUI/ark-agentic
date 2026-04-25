@@ -100,32 +100,24 @@ name = "ark-agentic"
 version = "0.2.5.1"
 source = { editable = "." }
 dependencies = [
-    { name = "akshare" },
-    { name = "apscheduler" },
-    { name = "fastapi" },
     { name = "flashtext" },
     { name = "httpx" },
     { name = "langchain-core" },
     { name = "langchain-openai" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "openinference-instrumentation-langchain" },
     { name = "openinference-semantic-conventions" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pypinyin" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "rapidfuzz" },
-    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
 all = [
+    { name = "apscheduler" },
     { name = "bcrypt" },
     { name = "fastapi" },
+    { name = "openinference-instrumentation-langchain" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "pycryptodome" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -133,6 +125,7 @@ all = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 dev = [
+    { name = "apscheduler" },
     { name = "bcrypt" },
     { name = "fastapi" },
     { name = "pytest" },
@@ -140,13 +133,39 @@ dev = [
     { name = "pytest-timeout" },
     { name = "uvicorn", extra = ["standard"] },
 ]
+jobs = [
+    { name = "apscheduler" },
+]
+langfuse = [
+    { name = "openinference-instrumentation-langchain" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+]
+notifications = [
+    { name = "bcrypt" },
+    { name = "fastapi" },
+    { name = "uvicorn", extra = ["standard"] },
+]
 pa-jt = [
     { name = "pycryptodome" },
+]
+phoenix = [
+    { name = "openinference-instrumentation-langchain" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+]
+proactive = [
+    { name = "apscheduler" },
+    { name = "bcrypt" },
+    { name = "fastapi" },
+    { name = "uvicorn", extra = ["standard"] },
 ]
 server = [
     { name = "bcrypt" },
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },
+]
+tracing = [
+    { name = "openinference-instrumentation-langchain" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
 ]
 
 [package.dev-dependencies]
@@ -160,41 +179,40 @@ dev = [
     { name = "twine" },
 ]
 securities = [
+    { name = "akshare" },
     { name = "pypinyin" },
     { name = "rapidfuzz" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "akshare", specifier = ">=1.18.43" },
-    { name = "apscheduler", specifier = ">=3.11" },
-    { name = "ark-agentic", extras = ["dev", "pa-jt"], marker = "extra == 'all'" },
-    { name = "ark-agentic", extras = ["server"], marker = "extra == 'dev'" },
-    { name = "bcrypt", marker = "extra == 'server'", specifier = ">=4.0.0" },
-    { name = "fastapi", specifier = ">=0.128.0" },
+    { name = "apscheduler", marker = "extra == 'jobs'", specifier = ">=3.11" },
+    { name = "ark-agentic", extras = ["dev", "pa-jt", "phoenix", "langfuse"], marker = "extra == 'all'" },
+    { name = "ark-agentic", extras = ["jobs", "notifications"], marker = "extra == 'proactive'" },
+    { name = "ark-agentic", extras = ["server"], marker = "extra == 'notifications'" },
+    { name = "ark-agentic", extras = ["server", "proactive"], marker = "extra == 'dev'" },
+    { name = "ark-agentic", extras = ["tracing"], marker = "extra == 'langfuse'" },
+    { name = "ark-agentic", extras = ["tracing"], marker = "extra == 'phoenix'" },
+    { name = "bcrypt", marker = "extra == 'server'", specifier = ">=5.0.0" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.128.0" },
     { name = "flashtext", specifier = ">=2.7" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "langchain-core", specifier = ">=0.3" },
     { name = "langchain-openai", specifier = ">=0.3" },
-    { name = "numpy", specifier = ">=2.0.0" },
-    { name = "openinference-instrumentation-langchain" },
+    { name = "openinference-instrumentation-langchain", marker = "extra == 'tracing'" },
     { name = "openinference-semantic-conventions" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'tracing'" },
     { name = "opentelemetry-sdk" },
-    { name = "pandas", specifier = ">=2.3.3" },
     { name = "pycryptodome", marker = "extra == 'pa-jt'", specifier = ">=3.20.0" },
-    { name = "pypinyin", specifier = ">=0.55.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0.0" },
-    { name = "rapidfuzz", specifier = ">=3.14.3" },
-    { name = "uvicorn", specifier = ">=0.40.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.40.0" },
 ]
-provides-extras = ["server", "dev", "pa-jt", "all"]
+provides-extras = ["server", "tracing", "phoenix", "langfuse", "jobs", "notifications", "proactive", "dev", "pa-jt", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -207,6 +225,7 @@ dev = [
     { name = "twine", specifier = ">=6.0.0" },
 ]
 securities = [
+    { name = "akshare", specifier = ">=1.18.43" },
     { name = "pypinyin", specifier = ">=0.55.0" },
     { name = "rapidfuzz", specifier = ">=3.14.3" },
 ]

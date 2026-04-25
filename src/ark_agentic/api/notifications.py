@@ -140,8 +140,10 @@ async def dispatch_job(job_id: str, request: Request):
 
 def _get_agent_store(request: Request, agent_id: str):
     """按 agent_id 返回隔离的 NotificationStore 实例（懒创建，带缓存）。"""
-    from ark_agentic.core.notifications.store import NotificationStore
-    from ark_agentic.core.paths import get_notifications_base_dir
+    from ark_agentic.services.notifications import (
+        NotificationStore,
+        get_notifications_base_dir,
+    )
 
     # 用 app.state 做简单的实例缓存，避免每次请求都创建新对象
     cache_key = f"_notif_store_{agent_id}"

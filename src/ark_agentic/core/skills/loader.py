@@ -91,6 +91,12 @@ class SkillLoader:
         # 解析 frontmatter
         frontmatter, body = self._parse_frontmatter(content)
 
+        # FULL 模式：自动扫描 references/ 子目录，将所有 .md 文件追加到 body
+        # Dynamic 模式：references/ 由 AgentRunner._enrich_skills_with_stage_reference 按阶段注入
+        references_dir = file_path.parent / "references"
+        if references_dir.exists() and references_dir.is_dir():
+            body = self._append_references_full(body, references_dir)
+
         # 构建元数据
         metadata = self._build_metadata(frontmatter, skill_id)
 
@@ -105,6 +111,18 @@ class SkillLoader:
             source_priority=priority,
             enabled=frontmatter.get("enabled", True),
         )
+
+    def _append_references_full(self, body: str, references_dir: Path) -> str:
+        """FULL 模式：将 references/ 目录下所有 .md 文件内容追加到 SKILL body。
+
+        注: Dynamic 模式下此结果会被 _enrich_skills_with_stage_reference 覆盖替换，
+        但 FULL 模式下（无 _flow_stage）所有 reference 全量注入。
+        """
+        sections = [body]
+        for ref_file in sorted(references_dir.glob("*.md")):
+            ref_content = ref_file.read_text(encoding="utf-8")
+            sections.append(f"\n\n---\n### Reference: {ref_file.stem}\n\n{ref_content}")
+        return "".join(sections)
 
     def _parse_frontmatter(self, content: str) -> tuple[dict[str, Any], str]:
         """解析 YAML frontmatter

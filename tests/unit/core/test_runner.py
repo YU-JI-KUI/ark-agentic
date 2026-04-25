@@ -1,5 +1,6 @@
 """Tests for AgentRunner core happy paths with ChatOpenAI backend."""
 
+import os
 import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -130,7 +131,6 @@ def test_runner_callbacks_are_business_only(
     """
     monkeypatch.delenv("TRACING", raising=False)
     runner, _ = _make_runner(tmp_sessions_dir)
-
     assert runner._callbacks.before_agent == []
     assert runner._callbacks.after_agent == []
     assert runner._callbacks.before_model == []

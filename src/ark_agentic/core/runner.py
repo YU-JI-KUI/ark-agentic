@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, NamedTuple, TYPE_CHECKING
 from uuid import uuid4
@@ -56,7 +56,6 @@ from .types import (
 )
 if TYPE_CHECKING:
     from .memory.manager import MemoryManager
-    from .jobs.proactive_service import ProactiveServiceJob
 
 logger = logging.getLogger(__name__)
 
@@ -194,21 +193,18 @@ class AgentRunner:
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
         callbacks: RunnerCallbacks | None = None,
-        proactive_job: ProactiveServiceJob | None = None,
     ) -> None:
         self.llm = llm
         self.tool_registry = tool_registry or ToolRegistry()
         self.session_manager = session_manager
         self.skill_loader = skill_loader
         self.config = config or RunnerConfig()
-
         self._callbacks = _build_runner_callbacks(
             config=self.config,
             callbacks=callbacks,
         )
 
         self._memory_manager = memory_manager
-        self._proactive_job = proactive_job
         self._flusher = None
         self._dreamer = None
         self._dream_tasks: dict[str, asyncio.Task[Any]] = {}
@@ -271,21 +267,16 @@ class AgentRunner:
         return self._memory_manager
 
     async def warmup(self) -> None:
-        """Warmup：若配置了 proactive_job，自动向全局 JobManager 注册。
+        """Warmup hook — 执行 services 模块附加的 _warmup_tasks。
 
-        宿主应用（app.py / lifespan）在 JobManager 启动前调用此方法，
-        框架负责把 job 注册进调度器，无需宿主感知 job 细节。
+        runner 本身不感知具体任务(job 注册、资源预热等);services 层通过
+        apply_*_bindings() 在构造后追加任务,此处仅负责依次触发。
         """
-        if self._proactive_job is None:
-            return  # 未配置主动服务 Job，跳过
-
-        from .jobs.manager import get_job_manager
-        job_manager = get_job_manager()
-        if job_manager is None:
-            return  # JobManager 尚未初始化（ENABLE_JOB_MANAGER=false）
-
-        job_manager.register(self._proactive_job)
-        logger.info("Registered proactive job '%s'", self._proactive_job.meta.job_id)
+        tasks = getattr(self, "_warmup_tasks", None)
+        if not tasks:
+            return
+        for task in tasks:
+            await task()
 
     def mark_memory_dirty(self) -> None:
         """保留接口兼容 — 无 SQLite 索引，无需刷新标记。"""
@@ -592,7 +583,28 @@ class AgentRunner:
         for tr in tool_results:
             state_delta = tr.metadata.get("state_delta")
             if state_delta and isinstance(state_delta, dict):
-                session.update_state(state_delta)
+                AgentRunner._apply_state_delta(session.state, state_delta)
+                session.updated_at = __import__("datetime").datetime.now()
+
+    @staticmethod
+    def _apply_state_delta(state: dict[str, Any], delta: dict[str, Any]) -> None:
+        """支持点路径（dot-path）的深度合并。
+
+        普通 key → state[key] = value（浅覆盖）
+        点路径 key（如 "_flow_context.stage_identity_verify"）→ 逐层 setdefault({}) 后赋值，
+        不整体替换父对象，避免清空同级其他 key。
+        """
+        for key, value in delta.items():
+            if "." in key:
+                parts = key.split(".")
+                obj = state
+                for part in parts[:-1]:
+                    if not isinstance(obj.get(part), dict):
+                        obj[part] = {}
+                    obj = obj[part]
+                obj[parts[-1]] = value
+            else:
+                state[key] = value
 
     @staticmethod
     def _merge_input_context(
@@ -1217,6 +1229,11 @@ class AgentRunner:
             if active_id:
                 active_skill = self.skill_loader.get_skill(active_id)
 
+        # Dynamic reference 注入: 有 _flow_stage 时按阶段按需追加 reference 内容
+        current_stage_id = state.get("_flow_stage")
+        if current_stage_id and current_stage_id != "__completed__" and skills:
+            skills = self._enrich_skills_with_stage_reference(skills, current_stage_id)
+
         prompt_config = self.config.prompt_config
 
         # 默认只注入 user: 前缀的状态到提示词，减少噪声
@@ -1234,6 +1251,8 @@ class AgentRunner:
                 except Exception:
                     pass
 
+        flow_hint = state.get("_flow_hint", "")
+
         return SystemPromptBuilder.quick_build(
             tools=tools,
             skills=skills,
@@ -1243,6 +1262,7 @@ class AgentRunner:
             user_profile_content=profile_content,
             skill_config=self.config.skill_config,
             enable_memory=self._memory_manager is not None,
+            flow_hint=flow_hint,
         )
 
     def _filter_tools(
@@ -1282,6 +1302,53 @@ class AgentRunner:
     ) -> list[dict[str, Any]]:
         """构建 API tools schema（`_filter_tools` 的薄包装）。"""
         return [t.get_json_schema() for t in self._filter_tools(state)]
+
+    @staticmethod
+    def _enrich_skills_with_stage_reference(
+        skills: list, current_stage_id: str
+    ) -> list:
+        """根据 _flow_stage，将当前阶段 reference 文件内容追加到对应 SkillEntry.content。
+
+        通过 FlowEvaluatorRegistry 反查 evaluator，使用 StageDefinition.reference_file
+        （而非直接拼接 stage.id），避免文件名与 stage.id 不一致导致静默失败。
+        """
+        from .flow.base_evaluator import FlowEvaluatorRegistry
+
+        enriched = []
+        for skill in skills:
+            # 尝试用完整 id 和短 id（去掉 agent 前缀）查找 evaluator
+            skill_short = skill.id.split(".")[-1]
+            evaluator = FlowEvaluatorRegistry.get(skill.id) or FlowEvaluatorRegistry.get(skill_short)
+
+            ref_filename: str | None = None
+            if evaluator:
+                stage_def = next(
+                    (s for s in evaluator.stages if s.id == current_stage_id), None
+                )
+                ref_filename = stage_def.reference_file if stage_def else None
+
+            if ref_filename:
+                from pathlib import Path
+                ref_path = Path(skill.path) / "references" / ref_filename
+                if ref_path.exists():
+                    ref_content = ref_path.read_text(encoding="utf-8")
+                    enriched.append(replace(
+                        skill,
+                        content=(
+                            skill.content
+                            + f"\n\n---\n### 当前阶段参考: {current_stage_id}\n\n"
+                            + ref_content
+                        ),
+                    ))
+                    continue
+                else:
+                    import warnings
+                    warnings.warn(
+                        f"[FlowEvaluator] reference file not found: {ref_path}",
+                        stacklevel=4,
+                    )
+            enriched.append(skill)
+        return enriched
 
     def _get_llm(
         self,
