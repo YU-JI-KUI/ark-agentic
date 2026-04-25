@@ -11,9 +11,6 @@ dependencies = [
     "langchain-openai>=0.3",
     "langchain-core>=0.3",
     "flashtext>=2.7",
-    # Observability: api+sdk are required because core/observability/decorators.py
-    # imports `opentelemetry.trace` unconditionally; under NoOp tracer they're
-    # zero-cost. Provider-specific exporters live in optional groups below.
     "opentelemetry-api",
     "opentelemetry-sdk",
     "openinference-semantic-conventions",
