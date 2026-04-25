@@ -47,11 +47,7 @@ from ark_agentic.api import chat as chat_api
 # from ark_agentic.api import notifications as notifications_api
 from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
-# from ark_agentic.core.observability import (
-#     init_phoenix,
-#     phoenix_callbacks_enabled,
-#     shutdown_phoenix,
-# )
+from ark_agentic.core.observability import setup_tracing_from_env, shutdown_tracing
 from ark_agentic.studio import setup_studio_from_env
 from ark_agentic.agents.securities.tools.service.mock_mode import get_mock_mode
 
@@ -94,9 +90,7 @@ async def lifespan(app: FastAPI):
     #     set_job_manager(job_manager)  # 设置全局单例
     #     app.state.job_manager = job_manager
 
-    # phoenix_enabled = phoenix_callbacks_enabled()
-    # if phoenix_enabled:
-    #     init_phoenix(service_name="ark-agentic-api")
+    tracer_provider = setup_tracing_from_env(service_name="ark-agentic-api")
 
     # ── Step 2: 创建并注册 Agents ────────────────────────────────────────
     _enable_dream = _env_flag("ENABLE_DREAM") if os.getenv("ENABLE_DREAM") else True
@@ -132,8 +126,7 @@ async def lifespan(app: FastAPI):
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
         await runner.close_memory()
-    # if phoenix_enabled:
-    #     shutdown_phoenix()
+    shutdown_tracing(tracer_provider)
     logger.info("Unified API shutting down")
 
 

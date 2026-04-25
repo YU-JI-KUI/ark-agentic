@@ -20,6 +20,7 @@ from ark_agentic.core.callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
+    HookAction,
 )
 from ark_agentic.core.guard import GuardResult
 from ark_agentic.core.types import AgentMessage, MessageRole
@@ -141,7 +142,7 @@ def make_before_agent_callback(
         rejected_event_data: 拒绝时发送的 custom event data，默认 {"relevant": 0}
     """
 
-    async def _cb(ctx: CallbackContext) -> CallbackResult | None:
+    async def _cb(ctx: CallbackContext, **kwargs: Any) -> CallbackResult | None:
         result = await guard.check(
             ctx.user_input,
             ctx.input_context,
@@ -150,7 +151,7 @@ def make_before_agent_callback(
         if not result.accepted:
             logger.info("Intake guard rejected: %s", result.message)
             return CallbackResult(
-                halt=True,
+                action=HookAction.ABORT,
                 response=AgentMessage.assistant(result.message or ""),
                 event=CallbackEvent(
                     type="intake_rejected",

@@ -38,6 +38,7 @@ from .callbacks import (
     AfterAgentCallback,
     BeforeModelCallback,
     AfterModelCallback,
+    OnModelErrorCallback,
     BeforeToolCallback,
     AfterToolCallback,
     RunnerCallbacks,
@@ -69,12 +70,15 @@ from .llm import (
     LLMErrorReason,
 )
 from .observability import (
-    create_tracing_callbacks,
+    add_span_attributes,
+    add_span_input,
+    add_span_output,
     get_tracer,
-    init_phoenix,
-    phoenix_callbacks_enabled,
-    shutdown_phoenix,
-    start_span,
+    setup_tracing_from_env,
+    shutdown_tracing,
+    traced_agent,
+    traced_chain,
+    traced_tool,
 )
 
 __all__ = [
@@ -104,6 +108,7 @@ __all__ = [
     "AfterAgentCallback",
     "BeforeModelCallback",
     "AfterModelCallback",
+    "OnModelErrorCallback",
     "BeforeToolCallback",
     "AfterToolCallback",
     "RunnerCallbacks",
@@ -135,10 +140,13 @@ __all__ = [
     "LLMError",
     "LLMErrorReason",
     # Observability
-    "create_tracing_callbacks",
+    "add_span_attributes",
+    "add_span_input",
+    "add_span_output",
     "get_tracer",
-    "init_phoenix",
-    "phoenix_callbacks_enabled",
-    "shutdown_phoenix",
-    "start_span",
+    "setup_tracing_from_env",
+    "shutdown_tracing",
+    "traced_agent",
+    "traced_chain",
+    "traced_tool",
 ]
