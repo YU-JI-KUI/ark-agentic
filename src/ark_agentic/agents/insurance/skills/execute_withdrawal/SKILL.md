@@ -58,13 +58,16 @@ required_tools:
 
 ### STEP 1 — 渠道计数
 
-读取最近 `[卡片:方案` digest 的 `channels=[…]` 字段长度：
+读取最近 `[卡片:方案` digest 的 `channels=[…]` 字段长度。该字段是引擎按**实际分配结果**反推的真实渠道列表（不是 LLM 当初传入的 channels 数组），所以一定可信。
 
 digest 格式示例：
 ```
 [卡片:方案 title="★ 推荐: 零成本领取" channels=[survival_fund,bonus] total=17200.00] 生存金 ¥12,000.00 · 红利 ¥5,200.00
-[卡片:方案 title="保单贷款" channels=[policy_loan] total=20000.00] 保单贷款 ¥20,000.00
+[卡片:方案 title="组合领取方案" channels=[bonus,partial_withdrawal] total=10000.00] 红利 ¥5,200.00 · 部分领取 ¥4,800.00
+[卡片:方案 title="★ 推荐: 生存金领取" channels=[survival_fund] total=10000.00] 生存金 ¥10,000.00
 ```
+
+> 注意：LLM 传给 render_a2ui 的 channels 可能比 digest 多——引擎只在 channels 中真正参与分配的部分会出现在 digest 里。例如 LLM 传 `channels=[survival_fund,bonus,policy_loan]` 但 target=10000 被 survival_fund 单渠道吞掉，digest 只会显示 `channels=[survival_fund]`。**永远以 digest 为准**。
 
 - **1 个渠道** → 跳到 **STEP 2**
 - **2+ 个渠道** → 列出渠道让用户选择，**不要调用工具**：

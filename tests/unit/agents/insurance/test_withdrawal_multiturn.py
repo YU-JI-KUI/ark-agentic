@@ -102,8 +102,7 @@ class TestMultiTurnWithdrawalFlow:
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"],
                 "target": 0,
-                "title": "★ 推荐: 零成本领取",
-                "tag": "(不影响保障)",
+                "is_recommended": True,
             }},
         ]
         tc1 = ToolCall.create("render_a2ui", {"blocks": blocks})
@@ -156,8 +155,7 @@ class TestMultiTurnWithdrawalFlow:
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["policy_loan"],
                 "target": 30000,
-                "title": "保单贷款",
-                "tag": "(需付利息)",
+                "is_recommended": False,
             }},
         ]
         tc4 = ToolCall.create("render_a2ui", {"blocks": blocks_adjust})
@@ -189,7 +187,7 @@ class TestDigestPropagationChain:
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"],
                 "target": 50000,
-                "title": "★ 推荐: 零成本领取",
+                "is_recommended": True,
             }},
         ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
@@ -216,7 +214,6 @@ class TestDigestPropagationChain:
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund"],
                 "target": 5000,
-                "title": "T",
             }},
         ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
@@ -231,17 +228,20 @@ class TestDigestPropagationChain:
     async def test_multiple_plan_cards_produce_separate_digests(
         self, render_tool: RenderA2UITool, base_ctx: dict,
     ) -> None:
-        """Two PlanCards in one render_a2ui call produce two digest lines."""
+        """Two PlanCards in one render_a2ui call produce two digest lines.
+
+        现版本：title 由引擎从 actual_channels 派生，is_recommended=true 时带 ★ 推荐 前缀。
+        """
         blocks = [
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"],
                 "target": 10000,
-                "title": "★ 推荐",
+                "is_recommended": True,
             }},
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["policy_loan"],
                 "target": 30000,
-                "title": "备选: 贷款",
+                "is_recommended": False,
             }},
         ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
@@ -249,8 +249,13 @@ class TestDigestPropagationChain:
 
         digest = result.llm_digest
         assert digest is not None
+        # Plan A: target=10000 由 sf(12000) 单渠道吞掉 → 推荐: 生存金领取
         assert "★ 推荐" in digest
-        assert "备选: 贷款" in digest
+        assert "生存金" in digest
+        # Plan B: 单渠道 policy_loan → 保单贷款（无 ★ 推荐 前缀）
+        assert "保单贷款" in digest
+        # 两条 digest 行（分隔符是换行符）
+        assert digest.count("[卡片:方案") == 2
 
 
 class TestStateInvariantsAcrossTurns:
@@ -265,7 +270,6 @@ class TestStateInvariantsAcrossTurns:
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund", "bonus"],
                 "target": 999999,
-                "title": "Overshoot",
             }},
         ]
         tc = ToolCall.create("render_a2ui", {"blocks": blocks})
@@ -290,7 +294,7 @@ class TestStateInvariantsAcrossTurns:
             {"type": "WithdrawPlanCard", "data": {
                 "channels": ["survival_fund"],
                 "target": 0,
-                "title": "生存金",
+                "is_recommended": True,
             }},
         ]
         tc1 = ToolCall.create("render_a2ui", {"blocks": blocks})

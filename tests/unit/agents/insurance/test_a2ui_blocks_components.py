@@ -255,26 +255,57 @@ class TestWithdrawPlanCard:
         assert output.state_delta is not None
         assert "_plan_allocations" in output.state_delta
 
-    def test_tag_color_default_green(self):
+    def test_title_derived_from_actual_channels_single(self):
+        """单渠道分配 → title 由引擎根据 actual_channels 派生，LLM 不再传 title/tag。"""
         output = build_withdraw_plan_card(
-            {"channels": ["survival_fund"], "target": 5000, "title": "T", "tag": "(ok)"},
+            {"channels": ["survival_fund"], "target": 5000, "is_recommended": True},
             _id_gen(), _SAMPLE_RAW_DATA,
         )
-        tag_texts = [c for c in output.components if "Text" in c.get("component", {})
-                     and "(ok)" in str(c["component"]["Text"].get("text", {}).get("literalString", ""))]
-        assert len(tag_texts) == 1
-        assert tag_texts[0]["component"]["Text"]["color"] == "#52C41A"
+        title_texts = [c["component"]["Text"]["text"]["literalString"]
+                       for c in output.components if "Text" in c.get("component", {})
+                       and "★ 推荐" in str(c["component"]["Text"].get("text", {}).get("literalString", ""))]
+        assert any("生存金领取" in t for t in title_texts)
 
-    def test_tag_color_custom(self):
+    def test_title_does_not_lie_about_unallocated_channels(self):
+        """Q1 回归：LLM 传 channels=[sf,bonus,policy_loan] target=10000 时，
+        target 在 sf 满足，title 一定不能含'贷款'字样。"""
         output = build_withdraw_plan_card(
-            {"channels": ["policy_loan"], "target": 5000, "title": "T",
-             "tag": "(利息)", "tag_color": "#FA8C16"},
+            {"channels": ["survival_fund", "bonus", "policy_loan"], "target": 10000,
+             "is_recommended": True},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        title_text = " ".join(
+            str(c["component"]["Text"].get("text", {}).get("literalString", ""))
+            for c in output.components if "Text" in c.get("component", {})
+        )
+        assert "贷款" not in title_text
+        assert "生存金" in title_text
+        # digest 也只展开实际使用的 channel
+        assert "policy_loan" not in output.llm_digest
+        assert "bonus" not in output.llm_digest
+
+    def test_tag_color_loan_orange(self):
+        """单渠道贷款 → tag 颜色为橙色（#FF8800）。"""
+        output = build_withdraw_plan_card(
+            {"channels": ["policy_loan"], "target": 5000, "is_recommended": False},
             _id_gen(), _SAMPLE_RAW_DATA,
         )
         tag_texts = [c for c in output.components if "Text" in c.get("component", {})
-                     and "(利息)" in str(c["component"]["Text"].get("text", {}).get("literalString", ""))]
+                     and "需支付利息" in str(c["component"]["Text"].get("text", {}).get("literalString", ""))]
         assert len(tag_texts) == 1
-        assert tag_texts[0]["component"]["Text"]["color"] == "#FA8C16"
+        assert tag_texts[0]["component"]["Text"]["color"] == "#FF8800"
+
+    def test_tag_color_zero_cost_green(self):
+        """零成本组合（sf+bonus 都被分配）→ tag 为不影响保障 + 绿色。"""
+        # target=17000 必须 sf(12000)+bonus(5000) 才够 → 两个渠道都被分配
+        output = build_withdraw_plan_card(
+            {"channels": ["survival_fund", "bonus"], "target": 17000, "is_recommended": True},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        tag_texts = [c for c in output.components if "Text" in c.get("component", {})
+                     and "不影响保障" in str(c["component"]["Text"].get("text", {}).get("literalString", ""))]
+        assert len(tag_texts) == 1
+        assert tag_texts[0]["component"]["Text"]["color"] == "#6cb585"
 
     def test_button_variant_default_primary(self):
         output = build_withdraw_plan_card(
@@ -365,11 +396,116 @@ class TestWithdrawPlanCard:
     def test_single_channel_plan_digest_amount_not_zero(self):
         """Single-channel PlanCard with target=0 (directive) shows actual available, not 0."""
         output = build_withdraw_plan_card(
-            {"channels": ["survival_fund"], "target": 0, "title": "生存金"},
+            {"channels": ["survival_fund"], "target": 0, "is_recommended": True},
             _id_gen(), _SAMPLE_RAW_DATA,
         )
         assert "¥0" not in output.llm_digest
         assert "¥12,000.00" in output.llm_digest
+
+
+class TestDeriveTitleTag:
+    """覆盖 _derive_title_tag 的 6 类组合（通过 build_withdraw_plan_card 间接验证）。"""
+
+    def _title_of(self, output) -> str:
+        return " ".join(
+            str(c["component"]["Text"].get("text", {}).get("literalString", ""))
+            for c in output.components if "Text" in c.get("component", {})
+        )
+
+    @pytest.mark.parametrize("channel,expect_title,expect_tag", [
+        ("survival_fund",      "生存金领取", "不影响保障"),
+        ("bonus",              "红利领取",   "不影响保障"),
+        ("policy_loan",        "保单贷款",   "需支付利息"),
+        ("partial_withdrawal", "部分领取",   "保额会降低"),
+    ])
+    def test_single_channel_titles(self, channel, expect_title, expect_tag):
+        raw = {
+            "options": [
+                {
+                    "policy_id": "P1", "product_name": "X", "product_type": "annuity",
+                    "policy_year": 6,
+                    "survival_fund_amt": 1000, "bonus_amt": 1000,
+                    "loan_amt": 1000, "refund_amt": 1000, "refund_fee_rate": 0,
+                }
+            ]
+        }
+        output = build_withdraw_plan_card(
+            {"channels": [channel], "target": 500, "is_recommended": True},
+            _id_gen(), raw,
+        )
+        text = self._title_of(output)
+        assert "★ 推荐" in text
+        assert expect_title in text
+        assert expect_tag in text
+
+    def test_surrender_single_channel(self):
+        """退保需要 product_type=whole_life。"""
+        raw = {
+            "options": [
+                {
+                    "policy_id": "P1", "product_name": "终身寿", "product_type": "whole_life",
+                    "policy_year": 8,
+                    "survival_fund_amt": 0, "bonus_amt": 0,
+                    "loan_amt": 0, "refund_amt": 50000, "refund_fee_rate": 0,
+                }
+            ]
+        }
+        output = build_withdraw_plan_card(
+            {"channels": ["surrender"], "target": 10000, "is_recommended": False},
+            _id_gen(), raw,
+        )
+        text = self._title_of(output)
+        assert "退保" in text
+        assert "保障终止" in text
+        assert "★ 推荐" not in text
+
+    def test_zero_cost_combo(self):
+        """sf+bonus 同时被分配 → 零成本领取。"""
+        output = build_withdraw_plan_card(
+            {"channels": ["survival_fund", "bonus"], "target": 15000, "is_recommended": True},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        text = self._title_of(output)
+        assert "★ 推荐" in text
+        assert "零成本领取" in text
+        assert "不影响保障" in text
+
+    def test_combo_with_loan_titled_loan(self):
+        """组合含贷款 → 含保单贷款方案 / 需支付利息。"""
+        # target=20000 由 sf(12000)+bonus(5200)+loan(剩 2800) 组成
+        output = build_withdraw_plan_card(
+            {"channels": ["survival_fund", "bonus", "policy_loan"],
+             "target": 20000, "is_recommended": False},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        text = self._title_of(output)
+        assert "含保单贷款方案" in text
+        assert "需支付利息" in text
+
+    def test_combo_with_partial_titled_combo(self):
+        """组合含 partial 不含 loan/surrender → 组合领取方案 / 保额会降低。"""
+        # target=20000 由 sf(12000)+bonus(5200)+partial(2800) 组成
+        output = build_withdraw_plan_card(
+            {"channels": ["survival_fund", "bonus", "partial_withdrawal"],
+             "target": 20000, "is_recommended": True},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        text = self._title_of(output)
+        assert "★ 推荐" in text
+        assert "组合领取方案" in text
+        assert "保额会降低" in text
+
+    def test_recommended_prefix_only_when_flag_true(self):
+        output_true = build_withdraw_plan_card(
+            {"channels": ["survival_fund"], "target": 5000, "is_recommended": True},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        output_false = build_withdraw_plan_card(
+            {"channels": ["survival_fund"], "target": 5000, "is_recommended": False},
+            _id_gen(), _SAMPLE_RAW_DATA,
+        )
+        assert "★ 推荐" in self._title_of(output_true)
+        assert "★ 推荐" not in self._title_of(output_false)
 
 
 # ============ Agent Pipeline (Card expansion) ============

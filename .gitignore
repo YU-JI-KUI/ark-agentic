@@ -38,10 +38,10 @@ CLAUDE.md
 .claude/
 .continue/
 .tasks/
-
+docs/superpowers/
 # OpenCode - keep config
 !.opencode/
-
+ark-agentic-studio/
 # Sessions
 data/ark_securities
 data/ark_sessions
