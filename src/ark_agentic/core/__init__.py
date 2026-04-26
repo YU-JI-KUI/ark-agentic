@@ -47,6 +47,7 @@ from .callbacks import (
     merge_runner_callbacks,
 )
 from .runner import AgentRunner, RunnerConfig, RunResult
+from .agent_factory import AgentDef, build_standard_agent
 from .session import SessionManager
 from .compaction import (
     ContextCompactor,
@@ -121,6 +122,9 @@ __all__ = [
     "AgentRunner",
     "RunnerConfig",
     "RunResult",
+    # Agent factory
+    "AgentDef",
+    "build_standard_agent",
     # Session
     "SessionManager",
     # Compaction

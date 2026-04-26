@@ -1,5 +1,5 @@
 ---
-enabled: False
+enabled: True
 name: 取款执行
 description: 当最近一次 render_a2ui tool 结果 digest 以 `[卡片:方案` 开头（WithdrawPlanCard 已展示），且用户明确选择该方案中的某一渠道办理时，用本技能调用 submit_withdrawal。只有 `[卡片:总览/…]` 或无 A2UI 历史时本技能不适用，由「保险取款」接管。
 version: "10.0.0"

@@ -278,6 +278,10 @@ class AgentRunner:
         for task in tasks:
             await task()
 
+    @property
+    def memory_manager(self) -> "MemoryManager | None":
+        return self._memory_manager
+
     def mark_memory_dirty(self) -> None:
         """保留接口兼容 — 无 SQLite 索引，无需刷新标记。"""
 
@@ -851,10 +855,6 @@ class AgentRunner:
                 if handler:
                     handler.on_content_delta(text, _t)
 
-            def _on_thinking(text: str, _t: int = turn) -> None:
-                if handler:
-                    handler.on_thinking_delta(text, _t)
-
             try:
                 if use_streaming:
                     response = await self._llm_caller.call_streaming(
@@ -863,7 +863,6 @@ class AgentRunner:
                         model_override=model_override,
                         sampling_override=sampling_override,
                         content_callback=_on_content,
-                        thinking_callback=_on_thinking,
                     )
                 else:
                     response = await self._llm_caller.call(
