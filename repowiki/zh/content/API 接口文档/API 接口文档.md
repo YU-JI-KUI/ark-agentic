@@ -15,9 +15,18 @@
 - [src/ark_agentic/studio/services/agent_service.py](file://src/ark_agentic/studio/services/agent_service.py)
 - [src/ark_agentic/studio/services/skill_service.py](file://src/ark_agentic/studio/services/skill_service.py)
 - [src/ark_agentic/studio/services/tool_service.py](file://src/ark_agentic/studio/services/tool_service.py)
+- [src/ark_agentic/static/home.html](file://src/ark_agentic/static/home.html)
 - [postman/ark-agentic-api.postman_collection.json](file://postman/ark-agentic-api.postman_collection.json)
 - [README.md](file://README.md)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增维基系统（repowiki）完整文档支持
+- 新增Wiki树形目录和页面加载API端点
+- 新增README内容加载端点
+- 新增健康检查端点
+- 更新前端Wiki加载和渲染功能
 
 ## 目录
 1. [简介](#简介)
@@ -25,17 +34,19 @@
 3. [核心组件](#核心组件)
 4. [架构总览](#架构总览)
 5. [详细组件分析](#详细组件分析)
-6. [依赖分析](#依赖分析)
-7. [性能考量](#性能考量)
-8. [故障排查指南](#故障排查指南)
-9. [结论](#结论)
-10. [附录](#附录)
+6. [维基系统](#维基系统)
+7. [依赖分析](#依赖分析)
+8. [性能考量](#性能考量)
+9. [故障排查指南](#故障排查指南)
+10. [结论](#结论)
+11. [附录](#附录)
 
 ## 简介
 Ark-Agentic API 提供统一的 Agent 服务接口，支持：
 - Chat API：支持流式与非流式响应，多协议 SSE 输出（internal/agui/enterprise/alone）
 - Studio API：智能体管理、技能与工具管理、会话与内存管理
 - 认证：Studio 登录认证（本地用户表，bcrypt 密码哈希）
+- 维基系统：完整的中英文文档系统，支持动态加载和渲染
 
 本文件涵盖 HTTP 方法、URL 模式、请求/响应模式、认证方法、流式响应机制、错误处理策略、安全考虑、速率限制与版本信息，并提供常见用例、客户端实现指南与性能优化建议。
 
@@ -43,26 +54,32 @@ Ark-Agentic API 提供统一的 Agent 服务接口，支持：
 应用采用 FastAPI 统一入口，按功能模块组织：
 - API 路由：chat、deps、models
 - Studio 管理：agents、memory、sessions、skills、tools、auth
+- 维基系统：wiki tree、wiki page、readme content
 - 核心能力：会话管理、记忆系统、流式协议、工具与技能系统
 
 ```mermaid
 graph TB
 A["应用入口<br/>src/ark_agentic/app.py"] --> B["Chat 路由<br/>src/ark_agentic/api/chat.py"]
-A --> C["Studio 路由注册<br/>src/ark_agentic/app.py"]
-C --> D["Agents 管理<br/>src/ark_agentic/studio/api/agents.py"]
-C --> E["Memory 管理<br/>src/ark_agentic/studio/api/memory.py"]
-C --> F["Sessions 管理<br/>src/ark_agentic/studio/api/sessions.py"]
-C --> G["Skills 管理<br/>src/ark_agentic/studio/api/skills.py"]
-C --> H["Tools 管理<br/>src/ark_agentic/studio/api/tools.py"]
-C --> I["Auth 认证<br/>src/ark_agentic/studio/api/auth.py"]
-B --> J["共享依赖<br/>src/ark_agentic/api/deps.py"]
-D --> K["Agent 服务层<br/>src/ark_agentic/studio/services/agent_service.py"]
-G --> L["Skill 服务层<br/>src/ark_agentic/studio/services/skill_service.py"]
-H --> M["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
+A --> C["维基系统<br/>src/ark_agentic/app.py"]
+A --> D["Studio 路由注册<br/>src/ark_agentic/app.py"]
+C --> E["Wiki Tree API<br/>/api/wiki/tree"]
+C --> F["Wiki Page API<br/>/api/wiki/{lang}/{path}"]
+C --> G["README API<br/>/api/readme"]
+D --> H["Agents 管理<br/>src/ark_agentic/studio/api/agents.py"]
+D --> I["Memory 管理<br/>src/ark_agentic/studio/api/memory.py"]
+D --> J["Sessions 管理<br/>src/ark_agentic/studio/api/sessions.py"]
+D --> K["Skills 管理<br/>src/ark_agentic/studio/api/skills.py"]
+D --> L["Tools 管理<br/>src/ark_agentic/studio/api/tools.py"]
+D --> M["Auth 认证<br/>src/ark_agentic/studio/api/auth.py"]
+B --> N["共享依赖<br/>src/ark_agentic/api/deps.py"]
+H --> O["Agent 服务层<br/>src/ark_agentic/studio/services/agent_service.py"]
+K --> P["Skill 服务层<br/>src/ark_agentic/studio/services/skill_service.py"]
+L --> Q["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
 ```
 
 **图表来源**
-- [src/ark_agentic/app.py:137-164](file://src/ark_agentic/app.py#L137-L164)
+- [src/ark_agentic/app.py:133-173](file://src/ark_agentic/app.py#L133-L173)
+- [src/ark_agentic/app.py:198-263](file://src/ark_agentic/app.py#L198-L263)
 - [src/ark_agentic/api/chat.py:24-24](file://src/ark_agentic/api/chat.py#L24-L24)
 - [src/ark_agentic/studio/api/agents.py:22-22](file://src/ark_agentic/studio/api/agents.py#L22-L22)
 - [src/ark_agentic/studio/api/memory.py:21-21](file://src/ark_agentic/studio/api/memory.py#L21-L21)
@@ -76,11 +93,12 @@ H --> M["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
 - [src/ark_agentic/studio/services/tool_service.py:38-235](file://src/ark_agentic/studio/services/tool_service.py#L38-L235)
 
 **章节来源**
-- [src/ark_agentic/app.py:137-216](file://src/ark_agentic/app.py#L137-L216)
+- [src/ark_agentic/app.py:133-216](file://src/ark_agentic/app.py#L133-L216)
 
 ## 核心组件
 - Chat API：统一的对话接口，支持 SSE 流式输出与多种协议
 - Studio API：面向管理端的智能体、技能、工具、会话与内存管理
+- 维基系统：动态文档加载与渲染，支持中英文双语
 - 认证：Studio 登录认证，基于 bcrypt 的密码哈希
 - 共享依赖：AgentRegistry 注入与获取，供 Chat 与 Studio 共享
 
@@ -88,6 +106,7 @@ H --> M["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
 - [src/ark_agentic/api/chat.py:27-177](file://src/ark_agentic/api/chat.py#L27-L177)
 - [src/ark_agentic/api/models.py:27-104](file://src/ark_agentic/api/models.py#L27-L104)
 - [src/ark_agentic/api/deps.py:19-37](file://src/ark_agentic/api/deps.py#L19-L37)
+- [src/ark_agentic/app.py:198-263](file://src/ark_agentic/app.py#L198-L263)
 - [src/ark_agentic/studio/api/agents.py:76-131](file://src/ark_agentic/studio/api/agents.py#L76-L131)
 - [src/ark_agentic/studio/api/memory.py:105-160](file://src/ark_agentic/studio/api/memory.py#L105-L160)
 - [src/ark_agentic/studio/api/sessions.py:84-200](file://src/ark_agentic/studio/api/sessions.py#L84-L200)
@@ -101,16 +120,22 @@ H --> M["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
 - 注册 Agent 与 warmup
 - 挂载 Chat 路由与 Studio 路由
 - 提供健康检查与静态页面
+- 挂载维基系统 API
 
 ```mermaid
 sequenceDiagram
 participant Client as "客户端"
 participant App as "FastAPI 应用<br/>app.py"
+participant Wiki as "维基系统<br/>app.py"
 participant Chat as "Chat 路由<br/>chat.py"
 participant Deps as "共享依赖<br/>deps.py"
 participant Agent as "AgentRunner"
 Client->>App : "GET /health"
 App-->>Client : "状态正常"
+Client->>Wiki : "GET /api/wiki/tree"
+Wiki-->>Client : "维基目录树"
+Client->>Wiki : "GET /api/wiki/{lang}/{path}"
+Wiki-->>Client : "Markdown 文档内容"
 Client->>Chat : "POST /chat"
 Chat->>Deps : "get_agent(agent_id)"
 Deps-->>Chat : "AgentRunner"
@@ -125,7 +150,8 @@ end
 ```
 
 **图表来源**
-- [src/ark_agentic/app.py:213-216](file://src/ark_agentic/app.py#L213-L216)
+- [src/ark_agentic/app.py:282-284](file://src/ark_agentic/app.py#L282-L284)
+- [src/ark_agentic/app.py:198-263](file://src/ark_agentic/app.py#L198-L263)
 - [src/ark_agentic/api/chat.py:27-177](file://src/ark_agentic/api/chat.py#L27-L177)
 - [src/ark_agentic/api/deps.py:25-37](file://src/ark_agentic/api/deps.py#L25-L37)
 
@@ -327,9 +353,104 @@ E --> |成功| F["返回 user_id/role/display_name"]
 **章节来源**
 - [src/ark_agentic/studio/api/auth.py:94-115](file://src/ark_agentic/studio/api/auth.py#L94-L115)
 
+## 维基系统
+
+### 维基树形目录 API
+- GET /api/wiki/tree：返回 repowiki 两种语言的目录树
+- 功能特性
+  - 支持中英文双语目录树
+  - 按 repowiki-metadata.json 的 wiki_items 顺序排列
+  - 安全的目录遍历保护
+  - 支持嵌套目录结构
+
+```mermaid
+flowchart TD
+A["GET /api/wiki/tree"] --> B["加载中英文元数据"]
+B --> C["解析 wiki_items 顺序"]
+C --> D["构建目录树结构"]
+D --> E["返回 JSON 格式目录树"]
+```
+
+**图表来源**
+- [src/ark_agentic/app.py:198-246](file://src/ark_agentic/app.py#L198-L246)
+
+**章节来源**
+- [src/ark_agentic/app.py:198-246](file://src/ark_agentic/app.py#L198-L246)
+
+### 维基页面 API
+- GET /api/wiki/{lang}/{path:path}：返回指定 wiki 页面的 Markdown 内容
+- 参数说明
+  - lang：语言代码（zh/en）
+  - path：页面路径（相对 content 目录）
+- 安全特性
+  - 防止路径穿越攻击
+  - 仅允许 .md 文件访问
+  - 严格的文件存在性检查
+
+```mermaid
+flowchart TD
+A["GET /api/wiki/{lang}/{path}"] --> B{"验证语言参数"}
+B --> |有效| C["构建文件路径"]
+C --> D{"文件存在且为 .md"}
+D --> |是| E["安全检查路径穿越"]
+E --> |通过| F["读取并返回 Markdown 内容"]
+E --> |失败| G["403 Forbidden"]
+D --> |否| H["404 Not Found"]
+B --> |无效| I["400 Bad Request"]
+```
+
+**图表来源**
+- [src/ark_agentic/app.py:249-263](file://src/ark_agentic/app.py#L249-L263)
+
+**章节来源**
+- [src/ark_agentic/app.py:249-263](file://src/ark_agentic/app.py#L249-L263)
+
+### README 内容加载 API
+- GET /api/readme：返回项目根 README.md 纯文本
+- 用途：供 landing 页 Docs Tab 客户端渲染
+- 响应格式：text/markdown; charset=utf-8
+
+**章节来源**
+- [src/ark_agentic/app.py:186-195](file://src/ark_agentic/app.py#L186-L195)
+
+### 健康检查 API
+- GET /health：返回服务健康状态
+- 响应：{"status": "ok"}
+
+**章节来源**
+- [src/ark_agentic/app.py:282-284](file://src/ark_agentic/app.py#L282-L284)
+
+### 前端 Wiki 加载与渲染
+- 客户端 JavaScript 实现
+  - Wiki 树形目录加载：`loadWikiTree()`
+  - Wiki 页面加载：`loadWikiPage(path, lang)`
+  - 目录树渲染：`renderWikiTree(lang)`
+  - Mermaid 图表支持
+  - 响应式面包屑导航
+
+```mermaid
+sequenceDiagram
+participant Client as "浏览器客户端"
+participant WikiAPI as "Wiki API"
+participant Mermaid as "Mermaid 渲染器"
+Client->>WikiAPI : "GET /api/wiki/tree"
+WikiAPI-->>Client : "返回目录树 JSON"
+Client->>WikiAPI : "GET /api/wiki/{lang}/{path}"
+WikiAPI-->>Client : "返回 Markdown 内容"
+Client->>Mermaid : "渲染 Mermaid 图表"
+Mermaid-->>Client : "显示图表"
+```
+
+**图表来源**
+- [src/ark_agentic/static/home.html:1202-1299](file://src/ark_agentic/static/home.html#L1202-L1299)
+
+**章节来源**
+- [src/ark_agentic/static/home.html:1202-1352](file://src/ark_agentic/static/home.html#L1202-L1352)
+
 ## 依赖分析
 - Chat API 依赖共享依赖模块获取 AgentRunner
 - Studio 各模块依赖服务层进行业务逻辑处理
+- 维基系统依赖 repowiki 目录结构和元数据文件
 - 服务层不依赖 FastAPI，便于复用与测试
 
 ```mermaid
@@ -341,6 +462,8 @@ StudioSkills["Studio Skills<br/>skills.py"] --> SkillSvc["Skill 服务<br/>skill
 StudioTools["Studio Tools<br/>tools.py"] --> ToolSvc["Tool 服务<br/>tool_service.py"]
 StudioMemory["Studio Memory<br/>memory.py"] --> AgentRunner["AgentRunner"]
 StudioSessions["Studio Sessions<br/>sessions.py"] --> AgentRunner
+WikiAPI["Wiki API<br/>app.py"] --> WikiRoot["repowiki 目录"]
+WikiAPI --> MetaFile["repowiki-metadata.json"]
 ```
 
 **图表来源**
@@ -351,6 +474,7 @@ StudioSessions["Studio Sessions<br/>sessions.py"] --> AgentRunner
 - [src/ark_agentic/studio/services/skill_service.py:1-289](file://src/ark_agentic/studio/services/skill_service.py#L1-L289)
 - [src/ark_agentic/studio/api/tools.py:15-17](file://src/ark_agentic/studio/api/tools.py#L15-L17)
 - [src/ark_agentic/studio/services/tool_service.py:1-235](file://src/ark_agentic/studio/services/tool_service.py#L1-L235)
+- [src/ark_agentic/app.py:173](file://src/ark_agentic/app.py#L173)
 
 **章节来源**
 - [src/ark_agentic/api/deps.py:19-37](file://src/ark_agentic/api/deps.py#L19-L37)
@@ -360,6 +484,7 @@ StudioSessions["Studio Sessions<br/>sessions.py"] --> AgentRunner
 - [src/ark_agentic/studio/services/skill_service.py:1-289](file://src/ark_agentic/studio/services/skill_service.py#L1-L289)
 - [src/ark_agentic/studio/api/tools.py:15-17](file://src/ark_agentic/studio/api/tools.py#L15-L17)
 - [src/ark_agentic/studio/services/tool_service.py:1-235](file://src/ark_agentic/studio/services/tool_service.py#L1-L235)
+- [src/ark_agentic/app.py:173](file://src/ark_agentic/app.py#L173)
 
 ## 性能考量
 - 并行工具调用：当 LLM 返回多个工具调用时，使用并行执行以减少总延迟
@@ -368,6 +493,8 @@ StudioSessions["Studio Sessions<br/>sessions.py"] --> AgentRunner
 - 零数据库记忆：纯文件 MEMORY.md，启动即用，避免数据库连接开销
 - 会话压缩：自动总结历史消息，保持上下文窗口稳定
 - 输出验证：自动检测数值幻觉，提升输出可靠性
+- 维基系统缓存：Wiki 树形目录按需加载，支持浏览器缓存
+- Mermaid 图表懒加载：仅在需要时渲染图表，提升页面加载性能
 
 **章节来源**
 - [README.md:787-795](file://README.md#L787-L795)
@@ -381,6 +508,10 @@ StudioSessions["Studio Sessions<br/>sessions.py"] --> AgentRunner
   - 内存路径越界：确保 file_path 相对工作区且无路径穿越
   - 会话 JSONL 校验失败：检查 JSONL 格式与行号
   - 技能/工具操作失败：确认 Agent 目录存在与权限
+- 维基系统
+  - Wiki 树形目录加载失败：检查 repowiki 目录结构和元数据文件
+  - Wiki 页面加载失败：确认文件路径、语言参数和文件存在性
+  - README 加载失败：检查 README.md 文件是否存在
 - 认证
   - 401 无效凭据：确认用户名存在且密码哈希匹配
 
@@ -389,9 +520,10 @@ StudioSessions["Studio Sessions<br/>sessions.py"] --> AgentRunner
 - [src/ark_agentic/studio/api/memory.py:83-88](file://src/ark_agentic/studio/api/memory.py#L83-L88)
 - [src/ark_agentic/studio/api/sessions.py:190-197](file://src/ark_agentic/studio/api/sessions.py#L190-L197)
 - [src/ark_agentic/studio/api/auth.py:94-109](file://src/ark_agentic/studio/api/auth.py#L94-L109)
+- [src/ark_agentic/app.py:198-263](file://src/ark_agentic/app.py#L198-L263)
 
 ## 结论
-Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善的流式输出、多协议适配、会话与记忆管理能力。Studio API 为智能体的日常维护提供了友好的管理界面。通过合理的错误处理、安全设计与性能优化，能够满足生产环境的需求。
+Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善的流式输出、多协议适配、会话与记忆管理能力。新增的维基系统进一步增强了文档管理和知识分享能力，支持中英文双语文档的动态加载与渲染。Studio API 为智能体的日常维护提供了友好的管理界面。通过合理的错误处理、安全设计与性能优化，能够满足生产环境的需求。
 
 ## 附录
 
@@ -405,6 +537,11 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
   - Skills：GET /agents/{agent_id}/skills, POST /agents/{agent_id}/skills, PUT /agents/{agent_id}/skills/{skill_id}, DELETE /agents/{agent_id}/skills/{skill_id}
   - Tools：GET /agents/{agent_id}/tools, POST /agents/{agent_id}/tools
   - Auth：POST /auth/login
+- 维基系统
+  - Wiki Tree：GET /api/wiki/tree
+  - Wiki Page：GET /api/wiki/{lang}/{path}
+  - README：GET /api/readme
+  - Health：GET /health
 
 **章节来源**
 - [src/ark_agentic/api/chat.py:27-27](file://src/ark_agentic/api/chat.py#L27-L27)
@@ -414,11 +551,15 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
 - [src/ark_agentic/studio/api/skills.py:57-113](file://src/ark_agentic/studio/api/skills.py#L57-L113)
 - [src/ark_agentic/studio/api/tools.py:41-66](file://src/ark_agentic/studio/api/tools.py#L41-L66)
 - [src/ark_agentic/studio/api/auth.py:94-115](file://src/ark_agentic/studio/api/auth.py#L94-L115)
+- [src/ark_agentic/app.py:198-263](file://src/ark_agentic/app.py#L198-L263)
+- [src/ark_agentic/app.py:282-284](file://src/ark_agentic/app.py#L282-L284)
 
 ### 请求/响应模式与数据模型
 - ChatRequest/ChatResponse：见 [src/ark_agentic/api/models.py:27-104](file://src/ark_agentic/api/models.py#L27-L104)
 - Studio 数据模型：AgentMeta、SkillMeta、ToolMeta、SessionItem、MessageItem 等
 - SSE 事件模型：见 [src/ark_agentic/api/models.py:73-102](file://src/ark_agentic/api/models.py#L73-L102)
+- Wiki 目录树数据模型：包含 type、name、path、children 字段
+- Wiki 页面数据模型：Markdown 文本内容
 
 **章节来源**
 - [src/ark_agentic/api/models.py:27-104](file://src/ark_agentic/api/models.py#L27-L104)
@@ -426,6 +567,7 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
 ### 认证方法
 - Chat API：无强制认证，可通过请求头传递用户与会话上下文
 - Studio API：/auth/login 登录，返回用户信息（角色、显示名等）
+- 维基系统：无需认证，公开访问
 
 **章节来源**
 - [src/ark_agentic/studio/api/auth.py:94-115](file://src/ark_agentic/studio/api/auth.py#L94-L115)
@@ -443,18 +585,22 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
 - 路径遍历防护：内存文件写入前进行路径校验
 - 会话 JSONL 写回：严格校验格式，失败返回行号
 - 认证：bcrypt 密码哈希，支持环境变量配置用户表
+- Wiki 系统安全：严格的路径穿越检查，仅允许 .md 文件访问
+- README 加载：安全的文件路径解析
 
 **章节来源**
 - [src/ark_agentic/studio/api/memory.py:83-88](file://src/ark_agentic/studio/api/memory.py#L83-L88)
 - [src/ark_agentic/studio/api/sessions.py:190-197](file://src/ark_agentic/studio/api/sessions.py#L190-L197)
 - [src/ark_agentic/studio/api/auth.py:68-81](file://src/ark_agentic/studio/api/auth.py#L68-L81)
+- [src/ark_agentic/app.py:258-262](file://src/ark_agentic/app.py#L258-L262)
 
 ### 速率限制与版本
 - 速率限制：未内置速率限制策略，建议在网关或反向代理层实施
 - 版本：应用版本号在统一入口定义，当前为 0.1.0
+- 维基系统：版本随 repowiki 目录结构变化而更新
 
 **章节来源**
-- [src/ark_agentic/app.py:137-142](file://src/ark_agentic/app.py#L137-L142)
+- [src/ark_agentic/app.py:133-138](file://src/ark_agentic/app.py#L133-L138)
 
 ### 常见用例与客户端实现指南
 - Chat 非流式：设置 stream=false，接收 ChatResponse
@@ -462,6 +608,8 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
 - 会话续用：通过 x-ark-session-id 或 session_id 继续对话
 - 幂等请求：使用 idempotency_key 防止重复提交
 - Studio 管理：先 /auth/login 获取用户信息，再调用相应管理接口
+- 维基系统：通过 /api/wiki/tree 获取目录树，通过 /api/wiki/{lang}/{path} 获取页面内容
+- README 加载：通过 /api/readme 获取项目文档
 
 **章节来源**
 - [postman/ark-agentic-api.postman_collection.json:38-240](file://postman/ark-agentic-api.postman_collection.json#L38-L240)
@@ -473,6 +621,8 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
 - 并行工具调用：确保工具执行幂等，避免副作用
 - 会话压缩：合理配置上下文窗口与摘要策略
 - 输出验证：在 before_loop_end 钩子中进行引用校验，减少无效重试
+- 维基系统优化：利用浏览器缓存，延迟加载大文件
+- Mermaid 图表优化：仅在可见区域渲染图表
 
 **章节来源**
 - [README.md:787-795](file://README.md#L787-L795)
