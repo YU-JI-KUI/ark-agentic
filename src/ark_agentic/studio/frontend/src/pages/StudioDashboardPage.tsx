@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { NavLink, useOutletContext } from 'react-router-dom'
 import {
   api,
   type AgentMeta,
@@ -9,6 +9,7 @@ import {
   type ToolMeta,
 } from '../api'
 import type { StudioShellContextValue } from '../layouts/StudioShell'
+import { FilterIcon, PlusIcon, RefreshIcon } from '../components/StudioIcons'
 
 type TrendMetricKey = 'users' | 'skills' | 'tools' | 'sessions' | 'memory'
 
@@ -67,6 +68,94 @@ type DashboardSummary = {
     fileTypes: DistributionItem[]
     agents: DistributionItem[]
   }
+}
+
+type ActivityKind = 'skill' | 'tool' | 'session' | 'memory'
+type ActivityStatus = 'ok' | 'warn' | 'error'
+type ActivityItem = {
+  ts: string
+  kind: ActivityKind
+  agent: string
+  agentLabel: string
+  text: string
+  status: ActivityStatus
+}
+
+function buildActivityFeed(snapshots: AgentSnapshot[], limit = 12): ActivityItem[] {
+  const items: ActivityItem[] = []
+  for (const snap of snapshots) {
+    const agentLabel = snap.agent.name || snap.agent.id
+    snap.skills.forEach(skill => {
+      if (!skill.modified_at) return
+      items.push({
+        ts: skill.modified_at,
+        kind: 'skill',
+        agent: snap.agent.id,
+        agentLabel,
+        text: `Skill ${skill.name} updated`,
+        status: 'ok',
+      })
+    })
+    snap.tools.forEach(tool => {
+      if (!tool.modified_at) return
+      items.push({
+        ts: tool.modified_at,
+        kind: 'tool',
+        agent: snap.agent.id,
+        agentLabel,
+        text: `Tool ${tool.name} updated`,
+        status: 'ok',
+      })
+    })
+    snap.sessions.forEach(session => {
+      const ts = session.updated_at ?? session.created_at
+      if (!ts) return
+      items.push({
+        ts,
+        kind: 'session',
+        agent: snap.agent.id,
+        agentLabel,
+        text: `Session ${session.session_id.slice(0, 8)} (${session.message_count} msgs)`,
+        status: session.message_count === 0 ? 'warn' : 'ok',
+      })
+    })
+    snap.memoryFiles.forEach(file => {
+      if (!file.modified_at) return
+      items.push({
+        ts: file.modified_at,
+        kind: 'memory',
+        agent: snap.agent.id,
+        agentLabel,
+        text: `Memory ${file.file_path} updated`,
+        status: 'ok',
+      })
+    })
+  }
+  return items
+    .sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
+    .slice(0, limit)
+}
+
+function activityKindLetter(kind: ActivityKind): string {
+  switch (kind) {
+    case 'skill': return 'K'
+    case 'tool': return 'T'
+    case 'session': return 'S'
+    case 'memory': return 'M'
+  }
+}
+
+function formatActivityTime(ts: string): string {
+  const date = new Date(ts)
+  if (Number.isNaN(date.getTime())) return '—'
+  const diff = Date.now() - date.getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  return `${days}d`
 }
 
 type MetricCardProps = {
@@ -570,11 +659,132 @@ function buildDashboardSummary(snapshots: AgentSnapshot[]): DashboardSummary {
   }
 }
 
+function ActivityFeed({ items }: { items: ActivityItem[] }) {
+  const [filter, setFilter] = useState<'all' | 'session' | 'tool' | 'memory'>('all')
+  const visible = filter === 'all' ? items : items.filter(i => i.kind === filter)
+
+  return (
+    <article className="workspace-surface">
+      <div className="surface-heading">
+        <span>Activity</span>
+        <div className="button-row">
+          <button className={`chip ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')} type="button">All</button>
+          <button className={`chip ${filter === 'session' ? 'active' : ''}`} onClick={() => setFilter('session')} type="button">Sessions</button>
+          <button className={`chip ${filter === 'tool' ? 'active' : ''}`} onClick={() => setFilter('tool')} type="button">Tools</button>
+          <button className={`chip ${filter === 'memory' ? 'active' : ''}`} onClick={() => setFilter('memory')} type="button">Memory</button>
+        </div>
+      </div>
+      {visible.length === 0 ? (
+        <div className="empty-surface">No recent activity.</div>
+      ) : (
+        <div className="activity">
+          {visible.map((it, idx) => (
+            <div className="act-row" key={`${it.ts}-${it.agent}-${it.kind}-${idx}`}>
+              <div className="act-time">{formatActivityTime(it.ts)}</div>
+              <div className={`act-icon ${it.status}`}>{activityKindLetter(it.kind)}</div>
+              <div className="act-text">
+                <span className="agent">[{it.agentLabel}]</span>
+                {it.text}
+              </div>
+              <div className="act-kind">{it.kind}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function buildAgentSparkline(snap: AgentSnapshot, buckets = 9, days = 14): { points: number[]; warn: boolean } {
+  const now = Date.now()
+  const start = now - days * 86_400_000
+  const buckSize = (now - start) / buckets
+  const counts = new Array(buckets).fill(0) as number[]
+  let warn = false
+  for (const session of snap.sessions) {
+    if (session.message_count === 0) warn = true
+    const ts = Date.parse(session.updated_at ?? session.created_at ?? '')
+    if (Number.isNaN(ts) || ts < start || ts > now) continue
+    const idx = Math.min(buckets - 1, Math.max(0, Math.floor((ts - start) / buckSize)))
+    counts[idx] += 1
+  }
+  return { points: counts, warn }
+}
+
+function AgentHealthList({ snapshots }: { snapshots: AgentSnapshot[] }) {
+  return (
+    <article className="workspace-surface">
+      <div className="surface-heading">
+        <span>Agents · health</span>
+        <span>{snapshots.length}</span>
+      </div>
+      <div>
+        {snapshots.map(snap => {
+          const { points, warn } = buildAgentSparkline(snap)
+          const max = Math.max(1, ...points)
+          const w = 80
+          const h = 22
+          const polyline = points.map((v, i) => {
+            const x = points.length > 1 ? (i / (points.length - 1)) * w : 0
+            const y = h - (v / max) * (h - 4) - 2
+            return `${x.toFixed(1)},${y.toFixed(1)}`
+          }).join(' ')
+          return (
+            <NavLink
+              className="agent-health-card"
+              key={snap.agent.id}
+              to={`/agents/${snap.agent.id}/overview`}
+            >
+              <div className="agent-health-card-top">
+                <div>
+                  <div className="agent-health-card-name">{snap.agent.name}</div>
+                  <div className="agent-health-card-desc">{snap.agent.description || ' '}</div>
+                </div>
+                <span className="badge accent">{snap.agent.id.toUpperCase()}</span>
+              </div>
+              <div className="agent-health-stats">
+                <div className="agent-health-stat">
+                  <strong>{snap.skills.length}</strong>
+                  <span>skills</span>
+                </div>
+                <div className="agent-health-stat">
+                  <strong>{snap.tools.length}</strong>
+                  <span>tools</span>
+                </div>
+                <div className="agent-health-stat">
+                  <strong>{snap.sessions.length}</strong>
+                  <span>sessions</span>
+                </div>
+                <div className="agent-health-stat">
+                  <strong>{snap.memoryFiles.length}</strong>
+                  <span>memory</span>
+                </div>
+                <svg className="agent-health-spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+                  <polyline
+                    fill="none"
+                    points={polyline}
+                    stroke={warn ? 'var(--warn)' : 'var(--ok)'}
+                    strokeWidth="1.4"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </svg>
+              </div>
+            </NavLink>
+          )
+        })}
+        {snapshots.length === 0 && <div className="empty-surface">No agents.</div>}
+      </div>
+    </article>
+  )
+}
+
 export default function StudioDashboardPage() {
-  const { agents, agentsLoading, agentsError } = useOutletContext<StudioShellContextValue>()
+  const { agents, agentsLoading, agentsError, refreshAgents } = useOutletContext<StudioShellContextValue>()
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [snapshots, setSnapshots] = useState<AgentSnapshot[]>([])
+  const activityItems = useMemo(() => buildActivityFeed(snapshots, 12), [snapshots])
 
   useEffect(() => {
     if (agentsLoading) return
@@ -588,6 +798,7 @@ export default function StudioDashboardPage() {
       try {
         const nextSnapshots = await loadDashboardSnapshots(agents)
         if (!cancelled) {
+          setSnapshots(nextSnapshots)
           setSummary(buildDashboardSummary(nextSnapshots))
         }
       } catch (nextError) {
@@ -652,6 +863,27 @@ export default function StudioDashboardPage() {
 
   return (
     <div className="workspace-page studio-dashboard-page">
+      <div className="dashboard-page-head">
+        <div>
+          <h1>Workspace overview</h1>
+          <p>
+            {summary.totalAgents} agents · {formatCompactNumber(summary.totalSessions)} sessions · last activity{' '}
+            {activityItems[0] ? `${formatActivityTime(activityItems[0].ts)} ago` : '—'}
+          </p>
+        </div>
+        <div className="dashboard-page-head-actions">
+          <button className="btn btn-sm" onClick={() => void refreshAgents()} type="button">
+            <RefreshIcon /> Refresh
+          </button>
+          <button className="btn btn-sm" disabled type="button" title="即将推出">
+            <FilterIcon /> Last 14 days
+          </button>
+          <button className="btn btn-accent btn-sm" disabled type="button" title="即将推出">
+            <PlusIcon /> New agent
+          </button>
+        </div>
+      </div>
+
       <section className="dashboard-metric-grid">
         <MetricCard
           label="Total Agents"
@@ -691,10 +923,15 @@ export default function StudioDashboardPage() {
         />
       </section>
 
-      <section className="dashboard-insight-grid">
+      <section className="dashboard-row-2">
+        <ActivityFeed items={activityItems} />
+        <AgentHealthList snapshots={snapshots} />
+      </section>
+
+      <section className="dashboard-insight-grid dashboard-insight-grid-coverage">
         <article className="workspace-surface dashboard-insight-panel dashboard-insight-panel-skills metric-tone-skills">
           <div className="surface-heading dashboard-insight-heading">
-            <span>Skills 分组与标签</span>
+            <span>Skills coverage</span>
             <b>{formatCompactNumber(summary.totalSkills)} total</b>
           </div>
           <div className="dashboard-insight-stat-grid dashboard-insight-stat-grid-skills">
@@ -720,7 +957,7 @@ export default function StudioDashboardPage() {
 
         <article className="workspace-surface dashboard-insight-panel dashboard-insight-panel-sessions metric-tone-sessions">
           <div className="surface-heading dashboard-insight-heading">
-            <span>Sessions 覆盖与分布</span>
+            <span>Sessions coverage</span>
             <b>{formatCompactNumber(summary.totalSessions)} total</b>
           </div>
           <div className="dashboard-insight-stat-grid">
@@ -740,59 +977,6 @@ export default function StudioDashboardPage() {
               items={summary.sessions.messageBands}
               title="Message Count Bands"
               tone="sessions"
-            />
-          </div>
-        </article>
-
-        <article className="workspace-surface dashboard-insight-panel dashboard-insight-panel-memory metric-tone-memory">
-          <div className="surface-heading dashboard-insight-heading">
-            <span>Memory 覆盖情况</span>
-            <b>{formatBytes(summary.totalMemoryBytes)}</b>
-          </div>
-          <div className="dashboard-insight-stat-grid">
-            {summary.memory.stats.map(stat => (
-              <InsightStatTile {...stat} key={stat.label} />
-            ))}
-          </div>
-          <div className="dashboard-distribution-grid">
-            <DistributionCard
-              emptyLabel="No memory file types"
-              items={summary.memory.fileTypes}
-              title="File Type Distribution"
-              tone="memory"
-            />
-            <DistributionCard
-              emptyLabel="No memory footprint"
-              items={summary.memory.agents}
-              title="Storage by Agent"
-              tone="memory"
-              valueFormatter={formatBytes}
-            />
-          </div>
-        </article>
-
-        <article className="workspace-surface dashboard-insight-panel dashboard-insight-panel-tools metric-tone-tools">
-          <div className="surface-heading dashboard-insight-heading">
-            <span>Tools 可靠性</span>
-            <b>{formatCompactNumber(summary.totalTools)} total</b>
-          </div>
-          <div className="dashboard-insight-stat-grid dashboard-insight-stat-grid-tools">
-            {summary.tools.stats.map(stat => (
-              <InsightStatTile {...stat} key={stat.label} />
-            ))}
-          </div>
-          <div className="dashboard-distribution-grid dashboard-distribution-grid-stacked">
-            <DistributionCard
-              emptyLabel="No tool groups"
-              items={summary.tools.groups}
-              title="Tool Group Distribution"
-              tone="tools"
-            />
-            <DistributionCard
-              emptyLabel="No tool coverage"
-              items={summary.tools.agents}
-              title="Tools by Agent"
-              tone="tools"
             />
           </div>
         </article>

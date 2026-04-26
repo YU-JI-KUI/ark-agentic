@@ -4,9 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from 'react'
 import { NavLink, Navigate, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import {
@@ -20,7 +17,7 @@ import {
 } from '../api'
 import { useAuth } from '../auth'
 import type { StudioShellContextValue } from '../layouts/StudioShell'
-import { ChevronRightIcon, CollapseIcon, CopyIcon, ExpandIcon, PlusIcon } from '../components/StudioIcons'
+import { BoltIcon, ChevronRightIcon, CopyIcon, DownloadIcon, ExpandIcon, PlusIcon, SearchIcon } from '../components/StudioIcons'
 
 const VALID_SECTIONS = new Set(['overview', 'skills', 'tools', 'sessions', 'memory'])
 
@@ -68,21 +65,6 @@ function getTimestampValue(value: string | null | undefined) {
   return Number.isNaN(timestamp) ? 0 : timestamp
 }
 
-function executionLaneLabel(lane: TraceLane) {
-  switch (lane) {
-    case 'input':
-      return 'Input'
-    case 'reasoning':
-      return 'Reasoning'
-    case 'tools':
-      return 'Tools'
-    case 'output':
-      return 'Output'
-    case 'metadata':
-      return 'Metadata'
-  }
-}
-
 async function copyText(value: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value)
@@ -99,148 +81,35 @@ async function copyText(value: string) {
   document.body.removeChild(textarea)
 }
 
-function StructuredDataPanel({
-  title,
-  value,
-  emptyText,
-  compact = false,
-  headingId,
-  headingLevel = 'h3',
-  showTitle = true,
-}: {
-  title: string
-  value: string | null | undefined
-  emptyText: string
-  compact?: boolean
-  headingId?: string
-  headingLevel?: 'h3' | 'h4'
-  showTitle?: boolean
-}) {
-  const content = value && value.trim() ? value : emptyText
-  const HeadingTag = headingLevel
-
-  return (
-    <section className={`structured-data-panel ${compact ? 'structured-data-panel-compact' : ''}`}>
-      {showTitle && (
-        <div className="structured-data-panel-head">
-          <HeadingTag id={headingId}>{title}</HeadingTag>
-        </div>
-      )}
-      <div className="code-block-shell expanded">
-        <pre className={`code-block ${compact ? 'compact' : ''}`}>{content}</pre>
-      </div>
-    </section>
-  )
-}
-
-function StructuredDataControls({
-  copied,
-  expanded,
-  extraActions,
-  title,
-  onCopy,
-  onToggle,
-}: {
-  copied: boolean
-  expanded: boolean
-  extraActions?: ReactNode
-  title: string
-  onCopy: () => void
-  onToggle: () => void
-}) {
-  return (
-    <div className="structured-data-actions">
-      {extraActions}
-      <span className={`structured-data-copy-status ${copied ? 'visible' : ''}`} role="status">
-        Copied
-      </span>
-      <button
-        aria-label={copied ? `${title} copied` : `Copy ${title}`}
-        className="icon-action-button"
-        onClick={onCopy}
-        type="button"
-      >
-        <CopyIcon />
-      </button>
-      <button
-        aria-label={expanded ? `Collapse ${title}` : `Expand ${title}`}
-        className="icon-action-button"
-        onClick={onToggle}
-        type="button"
-      >
-        {expanded ? <CollapseIcon /> : <ExpandIcon />}
-      </button>
-    </div>
-  )
-}
-
-function StructuredDataCard({
-  title,
-  value,
-  emptyText,
-  extraActions,
-  compact = false,
-  headingId,
-  headingLevel = 'h3',
-  expandedOverride,
-}: {
-  title: string
-  value: string | null | undefined
-  emptyText: string
-  extraActions?: ReactNode
-  compact?: boolean
-  headingId?: string
-  headingLevel?: 'h3' | 'h4'
-  expandedOverride?: boolean
-}) {
-  const [expanded, setExpanded] = useState(expandedOverride ?? false)
+function CopyButton({ value, title }: { value: string; title: string }) {
   const [copied, setCopied] = useState(false)
-  const content = value && value.trim() ? value : emptyText
-  const HeadingTag = headingLevel
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (expandedOverride === undefined) return
-    setExpanded(expandedOverride)
-  }, [expandedOverride])
-
-  async function handleCopy() {
-    try {
-      await copyText(content)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1200)
-    } catch {
-      setCopied(false)
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }
+  }, [])
 
   return (
-    <section className={`content-card detail-data-card ${compact ? 'detail-data-card-compact' : ''}`}>
-      <div className="detail-data-card-head">
-        <HeadingTag id={headingId}>{title}</HeadingTag>
-        <div className="detail-data-card-head-actions">
-          <StructuredDataControls
-            copied={copied}
-            expanded={expanded}
-            extraActions={extraActions}
-            onCopy={() => void handleCopy()}
-            onToggle={() => setExpanded(current => !current)}
-            title={title}
-          />
-        </div>
-      </div>
-      {expanded && (
-        <StructuredDataPanel
-          compact={compact}
-          emptyText={emptyText}
-          showTitle={false}
-          title={title}
-          value={value}
-        />
-      )}
-      <div aria-live="polite" className="sr-only">
-        {copied ? `${title} copied` : ''}
-      </div>
-    </section>
+    <button
+      aria-label={`Copy ${title}`}
+      className="icon-action-button"
+      onClick={async () => {
+        try {
+          await copyText(value)
+          setCopied(true)
+          if (timerRef.current) clearTimeout(timerRef.current)
+          timerRef.current = window.setTimeout(() => setCopied(false), 1200)
+        } catch {
+          setCopied(false)
+        }
+      }}
+      type="button"
+      title={copied ? `${title} copied` : `Copy ${title}`}
+    >
+      <CopyIcon />
+    </button>
   )
 }
 
@@ -250,190 +119,62 @@ function formatBytes(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function truncate(value: string | null | undefined, max = 120) {
-  if (!value) return 'No content'
-  return value.length > max ? `${value.slice(0, max)}…` : value
-}
 
-function analyzeToolReliability(tools: ToolMeta[]) {
-  if (tools.length === 0) {
-    return { score: 0, documented: 0, typed: 0, label: 'No tools' }
-  }
+type TimelineItemBase = { turn: number }
+type TimelineItem =
+  | (TimelineItemBase & { kind: 'user' | 'assistant'; role: string; text: string; raw: MessageItem })
+  | (TimelineItemBase & { kind: 'tool'; name: string; args: Record<string, unknown>; result: unknown; isError: boolean; sub: number })
 
-  const documented = tools.filter(tool => Boolean(tool.description?.trim())).length
-  const typed = tools.filter(tool => Object.keys(tool.parameters || {}).length > 0).length
-  const score = Math.round(((documented + typed) / (tools.length * 2)) * 100)
-  const label =
-    score >= 80 ? 'Strong signal'
-    : score >= 50 ? 'Mixed signal'
-    : 'Weak signal'
-
-  return { score, documented, typed, label }
-}
-
-type TraceEvent = {
-  kind: 'user' | 'assistant' | 'thinking' | 'tool_call' | 'tool_result' | 'metadata'
-  label: string
-  preview: string
-}
-
-type TraceLane = 'input' | 'reasoning' | 'tools' | 'output' | 'metadata'
-const TRACE_LANES: TraceLane[] = ['input', 'reasoning', 'tools', 'output', 'metadata']
-
-type TraceStage = {
-  lane: TraceLane
-  kind: TraceEvent['kind']
-  label: string
-  preview: string
-  accent?: string
-}
-
-type ExecutionRound = {
-  round: number
-  stages: TraceStage[]
-  userPrompt: string | null
-  assistantOutput: string | null
-  toolCallCount: number
-  toolResultCount: number
-  toolErrorCount: number
-  reasoningCount: number
-}
-
-type ExecutionSummary = {
-  roundCount: number
-  toolCallCount: number
-  toolResultCount: number
-  toolErrorCount: number
-  reasoningCount: number
-}
-
-function laneForEvent(kind: TraceEvent['kind']): TraceLane {
-  switch (kind) {
-    case 'user':
-      return 'input'
-    case 'thinking':
-      return 'reasoning'
-    case 'tool_call':
-    case 'tool_result':
-      return 'tools'
-    case 'metadata':
-      return 'metadata'
-    case 'assistant':
-    default:
-      return 'output'
-  }
-}
-
-function createExecutionRound(round: number): ExecutionRound {
-  return {
-    round,
-    stages: [],
-    userPrompt: null,
-    assistantOutput: null,
-    toolCallCount: 0,
-    toolResultCount: 0,
-    toolErrorCount: 0,
-    reasoningCount: 0,
-  }
-}
-
-function buildExecutionRounds(detail: SessionDetail | null): ExecutionRound[] {
+function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
   if (!detail) return []
-
-  const rounds: ExecutionRound[] = []
-  let currentRound: ExecutionRound | null = null
-
-  function ensureTurn() {
-    if (!currentRound) {
-      currentRound = createExecutionRound(rounds.length + 1)
-      rounds.push(currentRound)
-    }
-    return currentRound
-  }
-
-  function pushStage(kind: TraceEvent['kind'], label: string, preview: string, accent?: string) {
-    const round = ensureTurn()
-    round.stages.push({
-      lane: laneForEvent(kind),
-      kind,
-      label,
-      preview,
-      accent,
-    })
-  }
+  const items: TimelineItem[] = []
+  let turnIdx = 0
 
   for (const message of detail.messages) {
-    if (message.role === 'user' && (message.content || message.tool_calls?.length || message.tool_results?.length)) {
-      currentRound = createExecutionRound(rounds.length + 1)
-      rounds.push(currentRound)
-    }
-
+    turnIdx += 1
     if (message.content) {
-      const round = ensureTurn()
-      if (message.role === 'user') {
-        round.userPrompt ??= truncate(message.content, 180)
-      } else if (message.role === 'assistant') {
-        round.assistantOutput = truncate(message.content, 180)
-      }
-      pushStage(
-        message.role === 'user' ? 'user' : 'assistant',
-        message.role === 'user' ? 'User Prompt' : 'Assistant Output',
-        truncate(message.content, 180),
-      )
+      items.push({
+        kind: message.role === 'user' ? 'user' : 'assistant',
+        role: message.role,
+        text: message.content,
+        turn: turnIdx,
+        raw: message,
+      })
     }
 
-    if (message.thinking) {
-      ensureTurn().reasoningCount += 1
-      pushStage('thinking', 'Reasoning', truncate(message.thinking, 180))
-    }
-
-    for (const toolCall of message.tool_calls ?? []) {
-      ensureTurn().toolCallCount += 1
-      pushStage(
-        'tool_call',
-        `Tool Call · ${toolCall.name}`,
-        truncate(JSON.stringify(toolCall.arguments), 180),
-        'args',
-      )
-    }
-
-    for (const toolResult of message.tool_results ?? []) {
-      const round = ensureTurn()
-      round.toolResultCount += 1
-      if (toolResult.is_error) round.toolErrorCount += 1
-      pushStage(
-        'tool_result',
-        `Tool Result · ${toolResult.tool_call_id}`,
-        truncate(JSON.stringify(toolResult.content), 180),
-        toolResult.is_error ? 'error' : 'result',
-      )
-    }
-
-    if (message.metadata && Object.keys(message.metadata).length > 0) {
-      pushStage('metadata', 'Metadata', truncate(JSON.stringify(message.metadata), 180))
-    }
+    const calls = message.tool_calls ?? []
+    const results = message.tool_results ?? []
+    calls.forEach((call, sub) => {
+      const matched = results.find(r => r.tool_call_id === call.id)
+      items.push({
+        kind: 'tool',
+        name: call.name,
+        args: call.arguments,
+        result: matched?.content ?? '',
+        isError: Boolean(matched?.is_error),
+        sub,
+        turn: turnIdx,
+      })
+    })
   }
-
-  return rounds
+  return items
 }
 
-function summarizeExecutionRounds(rounds: ExecutionRound[]): ExecutionSummary {
-  return rounds.reduce<ExecutionSummary>(
-    (summary, round) => ({
-      roundCount: summary.roundCount + 1,
-      toolCallCount: summary.toolCallCount + round.toolCallCount,
-      toolResultCount: summary.toolResultCount + round.toolResultCount,
-      toolErrorCount: summary.toolErrorCount + round.toolErrorCount,
-      reasoningCount: summary.reasoningCount + round.reasoningCount,
-    }),
-    {
-      roundCount: 0,
-      toolCallCount: 0,
-      toolResultCount: 0,
-      toolErrorCount: 0,
-      reasoningCount: 0,
-    },
-  )
+function downloadJsonl(filename: string, messages: MessageItem[]) {
+  const text = messages.map(m => JSON.stringify(m)).join('\n')
+  const blob = new Blob([text], { type: 'application/jsonl' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function zeropad(n: number) {
+  return n < 10 ? `0${n}` : String(n)
 }
 
 type ViewMode = 'view' | 'create' | 'edit' | 'scaffold'
@@ -466,9 +207,15 @@ export default function AgentWorkspacePage() {
             {selectedAgent?.description && <p>{selectedAgent.description}</p>}
           </div>
           <div className="workspace-context-meta">
-            <span>{selectedAgent?.id ?? agentId}</span>
+            <span>{(selectedAgent?.id ?? agentId).toUpperCase()}</span>
             <span>{formatAgentDate(selectedAgent?.updated_at)}</span>
           </div>
+        </div>
+
+        <div className="workspace-context-actions">
+          <button className="btn btn-sm" disabled type="button" title="即将推出">Configure</button>
+          <button className="btn btn-sm" disabled type="button" title="即将推出">Export</button>
+          <button className="btn btn-accent btn-sm" disabled type="button" title="即将推出">Test agent</button>
         </div>
 
         <nav aria-label="Agent sections" className="workspace-tab-row">
@@ -544,7 +291,6 @@ function OverviewSection({ agentId }: { agentId: string }) {
     return <div className="empty-surface">{error}</div>
   }
 
-  const reliability = analyzeToolReliability(snapshot.tools)
   const recentSkills = [...snapshot.skills]
     .sort((left, right) => getTimestampValue(right.modified_at) - getTimestampValue(left.modified_at))
     .slice(0, 3)
@@ -554,13 +300,6 @@ function OverviewSection({ agentId }: { agentId: string }) {
   const recentFiles = [...snapshot.files]
     .sort((left, right) => getTimestampValue(right.modified_at) - getTimestampValue(left.modified_at))
     .slice(0, 3)
-  const skillDescribedCount = snapshot.skills.filter(skill => Boolean(skill.description?.trim())).length
-  const skillTaggedCount = snapshot.skills.filter(
-    skill =>
-      Boolean(skill.group?.trim()) ||
-      Boolean(skill.invocation_policy?.trim()) ||
-      Boolean(skill.tags?.length),
-  ).length
 
   function openSkillDetail(skillId: string) {
     void navigate(`/agents/${agentId}/skills?skill=${encodeURIComponent(skillId)}`)
@@ -632,23 +371,54 @@ function OverviewSection({ agentId }: { agentId: string }) {
 
         <article className="workspace-surface">
           <div className="surface-heading">
-            <span>编辑视角</span>
+            <span>Health</span>
           </div>
-          <div className="signal-list">
-            <div className="signal-card">
-              <strong>SKILLS 完整性信号</strong>
-              <p>
-                {skillDescribedCount}/{snapshot.skills.length} 已描述，{skillTaggedCount}/{snapshot.skills.length}{' '}
-                已配置分组、标签或调用策略。
-              </p>
-            </div>
-            <div className="signal-card">
-              <strong>TOOLS 可靠性信号</strong>
-              <p>
-                {reliability.documented}/{snapshot.tools.length} 已描述，
-                {` ${reliability.typed}/${snapshot.tools.length} 已解析 Schema。`}
-              </p>
-            </div>
+          <div>
+            {(() => {
+              const skillsTaggedOrGrouped = snapshot.skills.filter(skill =>
+                Boolean(skill.group?.trim()) || (skill.tags?.filter(Boolean).length ?? 0) > 0,
+              ).length
+              const toolsWithSchema = snapshot.tools.filter(t => Object.keys(t.parameters || {}).length > 0).length
+              const sessionsNonEmpty = snapshot.sessions.filter(s => s.message_count > 0).length
+
+              const rows: Array<{ label: string; detail: string; status: 'ok' | 'warn'; badge: string }> = [
+                {
+                  label: 'Skills 配置',
+                  detail: `${skillsTaggedOrGrouped}/${snapshot.skills.length} 已带分组或标签`,
+                  status: snapshot.skills.length === 0 || skillsTaggedOrGrouped < snapshot.skills.length ? 'warn' : 'ok',
+                  badge: snapshot.skills.length === 0 ? 'EMPTY' : skillsTaggedOrGrouped < snapshot.skills.length ? 'WARN' : 'OK',
+                },
+                {
+                  label: 'Tools schema',
+                  detail: `${toolsWithSchema}/${snapshot.tools.length} 已解析 schema`,
+                  status: snapshot.tools.length === 0 || toolsWithSchema < snapshot.tools.length ? 'warn' : 'ok',
+                  badge: snapshot.tools.length === 0 ? 'EMPTY' : toolsWithSchema < snapshot.tools.length ? 'WARN' : 'OK',
+                },
+                {
+                  label: 'Memory 完整性',
+                  detail: `${snapshot.files.length} 个文件 · 0 损坏`,
+                  status: 'ok',
+                  badge: 'OK',
+                },
+                {
+                  label: 'Session 活跃度',
+                  detail: `${sessionsNonEmpty}/${snapshot.sessions.length} 有消息`,
+                  status: snapshot.sessions.length > 0 && sessionsNonEmpty < snapshot.sessions.length ? 'warn' : 'ok',
+                  badge: snapshot.sessions.length === 0 ? 'EMPTY' : sessionsNonEmpty < snapshot.sessions.length ? 'WARN' : 'OK',
+                },
+              ]
+
+              return rows.map(row => (
+                <div className="health-row" key={row.label}>
+                  <span className={`status-dot ${row.status}`} />
+                  <div>
+                    <div className="row-name">{row.label}</div>
+                    <div className="row-meta">{row.detail}</div>
+                  </div>
+                  <span className={`badge ${row.status}`}>{row.badge}</span>
+                </div>
+              ))
+            })()}
           </div>
         </article>
       </section>
@@ -657,6 +427,13 @@ function OverviewSection({ agentId }: { agentId: string }) {
         <article className="workspace-surface">
           <div className="surface-heading">
             <span>最近技能</span>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => navigate(`/agents/${agentId}/skills`)}
+              type="button"
+            >
+              View all →
+            </button>
           </div>
           <div className="document-list">
             {recentSkills.map(skill => (
@@ -679,6 +456,13 @@ function OverviewSection({ agentId }: { agentId: string }) {
         <article className="workspace-surface">
           <div className="surface-heading">
             <span>最近工具</span>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => navigate(`/agents/${agentId}/tools`)}
+              type="button"
+            >
+              View all →
+            </button>
           </div>
           <div className="document-list">
             {recentTools.map(tool => (
@@ -701,6 +485,13 @@ function OverviewSection({ agentId }: { agentId: string }) {
         <article className="workspace-surface">
           <div className="surface-heading">
             <span>最近记忆</span>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => navigate(`/agents/${agentId}/memory`)}
+              type="button"
+            >
+              View all →
+            </button>
           </div>
           <div className="document-list">
             {recentFiles.map(file => (
@@ -861,8 +652,9 @@ function SkillsSection({ agentId }: { agentId: string }) {
           <span>Skills</span>
           <span>{skills.length}</span>
         </div>
-        <div className="panel-search-row">
-          <label className="panel-search">
+        <div className="filter-bar">
+          <label className="search">
+            <SearchIcon />
             <input
               aria-label="Search skills"
               onChange={event => setQuery(event.target.value)}
@@ -972,66 +764,60 @@ function SkillsSection({ agentId }: { agentId: string }) {
               )}
             </div>
 
-            <div className="content-card skill-metadata-card">
-              <h3>Skill Metadata</h3>
-              <div className="metadata-table-shell">
-                <table className="metadata-table skill-metadata-table">
-                  <tbody>
-                    <tr>
-                      <th scope="row">Skill ID</th>
-                      <td>
-                        <code>{selectedSkill.id}</code>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Version</th>
-                      <td>{selectedSkill.version || '—'}</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Policy</th>
-                      <td>{selectedSkill.invocation_policy || 'manual'}</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Group</th>
-                      <td>{selectedSkill.group || 'default'}</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Tags</th>
-                      <td>
-                        {selectedSkill.tags && selectedSkill.tags.length > 0 ? (
-                          <div className="metadata-tag-list" role="list" aria-label="Skill tags">
-                            {selectedSkill.tags.map(tag => (
-                              <span className="metadata-tag" key={tag} role="listitem">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                    </tr>
-                    <tr>
-                      <th scope="row">File Path</th>
-                      <td>
-                        <code>{selectedSkill.file_path}</code>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Updated</th>
-                      <td>
-                        {selectedSkill.modified_at ? formatRelativeTime(selectedSkill.modified_at) : '—'}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+            <div className="kv-table">
+              <div className="kv-row">
+                <div className="kv-key">Skill ID</div>
+                <div className="kv-val"><code>{selectedSkill.id}</code></div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Version</div>
+                <div className="kv-val">{selectedSkill.version || '—'}</div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Policy</div>
+                <div className="kv-val">
+                  <span className={`badge ${selectedSkill.invocation_policy === 'auto' ? 'accent' : ''}`}>
+                    {selectedSkill.invocation_policy || 'manual'}
+                  </span>
+                </div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Group</div>
+                <div className="kv-val">{selectedSkill.group || 'default'}</div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Tags</div>
+                <div className="kv-val">
+                  {selectedSkill.tags && selectedSkill.tags.length > 0 ? (
+                    <div className="metadata-tag-list" role="list" aria-label="Skill tags">
+                      {selectedSkill.tags.map(tag => (
+                        <span className="metadata-tag" key={tag} role="listitem">{tag}</span>
+                      ))}
+                    </div>
+                  ) : '—'}
+                </div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">File path</div>
+                <div className="kv-val">
+                  {selectedSkill.file_path ? <code>{selectedSkill.file_path}</code> : '—'}
+                </div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Updated</div>
+                <div className="kv-val">
+                  {selectedSkill.modified_at ? formatRelativeTime(selectedSkill.modified_at) : '—'}
+                </div>
               </div>
             </div>
 
-            <div className="content-card">
-              <h3>Prompt and Guidelines</h3>
-              <pre className="code-block">{selectedSkill.content || 'File is empty.'}</pre>
+            <div className="code-meta-row">
+              <span className="kv-label">Prompt and guidelines</span>
+              <div className="code-actions">
+                <CopyButton value={selectedSkill.content || ''} title="Prompt" />
+              </div>
             </div>
+            <pre className="code-block">{selectedSkill.content || 'File is empty.'}</pre>
           </div>
         )}
 
@@ -1133,8 +919,9 @@ function ToolsSection({ agentId }: { agentId: string }) {
           <span>Tools</span>
           <span>{tools.length}</span>
         </div>
-        <div className="panel-search-row">
-          <label className="panel-search">
+        <div className="filter-bar">
+          <label className="search">
+            <SearchIcon />
             <input
               aria-label="Search tools"
               onChange={event => setQuery(event.target.value)}
@@ -1221,52 +1008,54 @@ function ToolsSection({ agentId }: { agentId: string }) {
             <div className="surface-heading">
               <span>{selectedTool.name}</span>
             </div>
-            <div className="content-card skill-metadata-card">
-              <h3>Tool Metadata</h3>
-              <div className="metadata-table-shell">
-                <table className="metadata-table">
-                  <tbody>
-                    <tr>
-                      <th scope="row">Tool Name</th>
-                      <td>
-                        <code>{selectedTool.name}</code>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Group</th>
-                      <td>{selectedTool.group || 'default'}</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">File Path</th>
-                      <td>
-                        <code>{selectedTool.file_path}</code>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Updated</th>
-                      <td>{selectedTool.modified_at ? formatRelativeTime(selectedTool.modified_at) : '—'}</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Parameters</th>
-                      <td>{Object.keys(selectedTool.parameters || {}).length}</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Description</th>
-                      <td>{selectedTool.description || '—'}</td>
-                    </tr>
-                  </tbody>
-                </table>
+
+            <div className="kv-table">
+              <div className="kv-row">
+                <div className="kv-key">Tool name</div>
+                <div className="kv-val"><code>{selectedTool.name}</code></div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Group</div>
+                <div className="kv-val">{selectedTool.group || 'default'}</div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">File path</div>
+                <div className="kv-val">
+                  {selectedTool.file_path ? <code>{selectedTool.file_path}</code> : '—'}
+                </div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Updated</div>
+                <div className="kv-val">
+                  {selectedTool.modified_at ? formatRelativeTime(selectedTool.modified_at) : '—'}
+                </div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Parameters</div>
+                <div className="kv-val">{Object.keys(selectedTool.parameters || {}).length}</div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Description</div>
+                <div className="kv-val">{selectedTool.description || '—'}</div>
               </div>
             </div>
-            <StructuredDataCard
-              emptyText="// No parameters defined"
-              title="Parameter Schema"
-              value={
-                Object.keys(selectedTool.parameters || {}).length > 0
-                  ? JSON.stringify(selectedTool.parameters, null, 2)
-                  : ''
-              }
-            />
+
+            <div className="code-meta-row">
+              <span className="kv-label">Parameter schema</span>
+              <div className="code-actions">
+                <CopyButton
+                  value={Object.keys(selectedTool.parameters || {}).length > 0
+                    ? JSON.stringify(selectedTool.parameters, null, 2)
+                    : ''}
+                  title="Schema"
+                />
+              </div>
+            </div>
+            <pre className="code-light">
+              {Object.keys(selectedTool.parameters || {}).length > 0
+                ? JSON.stringify(selectedTool.parameters, null, 2)
+                : '// No parameters defined'}
+            </pre>
           </div>
         )}
 
@@ -1284,11 +1073,9 @@ function SessionsSection({ agentId }: { agentId: string }) {
   const [collapsedUserGroups, setCollapsedUserGroups] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
   const [detail, setDetail] = useState<SessionDetail | null>(null)
-  const [rawText, setRawText] = useState('')
   const [rawDraft, setRawDraft] = useState('')
-  const [tab, setTab] = useState<'conversation' | 'execution' | 'raw'>('conversation')
   const [editingRaw, setEditingRaw] = useState(false)
-  const [sessionPanelsExpanded, setSessionPanelsExpanded] = useState(false)
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1335,33 +1122,21 @@ function SessionsSection({ agentId }: { agentId: string }) {
     }
   }, [agentId])
 
+  // Always load detail when selected changes
   useEffect(() => {
     if (!selected) return
     const currentSession = selected
-
     let cancelled = false
 
-    async function loadTabData() {
+    async function loadDetail() {
       setDetailLoading(true)
       try {
-        if (tab === 'conversation' || tab === 'execution') {
-          const nextDetail = await api.getSessionDetail(
-            agentId,
-            currentSession.session_id,
-            currentSession.user_id,
-          )
-          if (!cancelled) setDetail(nextDetail)
-        } else {
-          const nextRaw = await api.getSessionRaw(
-            agentId,
-            currentSession.session_id,
-            currentSession.user_id,
-          )
-          if (!cancelled) {
-            setRawText(nextRaw)
-            setRawDraft(nextRaw)
-          }
-        }
+        const nextDetail = await api.getSessionDetail(
+          agentId,
+          currentSession.session_id,
+          currentSession.user_id,
+        )
+        if (!cancelled) setDetail(nextDetail)
       } catch (nextError) {
         if (!cancelled) {
           setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
@@ -1372,22 +1147,45 @@ function SessionsSection({ agentId }: { agentId: string }) {
       }
     }
 
-    void loadTabData()
-    return () => {
-      cancelled = true
+    void loadDetail()
+    return () => { cancelled = true }
+  }, [agentId, selected])
+
+  // Load raw only when the raw drawer is opened
+  useEffect(() => {
+    if (!editingRaw || !selected) return
+    const currentSession = selected
+    let cancelled = false
+
+    async function loadRaw() {
+      try {
+        const nextRaw = await api.getSessionRaw(
+          agentId,
+          currentSession.session_id,
+          currentSession.user_id,
+        )
+        if (!cancelled) {
+          setRawDraft(nextRaw)
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+          setFeedbackTone('alert')
+        }
+      }
     }
-  }, [agentId, selected, tab])
+
+    void loadRaw()
+    return () => { cancelled = true }
+  }, [agentId, editingRaw, selected])
 
   useEffect(() => {
-    setSessionPanelsExpanded(false)
+    setExpanded({ 0: true })
+    setEditingRaw(false)
   }, [selected?.session_id])
 
   useEffect(() => {
-    if (sessions.length === 0) {
-      setCollapsedUserGroups(new Set())
-      return
-    }
-    setCollapsedUserGroups(new Set(sessions.map(session => session.user_id || '(anonymous)')))
+    setCollapsedUserGroups(new Set())
   }, [sessions])
 
   const toggleUserGroup = useCallback((userId: string) => {
@@ -1406,7 +1204,6 @@ function SessionsSection({ agentId }: { agentId: string }) {
     if (!selected) return
     try {
       await api.putSessionRaw(agentId, selected.session_id, selected.user_id, rawDraft)
-      setRawText(rawDraft)
       setEditingRaw(false)
       setFeedback('Session raw content saved.')
       setFeedbackTone('status')
@@ -1420,15 +1217,6 @@ function SessionsSection({ agentId }: { agentId: string }) {
   if (error) return <div className="empty-surface">{error}</div>
 
   const filteredSessionCount = groupedSessions.reduce((total, [, items]) => total + items.length, 0)
-  const sessionDomId = selected ? toDomId(selected.session_id) : 'session'
-  const conversationTabId = `${sessionDomId}-conversation-tab`
-  const executionTabId = `${sessionDomId}-execution-tab`
-  const rawTabId = `${sessionDomId}-raw-tab`
-  const conversationPanelId = `${sessionDomId}-conversation-panel`
-  const executionPanelId = `${sessionDomId}-execution-panel`
-  const rawPanelId = `${sessionDomId}-raw-panel`
-  const canToggleSessionPanels = tab === 'conversation' || (tab === 'raw' && !editingRaw)
-  const sessionPanelToggleLabel = sessionPanelsExpanded ? 'Collapse all' : 'Expand all'
 
   return (
     <section className="workspace-split workspace-sessions">
@@ -1437,14 +1225,17 @@ function SessionsSection({ agentId }: { agentId: string }) {
           <span>Sessions</span>
           <span>{filteredSessionCount}</span>
         </div>
-        <label className="session-search">
-          <input
-            aria-label="Search sessions"
-            onChange={event => setQuery(event.target.value)}
-            placeholder="Search sessions"
-            value={query}
-          />
-        </label>
+        <div className="filter-bar">
+          <label className="search">
+            <SearchIcon />
+            <input
+              aria-label="Search sessions"
+              onChange={event => setQuery(event.target.value)}
+              placeholder="Search sessions, users, IDs"
+              value={query}
+            />
+          </label>
+        </div>
         <div aria-label="Sessions" className="session-nav-list" role="list">
           {groupedSessions.map(([userId, items]) => {
             const isCollapsed = collapsedUserGroups.has(userId)
@@ -1470,7 +1261,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
                 {items.map(session => (
                 <button
                   aria-label={`Session ${session.first_message || session.session_id}`}
-                  className={`session-nav-card ${selected?.session_id === session.session_id ? 'active' : ''}`}
+                  className={`session-row ${selected?.session_id === session.session_id ? 'active' : ''}`}
                   key={session.session_id}
                   onFocus={() => {
                     setSelected(session)
@@ -1482,15 +1273,13 @@ function SessionsSection({ agentId }: { agentId: string }) {
                   }}
                   type="button"
                 >
-                  <div className="session-nav-card-top">
-                    <strong>{session.first_message || session.session_id.slice(0, 14)}</strong>
-                    <span>{formatRelativeTime(session.updated_at || session.created_at)}</span>
-                  </div>
-                  <p>{session.session_id}</p>
-                  <div className="session-nav-card-meta">
-                    <span>{session.message_count} messages</span>
-                    <span>{session.user_id}</span>
-                  </div>
+                  <span className="session-row-title">
+                    {session.first_message || session.session_id.slice(0, 14)}
+                  </span>
+                  <span className="session-row-meta">
+                    <span className="session-row-count">{session.message_count}</span>
+                    <span className="session-row-time">{formatRelativeTime(session.updated_at || session.created_at)}</span>
+                  </span>
                 </button>
                 ))}
               </div>
@@ -1509,7 +1298,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
           {detailLoading
             ? 'Loading session detail'
             : selected
-              ? `Viewing session ${selected.first_message || selected.session_id}, ${tab} tab`
+              ? `Viewing session ${selected.first_message || selected.session_id}`
               : 'No session selected'}
         </div>
         {feedback && (
@@ -1526,160 +1315,213 @@ function SessionsSection({ agentId }: { agentId: string }) {
 
         {selected && (
           <div className="editor-sheet">
-            <div className="workspace-grid-three">
-              <div className="metric-surface session-summary-card">
-                <span>User ID</span>
-                <strong>{selected.user_id}</strong>
-              </div>
-              <div className="metric-surface session-summary-card">
-                <span>Messages</span>
-                <strong>{selected.message_count}</strong>
-              </div>
-              <div className="metric-surface session-summary-card">
-                <span>Updated</span>
-                <strong>{formatRelativeTime(selected.updated_at || selected.created_at)}</strong>
-              </div>
-            </div>
-
-            <div className="session-detail-hero">
-              <div className="session-detail-hero-top">
-                <div className="session-detail-hero-copy">
-                  <h2>{selected.first_message || selected.session_id}</h2>
-                  <p>{selected.session_id}</p>
-                </div>
-                <div className="session-detail-hero-actions">
+            <div className="session-detail-header">
+              <div className="session-title-row">
+                <h2>{selected.first_message || selected.session_id}</h2>
+                <div className="session-actions">
                   <button
-                    aria-label={sessionPanelToggleLabel}
-                    className="icon-action-button session-detail-bulk-toggle"
-                    disabled={!canToggleSessionPanels}
-                    onClick={() => setSessionPanelsExpanded(current => !current)}
+                    className="chip"
+                    onClick={() => downloadJsonl(`${selected.session_id}.jsonl`, detail?.messages ?? [])}
                     type="button"
+                    title="Download raw JSONL"
+                    disabled={!detail}
                   >
-                    {sessionPanelsExpanded ? <CollapseIcon /> : <ExpandIcon />}
+                    <DownloadIcon />
+                    Raw JSONL
+                  </button>
+                  {canEdit && (
+                    <button
+                      className="chip"
+                      onClick={() => setEditingRaw(prev => !prev)}
+                      type="button"
+                      title="Edit raw JSONL"
+                    >
+                      {editingRaw ? 'Close raw' : 'Edit raw'}
+                    </button>
+                  )}
+                  <button
+                    aria-label="Copy session id"
+                    className="icon-action-button"
+                    onClick={() => void copyText(selected.session_id)}
+                    type="button"
+                    title="Copy session id"
+                  >
+                    <CopyIcon />
+                  </button>
+                  <button
+                    aria-label="Expand all"
+                    className="icon-action-button"
+                    onClick={() => {
+                      const items = flattenTimeline(detail)
+                      const allExpanded = items.length > 0 && items.every((_, i) => expanded[i])
+                      setExpanded(allExpanded ? {} : Object.fromEntries(items.map((_, i) => [i, true])))
+                    }}
+                    type="button"
+                    title="Expand all / Collapse all"
+                  >
+                    <ExpandIcon />
                   </button>
                 </div>
               </div>
-              <div aria-label="Session detail views" className="session-mode-switch" role="tablist">
-                <button
-                  aria-controls={conversationPanelId}
-                  aria-selected={tab === 'conversation'}
-                  className={`action-button session-mode-switch-button ${tab === 'conversation' ? 'action-button-primary' : ''}`}
-                  id={conversationTabId}
-                  onFocus={() => setTab('conversation')}
-                  onClick={() => setTab('conversation')}
-                  role="tab"
-                  type="button"
-                >
-                  Conversation
-                </button>
-                <button
-                  aria-controls={executionPanelId}
-                  aria-selected={tab === 'execution'}
-                  className={`action-button session-mode-switch-button ${tab === 'execution' ? 'action-button-primary' : ''}`}
-                  id={executionTabId}
-                  onFocus={() => setTab('execution')}
-                  onClick={() => setTab('execution')}
-                  role="tab"
-                  type="button"
-                >
-                  Execution
-                </button>
-                <button
-                  aria-controls={rawPanelId}
-                  aria-selected={tab === 'raw'}
-                  className={`action-button session-mode-switch-button ${tab === 'raw' ? 'action-button-primary' : ''}`}
-                  id={rawTabId}
-                  onFocus={() => setTab('raw')}
-                  onClick={() => setTab('raw')}
-                  role="tab"
-                  type="button"
-                >
-                  Raw JSONL
-                </button>
-              </div>
+              <dl className="session-meta-strip">
+                <div className="session-meta-item">
+                  <dt>USER</dt>
+                  <dd>{selected.user_id}</dd>
+                </div>
+                <div className="session-meta-item">
+                  <dt>MESSAGES</dt>
+                  <dd>{selected.message_count}</dd>
+                </div>
+                <div className="session-meta-item">
+                  <dt>TOOLS USED</dt>
+                  <dd>{(detail?.messages ?? []).reduce((n, m) => n + (m.tool_calls?.length ?? 0), 0)}</dd>
+                </div>
+                <div className="session-meta-item">
+                  <dt>UPDATED</dt>
+                  <dd>{formatRelativeTime(selected.updated_at || selected.created_at)}</dd>
+                </div>
+                <div className="session-meta-item session-meta-item-id">
+                  <dt>SESSION</dt>
+                  <dd title={selected.session_id}>{selected.session_id}</dd>
+                </div>
+              </dl>
             </div>
+
+            {editingRaw && canEdit && (
+              <div className="session-raw-drawer">
+                <div className="session-raw-drawer-head">
+                  <span className="kv-label">Raw JSONL</span>
+                  <div className="button-row">
+                    <button className="action-button action-button-primary" onClick={() => void saveRaw()} type="button">
+                      Save
+                    </button>
+                    <button className="action-button" onClick={() => setEditingRaw(false)} type="button">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  className="code-textarea"
+                  onChange={event => setRawDraft(event.target.value)}
+                  rows={14}
+                  spellCheck={false}
+                  value={rawDraft}
+                />
+              </div>
+            )}
 
             {detailLoading && <div className="empty-surface">Loading session detail...</div>}
 
-            {!detailLoading && tab === 'conversation' && detail && (
-              <div
-                aria-labelledby={conversationTabId}
-                className="editor-sheet"
-                id={conversationPanelId}
-                role="tabpanel"
-              >
-                <StructuredDataCard
-                  emptyText="// No session state recorded"
-                  expandedOverride={sessionPanelsExpanded}
-                  title="State"
-                  value={
-                    Object.keys(detail.state || {}).length > 0
-                      ? JSON.stringify(detail.state, null, 2)
-                      : ''
-                  }
-                />
-                <div className="message-stack">
-                  {detail.messages.map((message, index) => (
-                    <SessionMessageCard
-                      allPanelsExpanded={sessionPanelsExpanded}
-                      key={`${message.role}-${index}`}
-                      message={message}
-                      messageIndex={index}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {!detailLoading && tab === 'execution' && detail && (
-              <ExecutionSection
-                detail={detail}
-                panelId={executionPanelId}
-                sessionDomId={sessionDomId}
-                tabId={executionTabId}
-              />
-            )}
-
-            {!detailLoading && tab === 'raw' && (
-              <div aria-labelledby={rawTabId} className="content-card" id={rawPanelId} role="tabpanel">
-                {editingRaw ? (
-                  <>
-                    <div className="surface-heading">
-                      <h3>Raw JSONL</h3>
-                      {canEdit && (
-                        <div className="button-row">
-                          <button className="action-button action-button-primary" onClick={() => void saveRaw()} type="button">
-                            Save
-                          </button>
-                          <button className="action-button" onClick={() => setEditingRaw(false)} type="button">
-                            Cancel
-                          </button>
+            {!detailLoading && detail && (
+              <div className="timeline-main" aria-label="Session timeline">
+                {flattenTimeline(detail).map((it, i) => {
+                  const isOpen = !!expanded[i]
+                  return (
+                    <div key={i}>
+                      <div
+                        className={`tlm-item ${it.kind} ${isOpen ? 'active' : ''}`}
+                        onClick={() => setExpanded(e => ({ ...e, [i]: !e[i] }))}
+                      >
+                        <div className="tlm-marker">
+                          <div className={`tlm-dot ${it.kind}`}>
+                            {it.kind === 'tool' && <BoltIcon />}
+                          </div>
+                        </div>
+                        <div className="tlm-content">
+                          <div className="tlm-head">
+                            <span className={`tlm-role ${it.kind === 'tool' ? 'tool' : ''}`}>
+                              {it.kind === 'tool' ? `tool · ${it.name}` : `${it.role} · turn ${it.turn}`}
+                            </span>
+                            <span className="tlm-meta">
+                              {it.kind === 'tool' ? (it.isError ? 'error' : 'ok') : `#${zeropad(i + 1)}`}
+                            </span>
+                          </div>
+                          <div className={`tlm-text ${it.kind === 'tool' ? 'mono' : ''}`}>
+                            {it.kind === 'tool'
+                              ? `${it.name}(${JSON.stringify(it.args)}) → ${typeof it.result === 'string' ? it.result : JSON.stringify(it.result)}`
+                              : it.text}
+                          </div>
+                        </div>
+                      </div>
+                      {isOpen && (
+                        <div className="tlm-detail">
+                          {it.kind === 'tool' ? (
+                            <>
+                              <div className="dt-row">
+                                <div className="dt-label">tool</div>
+                                <div className="dt-value mono">{it.name}</div>
+                              </div>
+                              <div className="dt-row">
+                                <div className="dt-label">args</div>
+                                <div className="dt-value mono">
+                                  <pre>{JSON.stringify(it.args, null, 2)}</pre>
+                                </div>
+                              </div>
+                              <div className="dt-row">
+                                <div className="dt-label">result</div>
+                                <div className={`dt-value mono ${it.isError ? 'err' : 'ok'}`} style={{ color: it.isError ? 'var(--err)' : 'var(--ok)' }}>
+                                  <pre>{typeof it.result === 'string' ? it.result : JSON.stringify(it.result, null, 2)}</pre>
+                                </div>
+                              </div>
+                              <div className="dt-row">
+                                <div className="dt-label">turn</div>
+                                <div className="dt-value mono">{it.turn}</div>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="dt-row">
+                                <div className="dt-label">role</div>
+                                <div className="dt-value mono">{it.role}</div>
+                              </div>
+                              <div className="dt-row">
+                                <div className="dt-label">content</div>
+                                <div className="dt-value" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>{it.text}</div>
+                              </div>
+                              {it.raw.thinking && (
+                                <div className="dt-block">
+                                  <div className="dt-label">thinking</div>
+                                  <pre className="code-block compact">{it.raw.thinking}</pre>
+                                </div>
+                              )}
+                              {it.raw.tool_calls && it.raw.tool_calls.length > 0 && (
+                                <div className="dt-block">
+                                  <div className="dt-label">tools invoked</div>
+                                  {it.raw.tool_calls.map((tc, k) => (
+                                    <div key={k} className="tool-call">
+                                      <div className="tool-call-head">
+                                        <BoltIcon />
+                                        <span className="tool-call-name">{tc.name}</span>
+                                      </div>
+                                      <div className="tool-call-body">
+                                        <div>args: {JSON.stringify(tc.arguments)}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
-                    <textarea
-                      className="code-textarea"
-                      onChange={event => setRawDraft(event.target.value)}
-                      rows={18}
-                      spellCheck={false}
-                      value={rawDraft}
-                    />
-                  </>
-                ) : (
-                  <StructuredDataCard
-                    emptyText="// Empty raw content"
-                    expandedOverride={sessionPanelsExpanded}
-                    extraActions={
-                      canEdit ? (
-                        <button className="action-button" onClick={() => setEditingRaw(true)} type="button">
-                          Edit
-                        </button>
-                      ) : undefined
-                    }
-                    title="Raw JSONL"
-                    value={rawText}
-                  />
-                )}
+                  )
+                })}
+
+                <div className="session-state-footer">
+                  <span className="kv-label">Session state</span>
+                  <div className="state-grid">
+                    {Object.entries(detail.state ?? {}).map(([k, v]) => (
+                      <div key={k}>
+                        <span className="text-dim">{k}:</span> {String(v)}
+                      </div>
+                    ))}
+                    <div>
+                      <span className="text-dim">tools_used:</span>{' '}
+                      {(detail.messages ?? []).reduce((n, m) => n + (m.tool_calls?.length ?? 0), 0)}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1689,535 +1531,12 @@ function SessionsSection({ agentId }: { agentId: string }) {
   )
 }
 
-function ExecutionSection({
-  detail,
-  panelId,
-  sessionDomId,
-  tabId,
-}: {
-  detail: SessionDetail
-  panelId: string
-  sessionDomId: string
-  tabId: string
-}) {
-  const rounds = useMemo(() => buildExecutionRounds(detail), [detail])
-  const summary = useMemo(() => summarizeExecutionRounds(rounds), [rounds])
-  const [selectedRound, setSelectedRound] = useState<number | null>(rounds[0]?.round ?? null)
-  const [scrollRoundStart, setScrollRoundStart] = useState(0)
-  const [focusedLane, setFocusedLane] = useState<TraceLane | null>(null)
-  const [roundsDragging, setRoundsDragging] = useState(false)
-  const roundsPanelRef = useRef<HTMLElement | null>(null)
-  const roundScrollerRef = useRef<HTMLDivElement | null>(null)
-  const roundCardRefs = useRef<Record<number, HTMLButtonElement | null>>({})
-  const traceLegendRefs = useRef<Record<TraceLane, HTMLButtonElement | null>>({
-    input: null,
-    reasoning: null,
-    tools: null,
-    output: null,
-    metadata: null,
-  })
-  const lastWheelShiftAtRef = useRef(0)
-  const dragPointerIdRef = useRef<number | null>(null)
-  const dragStartXRef = useRef(0)
-  const dragStartScrollLeftRef = useRef(0)
-  const suppressCardClickRef = useRef(false)
-
-  useEffect(() => {
-    setSelectedRound(current =>
-      rounds.some(round => round.round === current) ? current : (rounds[0]?.round ?? null),
-    )
-  }, [rounds])
-
-  const activeRound =
-    rounds[scrollRoundStart] ??
-    rounds.find(round => round.round === selectedRound) ??
-    rounds[0] ??
-    null
-  const canShiftPrev = rounds.length > 1
-  const canShiftNext = rounds.length > 1
-
-  const updateRoundCardMotion = useCallback(() => {
-    const scroller = roundScrollerRef.current
-    if (!scroller || rounds.length === 0) return
-
-    const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2
-
-    for (const round of rounds) {
-      const card = roundCardRefs.current[round.round]
-      if (!card) continue
-
-      const cardCenter = card.offsetLeft + card.offsetWidth / 2
-      const normalizedProgress = Math.max(
-        -1.25,
-        Math.min(1.25, (cardCenter - viewportCenter) / Math.max(card.offsetWidth, 1)),
-      )
-      const absProgress = Math.abs(normalizedProgress)
-
-      card.style.setProperty('--round-progress', normalizedProgress.toFixed(4))
-      card.style.setProperty('--round-abs-progress', absProgress.toFixed(4))
-    }
-  }, [rounds])
-
-  const syncRoundSelectionFromScroll = useCallback(() => {
-    const scroller = roundScrollerRef.current
-    if (!scroller || rounds.length === 0) return
-
-    let closestIndex = 0
-    let closestOffset = Number.POSITIVE_INFINITY
-    const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2
-
-    for (let index = 0; index < rounds.length; index += 1) {
-      const card = roundCardRefs.current[rounds[index].round]
-      if (!card) continue
-      const cardCenter = card.offsetLeft + card.offsetWidth / 2
-      const offset = Math.abs(cardCenter - viewportCenter)
-      if (offset < closestOffset) {
-        closestOffset = offset
-        closestIndex = index
-      }
-    }
-
-    updateRoundCardMotion()
-    setScrollRoundStart(current => (current === closestIndex ? current : closestIndex))
-    setSelectedRound(current => (current === rounds[closestIndex]?.round ? current : (rounds[closestIndex]?.round ?? null)))
-  }, [rounds, updateRoundCardMotion])
-
-  const scrollToRound = useCallback(
-    (roundNumber: number, behavior: ScrollBehavior = 'smooth') => {
-      const scroller = roundScrollerRef.current
-      const card = roundCardRefs.current[roundNumber]
-      if (!scroller || !card) return
-
-      scroller.scrollTo({
-        left: Math.max(0, card.offsetLeft - (scroller.clientWidth - card.offsetWidth) / 2),
-        behavior,
-      })
-      const nextIndex = rounds.findIndex(round => round.round === roundNumber)
-      if (nextIndex !== -1) {
-        setScrollRoundStart(nextIndex)
-        setSelectedRound(roundNumber)
-      }
-    },
-    [rounds],
-  )
-
-  useEffect(() => {
-    if (rounds.length === 0) {
-      setScrollRoundStart(0)
-      return
-    }
-
-    const selected =
-      selectedRound && rounds.some(round => round.round === selectedRound)
-        ? selectedRound
-        : rounds[0].round
-
-    setSelectedRound(selected)
-    setScrollRoundStart(Math.max(0, rounds.findIndex(round => round.round === selected)))
-
-    requestAnimationFrame(() => {
-      scrollToRound(selected, 'auto')
-      updateRoundCardMotion()
-    })
-  }, [rounds, scrollToRound, updateRoundCardMotion])
-
-  function shiftRoundWindow(direction: -1 | 1) {
-    if (rounds.length === 0) return
-    const nextIndex = (scrollRoundStart + direction + rounds.length) % rounds.length
-    const nextRound = rounds[nextIndex]?.round
-    if (nextRound) scrollToRound(nextRound)
-  }
-
-  useEffect(() => {
-    const panel = roundsPanelRef.current
-    if (!panel) return
-    const panelElement = panel
-
-    function handleWheel(event: WheelEvent) {
-      if (!(event.target instanceof Node) || !panelElement.contains(event.target)) return
-
-      let dominantDelta =
-        Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX
-      if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) dominantDelta *= 24
-      if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
-        dominantDelta *= roundScrollerRef.current?.clientWidth ?? panelElement.clientWidth
-      }
-      if (Math.abs(dominantDelta) < 8) return
-
-      event.preventDefault()
-      event.stopPropagation()
-      if (rounds.length <= 1) return
-
-      const now = Date.now()
-      if (now - lastWheelShiftAtRef.current < 220) return
-      lastWheelShiftAtRef.current = now
-
-      shiftRoundWindow(dominantDelta > 0 ? 1 : -1)
-    }
-
-    panelElement.addEventListener('wheel', handleWheel, { passive: false })
-    return () => {
-      panelElement.removeEventListener('wheel', handleWheel)
-    }
-  }, [rounds.length, scrollRoundStart, scrollToRound])
-
-  function handleRoundScrollerPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === 'mouse' && event.button !== 0) return
-    const scroller = roundScrollerRef.current
-    if (!scroller) return
-    dragPointerIdRef.current = event.pointerId
-    dragStartXRef.current = event.clientX
-    dragStartScrollLeftRef.current = scroller.scrollLeft
-    scroller.setPointerCapture(event.pointerId)
-    setRoundsDragging(true)
-  }
-
-  function handleRoundScrollerPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    const scroller = roundScrollerRef.current
-    if (!scroller || dragPointerIdRef.current !== event.pointerId) return
-
-    const deltaX = event.clientX - dragStartXRef.current
-    if (Math.abs(deltaX) > 6) suppressCardClickRef.current = true
-    scroller.scrollLeft = dragStartScrollLeftRef.current - deltaX
-  }
-
-  function handleRoundScrollerPointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
-    const scroller = roundScrollerRef.current
-    if (!scroller || dragPointerIdRef.current !== event.pointerId) return
-
-    if (scroller.hasPointerCapture(event.pointerId)) {
-      scroller.releasePointerCapture(event.pointerId)
-    }
-    dragPointerIdRef.current = null
-    setRoundsDragging(false)
-    syncRoundSelectionFromScroll()
-
-    if (suppressCardClickRef.current) {
-      window.setTimeout(() => {
-        suppressCardClickRef.current = false
-      }, 0)
-    }
-  }
-
-  function handleRoundCardSelect(roundNumber: number) {
-    if (suppressCardClickRef.current) return
-    scrollToRound(roundNumber)
-  }
-
-  function handleTraceLegendSelect(lane: TraceLane) {
-    setFocusedLane(current => (current === lane ? null : lane))
-  }
-
-  function focusTraceLegendTab(lane: TraceLane) {
-    traceLegendRefs.current[lane]?.focus()
-  }
-
-  function handleTraceLegendKeyDown(
-    event: ReactKeyboardEvent<HTMLButtonElement>,
-    currentLane: TraceLane,
-  ) {
-    const currentIndex = TRACE_LANES.indexOf(currentLane)
-    if (currentIndex === -1) return
-
-    let nextLane: TraceLane | null = null
-
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-      nextLane = TRACE_LANES[(currentIndex + 1) % TRACE_LANES.length]
-    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-      nextLane = TRACE_LANES[(currentIndex - 1 + TRACE_LANES.length) % TRACE_LANES.length]
-    } else if (event.key === 'Home') {
-      nextLane = TRACE_LANES[0]
-    } else if (event.key === 'End') {
-      nextLane = TRACE_LANES[TRACE_LANES.length - 1]
-    } else if (event.key === 'Tab') {
-      nextLane = TRACE_LANES[
-        (currentIndex + (event.shiftKey ? -1 : 1) + TRACE_LANES.length) % TRACE_LANES.length
-      ]
-    }
-
-    if (!nextLane) return
-    event.preventDefault()
-    setFocusedLane(nextLane)
-    focusTraceLegendTab(nextLane)
-  }
-
-  return (
-    <div aria-labelledby={tabId} className="editor-sheet" id={panelId} role="tabpanel">
-      <div className="workspace-grid-four">
-        <div className="metric-surface execution-summary-card execution-metric-surface">
-          <span>Conversation Rounds</span>
-          <strong>{summary.roundCount}</strong>
-        </div>
-        <div className="metric-surface execution-summary-card execution-metric-surface">
-          <span>Tool Calls</span>
-          <strong>{summary.toolCallCount}</strong>
-        </div>
-        <div className="metric-surface execution-summary-card execution-metric-surface">
-          <span>Tool Errors</span>
-          <strong>{summary.toolErrorCount}</strong>
-        </div>
-        <div className="metric-surface execution-summary-card execution-metric-surface">
-          <span>Reasoning Steps</span>
-          <strong>{summary.reasoningCount}</strong>
-        </div>
-      </div>
-
-      <div className="execution-stack">
-        <section
-          className="content-card execution-rounds-panel"
-          ref={roundsPanelRef}
-        >
-          <div className="surface-heading execution-rounds-heading">
-            <span>Rounds</span>
-            <span>{`${Math.min(scrollRoundStart + 1, rounds.length || 1)} / ${rounds.length}`}</span>
-          </div>
-          <div className="execution-rounds-carousel">
-            <button
-              aria-label="Show previous rounds"
-              className="icon-action-button execution-carousel-button execution-carousel-button-prev"
-              disabled={!canShiftPrev}
-              onClick={() => shiftRoundWindow(-1)}
-              type="button"
-            >
-              <ChevronRightIcon />
-            </button>
-            <div
-              aria-label="Conversation rounds"
-              className={`execution-round-list ${roundsDragging ? 'is-dragging' : ''}`}
-              onPointerCancel={handleRoundScrollerPointerEnd}
-              onPointerDown={handleRoundScrollerPointerDown}
-              onPointerMove={handleRoundScrollerPointerMove}
-              onPointerUp={handleRoundScrollerPointerEnd}
-              onScroll={syncRoundSelectionFromScroll}
-              ref={roundScrollerRef}
-              role="listbox"
-            >
-              {rounds.map(round => (
-                <button
-                  aria-label={`Round ${round.round}`}
-                  aria-selected={activeRound?.round === round.round}
-                  className={`session-nav-card execution-round-card ${activeRound?.round === round.round ? 'active' : ''}`}
-                  key={round.round}
-                  onClick={() => handleRoundCardSelect(round.round)}
-                  onFocus={() => scrollToRound(round.round)}
-                  ref={element => {
-                    roundCardRefs.current[round.round] = element
-                  }}
-                  role="option"
-                  type="button"
-                >
-                  <div className="session-nav-card-top">
-                    <strong>{`Round ${round.round}`}</strong>
-                    <span>{round.toolCallCount} calls</span>
-                  </div>
-                  <p>{round.userPrompt ?? 'No user prompt recorded for this round.'}</p>
-                  <div className="session-nav-card-meta execution-round-card-meta">
-                    <span>{round.reasoningCount} reasoning</span>
-                    <span>{round.toolErrorCount > 0 ? `${round.toolErrorCount} errors` : 'No tool errors'}</span>
-                  </div>
-                </button>
-              ))}
-              {rounds.length === 0 && <div className="empty-surface">No execution rounds were inferred from this session.</div>}
-            </div>
-            <button
-              aria-label="Show next rounds"
-              className="icon-action-button execution-carousel-button"
-              disabled={!canShiftNext}
-              onClick={() => shiftRoundWindow(1)}
-              type="button"
-            >
-              <ChevronRightIcon />
-            </button>
-          </div>
-          {rounds.length > 1 && (
-            <div aria-label="Rounds pagination" className="execution-round-dots" role="tablist">
-              {rounds.map((round, index) => (
-                <button
-                  aria-label={`Go to round ${round.round}`}
-                  aria-selected={scrollRoundStart === index}
-                  className={`execution-round-dot ${scrollRoundStart === index ? 'active' : ''}`}
-                  key={`round-dot-${round.round}`}
-                  onClick={() => scrollToRound(round.round)}
-                  role="tab"
-                  type="button"
-                />
-              ))}
-            </div>
-          )}
-        </section>
-
-        {activeRound ? (
-          <section
-            aria-labelledby={`${sessionDomId}-execution-round-${activeRound.round}`}
-            className="trace-turn execution-round-detail"
-          >
-            <div className="trace-turn-header">
-              <h3
-                className="trace-turn-badge"
-                id={`${sessionDomId}-execution-round-${activeRound.round}`}
-              >
-                {`Round ${activeRound.round}`}
-              </h3>
-              <span className="trace-turn-count">{`${activeRound.stages.length} event(s)`}</span>
-            </div>
-            <p className="execution-round-output">
-              {activeRound.assistantOutput ?? 'No assistant output recorded for this round.'}
-            </p>
-            <div aria-label="Trace lane filters" className="trace-legend" role="toolbar">
-              {TRACE_LANES.map(lane => {
-                const isActive = focusedLane === lane
-                const stageCount = activeRound.stages.filter(stage => stage.lane === lane).length
-                return (
-                  <button
-                    aria-label={
-                      isActive
-                        ? `Clear ${executionLaneLabel(lane)} filter`
-                        : `Filter to ${executionLaneLabel(lane)} lane`
-                    }
-                    aria-pressed={isActive}
-                    className={`trace-legend-button ${isActive ? 'active' : ''}`}
-                    key={`trace-legend-${lane}`}
-                    onClick={() => handleTraceLegendSelect(lane)}
-                    onKeyDown={event => handleTraceLegendKeyDown(event, lane)}
-                    ref={element => {
-                      traceLegendRefs.current[lane] = element
-                    }}
-                    tabIndex={focusedLane === null ? (lane === TRACE_LANES[0] ? 0 : -1) : (isActive ? 0 : -1)}
-                    type="button"
-                  >
-                    <span>{executionLaneLabel(lane)}</span>
-                    <strong>{stageCount}</strong>
-                  </button>
-                )
-              })}
-            </div>
-            <div className={`trace-lane-grid ${focusedLane ? 'trace-lane-grid-focused' : ''}`}>
-              {TRACE_LANES.map(lane => {
-                const stages = activeRound.stages.filter(stage => stage.lane === lane)
-                const isHidden = focusedLane !== null && focusedLane !== lane
-                return (
-                  <section
-                    aria-hidden={isHidden}
-                    className={`trace-lane trace-lane-${lane} ${focusedLane === lane ? 'trace-lane-active' : ''} ${isHidden ? 'trace-lane-hidden' : ''}`}
-                    key={`${activeRound.round}-${lane}`}
-                  >
-                    <h4
-                      className="trace-lane-title"
-                      id={`${sessionDomId}-execution-round-${activeRound.round}-${lane}`}
-                    >
-                      {executionLaneLabel(lane)}
-                    </h4>
-                    {stages.length > 0 ? (
-                      stages.map((stage, index) => (
-                        <div
-                          className={`trace-node trace-${stage.kind} ${stage.accent ? `trace-accent-${stage.accent}` : ''}`}
-                          key={`${activeRound.round}-${lane}-${index}`}
-                        >
-                          <strong>{stage.label}</strong>
-                          <p>{stage.preview}</p>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="trace-node trace-node-empty">
-                        <strong>No event</strong>
-                        <p>No recorded data for this lane in the selected round.</p>
-                      </div>
-                    )}
-                  </section>
-                )
-              })}
-            </div>
-          </section>
-        ) : (
-          <div className="empty-surface">No execution detail is available for this session.</div>
-        )}
-      </div>
-
-      <div className="content-card">
-        <h3>Inference Notes</h3>
-        <p>
-          This execution view is inferred from stored session detail, not from a dedicated span-tracing backend.
-          It is useful for understanding prompt, reasoning, tool usage, output, and metadata flow per round.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function SessionMessageCard({
-  message,
-  messageIndex,
-  allPanelsExpanded,
-}: {
-  message: MessageItem
-  messageIndex: number
-  allPanelsExpanded: boolean
-}) {
-  const messageId = `session-message-${messageIndex}-${message.role}`
-  return (
-    <article
-      aria-labelledby={`${messageId}-title`}
-      className={`session-message session-message-${message.role}`}
-    >
-      <h3 className="session-message-role" id={`${messageId}-title`}>
-        {message.role}
-      </h3>
-      {message.content && <div className="session-message-content">{message.content}</div>}
-      {message.thinking && (
-        <section aria-labelledby={`${messageId}-thinking`} className="session-message-aside">
-          <h4 id={`${messageId}-thinking`}>thinking</h4>
-          <pre className="code-block compact">{message.thinking}</pre>
-        </section>
-      )}
-      {message.tool_calls && message.tool_calls.length > 0 && (
-        <section aria-labelledby={`${messageId}-tool-calls`} className="session-message-aside">
-          <StructuredDataCard
-            compact
-            emptyText="// No tool calls"
-            expandedOverride={allPanelsExpanded}
-            headingId={`${messageId}-tool-calls`}
-            headingLevel="h4"
-            title="tool calls"
-            value={JSON.stringify(message.tool_calls, null, 2)}
-          />
-        </section>
-      )}
-      {message.tool_results && message.tool_results.length > 0 && (
-        <section aria-labelledby={`${messageId}-tool-results`} className="session-message-aside">
-          <StructuredDataCard
-            compact
-            emptyText="// No tool results"
-            expandedOverride={allPanelsExpanded}
-            headingId={`${messageId}-tool-results`}
-            headingLevel="h4"
-            title="tool results"
-            value={JSON.stringify(message.tool_results, null, 2)}
-          />
-        </section>
-      )}
-      {message.metadata && Object.keys(message.metadata).length > 0 && (
-        <section aria-labelledby={`${messageId}-metadata`} className="session-message-aside">
-          <StructuredDataCard
-            compact
-            emptyText="// No metadata"
-            expandedOverride={allPanelsExpanded}
-            headingId={`${messageId}-metadata`}
-            headingLevel="h4"
-            title="metadata"
-            value={JSON.stringify(message.metadata, null, 2)}
-          />
-        </section>
-      )}
-    </article>
-  )
-}
 
 function MemorySection({ agentId }: { agentId: string }) {
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const canEdit = user?.role === 'editor'
   const [files, setFiles] = useState<MemoryFileItem[]>([])
-  const [collapsedUserGroups, setCollapsedUserGroups] = useState<Set<string>>(() => new Set())
   const [selected, setSelected] = useState<MemoryFileItem | null>(null)
   const [content, setContent] = useState('')
   const [draft, setDraft] = useState('')
@@ -2242,16 +1561,6 @@ function MemorySection({ agentId }: { agentId: string }) {
     })
   }, [files, query])
 
-  const groupedFiles = useMemo(() => {
-    const next = new Map<string, MemoryFileItem[]>()
-    for (const file of filteredFiles) {
-      const key = file.user_id || '(global)'
-      const list = next.get(key) ?? []
-      list.push(file)
-      next.set(key, list)
-    }
-    return [...next.entries()]
-  }, [filteredFiles])
   const requestedMemoryPath = searchParams.get('memory')
   const requestedMemoryUser = searchParams.get('user') ?? ''
 
@@ -2296,26 +1605,6 @@ function MemorySection({ agentId }: { agentId: string }) {
     if (!match) return
     setSelected(match)
   }, [files, requestedMemoryPath, requestedMemoryUser])
-
-  useEffect(() => {
-    if (files.length === 0) {
-      setCollapsedUserGroups(new Set())
-      return
-    }
-    setCollapsedUserGroups(new Set(files.map(file => file.user_id || '(global)')))
-  }, [files])
-
-  const toggleUserGroup = useCallback((userId: string) => {
-    setCollapsedUserGroups(current => {
-      const next = new Set(current)
-      if (next.has(userId)) {
-        next.delete(userId)
-      } else {
-        next.add(userId)
-      }
-      return next
-    })
-  }, [])
 
   useEffect(() => {
     if (!selected) return
@@ -2371,57 +1660,39 @@ function MemorySection({ agentId }: { agentId: string }) {
           <span>Memory Files</span>
           <span>{files.length}</span>
         </div>
-        <label className="panel-search">
-          <input
-            aria-label="Search memory files"
-            onChange={event => setQuery(event.target.value)}
-            placeholder="Search memory"
-            value={query}
-          />
-        </label>
+        <div className="filter-bar">
+          <label className="search">
+            <SearchIcon />
+            <input
+              aria-label="Search memory files"
+              onChange={event => setQuery(event.target.value)}
+              placeholder="Search memory"
+              value={query}
+            />
+          </label>
+        </div>
         <div className="document-list">
-          {groupedFiles.map(([group, items]) => (
-            <div className="session-cluster" key={group}>
-              <div className="session-cluster-head">
-                <button
-                  aria-controls={`${toDomId(group)}-memory-group`}
-                  aria-expanded={!collapsedUserGroups.has(group)}
-                  className={`session-cluster-toggle ${collapsedUserGroups.has(group) ? 'collapsed' : ''}`}
-                  onClick={() => toggleUserGroup(group)}
-                  type="button"
-                >
-                  <span className="session-group-title">
-                    <ChevronRightIcon className="session-group-chevron" />
-                    <span>{group}</span>
-                  </span>
-                  <span>{formatBytes(items.reduce((total, file) => total + file.size_bytes, 0))}</span>
-                </button>
+          {filteredFiles.map(file => (
+            <button
+              className={`document-card document-button memory-list-card ${
+                selected?.file_path === file.file_path && selected?.user_id === file.user_id ? 'active' : ''
+              }`}
+              key={`${file.user_id}-${file.file_path}`}
+              onClick={() => setSelected(file)}
+              type="button"
+            >
+              <div className="skill-list-card-top">
+                <strong>{file.file_path.split('/').pop() || file.file_path}</strong>
+                <span className="skill-policy-chip">{file.user_id}</span>
               </div>
-              <div
-                className={`session-cluster-items ${collapsedUserGroups.has(group) ? 'collapsed' : ''}`}
-                id={`${toDomId(group)}-memory-group`}
-              >
-                {items.map(file => (
-                  <button
-                    className={`document-card document-button memory-list-card ${
-                      selected?.file_path === file.file_path && selected?.user_id === file.user_id ? 'active' : ''
-                    }`}
-                    key={`${file.user_id}-${file.file_path}`}
-                    onClick={() => setSelected(file)}
-                    type="button"
-                  >
-                    <div className="skill-list-card-top">
-                      <strong>{file.file_path.split('/').pop()}</strong>
-                      <span className="skill-policy-chip">{formatBytes(file.size_bytes)}</span>
-                    </div>
-                    <p>{file.file_type}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
+              <p>
+                {file.file_type} · {formatBytes(file.size_bytes)}
+                {file.modified_at && ` · ${formatRelativeTime(file.modified_at)}`}
+              </p>
+            </button>
           ))}
           {files.length === 0 && <div className="empty-surface">No memory files found.</div>}
-          {files.length > 0 && groupedFiles.length === 0 && <div className="empty-surface">No matching memory files.</div>}
+          {files.length > 0 && filteredFiles.length === 0 && <div className="empty-surface">No matching memory files.</div>}
         </div>
       </div>
 
@@ -2432,7 +1703,7 @@ function MemorySection({ agentId }: { agentId: string }) {
         {selected && (
           <div className="editor-sheet">
             <div className="surface-heading">
-              <span>{selected.file_path}</span>
+              <span>{selected.file_path.split('/').pop() || selected.file_path}</span>
               {canEdit && (
                 <div className="button-row">
                   {!editing && (
@@ -2454,58 +1725,51 @@ function MemorySection({ agentId }: { agentId: string }) {
               )}
             </div>
 
-            <div className="content-card skill-metadata-card">
-              <h3>Memory Metadata</h3>
-              <div className="metadata-table-shell">
-                <table className="metadata-table">
-                  <tbody>
-                    <tr>
-                      <th scope="row">User ID</th>
-                      <td>
-                        <code>{selected.user_id}</code>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th scope="row">File Name</th>
-                      <td>{selected.file_path.split('/').pop() || selected.file_path}</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">File Path</th>
-                      <td>
-                        <code>{selected.file_path}</code>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Type</th>
-                      <td>{selected.file_type}</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Size</th>
-                      <td>{formatBytes(selected.size_bytes)}</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Updated</th>
-                      <td>{formatDateTime(selected.modified_at)}</td>
-                    </tr>
-                  </tbody>
-                </table>
+            <div className="kv-table">
+              <div className="kv-row">
+                <div className="kv-key">User ID</div>
+                <div className="kv-val"><code>{selected.user_id}</code></div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">File name</div>
+                <div className="kv-val"><code>{selected.file_path.split('/').pop() || selected.file_path}</code></div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Path</div>
+                <div className="kv-val"><code>{selected.file_path}</code></div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Type</div>
+                <div className="kv-val">{selected.file_type}</div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Size</div>
+                <div className="kv-val">{formatBytes(selected.size_bytes)}</div>
+              </div>
+              <div className="kv-row">
+                <div className="kv-key">Updated</div>
+                <div className="kv-val">{formatDateTime(selected.modified_at)}</div>
               </div>
             </div>
 
-            <div className="content-card">
-              <h3>Memory Content</h3>
-              {contentLoading && <div className="empty-surface">Loading memory content...</div>}
-              {!contentLoading && editing && (
-                <textarea
-                  className="code-textarea"
-                  onChange={event => setDraft(event.target.value)}
-                  rows={18}
-                  spellCheck={false}
-                  value={draft}
-                />
-              )}
-              {!contentLoading && !editing && <pre className="code-block">{content || '// Empty memory file'}</pre>}
+            <div className="code-meta-row">
+              <span className="kv-label">Memory content</span>
+              <div className="code-actions">
+                <CopyButton value={content} title="Memory content" />
+              </div>
             </div>
+
+            {contentLoading && <div className="empty-surface">Loading memory content...</div>}
+            {!contentLoading && editing && (
+              <textarea
+                className="code-textarea"
+                onChange={event => setDraft(event.target.value)}
+                rows={18}
+                spellCheck={false}
+                value={draft}
+              />
+            )}
+            {!contentLoading && !editing && <pre className="code-block">{content || '// Empty memory file'}</pre>}
           </div>
         )}
       </div>

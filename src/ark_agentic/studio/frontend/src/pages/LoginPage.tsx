@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
+import ThemeToggle from '../components/ThemeToggle'
 import { SparkIcon } from '../components/StudioIcons'
 
 const LOGIN_URL = '/api/studio/auth/login'
@@ -42,33 +43,38 @@ export default function LoginPage() {
 
   return (
     <div className="login-shell">
+      <div className="login-theme-toggle">
+        <ThemeToggle />
+      </div>
       <div className="login-container">
         <div className="login-hero">
-          <div className="surface-kicker">Ark-Agentic Studio</div>
-          <div className="login-signal-grid">
-            <div className="login-signal">
-              <strong>统一控制台</strong>
-              <span>集中查看 Agent、Skills、Tools、Sessions 与 Memory。</span>
+          <div className="login-hero-inner">
+            <div className="login-brand">
+              <div className="studio-brand-mark">
+                <SparkIcon />
+              </div>
+              <span>Ark-Agentic Studio</span>
             </div>
-            <div className="login-signal">
-              <strong>调试工作流</strong>
-              <span>围绕真实运行记录与资产状态，快速定位问题并推进修改。</span>
+            <div className="login-headline">
+              <div className="login-eyebrow">Agent Operations Platform</div>
+              <h1 className="login-h1">
+                Build, run, and govern <em>autonomous agents</em>.
+              </h1>
+              <p className="login-lede">
+                从 Skill 设计、Tool 注册，到生产会话回放与审计 —— 把 LLM
+                agent 的整个生命周期收敛到一个工作台。
+              </p>
             </div>
-            <div className="login-signal">
-              <strong>可视化视角</strong>
-              <span>让复杂对象以更清晰的结构呈现，降低运营与维护成本。</span>
+            <div className="login-foot">
+              <span>© 2026 Ark Platform Group</span>
             </div>
           </div>
         </div>
 
         <form className="login-panel" onSubmit={handleSubmit}>
           <div className="login-panel-header">
-            <div className="studio-brand-mark">
-              <SparkIcon />
-            </div>
-            <div>
-              <strong>登录 Studio</strong>
-            </div>
+            <strong>Welcome back</strong>
+            <span>Sign in to your Ark-Agentic workspace.</span>
           </div>
 
           {error && <div className="login-error-banner">{error}</div>}

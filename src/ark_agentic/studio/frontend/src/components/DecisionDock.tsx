@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { streamChat, type AgentMeta } from '../api'
-import { CloseIcon, PlusIcon, SparkIcon } from './StudioIcons'
+import { CloseIcon, PlusIcon, SendIcon, SparkIcon } from './StudioIcons'
 
 interface DockMessage {
   id: string
@@ -313,19 +313,21 @@ export default function DecisionDock({
           onKeyDown={handleKeyDown}
           placeholder={
             selectedAgent
-              ? '输入消息，按 Enter 发送（Shift+Enter 换行）'
-              : '请先选择一个 Agent 以激活对话框'
+              ? '输入消息，按 Enter 发送'
+              : '请先选择一个 Agent'
           }
-          rows={4}
+          rows={3}
           value={input}
         />
         <button
-          className="dock-button dock-button-primary"
+          aria-label={isStreaming ? 'Sending' : 'Send to Meta-Agent'}
+          className="dock-send-button"
           disabled={!selectedAgent || !input.trim() || isStreaming}
           onClick={() => void sendMessage()}
+          title={isStreaming ? 'Sending…' : 'Send'}
           type="button"
         >
-          {isStreaming ? 'Working...' : 'Send to Meta-Agent'}
+          <SendIcon />
         </button>
       </div>
     </aside>

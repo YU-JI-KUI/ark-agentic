@@ -204,6 +204,39 @@ export function CloseIcon(props: IconProps) {
   )
 }
 
+export function SendIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m22 2-7 20-4-9-9-4Z" />
+      <path d="M22 2 11 13" />
+    </IconBase>
+  )
+}
+
+export function SunIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2" />
+      <path d="M12 20v2" />
+      <path d="m4.93 4.93 1.41 1.41" />
+      <path d="m17.66 17.66 1.41 1.41" />
+      <path d="M2 12h2" />
+      <path d="M20 12h2" />
+      <path d="m6.34 17.66-1.41 1.41" />
+      <path d="m19.07 4.93-1.41 1.41" />
+    </IconBase>
+  )
+}
+
+export function MoonIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
+    </IconBase>
+  )
+}
+
 export function RobotIcon(props: IconProps) {
   return (
     <IconBase {...props}>
@@ -215,6 +248,42 @@ export function RobotIcon(props: IconProps) {
       <path d="M16 19v2" />
       <path d="M2.5 11.5H5" />
       <path d="M19 11.5h2.5" />
+    </IconBase>
+  )
+}
+
+export function DownloadIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M12 15V3" />
+    </IconBase>
+  )
+}
+
+export function BoltIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z" fill="currentColor" stroke="none" />
+    </IconBase>
+  )
+}
+
+export function MoreIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    </IconBase>
+  )
+}
+
+export function FilterIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3Z" />
     </IconBase>
   )
 }
