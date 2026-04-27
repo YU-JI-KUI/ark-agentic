@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import inspect
 from functools import wraps
 from typing import Any, Awaitable, Callable, TypeVar
 
@@ -75,12 +76,19 @@ def _coerce_attr(value: Any) -> Any:
 # ---------- Internal factory ----------
 
 
-def _traced(span_name: str, kind: str) -> Callable[[F], F]:
+def _traced(span_name: str, kind: str, *, span_name_template: str = None) -> Callable[[F], F]:
     def deco(fn: F) -> F:
         @wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             tracer = trace.get_tracer(_TRACER_NAME)
-            with tracer.start_as_current_span(span_name) as span:
+            current_span_name = span_name
+            if span_name_template:
+                sig = inspect.signature(fn)
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+                current_span_name = span_name_template.format(**bound.arguments)
+
+            with tracer.start_as_current_span(current_span_name) as span:
                 span.set_attribute(_ATTR_SPAN_KIND, kind)
                 try:
                     return await fn(*args, **kwargs)
@@ -98,14 +106,14 @@ def _traced(span_name: str, kind: str) -> Callable[[F], F]:
 # ---------- Public decorators ----------
 
 
-def traced_agent(span_name: str = "agent.run") -> Callable[[F], F]:
+def traced_agent(span_name: str = "agent.run", span_name_template: str = None) -> Callable[[F], F]:
     """Wrap AgentRunner.run — opens an OpenInference AGENT span."""
-    return _traced(span_name, _SPAN_KIND_AGENT)
+    return _traced(span_name, _SPAN_KIND_AGENT, span_name_template=span_name_template)
 
 
-def traced_chain(span_name: str) -> Callable[[F], F]:
+def traced_chain(span_name: str, span_name_template: str = None) -> Callable[[F], F]:
     """Wrap a runner phase — opens an OpenInference CHAIN span."""
-    return _traced(span_name, _SPAN_KIND_CHAIN)
+    return _traced(span_name, _SPAN_KIND_CHAIN, span_name_template=span_name_template)
 
 
 def traced_tool(fn: F) -> F:

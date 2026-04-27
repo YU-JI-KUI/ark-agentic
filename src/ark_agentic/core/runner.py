@@ -301,7 +301,7 @@ class AgentRunner:
     async def close_memory(self) -> None:
         """保留接口兼容 — 无需释放资源。"""
 
-    @traced_agent("agent.run")
+    @traced_agent("agent.run", span_name_template="agent.run:{self.config.skill_config.agent_id}")
     async def run(
         self,
         session_id: str,
@@ -738,7 +738,7 @@ class AgentRunner:
 
     # ---- Phase methods (SRP: each handles one phase of a ReAct turn) ----
 
-    @traced_chain("agent.turn")
+    @traced_chain("agent.turn", span_name_template="agent.turn-{ls.turns}")
     async def _run_turn(
         self,
         session_id: str,

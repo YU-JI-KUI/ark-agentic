@@ -28,6 +28,7 @@ tracing = [
 ]
 phoenix = [
     "ark-agentic[tracing]",
+    "arize-phoenix-otel",
 ]
 langfuse = [
     "ark-agentic[tracing]",
