@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { NavLink, useOutletContext } from 'react-router-dom'
+import { useOutletContext } from 'react-router-dom'
 import {
   api,
   type AgentMeta,
@@ -695,89 +695,6 @@ function ActivityFeed({ items }: { items: ActivityItem[] }) {
   )
 }
 
-function buildAgentSparkline(snap: AgentSnapshot, buckets = 9, days = 14): { points: number[]; warn: boolean } {
-  const now = Date.now()
-  const start = now - days * 86_400_000
-  const buckSize = (now - start) / buckets
-  const counts = new Array(buckets).fill(0) as number[]
-  let warn = false
-  for (const session of snap.sessions) {
-    if (session.message_count === 0) warn = true
-    const ts = Date.parse(session.updated_at ?? session.created_at ?? '')
-    if (Number.isNaN(ts) || ts < start || ts > now) continue
-    const idx = Math.min(buckets - 1, Math.max(0, Math.floor((ts - start) / buckSize)))
-    counts[idx] += 1
-  }
-  return { points: counts, warn }
-}
-
-function AgentHealthList({ snapshots }: { snapshots: AgentSnapshot[] }) {
-  return (
-    <article className="workspace-surface">
-      <div className="surface-heading">
-        <span>Agents · health</span>
-        <span>{snapshots.length}</span>
-      </div>
-      <div>
-        {snapshots.map(snap => {
-          const { points, warn } = buildAgentSparkline(snap)
-          const max = Math.max(1, ...points)
-          const w = 80
-          const h = 22
-          const polyline = points.map((v, i) => {
-            const x = points.length > 1 ? (i / (points.length - 1)) * w : 0
-            const y = h - (v / max) * (h - 4) - 2
-            return `${x.toFixed(1)},${y.toFixed(1)}`
-          }).join(' ')
-          return (
-            <NavLink
-              className="agent-health-card"
-              key={snap.agent.id}
-              to={`/agents/${snap.agent.id}/overview`}
-            >
-              <div className="agent-health-card-top">
-                <div>
-                  <div className="agent-health-card-name">{snap.agent.name}</div>
-                  <div className="agent-health-card-desc">{snap.agent.description || ' '}</div>
-                </div>
-                <span className="badge accent">{snap.agent.id.toUpperCase()}</span>
-              </div>
-              <div className="agent-health-stats">
-                <div className="agent-health-stat">
-                  <strong>{snap.skills.length}</strong>
-                  <span>skills</span>
-                </div>
-                <div className="agent-health-stat">
-                  <strong>{snap.tools.length}</strong>
-                  <span>tools</span>
-                </div>
-                <div className="agent-health-stat">
-                  <strong>{snap.sessions.length}</strong>
-                  <span>sessions</span>
-                </div>
-                <div className="agent-health-stat">
-                  <strong>{snap.memoryFiles.length}</strong>
-                  <span>memory</span>
-                </div>
-                <svg className="agent-health-spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-                  <polyline
-                    fill="none"
-                    points={polyline}
-                    stroke={warn ? 'var(--warn)' : 'var(--ok)'}
-                    strokeWidth="1.4"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                </svg>
-              </div>
-            </NavLink>
-          )
-        })}
-        {snapshots.length === 0 && <div className="empty-surface">No agents.</div>}
-      </div>
-    </article>
-  )
-}
-
 export default function StudioDashboardPage() {
   const { agents, agentsLoading, agentsError, refreshAgents } = useOutletContext<StudioShellContextValue>()
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
@@ -923,11 +840,6 @@ export default function StudioDashboardPage() {
         />
       </section>
 
-      <section className="dashboard-row-2">
-        <ActivityFeed items={activityItems} />
-        <AgentHealthList snapshots={snapshots} />
-      </section>
-
       <section className="dashboard-insight-grid dashboard-insight-grid-coverage">
         <article className="workspace-surface dashboard-insight-panel dashboard-insight-panel-skills metric-tone-skills">
           <div className="surface-heading dashboard-insight-heading">
@@ -980,6 +892,10 @@ export default function StudioDashboardPage() {
             />
           </div>
         </article>
+      </section>
+
+      <section className="dashboard-row-2">
+        <ActivityFeed items={activityItems} />
       </section>
     </div>
   )

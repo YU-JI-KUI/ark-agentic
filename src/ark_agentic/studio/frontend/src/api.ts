@@ -142,7 +142,13 @@ export interface MessageItem {
     role: string
     content: string | null
     tool_calls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> | null
-    tool_results?: Array<{ tool_call_id: string; content: unknown; is_error?: boolean }> | null
+    tool_results?: Array<{
+        tool_call_id: string
+        content: unknown
+        is_error?: boolean
+        result_type?: string
+        llm_digest?: string | null
+    }> | null
     thinking?: string | null
     metadata?: Record<string, unknown> | null
 }

@@ -285,21 +285,6 @@ export default function StudioShell() {
               )
             })}
           </div>
-
-          <div className="side-footer">
-            <button className="sf-link" type="button" disabled title="即将推出">
-              <kbd>⌘+N</kbd>
-              <span>New agent</span>
-            </button>
-            <button className="sf-link" type="button" disabled title="即将推出">
-              <kbd>?</kbd>
-              <span>Documentation</span>
-            </button>
-            <button className="sf-link" type="button" disabled title="即将推出">
-              <kbd>⚙</kbd>
-              <span>Settings</span>
-            </button>
-          </div>
         </aside>
 
         <div className="studio-workspace">
