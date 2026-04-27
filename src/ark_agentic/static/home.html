@@ -355,7 +355,7 @@
 
           <div class="group flex sm:inline-flex items-center gap-5 bg-slate-950 rounded-lg border border-slate-800 shadow-lg shadow-slate-950/20 hover:shadow-xl hover:shadow-cyan-500/10 hover:border-slate-700 transition-all w-full sm:w-auto sm:min-w-[480px] md:min-w-[560px] px-6 sm:px-10 py-4">
             <span class="text-slate-500 font-mono text-lg sm:text-xl select-none">$</span>
-            <code id="install-cmd" class="font-mono text-cyan-300 text-lg sm:text-xl font-semibold tracking-normal">uv add ark-agentic</code>
+            <code id="install-cmd" class="font-mono text-cyan-300 text-lg sm:text-xl font-semibold tracking-normal">pipx install ark-agentic</code>
             <button type="button" data-copy-target="#install-cmd"
               class="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors border-l border-slate-700 pl-4 ml-auto"
               aria-label="复制安装命令">
@@ -402,98 +402,68 @@
             <h2 class="text-3xl font-bold text-white mb-4">快速使用</h2>
             <p class="text-slate-400 mb-4 leading-relaxed">3 步从零跑起一个 Agent：</p>
             <ul class="space-y-2 mb-6">
-              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">1.</span><span><code class="bg-slate-950 px-1.5 py-0.5 rounded text-cyan-300">pip install ark-agentic</code></span></li>
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">1.</span><span><code class="bg-slate-950 px-1.5 py-0.5 rounded text-cyan-300">pipx install ark-agentic</code></span></li>
               <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">2.</span><span><code class="bg-slate-950 px-1.5 py-0.5 rounded text-cyan-300">ark-agentic init my-agent --api</code></span></li>
               <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">3.</span><span>编辑 <code class="bg-slate-950 px-1.5 py-0.5 rounded text-cyan-300">agent.py</code>，注册业务工具</span></li>
             </ul>
 
             <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">最小环境变量</div>
             <div class="bg-slate-950 rounded-lg border border-slate-800 p-4 mb-6 overflow-x-auto">
-              <pre class="text-xs font-mono leading-relaxed"><code><span class="text-slate-500"># 生产默认：Qwen3-next-80B-A3B-instruct</span>
-<span class="text-cyan-400">MODEL_NAME</span>=<span class="text-green-400">Qwen3-next-80B-A3B-instruct</span>
-<span class="text-cyan-400">LLM_PROVIDER</span>=<span class="text-green-400">openai</span>
+              <pre class="text-xs font-mono leading-relaxed"><code><span class="text-slate-500"># 当前模型底座：Qwen3-next-80B-A3B-instruct</span>
+<span class="text-cyan-400">MODEL_NAME</span>=<span class="text-green-400">your-model-name</span>
+<span class="text-cyan-400">LLM_PROVIDER</span>=<span class="text-green-400">pa</span>
 <span class="text-cyan-400">LLM_BASE_URL</span>=<span class="text-green-400">https://your-endpoint/v1</span>
 <span class="text-cyan-400">API_KEY</span>=<span class="text-green-400">sk-xxx</span></code></pre>
             </div>
 
-            <a href="#" data-tab-target="docs"
-              class="text-cyan-400 font-medium flex items-center gap-2 hover:text-cyan-300 transition-colors">
-              查看完整文档
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-                <polyline points="12 5 19 12 12 19"></polyline>
-              </svg>
-            </a>
+            <div class="flex items-center gap-6 flex-wrap">
+              <a href="/static/example.zip" download="example.zip"
+                class="text-cyan-400 font-medium flex items-center gap-2 hover:text-cyan-300 transition-colors">
+                下载示例
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+              </a>
+
+              <a href="#" data-tab-target="docs"
+                class="text-cyan-400 font-medium flex items-center gap-2 hover:text-cyan-300 transition-colors">
+                查看完整文档
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                  <polyline points="12 5 19 12 12 19"></polyline>
+                </svg>
+              </a>
+            </div>
           </div>
           <div class="lg:w-2/3">
-            <div class="bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-2xl max-h-[640px] overflow-y-auto">
-              <div class="flex items-center px-4 py-3 bg-slate-900 border-b border-slate-800 sticky top-0 z-10">
+            <div class="bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
+              <div class="flex items-center px-4 py-3 bg-slate-900 border-b border-slate-800">
                 <div class="flex gap-2">
                   <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
                   <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
                   <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
                 </div>
-                <div class="mx-auto text-xs font-mono text-slate-500">my-agent</div>
+                <div class="mx-auto text-xs font-mono text-slate-500">agent.py</div>
               </div>
 
-              <div class="px-6 pt-4 pb-2 text-[10px] font-semibold tracking-wider text-slate-500 uppercase">Step 1 · 终端</div>
-              <div class="px-6 pb-6 overflow-x-auto">
-                <pre class="text-sm font-mono leading-relaxed"><code><span class="text-slate-500"># 安装框架与脚手架 CLI</span>
-<span class="text-yellow-300">pip</span> install ark-agentic
-
-<span class="text-slate-500"># 一键生成业务项目</span>
-<span class="text-yellow-300">ark-agentic</span> init my-agent --api --llm-provider openai
-
-<span class="text-slate-500"># 进入项目并安装依赖</span>
-<span class="text-yellow-300">cd</span> my-agent &amp;&amp; <span class="text-yellow-300">uv pip</span> install -e .</code></pre>
-              </div>
-
-              <div class="px-6 pt-3 pb-2 text-[10px] font-semibold tracking-wider text-slate-500 uppercase border-t border-slate-800">Step 2 · src/my_agent/agents/default/agent.py</div>
-              <div class="px-6 pb-6 overflow-x-auto">
-                <pre class="text-sm font-mono leading-relaxed"><code><span class="text-slate-500">"""
-Default 智能体
-
-环境变量:
-    SESSIONS_DIR: 会话持久化基础目录（默认 data/ark_sessions）
-    MEMORY_DIR:   Memory 数据基础目录（默认 data/ark_memory）
-"""</span>
-
-<span class="text-blue-400">from</span> <span class="text-white">__future__</span> <span class="text-blue-400">import</span> annotations
-
-<span class="text-blue-400">from</span> <span class="text-white">pathlib</span> <span class="text-blue-400">import</span> Path
-
-<span class="text-blue-400">from</span> <span class="text-white">langchain_core.language_models.chat_models</span> <span class="text-blue-400">import</span> BaseChatModel
-
-<span class="text-blue-400">from</span> <span class="text-white">ark_agentic</span> <span class="text-blue-400">import</span> AgentDef, AgentRunner, build_standard_agent
-<span class="text-blue-400">from</span> <span class="text-white">ark_agentic.core.callbacks</span> <span class="text-blue-400">import</span> RunnerCallbacks
-
-<span class="text-blue-400">from</span> <span class="text-white">.tools</span> <span class="text-blue-400">import</span> create_default_tools
-
-_AGENT_DIR = Path(__file__).<span class="text-yellow-300">resolve</span>().parent
-
-_DEF = <span class="text-yellow-300">AgentDef</span>(
+              <div class="px-6 py-6 overflow-x-auto">
+                <pre class="text-sm font-mono leading-relaxed"><code>_DEF = <span class="text-yellow-300">AgentDef</span>(
     agent_id=<span class="text-green-400">"default"</span>,
     agent_name=<span class="text-green-400">"Default"</span>,
     agent_description=<span class="text-green-400">"TODO: 描述你的智能体功能"</span>,
 )
 
 
-<span class="text-blue-400">def</span> <span class="text-yellow-300">create_default_agent</span>(
-    llm: BaseChatModel | <span class="text-blue-400">None</span> = <span class="text-blue-400">None</span>,
-    *,
-    enable_memory: <span class="text-blue-400">bool</span> = <span class="text-blue-400">False</span>,
-    enable_dream: <span class="text-blue-400">bool</span> = <span class="text-blue-400">True</span>,
-    callbacks: RunnerCallbacks | <span class="text-blue-400">None</span> = <span class="text-blue-400">None</span>,
-) -&gt; AgentRunner:
+<span class="text-blue-400">def</span> <span class="text-yellow-300">create_default_agent</span>(llm=<span class="text-blue-400">None</span>) -&gt; AgentRunner:
     <span class="text-blue-400">return</span> <span class="text-yellow-300">build_standard_agent</span>(
         _DEF,
         skills_dir=_AGENT_DIR / <span class="text-green-400">"skills"</span>,
         tools=<span class="text-yellow-300">create_default_tools</span>(),
         llm=llm,
-        enable_memory=enable_memory,
-        enable_dream=enable_dream,
-        callbacks=callbacks,
     )</code></pre>
               </div>
             </div>
