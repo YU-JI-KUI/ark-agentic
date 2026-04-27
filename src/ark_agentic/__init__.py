@@ -7,14 +7,22 @@ ark-agentic - 轻量级 ReAct 智能体框架
 ## 快速开始
 
 ```python
-from ark_agentic import AgentRunner, RunnerConfig, create_chat_model
-from ark_agentic.core.tools import AgentTool, ToolRegistry
-from ark_agentic.core.session import SessionManager
+from pathlib import Path
+from ark_agentic import AgentDef, build_standard_agent
 
-llm = create_chat_model(model="PA-JT-80B", api_key="sk-xxx")
-runner = AgentRunner(llm, ToolRegistry())
-session_id = await runner.create_session(user_id="default")
-result = await runner.run(session_id, "你好", user_id="default")
+_DEF = AgentDef(
+    agent_id="default",
+    agent_name="Default",
+    agent_description="一个示例智能体",
+)
+
+agent = build_standard_agent(
+    _DEF,
+    skills_dir=Path("./skills"),
+    tools=[],
+)
+session_id = await agent.create_session(user_id="default")
+result = await agent.run(session_id, "你好", user_id="default")
 ```
 
 ## 模块结构
@@ -31,6 +39,7 @@ result = await runner.run(session_id, "你好", user_id="default")
 __version__ = "0.1.0"
 
 from .core import (
+    AgentDef,
     AgentRunner,
     RunnerConfig,
     RunResult,
@@ -41,6 +50,7 @@ from .core import (
     MessageRole,
     SkillLoadMode,
     PAModel,
+    build_standard_agent,
     create_chat_model,
     create_chat_model_from_env,
     CompactionConfig,
@@ -57,6 +67,9 @@ __all__ = [
     "RunnerConfig",
     "RunResult",
     "RunOptions",
+    # Agent factory
+    "AgentDef",
+    "build_standard_agent",
     # Session
     "SessionManager",
     # Types

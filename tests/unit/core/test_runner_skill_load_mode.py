@@ -105,19 +105,23 @@ def test_full_mode_does_not_register_read_skill_tool(runner_with_one_skill) -> N
 # ============ dynamic mode ============
 
 
-def test_dynamic_mode_contains_read_skill_instruction(
+def test_dynamic_renders_available_skills_menu_only(
     runner_with_one_skill_dynamic,
 ) -> None:
-    """load_mode=dynamic: prompt contains read_skill instructions, not full body."""
+    """dynamic mode: <available_skills> menu shown, full body hidden, no
+    mandatory protocol section (the router — wired by the factory — owns
+    pre-loop activation; this prompt path stays uniform across all dynamic
+    sub-flows)."""
     runner, session_id = runner_with_one_skill_dynamic
     prompt = runner._build_system_prompt(
         {}, session_id=session_id, skill_load_mode="dynamic"
     )
-    assert "read_skill" in prompt
-    assert "mandatory" in prompt
-    assert "Full skill body here." not in prompt
+    assert "<available_skills>" in prompt
     assert "Test Skill" in prompt
     assert "When testing" in prompt
+    assert "Full skill body here." not in prompt
+    assert "<skill_loading_protocol>" not in prompt
+    assert "mandatory" not in prompt
 
 
 # ============ SkillConfig load_mode ============

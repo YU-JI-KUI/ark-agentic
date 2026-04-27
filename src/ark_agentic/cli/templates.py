@@ -73,53 +73,56 @@ if __name__ == "__main__":
 
 AGENT_MODULE_TEMPLATE = '''\
 """
-{agent_name} 智能体
+{agent_display_name} 智能体
 
 环境变量:
     SESSIONS_DIR: 会话持久化基础目录（默认 data/ark_sessions）
-    MEMORY_DIR: Memory 数据基础目录（默认 data/ark_memory）
+    MEMORY_DIR:   Memory 数据基础目录（默认 data/ark_memory）
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from ark_agentic import AgentRunner, RunnerConfig, create_chat_model_from_env
-from ark_agentic.core.tools import ToolRegistry
-from ark_agentic.core.paths import prepare_agent_data_dir
-from ark_agentic.core.session import SessionManager
-from ark_agentic.core.prompt import PromptConfig
+from ark_agentic import AgentDef, AgentRunner, build_standard_agent
+from ark_agentic.core.callbacks import RunnerCallbacks
+
+from .tools import create_{agent_name_snake}_tools
+
+_AGENT_DIR = Path(__file__).resolve().parent
+
+_DEF = AgentDef(
+    agent_id="{agent_name_snake}",
+    agent_name="{agent_display_name}",
+    agent_description="TODO: 描述你的智能体功能",
+)
 
 
 def create_{agent_name_snake}_agent(
     llm: BaseChatModel | None = None,
     *,
     enable_memory: bool = False,
+    enable_dream: bool = True,
+    callbacks: RunnerCallbacks | None = None,
 ) -> AgentRunner:
-    if llm is None:
-        llm = create_chat_model_from_env()
+    """创建 {agent_display_name} 智能体。
 
-    tool_registry = ToolRegistry()
-    # TODO: Register your tools here
-    # tool_registry.register(YourTool())
-
-    session_manager = SessionManager(
-        sessions_dir=prepare_agent_data_dir("{agent_name_snake}"),
-    )
-
-    runner_config = RunnerConfig(
-        max_turns=10,
-        prompt_config=PromptConfig(
-            agent_name="{agent_display_name}",
-            agent_description="TODO: 描述你的智能体功能",
-        ),
-    )
-
-    return AgentRunner(
+    Args:
+        llm: LLM 实例；None 时从环境变量初始化
+        enable_memory: 是否启用 Memory 系统
+        enable_dream: 是否启用后台记忆蒸馏（需 enable_memory=True 才有效）
+        callbacks: 业务回调（鉴权、上下文注入、引用校验等）
+    """
+    return build_standard_agent(
+        _DEF,
+        skills_dir=_AGENT_DIR / "skills",
+        tools=create_{agent_name_snake}_tools(),
         llm=llm,
-        tool_registry=tool_registry,
-        session_manager=session_manager,
-        config=runner_config,
+        enable_memory=enable_memory,
+        enable_dream=enable_dream,
+        callbacks=callbacks,
     )
 '''
 
@@ -139,6 +142,18 @@ TOOL_TEMPLATE = '''\
 
 在此定义和注册业务工具。
 """
+
+from __future__ import annotations
+
+from ark_agentic.core.tools import AgentTool
+
+
+def create_{agent_name_snake}_tools() -> list[AgentTool]:
+    """返回 {agent_display_name} 智能体使用的业务工具列表。
+
+    在此处实例化你的工具并加入返回列表。
+    """
+    return []
 '''
 
 ENV_SAMPLE_TEMPLATE = """\

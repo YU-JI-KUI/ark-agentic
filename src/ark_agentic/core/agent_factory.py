@@ -24,6 +24,7 @@ from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
+from ark_agentic.core.skills.router import LLMSkillRouter, SkillRouter
 from ark_agentic.core.tools.base import AgentTool
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import SkillLoadMode
@@ -62,10 +63,11 @@ def build_standard_agent(
     *,
     llm: BaseChatModel | None = None,
     enable_memory: bool = False,
-    enable_dream: bool = True,
+    enable_dream: bool = False,
     callbacks: RunnerCallbacks | None = None,
     sampling: SamplingConfig | None = None,
     compaction_config: CompactionConfig | None = None,
+    skill_router: SkillRouter | None = None,
 ) -> AgentRunner:
     """Build an AgentRunner from an AgentDef with convention-derived defaults.
 
@@ -85,9 +87,28 @@ def build_standard_agent(
         callbacks: Business hooks (context enrichment, auth checks, citation validation).
         sampling: Override the default SamplingConfig.for_chat().
         compaction_config: Override the default CompactionConfig(128_000, 4).
+        skill_router: Skill routing strategy. Only valid in dynamic mode.
+            None (default in dynamic mode) → factory wires LLMSkillRouter
+                using the agent's main LLM.
+            <SkillRouter instance> → use it verbatim (custom strategies).
+            Passing a router in full mode raises ValueError.
     """
     if llm is None:
         llm = create_chat_model_from_env()
+
+    if defn.skill_load_mode == SkillLoadMode.dynamic:
+        resolved_router: SkillRouter | None = skill_router or LLMSkillRouter(
+            llm_factory=lambda: llm,
+            history_window=6,
+            timeout=5.0,
+        )
+    else:
+        if skill_router is not None:
+            raise ValueError(
+                f"skill_router is incompatible with load_mode="
+                f"{defn.skill_load_mode.value}; router is only valid in dynamic mode"
+            )
+        resolved_router = None
 
     sessions_dir = prepare_agent_data_dir(defn.agent_id)
 
@@ -137,6 +158,7 @@ def build_standard_agent(
             custom_instructions=defn.custom_instructions,
         ),
         skill_config=skill_config,
+        skill_router=resolved_router,
     )
 
     return AgentRunner(

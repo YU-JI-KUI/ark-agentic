@@ -95,21 +95,31 @@ def test_main_module_template_no_dead_imports():
     assert "load_dotenv" in rendered
 
 
-def test_agent_module_template_uses_create_chat_model_from_env():
-    """AGENT_MODULE_TEMPLATE must use create_chat_model_from_env(), not create_chat_model + API_KEY."""
+def test_agent_module_template_uses_build_standard_agent():
+    """AGENT_MODULE_TEMPLATE must use AgentDef + build_standard_agent (factory pattern), not manual wiring."""
     fmt = {
         "agent_name": "default",
         "agent_name_snake": "default",
         "agent_display_name": "Default",
     }
     rendered = AGENT_MODULE_TEMPLATE.format(**fmt)
-    assert "create_chat_model_from_env" in rendered
+    # Must use simplified factory API
+    assert "AgentDef" in rendered
+    assert "build_standard_agent" in rendered
+    assert "from ark_agentic import AgentDef, AgentRunner, build_standard_agent" in rendered
+    assert "_DEF = AgentDef(" in rendered
+    assert "_AGENT_DIR" in rendered
+    assert "skills_dir=_AGENT_DIR / \"skills\"" in rendered
+    assert "from .tools import create_default_tools" in rendered
+    # Must NOT contain old manual wiring
     assert "create_chat_model(" not in rendered
     assert "os.getenv(\"API_KEY\"" not in rendered
     assert "SkillConfig" not in rendered
     assert "SkillLoader" not in rendered
-    assert "_AGENT_DIR" not in rendered
-    assert "_SKILLS_DIR" not in rendered
+    assert "ToolRegistry()" not in rendered
+    assert "SessionManager(" not in rendered
+    assert "RunnerConfig(" not in rendered
+    assert "PromptConfig(" not in rendered
 
 
 def test_api_app_template_uses_registry_and_router():
@@ -172,7 +182,10 @@ def test_cmd_init_creates_project_structure(tmp_path: Path):
     main_py = (pkg / "main.py").read_text(encoding="utf-8")
     assert "create_default_agent" in main_py
     agent_py = (pkg / "agents" / "default" / "agent.py").read_text(encoding="utf-8")
-    assert "create_chat_model_from_env" in agent_py
+    assert "build_standard_agent" in agent_py
+    assert "AgentDef" in agent_py
+    tools_py = (pkg / "agents" / "default" / "tools" / "__init__.py").read_text(encoding="utf-8")
+    assert "create_default_tools" in tools_py
 
 
 def test_cmd_init_with_api_creates_app_py(tmp_path: Path):

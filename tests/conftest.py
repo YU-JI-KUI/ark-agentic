@@ -4,7 +4,9 @@ Pytest 配置和 fixtures
 处理可选依赖的 mock，确保测试可以在没有完整依赖的情况下运行。
 """
 
+import importlib.util
 import sys
+import types
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -27,7 +29,10 @@ for module_name in OPTIONAL_MODULES:
         try:
             __import__(module_name)
         except ImportError:
-            sys.modules[module_name] = MagicMock()
+            # Use a real ModuleType so Python's import machinery doesn't choke on __spec__
+            stub = types.ModuleType(module_name)
+            stub.__spec__ = importlib.util.spec_from_loader(module_name, loader=None)
+            sys.modules[module_name] = stub
 
 
 @pytest.fixture

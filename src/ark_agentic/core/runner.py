@@ -30,6 +30,7 @@ from .session import SessionManager
 from .skills.base import SkillConfig
 from .skills.loader import SkillLoader
 from .skills.matcher import SkillMatcher
+from .skills.router import RouteContext, SkillRouter
 from .stream.event_bus import AgentEventHandler
 from .tools.base import AgentTool
 from .tools.executor import ToolExecutor
@@ -53,6 +54,7 @@ from .types import (
     ToolCall,
     ToolLoopAction,
     ToolResultType,
+    format_tool_result_for_history,
 )
 if TYPE_CHECKING:
     from .memory.manager import MemoryManager
@@ -108,6 +110,12 @@ class RunnerConfig:
 
     # 外部历史合并（agent 级开关）
     accept_external_history: bool = True
+
+    # Skill 路由器（dynamic 模式专用）。
+    # 实例：在 ReAct 循环开始前确定性写入 _active_skill_id。
+    # None：runner 不会 route；通常由 build_standard_agent 在 dynamic 模式下
+    # 自动注入 LLMSkillRouter。直接构造 AgentRunner 时由调用方自负其责。
+    skill_router: SkillRouter | None = None
 
 
 @dataclass
@@ -255,6 +263,11 @@ class AgentRunner:
             SkillMatcher(skill_loader) if skill_loader else None
         )
 
+        # Skill router: caller is the source of truth. Wiring concerns
+        # (default selection, mode validation) live in build_standard_agent.
+        # Direct AgentRunner construction trusts whatever RunnerConfig provides.
+        self._skill_router: SkillRouter | None = self.config.skill_router
+
         if self.config.enable_subtasks:
             from .subtask import create_subtask_tool
             self.tool_registry.register(
@@ -350,6 +363,11 @@ class AgentRunner:
             return prepared
 
         cb_ctx = prepared
+        # Phase: deterministic skill routing (dynamic mode only).
+        # Writes session.state["_active_skill_id"]; first ReAct turn picks it up
+        # via _build_system_prompt + _filter_tools. No-op in full mode.
+        await self._route_skill_phase(session_id, cb_ctx)
+
         try:
             result = await self._run_loop(
                 session_id,
@@ -1150,27 +1168,72 @@ class AgentRunner:
             elif msg.role == MessageRole.TOOL:
                 if msg.tool_results:
                     for tr in msg.tool_results:
-                        if tr.llm_digest:
-                            content = tr.llm_digest
-                        elif tr.tool_call_id in a2ui_tc_ids:
-                            raw = tr.content
-                            n = len(raw) if isinstance(raw, list) else 1
-                            content = f"[已向用户展示卡片，共{n}个组件]"
-                        else:
-                            content = tr.content
-                            if isinstance(content, (dict, list)):
-                                content = json.dumps(content, ensure_ascii=False)
-                            else:
-                                content = str(content)
                         messages.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": tr.tool_call_id,
-                                "content": content,
+                                "content": format_tool_result_for_history(
+                                    tr, a2ui_tc_ids,
+                                ),
                             }
                         )
 
         return messages
+
+    @traced_chain("agent.skill_route")
+    async def _route_skill_phase(
+        self,
+        session_id: str,
+        cb_ctx: CallbackContext,
+    ) -> None:
+        """Dynamic 模式下，在 ReAct 循环前确定性激活一个 skill。
+
+        写入 session.state["_active_skill_id"]（与 read_skill 工具同槽位）。
+        Router 出错或决定为 None 时，保留原值不变。
+        """
+        if self._skill_router is None or self.skill_loader is None:
+            return
+
+        session = cb_ctx.session
+        candidates = self._match_skills(
+            session.state, session_id, skill_load_mode="dynamic",
+        )
+        if not candidates:
+            return
+
+        history_window = self._skill_router.history_window
+        history = (
+            session.messages[-history_window:] if history_window else []
+        )
+
+        ctx = RouteContext(
+            user_input=cb_ctx.user_input,
+            history=history,
+            current_active_skill_id=session.state.get("_active_skill_id"),
+            candidate_skills=candidates,
+        )
+
+        try:
+            decision = await self._skill_router.route(ctx)
+        except Exception as exc:  # Protocol violation defense
+            logger.warning(
+                "Skill router raised (Protocol violation): %s", exc, exc_info=True,
+            )
+            return
+
+        current = session.state.get("_active_skill_id")
+        if decision.skill_id and decision.skill_id != current:
+            session.state["_active_skill_id"] = decision.skill_id
+            logger.info(
+                "Skill routed: %s → %s (reason=%s)",
+                current or "<none>", decision.skill_id, decision.reason,
+            )
+
+        add_span_attributes({
+            "ark.router.candidate_count": len(candidates),
+            "ark.router.decision": decision.skill_id or "none",
+            "ark.router.reason": decision.reason,
+        })
 
     def _match_skills(
         self,

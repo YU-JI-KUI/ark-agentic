@@ -400,14 +400,11 @@
         <div class="lg:flex lg:items-start lg:justify-between gap-16">
           <div class="lg:w-1/3 mb-10 lg:mb-0">
             <h2 class="text-3xl font-bold text-white mb-4">快速使用</h2>
-            <p class="text-slate-400 mb-4 leading-relaxed">6 步初始化你的 Agent：</p>
+            <p class="text-slate-400 mb-4 leading-relaxed">3 步从零跑起一个 Agent：</p>
             <ul class="space-y-2 mb-6">
-              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">1.</span><span>接入 LLM</span></li>
-              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">2.</span><span>注册 Tools</span></li>
-              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">3.</span><span>加载 Skills</span></li>
-              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">4.</span><span>组装 Runner</span></li>
-              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">5.</span><span>创建 Session</span></li>
-              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">6.</span><span>驱动 ReAct</span></li>
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">1.</span><span><code class="bg-slate-950 px-1.5 py-0.5 rounded text-cyan-300">pip install ark-agentic</code></span></li>
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">2.</span><span><code class="bg-slate-950 px-1.5 py-0.5 rounded text-cyan-300">ark-agentic init my-agent --api</code></span></li>
+              <li class="text-sm text-slate-300 leading-relaxed flex gap-2"><span class="text-cyan-400 font-bold">3.</span><span>编辑 <code class="bg-slate-950 px-1.5 py-0.5 rounded text-cyan-300">agent.py</code>，注册业务工具</span></li>
             </ul>
 
             <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">最小环境变量</div>
@@ -430,53 +427,74 @@
             </a>
           </div>
           <div class="lg:w-2/3">
-            <div class="bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
-              <div class="flex items-center px-4 py-3 bg-slate-900 border-b border-slate-800">
+            <div class="bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-2xl max-h-[640px] overflow-y-auto">
+              <div class="flex items-center px-4 py-3 bg-slate-900 border-b border-slate-800 sticky top-0 z-10">
                 <div class="flex gap-2">
                   <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
                   <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
                   <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
                 </div>
-                <div class="mx-auto text-xs font-mono text-slate-500">agent_init.py</div>
+                <div class="mx-auto text-xs font-mono text-slate-500">my-agent</div>
               </div>
-              <div class="p-6 overflow-x-auto">
-                <pre class="text-sm font-mono leading-relaxed"><code><span class="text-blue-400">from</span> <span class="text-white">ark_agentic.core.runner</span> <span class="text-blue-400">import</span> <span class="text-white">AgentRunner, RunnerConfig</span>
-<span class="text-blue-400">from</span> <span class="text-white">ark_agentic.core.session</span> <span class="text-blue-400">import</span> <span class="text-white">SessionManager</span>
-<span class="text-blue-400">from</span> <span class="text-white">ark_agentic.core.tools.registry</span> <span class="text-blue-400">import</span> <span class="text-white">ToolRegistry</span>
-<span class="text-blue-400">from</span> <span class="text-white">ark_agentic.core.skills.loader</span> <span class="text-blue-400">import</span> <span class="text-white">SkillLoader</span>
-<span class="text-blue-400">from</span> <span class="text-white">ark_agentic.core.skills.base</span> <span class="text-blue-400">import</span> <span class="text-white">SkillConfig</span>
-<span class="text-blue-400">from</span> <span class="text-white">ark_agentic.core.llm</span> <span class="text-blue-400">import</span> <span class="text-white">create_chat_model_from_env</span>
-<span class="text-blue-400">from</span> <span class="text-white">ark_agentic.agents.insurance.tools</span> <span class="text-blue-400">import</span> <span class="text-white">create_insurance_tools</span>
 
-<span class="text-slate-500"># 1. 接入 LLM（从环境变量读取配置）</span>
-llm = <span class="text-yellow-300">create_chat_model_from_env</span>()
+              <div class="px-6 pt-4 pb-2 text-[10px] font-semibold tracking-wider text-slate-500 uppercase">Step 1 · 终端</div>
+              <div class="px-6 pb-6 overflow-x-auto">
+                <pre class="text-sm font-mono leading-relaxed"><code><span class="text-slate-500"># 安装框架与脚手架 CLI</span>
+<span class="text-yellow-300">pip</span> install ark-agentic
 
-<span class="text-slate-500"># 2. 工具注册</span>
-tool_registry = <span class="text-yellow-300">ToolRegistry</span>()
-tool_registry.<span class="text-yellow-300">register_all</span>(<span class="text-yellow-300">create_insurance_tools</span>())
+<span class="text-slate-500"># 一键生成业务项目</span>
+<span class="text-yellow-300">ark-agentic</span> init my-agent --api --llm-provider openai
 
-<span class="text-slate-500"># 3. 技能加载</span>
-skill_config = <span class="text-yellow-300">SkillConfig</span>(
-    skill_directories=[<span class="text-green-400">"./skills"</span>],
-    agent_id=<span class="text-green-400">"insurance"</span>,
+<span class="text-slate-500"># 进入项目并安装依赖</span>
+<span class="text-yellow-300">cd</span> my-agent &amp;&amp; <span class="text-yellow-300">uv pip</span> install -e .</code></pre>
+              </div>
+
+              <div class="px-6 pt-3 pb-2 text-[10px] font-semibold tracking-wider text-slate-500 uppercase border-t border-slate-800">Step 2 · src/my_agent/agents/default/agent.py</div>
+              <div class="px-6 pb-6 overflow-x-auto">
+                <pre class="text-sm font-mono leading-relaxed"><code><span class="text-slate-500">"""
+Default 智能体
+
+环境变量:
+    SESSIONS_DIR: 会话持久化基础目录（默认 data/ark_sessions）
+    MEMORY_DIR:   Memory 数据基础目录（默认 data/ark_memory）
+"""</span>
+
+<span class="text-blue-400">from</span> <span class="text-white">__future__</span> <span class="text-blue-400">import</span> annotations
+
+<span class="text-blue-400">from</span> <span class="text-white">pathlib</span> <span class="text-blue-400">import</span> Path
+
+<span class="text-blue-400">from</span> <span class="text-white">langchain_core.language_models.chat_models</span> <span class="text-blue-400">import</span> BaseChatModel
+
+<span class="text-blue-400">from</span> <span class="text-white">ark_agentic</span> <span class="text-blue-400">import</span> AgentDef, AgentRunner, build_standard_agent
+<span class="text-blue-400">from</span> <span class="text-white">ark_agentic.core.callbacks</span> <span class="text-blue-400">import</span> RunnerCallbacks
+
+<span class="text-blue-400">from</span> <span class="text-white">.tools</span> <span class="text-blue-400">import</span> create_default_tools
+
+_AGENT_DIR = Path(__file__).<span class="text-yellow-300">resolve</span>().parent
+
+_DEF = <span class="text-yellow-300">AgentDef</span>(
+    agent_id=<span class="text-green-400">"default"</span>,
+    agent_name=<span class="text-green-400">"Default"</span>,
+    agent_description=<span class="text-green-400">"TODO: 描述你的智能体功能"</span>,
 )
-skill_loader = <span class="text-yellow-300">SkillLoader</span>(skill_config)
-skill_loader.<span class="text-yellow-300">load_from_directories</span>()
 
-<span class="text-slate-500"># 4. 组装 Runner</span>
-agent = <span class="text-yellow-300">AgentRunner</span>(
-    llm=llm,
-    tool_registry=tool_registry,
-    session_manager=<span class="text-yellow-300">SessionManager</span>(),
-    skill_loader=skill_loader,
-    config=<span class="text-yellow-300">RunnerConfig</span>(skill_config=skill_config),
-)
 
-<span class="text-slate-500"># 5. 创建 Session</span>
-sid = <span class="text-blue-400">await</span> agent.<span class="text-yellow-300">create_session</span>()
-
-<span class="text-slate-500"># 6. 驱动 ReAct</span>
-result = <span class="text-blue-400">await</span> agent.<span class="text-yellow-300">run</span>(sid, <span class="text-green-400">"我想取点钱"</span>)</code></pre>
+<span class="text-blue-400">def</span> <span class="text-yellow-300">create_default_agent</span>(
+    llm: BaseChatModel | <span class="text-blue-400">None</span> = <span class="text-blue-400">None</span>,
+    *,
+    enable_memory: <span class="text-blue-400">bool</span> = <span class="text-blue-400">False</span>,
+    enable_dream: <span class="text-blue-400">bool</span> = <span class="text-blue-400">True</span>,
+    callbacks: RunnerCallbacks | <span class="text-blue-400">None</span> = <span class="text-blue-400">None</span>,
+) -&gt; AgentRunner:
+    <span class="text-blue-400">return</span> <span class="text-yellow-300">build_standard_agent</span>(
+        _DEF,
+        skills_dir=_AGENT_DIR / <span class="text-green-400">"skills"</span>,
+        tools=<span class="text-yellow-300">create_default_tools</span>(),
+        llm=llm,
+        enable_memory=enable_memory,
+        enable_dream=enable_dream,
+        callbacks=callbacks,
+    )</code></pre>
               </div>
             </div>
           </div>

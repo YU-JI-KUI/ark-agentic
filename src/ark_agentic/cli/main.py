@@ -201,6 +201,16 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
     _write(agents_dir / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
 
     print(f"[OK] 智能体 '{agent_name}' 已添加到 src/{package_name}/agents/{agent_name_snake}/")
+    print()
+    print("后续步骤:")
+    print(f"  1. 在 src/{package_name}/agents/{agent_name_snake}/tools/__init__.py 中实现 create_{agent_name_snake}_tools()")
+    print("  2. 修改 _DEF 中的 agent_description，描述这个 agent 的职责")
+    print("  3. 在你的入口（main.py / app.py）中注册：")
+    print()
+    print(f"       from .agents.{agent_name_snake} import create_{agent_name_snake}_agent")
+    print(f'       _registry.register("{agent_name_snake}", create_{agent_name_snake}_agent())')
+    print()
+    print("  4. 如果使用 API + Studio，记得让该 agent 出现在前端的 agent 列表中")
 
 
 # ── version ──────────────────────────────────────────────────────────

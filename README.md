@@ -53,6 +53,8 @@
 
 而不是从零搭框架运行时。
 
+脚手架生成的 agent 默认走 `AgentDef + build_standard_agent` 这一约定路径 —— 你只需要填三件事（id / name / description）和一个 tools 列表，框架自动补齐 session、skills、compaction、prompt 装配。
+
 ### 2. 先安装 CLI
 
 当前提是你已经能从团队内部源或发布源安装 `ark-agentic` 包，常见方式如下：
@@ -156,10 +158,11 @@ my-agent/
 
 `agent.py` 里通常最先改这几处：
 
-- `tool_registry.register(...)`：注册业务工具
-- `agent_name` / `agent_description`：描述 agent 的职责
-- `max_turns`：根据场景调整推理轮次
-- `SessionManager(...)`：按需调整会话持久化策略
+- `_DEF = AgentDef(...)`：改 `agent_name` / `agent_description` 描述 agent 职责
+- `create_<agent>_tools()`（在 `tools/__init__.py`）：返回业务工具列表
+- `AgentDef.system_protocol` / `custom_instructions`：补充提示词约束（可选）
+- `AgentDef.max_turns`：根据场景调整推理轮次（默认 10）
+- `enable_memory=True`：需要长期记忆时打开
 
 ### 7. 如何启动业务项目
 
@@ -358,10 +361,10 @@ ark-agentic version
 无论是仓库内示例，还是 CLI 生成的业务项目，本质上都围绕同一个运行模型：
 
 ```text
-LLM
- + ToolRegistry
- + SessionManager
- + RunnerConfig
+AgentDef                     ← 描述这是哪个 agent、能做什么
+ + skills/ 目录              ← 行为脚本
+ + tools 列表                ← 业务能力
+ + build_standard_agent()    ← 框架按约定补齐 session / memory / compaction / prompt
  => AgentRunner
 ```
 

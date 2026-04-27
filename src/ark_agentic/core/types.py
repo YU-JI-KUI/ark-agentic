@@ -420,3 +420,32 @@ class SessionEntry:
     def strip_temp_state(self) -> None:
         """移除 temp: 前缀的临时状态键"""
         self.state = {k: v for k, v in self.state.items() if not k.startswith("temp:")}
+
+
+def format_tool_result_for_history(
+    tr: "AgentToolResult",
+    a2ui_tc_ids: set[str],
+) -> str:
+    """Compress a tool result to a single-line string for prompt insertion.
+
+    Used by both AgentRunner._build_messages (LLM main context) and
+    LLMSkillRouter (routing context) to keep their representations identical.
+
+    Priority:
+      1. tr.llm_digest — business-tool short summary
+      2. A2UI result_type or tc id in a2ui_tc_ids — '[已向用户展示卡片，共N个组件]'
+      3. dict / list content — JSON dump (ensure_ascii=False)
+      4. otherwise — str(content)
+    """
+    import json as _json
+
+    if tr.llm_digest:
+        return tr.llm_digest
+    if tr.result_type == ToolResultType.A2UI or tr.tool_call_id in a2ui_tc_ids:
+        raw = tr.content
+        n = len(raw) if isinstance(raw, list) else 1
+        return f"[已向用户展示卡片，共{n}个组件]"
+    content = tr.content
+    if isinstance(content, (dict, list)):
+        return _json.dumps(content, ensure_ascii=False)
+    return str(content)

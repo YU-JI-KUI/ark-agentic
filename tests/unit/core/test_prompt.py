@@ -139,28 +139,66 @@ class TestSystemPromptBuilder:
         assert "Test Skill" in prompt
         assert "Use this skill when testing." in prompt
 
-    def test_add_skills_metadata_only(self) -> None:
-        """dynamic mode: metadata list + load-one-skill instructions, no full content."""
+    def test_dynamic_no_active_renders_menu_only(self) -> None:
+        """Dynamic mode without an active skill: menu only, no body, no protocol."""
         builder = SystemPromptBuilder()
         skills = [
             SkillEntry(
                 id="test_skill",
                 path="/test",
-                content="Full skill body must not appear in prompt.",
+                content="Full body hidden in dynamic.",
                 metadata=SkillMetadata(
                     name="Test Skill",
                     description="A test skill. When to use: When user asks for X",
                 ),
             )
         ]
-        builder.add_skills(skills, skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic))
+        builder.add_skills(
+            skills,
+            skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic),
+        )
         prompt = builder.build()
-
-        assert "test_skill" in prompt
-        assert "Test Skill" in prompt
+        assert "<available_skills>" in prompt
         assert "When user asks for X" in prompt
-        assert "read_skill" in prompt
-        assert "Full skill body must not appear in prompt." not in prompt
+        assert "Full body hidden in dynamic." not in prompt
+        assert "<skill_loading_protocol>" not in prompt
+        assert "mandatory" not in prompt
+
+    def test_dynamic_with_active_injects_body(self) -> None:
+        """Dynamic mode with active skill: menu + <active_skill> body, no protocol."""
+        builder = SystemPromptBuilder()
+        active = SkillEntry(
+            id="s1", path="/", content="ACTIVE_BODY",
+            metadata=SkillMetadata(name="S1", description="alpha"),
+        )
+        builder.add_skills(
+            [active],
+            skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic),
+        )
+        builder.add_active_skill(active)
+        prompt = builder.build()
+        assert "<available_skills>" in prompt
+        assert "<active_skill" in prompt
+        assert "ACTIVE_BODY" in prompt
+        assert "<skill_loading_protocol>" not in prompt
+
+    def test_full_mode_inlines_skill_bodies(self) -> None:
+        """Full mode: bodies live in <skills>, no protocol section ever."""
+        builder = SystemPromptBuilder()
+        skills = [
+            SkillEntry(
+                id="s1", path="/", content="full body content",
+                metadata=SkillMetadata(name="S1", description="alpha"),
+            )
+        ]
+        builder.add_skills(
+            skills,
+            skill_config=SkillConfig(load_mode=SkillLoadMode.full),
+        )
+        prompt = builder.build()
+        assert "<skill_loading_protocol>" not in prompt
+        assert "<skills>" in prompt
+        assert "full body content" in prompt
 
     def test_add_custom_instructions(self) -> None:
         """Test adding custom instructions."""
@@ -328,7 +366,7 @@ class TestQuickBuild:
             skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic),
         )
         assert "s1" in prompt and "S1" in prompt and "When A" in prompt
-        assert "read_skill" in prompt
+        assert "<available_skills>" in prompt
         assert "Secret body" not in prompt
 
     def test_quick_build_with_context(self) -> None:

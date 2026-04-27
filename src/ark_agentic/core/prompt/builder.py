@@ -13,7 +13,6 @@ from typing import Any
 
 from ..memory.rules import MEMORY_FILTER_RULES
 from ..skills.base import (
-    LOAD_ONE_SKILL_INSTRUCTIONS,
     SkillConfig,
     build_skill_prompt,
     format_skills_metadata_for_prompt,
@@ -181,13 +180,16 @@ class SystemPromptBuilder:
         return self
 
     def add_skills(
-        self, skills: list[SkillEntry], *, skill_config: SkillConfig | None = None,
+        self,
+        skills: list[SkillEntry],
+        *,
+        skill_config: SkillConfig | None = None,
     ) -> SystemPromptBuilder:
         """添加技能段落。
 
         full 模式: 全文注入到 <skills> 段。
-        dynamic 模式: 行为指令和元数据分离 —— 指令进 <skill_loading_protocol>，
-                      元数据进 <available_skills>，避免行为指令被名词标签淹没。
+        dynamic 模式: <available_skills> 菜单（路由器在 runner 端确定性激活
+        当前 skill；菜单同时作为模型 read_skill 切换的 escape hatch）。
         """
         if not skills:
             return self
@@ -197,13 +199,12 @@ class SystemPromptBuilder:
             section = build_skill_prompt(skills)
             if section:
                 self._sections.append(("skills", section))
-        else:
-            metadata = format_skills_metadata_for_prompt(skills, config=sc)
-            if metadata:
-                self._sections.append(
-                    ("skill_loading_protocol", LOAD_ONE_SKILL_INSTRUCTIONS.strip())
-                )
-                self._sections.append(("available_skills", metadata))
+            return self
+
+        metadata = format_skills_metadata_for_prompt(skills, config=sc)
+        if not metadata:
+            return self
+        self._sections.append(("available_skills", metadata))
         return self
 
     def add_active_skill(

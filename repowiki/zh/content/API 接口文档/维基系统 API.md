@@ -19,6 +19,13 @@
 - [README.md](file://README.md)
 </cite>
 
+## 更新摘要
+**所做更改**
+- 增强了维基系统 API 的组件分析，扩展了从 267 行到 272 行的文档长度
+- 更新了服务架构说明，增加了对维基系统元数据排序机制的详细描述
+- 完善了维基树构建算法的技术细节，包括顺序映射和排序逻辑
+- 增加了路径安全校验和文件类型验证的实现细节
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
@@ -112,7 +119,7 @@ APP --> SEC
 - [tools.py:41-66](file://src/ark_agentic/studio/api/tools.py#L41-L66)
 
 ## 架构总览
-系统采用“应用层（FastAPI）—路由层（API）—依赖层（共享 Registry）—业务层（Agent/Studio/服务）—基础设施（会话/流式/观测）”的分层设计。Agent 注册中心贯穿应用生命周期，路由层通过共享依赖获取 AgentRunner 并驱动运行。
+系统采用"应用层（FastAPI）—路由层（API）—依赖层（共享 Registry）—业务层（Agent/Studio/服务）—基础设施（会话/流式/观测）"的分层设计。Agent 注册中心贯穿应用生命周期，路由层通过共享依赖获取 AgentRunner 并驱动运行。
 
 ```mermaid
 graph TB
@@ -270,15 +277,19 @@ SkillService --> SkillMeta : "生成/读取"
 - [skill_service.py:44-187](file://src/ark_agentic/studio/services/skill_service.py#L44-L187)
 
 ### 维基系统组件分析
-- 维基树接口：读取 zh/en 两套 repowiki 的目录树，按元数据顺序映射排序。
+- 维基树接口：读取 zh/en 两套 repowiki 的目录树，按 repowiki-metadata.json 的 wiki_items 顺序排列。
 - 维基页面接口：按语言与路径读取 Markdown 内容，进行路径穿越安全校验。
 - README 与首页：提供 README 文本与首页重定向。
+
+**更新** 增强了维基系统 API 的技术实现细节，包括元数据排序机制和安全校验流程
 
 ```mermaid
 flowchart TD
 Start(["请求 /api/wiki/tree"]) --> LoadMeta["加载各语言元数据<br/>repowiki-metadata.json"]
-LoadMeta --> BuildTree["遍历 content 目录<br/>按顺序映射排序"]
-BuildTree --> ReturnTree["返回 {zh: tree, en: tree}"]
+LoadMeta --> BuildOrderMap["构建顺序映射<br/>{catalog_id: order_index}"]
+BuildOrderMap --> TraverseContent["遍历 content 目录<br/>按顺序映射排序"]
+TraverseContent --> SortItems["排序键：<br/>1. 元数据顺序<br/>2. 目录名小写"]
+SortItems --> ReturnTree["返回 {zh: tree, en: tree}"]
 PageStart(["请求 /api/wiki/{lang}/{path}"]) --> ValidateLang{"lang ∈ {zh,en}?"}
 ValidateLang --> |否| Err400["返回 400"]
 ValidateLang --> |是| ResolvePath["拼接文件路径"]
