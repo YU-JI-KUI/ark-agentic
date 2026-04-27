@@ -1,4 +1,4 @@
-# 维基系统 API 文档
+# 维基系统 API
 
 <cite>
 **本文档引用的文件**
@@ -8,367 +8,372 @@
 - [deps.py](file://src/ark_agentic/api/deps.py)
 - [notifications.py](file://src/ark_agentic/api/notifications.py)
 - [agents.py](file://src/ark_agentic/studio/api/agents.py)
-- [sessions.py](file://src/ark_agentic/studio/api/sessions.py)
 - [skills.py](file://src/ark_agentic/studio/api/skills.py)
 - [tools.py](file://src/ark_agentic/studio/api/tools.py)
-- [memory.py](file://src/ark_agentic/studio/api/memory.py)
-- [auth.py](file://src/ark_agentic/studio/api/auth.py)
+- [agent_service.py](file://src/ark_agentic/studio/services/agent_service.py)
+- [skill_service.py](file://src/ark_agentic/studio/services/skill_service.py)
 - [ark-agentic-api.postman_collection.json](file://docs/postman/ark-agentic-api.postman_collection.json)
+- [agent.json（保险）](file://src/ark_agentic/agents/insurance/agent.json)
+- [agent.json（证券）](file://src/ark_agentic/agents/securities/agent.json)
 - [pyproject.toml](file://pyproject.toml)
+- [README.md](file://README.md)
 </cite>
 
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
 3. [核心组件](#核心组件)
-4. [架构概览](#架构概览)
+4. [架构总览](#架构总览)
 5. [详细组件分析](#详细组件分析)
 6. [依赖分析](#依赖分析)
 7. [性能考虑](#性能考虑)
 8. [故障排除指南](#故障排除指南)
 9. [结论](#结论)
+10. [附录](#附录)
 
 ## 简介
+本项目是一个面向业务落地的智能体（Agent）基础框架，提供统一的 FastAPI 服务入口，支持两类内置 Agent：保险（insurance）与证券投资（securities）。系统通过会话管理、工具与技能编排、流式响应与 SSE 推送、以及 Studio 管理界面，形成从 API 到可视化管理的完整能力闭环。
 
-Ark-Agentic 是一个轻量级的 ReAct Agent 框架，提供了统一的 API 接口来处理智能代理交互。该系统支持保险和证券两个主要领域的智能代理，并集成了维基系统的文档管理功能。
-
-系统的核心特性包括：
-- 统一的 FastAPI 服务入口
-- 支持流式和非流式响应的聊天接口
-- 多协议的 SSE 流式输出支持
-- Studio 管理界面的完整 API
-- 维基系统的文档浏览功能
-- 通知和作业管理系统
+- 统一 API 提供健康检查、聊天接口、维基文档浏览、以及可选的通知与作业管理接口。
+- Studio 提供 Agent、技能、工具的 CRUD 管理能力，支持脚手架生成与文件系统扫描。
+- 维基系统提供多语言文档树与页面内容的读取接口，便于前端或客户端展示知识库。
 
 ## 项目结构
+整体采用分层与功能域结合的组织方式：
+- 核心运行时与基础设施位于 `src/ark_agentic/core/*`
+- API 路由位于 `src/ark_agentic/api/*`
+- Studio 管理接口位于 `src/ark_agentic/studio/*`
+- 业务 Agent 定义位于 `src/ark_agentic/agents/*`
+- 文档与示例 Postman 集合位于 `docs/*`
 
 ```mermaid
 graph TB
-subgraph "应用入口"
-APP[app.py<br/>FastAPI 应用]
+subgraph "服务入口"
+APP["app.py<br/>FastAPI 应用"]
 end
-subgraph "API 路由层"
-CHAT[chat.py<br/>聊天 API]
-DEPS[deps.py<br/>共享依赖]
-MODELS[models.py<br/>数据模型]
-NOTIF[notifications.py<br/>通知 API]
+subgraph "API 路由"
+CHAT["api/chat.py<br/>聊天接口"]
+NOTIF["api/notifications.py<br/>通知与作业"]
+DEPS["api/deps.py<br/>共享依赖"]
+MODELS["api/models.py<br/>数据模型"]
 end
-subgraph "Studio 管理 API"
-ST_AGENTS[agents.py<br/>Agent 管理]
-ST_SESSIONS[sessions.py<br/>会话管理]
-ST_SKILLS[skills.py<br/>技能管理]
-ST_TOOLS[tools.py<br/>工具管理]
-ST_MEMORY[memory.py<br/>内存管理]
-ST_AUTH[auth.py<br/>认证管理]
+subgraph "Studio 管理"
+STUDIO_AGENTS["studio/api/agents.py<br/>Agent CRUD"]
+STUDIO_SKILLS["studio/api/skills.py<br/>技能 CRUD"]
+STUDIO_TOOLS["studio/api/tools.py<br/>工具 CRUD"]
+SVC_AGENTS["studio/services/agent_service.py<br/>Agent 业务逻辑"]
+SVC_SKILLS["studio/services/skill_service.py<br/>技能业务逻辑"]
 end
-subgraph "核心功能"
-WIKI[维基系统]
-AGENTS[智能代理]
-STREAM[流式处理]
+subgraph "业务 Agent"
+INS["agents/insurance/agent.json"]
+SEC["agents/securities/agent.json"]
 end
 APP --> CHAT
 APP --> NOTIF
-APP --> ST_AGENTS
-APP --> ST_SESSIONS
-APP --> ST_SKILLS
-APP --> ST_TOOLS
-APP --> ST_MEMORY
-APP --> ST_AUTH
-CHAT --> STREAM
-AGENTS --> STREAM
-WIKI --> APP
+APP --> STUDIO_AGENTS
+APP --> STUDIO_SKILLS
+APP --> STUDIO_TOOLS
+CHAT --> DEPS
+NOTIF --> DEPS
+STUDIO_AGENTS --> SVC_AGENTS
+STUDIO_SKILLS --> SVC_SKILLS
+STUDIO_TOOLS --> SVC_AGENTS
+APP --> INS
+APP --> SEC
 ```
 
 **图表来源**
-- [app.py:1-351](file://src/ark_agentic/app.py#L1-L351)
-- [chat.py:1-177](file://src/ark_agentic/api/chat.py#L1-L177)
-- [agents.py:1-131](file://src/ark_agentic/studio/api/agents.py#L1-L131)
+- [app.py:171-203](file://src/ark_agentic/app.py#L171-L203)
+- [chat.py:27-177](file://src/ark_agentic/api/chat.py#L27-L177)
+- [notifications.py:24-169](file://src/ark_agentic/api/notifications.py#L24-L169)
+- [agents.py:76-131](file://src/ark_agentic/studio/api/agents.py#L76-L131)
+- [skills.py:57-113](file://src/ark_agentic/studio/api/skills.py#L57-L113)
+- [tools.py:41-66](file://src/ark_agentic/studio/api/tools.py#L41-L66)
 
 **章节来源**
-- [app.py:1-351](file://src/ark_agentic/app.py#L1-L351)
+- [app.py:171-203](file://src/ark_agentic/app.py#L171-L203)
 - [pyproject.toml:1-112](file://pyproject.toml#L1-L112)
 
 ## 核心组件
-
-### 应用入口组件
-
-应用入口位于 `app.py`，负责：
-- 初始化 FastAPI 应用程序
-- 配置 CORS 中间件
-- 注册所有 API 路由
-- 设置环境变量和日志配置
-- 管理代理注册和生命周期
-
-### API 路由组件
-
-系统包含多个专门的 API 路由模块：
-- **聊天 API** (`chat.py`): 处理用户与智能代理的交互
-- **通知 API** (`notifications.py`): 管理通知和作业调度
-- **Studio API**: 提供管理界面的完整 API 功能
-
-### 维基系统组件
-
-内置的维基系统提供：
-- 多语言文档树浏览
-- Markdown 页面内容获取
-- 安全的路径访问控制
-- 项目文档集成
+- 统一服务入口与生命周期管理：负责 CORS、静态资源、健康检查、维基文档接口、以及按环境条件挂载通知与作业路由。
+- 聊天 API：支持非流式与 SSE 流式响应，具备会话管理、幂等键、历史合并、运行选项覆盖等功能。
+- Studio 管理 API：提供 Agent、技能、工具的增删改查，基于文件系统扫描与写入。
+- 通知与作业 API：提供通知历史查询、标记已读、SSE 实时推送、作业列表与手动触发。
+- 维基系统：提供多语言目录树与页面内容读取，支持安全路径校验与排序。
 
 **章节来源**
-- [app.py:48-204](file://src/ark_agentic/app.py#L48-L204)
+- [app.py:320-323](file://src/ark_agentic/app.py#L320-L323)
+- [app.py:236-301](file://src/ark_agentic/app.py#L236-L301)
 - [chat.py:27-177](file://src/ark_agentic/api/chat.py#L27-L177)
+- [models.py:27-104](file://src/ark_agentic/api/models.py#L27-L104)
+- [notifications.py:39-169](file://src/ark_agentic/api/notifications.py#L39-L169)
+- [agents.py:76-131](file://src/ark_agentic/studio/api/agents.py#L76-L131)
+- [skills.py:57-113](file://src/ark_agentic/studio/api/skills.py#L57-L113)
+- [tools.py:41-66](file://src/ark_agentic/studio/api/tools.py#L41-L66)
 
-## 架构概览
+## 架构总览
+系统采用“应用层（FastAPI）—路由层（API）—依赖层（共享 Registry）—业务层（Agent/Studio/服务）—基础设施（会话/流式/观测）”的分层设计。Agent 注册中心贯穿应用生命周期，路由层通过共享依赖获取 AgentRunner 并驱动运行。
+
+```mermaid
+graph TB
+CLIENT["客户端/前端"]
+FASTAPI["FastAPI 应用<br/>app.py"]
+ROUTER_CHAT["聊天路由<br/>api/chat.py"]
+ROUTER_NOTIF["通知路由<br/>api/notifications.py"]
+ROUTER_STUDIO["Studio 路由<br/>studio/api/*"]
+DEPS["共享依赖<br/>api/deps.py"]
+REGISTRY["Agent 注册中心<br/>core/registry.py"]
+RUNNER["AgentRunner<br/>core/runner.py"]
+STREAM["流式事件总线<br/>core/stream/*"]
+OBS["观测与追踪<br/>core/observability/*"]
+CLIENT --> FASTAPI
+FASTAPI --> ROUTER_CHAT
+FASTAPI --> ROUTER_NOTIF
+FASTAPI --> ROUTER_STUDIO
+ROUTER_CHAT --> DEPS
+ROUTER_NOTIF --> DEPS
+ROUTER_STUDIO --> DEPS
+DEPS --> REGISTRY
+REGISTRY --> RUNNER
+ROUTER_CHAT --> STREAM
+FASTAPI --> OBS
+```
+
+**图表来源**
+- [app.py:45-168](file://src/ark_agentic/app.py#L45-L168)
+- [chat.py:19-38](file://src/ark_agentic/api/chat.py#L19-L38)
+- [deps.py:19-37](file://src/ark_agentic/api/deps.py#L19-L37)
+
+## 详细组件分析
+
+### 聊天 API 组件分析
+- 请求模型：支持 agent_id、消息、会话、流式、运行选项、协议、来源 BU 与应用类型、用户与消息 ID、上下文、幂等键、历史与历史合并开关。
+- 会话管理：优先使用请求体中的 session_id，否则尝试从头中获取；若不存在则创建新会话；支持跨 Agent 切换时的会话重建。
+- 流式输出：通过事件总线与格式化器将 Agent 生命周期事件转换为 SSE 输出，支持多种协议（internal/agui/enterprise/alone）。
+- 非流式输出：直接返回最终结果，包含响应文本、工具调用、轮次与用量统计。
 
 ```mermaid
 sequenceDiagram
-participant Client as 客户端
-participant API as API 层
-participant Agent as 智能代理
-participant Stream as 流处理器
-participant Memory as 内存管理
-Client->>API : POST /chat
-API->>API : 验证请求参数
-API->>Agent : 获取代理实例
-API->>Memory : 创建/获取会话
-API->>Agent : 执行推理流程
-alt 非流式响应
-Agent-->>API : 返回完整响应
-API-->>Client : JSON 响应
-else 流式响应
-API->>Stream : 创建事件总线
-Agent->>Stream : 发送流式事件
-Stream-->>Client : SSE 事件流
+participant C as "客户端"
+participant R as "聊天路由<br/>api/chat.py"
+participant D as "共享依赖<br/>api/deps.py"
+participant G as "Agent 注册中心"
+participant U as "AgentRunner"
+participant S as "流式事件总线"
+C->>R : POST /chat
+R->>D : get_agent(agent_id)
+D-->>R : AgentRunner
+R->>U : run(session_id, user_input, stream, history...)
+alt 非流式
+U-->>R : 结果
+R-->>C : ChatResponse
+else 流式
+R->>S : emit_created
+U-->>S : 事件序列
+S-->>C : SSE 事件流
+R-->>C : StreamingResponse
 end
 ```
 
 **图表来源**
-- [chat.py:28-177](file://src/ark_agentic/api/chat.py#L28-L177)
+- [chat.py:27-177](file://src/ark_agentic/api/chat.py#L27-L177)
 - [deps.py:31-37](file://src/ark_agentic/api/deps.py#L31-L37)
-
-## 详细组件分析
-
-### 聊天 API 组件
-
-聊天 API 是系统的核心接口，支持多种交互模式：
-
-#### 请求模型
-- **ChatRequest**: 包含消息内容、会话标识、流式标志等参数
-- **HistoryMessage**: 外部历史消息格式
-- **RunOptions**: 运行时配置选项
-
-#### 响应模型
-- **ChatResponse**: 标准响应格式
-- **SSEEvent**: 流式事件格式
-
-#### 关键功能特性
-
-```mermaid
-flowchart TD
-Start([接收聊天请求]) --> Validate[验证用户身份]
-Validate --> CheckSession{检查会话}
-CheckSession --> |存在| UseSession[使用现有会话]
-CheckSession --> |不存在| CreateSession[创建新会话]
-UseSession --> BuildContext[构建输入上下文]
-CreateSession --> BuildContext
-BuildContext --> CheckStream{检查流式标志}
-CheckStream --> |否| NonStream[非流式处理]
-CheckStream --> |是| StreamMode[流式处理]
-NonStream --> ReturnResponse[返回完整响应]
-StreamMode --> SetupStream[设置流式管道]
-SetupStream --> SendEvents[发送事件流]
-SendEvents --> Complete[完成处理]
-ReturnResponse --> End([结束])
-Complete --> End
-```
-
-**图表来源**
-- [chat.py:40-177](file://src/ark_agentic/api/chat.py#L40-L177)
-- [models.py:27-69](file://src/ark_agentic/api/models.py#L27-L69)
 
 **章节来源**
 - [chat.py:27-177](file://src/ark_agentic/api/chat.py#L27-L177)
-- [models.py:17-104](file://src/ark_agentic/api/models.py#L17-L104)
+- [models.py:27-69](file://src/ark_agentic/api/models.py#L27-L69)
 
-### Studio 管理 API 组件
+### 通知与作业 API 组件分析
+- 通知 REST：支持按用户拉取历史通知、标记已读；按 agent 隔离存储。
+- SSE 实时推送：连接建立时先推送未读计数，心跳维持连接，断开自动注销。
+- 作业管理：列出所有已注册作业、手动触发某作业（异步执行，立即返回 202）。
 
-Studio 提供了完整的管理界面 API，包含以下子模块：
+```mermaid
+sequenceDiagram
+participant C as "客户端"
+participant N as "通知路由<br/>api/notifications.py"
+participant DS as "通知存储<br/>services/notifications"
+participant DL as "通知投递<br/>services/notifications"
+C->>N : GET /notifications/{agent}/{user}?unread=true
+N->>DS : list_recent(user, limit, unread_only)
+DS-->>N : 通知列表
+N-->>C : JSON
+C->>N : POST /notifications/{agent}/{user}/read
+N->>DS : mark_read(user, ids)
+DS-->>N : OK
+N-->>C : {"ok" : true, "marked" : n}
+C->>N : GET /notifications/{agent}/{user}/stream
+N->>DL : register_user_online(key, queue)
+DL-->>N : 注册成功
+N-->>C : SSE 连接心跳
+DL-->>N : 通知事件
+N-->>C : data : {event}
+```
 
-#### Agent 管理
-- **Agent 列表**: 扫描 agents 目录获取所有代理信息
-- **Agent 详情**: 获取单个代理的元数据
-- **Agent 创建**: 自动生成代理目录结构和配置文件
-
-#### 会话管理
-- **会话列表**: 从磁盘读取会话信息
-- **会话详情**: 获取会话消息历史
-- **原始数据操作**: 直接读写会话 JSONL 文件
-
-#### 技能管理
-- **技能列表**: 扫描技能目录
-- **技能 CRUD**: 创建、更新、删除技能文件
-- **自动重载**: 写入后自动刷新技能缓存
-
-#### 工具管理
-- **工具列表**: 通过 AST 解析发现工具
-- **脚手架生成**: 自动生成工具代码模板
-
-#### 内存管理
-- **文件发现**: 自动扫描内存文件
-- **内容读取**: 获取内存文件内容
-- **内容编辑**: 修改内存文件内容
-
-**章节来源**
-- [agents.py:76-131](file://src/ark_agentic/studio/api/agents.py#L76-L131)
-- [sessions.py:84-200](file://src/ark_agentic/studio/api/sessions.py#L84-L200)
-- [skills.py:57-113](file://src/ark_agentic/studio/api/skills.py#L57-L113)
-- [tools.py:41-66](file://src/ark_agentic/studio/api/tools.py#L41-L66)
-- [memory.py:105-160](file://src/ark_agentic/studio/api/memory.py#L105-L160)
-
-### 通知和作业管理组件
-
-系统集成了通知和作业调度功能：
-
-#### 通知 API
-- **历史通知获取**: 支持限制数量和未读过滤
-- **标记已读**: 批量标记通知状态
-- **实时推送**: SSE 实时通知流
-- **心跳机制**: 保持连接活跃
-
-#### 作业管理
-- **作业列表**: 显示所有已注册作业
-- **手动触发**: 异步执行特定作业
-- **调度管理**: 基于 APScheduler 的定时任务
+**图表来源**
+- [notifications.py:39-169](file://src/ark_agentic/api/notifications.py#L39-L169)
 
 **章节来源**
 - [notifications.py:39-169](file://src/ark_agentic/api/notifications.py#L39-L169)
 
-### 维基系统组件
-
-内置的维基系统提供文档管理功能：
-
-#### 目录树构建
-- 支持中英文双语目录
-- 基于元数据文件排序
-- 安全的路径遍历防护
-
-#### 页面访问
-- Markdown 内容获取
-- 语言参数验证
-- 路径安全检查
-
-**章节来源**
-- [app.py:236-302](file://src/ark_agentic/app.py#L236-L302)
-
-## 依赖分析
+### Studio 管理 API 组件分析
+- Agent CRUD：扫描 agents 目录，读取/写入 agent.json，支持创建目录结构与最小元数据回退。
+- 技能 CRUD：解析 SKILL.md frontmatter，生成/更新/删除技能，支持内容与 frontmatter 分离更新。
+- 工具脚手架：根据参数规范生成 Agent 工具 Python 脚手架。
 
 ```mermaid
-graph TB
-subgraph "核心依赖"
-FASTAPI[FastAPI]
-PYDANTIC[Pydantic]
-ASYNCIO[Asyncio]
-end
-subgraph "可选依赖"
-UVICORN[Uvicorn]
-APSCHEDULER[APScheduler]
-BCRYPT[Bcrypt]
-LANGCHAIN[LangChain]
-end
-subgraph "观测性"
-OTLP[OpenTelemetry]
-TRACING[Tracing]
-end
-subgraph "平台特定"
-SECURITIES[Securities<br/>额外依赖]
-PA_JT[PA-JT<br/>加密依赖]
-end
-APP --> FASTAPI
-APP --> PYDANTIC
-APP --> ASYNCIO
-APP --> UVICORN
-APP --> APSCHEDULER
-APP --> BCRYPT
-APP --> LANGCHAIN
-APP --> OTLP
-APP --> TRACING
-APP --> SECURITIES
-APP --> PA_JT
+classDiagram
+class AgentMeta {
++string id
++string name
++string description
++string status
++string created_at
++string updated_at
+}
+class SkillMeta {
++string id
++string name
++string description
++string file_path
++string content
++string modified_at
++string version
++string invocation_policy
++string group
++string[] tags
+}
+class AgentService {
++scaffold_agent(agents_root, spec) Path
++list_agents(agents_root) AgentMeta[]
++delete_agent(agents_root, agent_id) void
+}
+class SkillService {
++list_skills(agents_root, agent_id) SkillMeta[]
++create_skill(agents_root, agent_id, name, description, content) SkillMeta
++update_skill(agents_root, agent_id, skill_id, ...) SkillMeta
++delete_skill(agents_root, agent_id, skill_id) void
+}
+AgentService --> AgentMeta : "生成/读取"
+SkillService --> SkillMeta : "生成/读取"
 ```
 
 **图表来源**
-- [pyproject.toml:7-55](file://pyproject.toml#L7-L55)
+- [agent_service.py:30-198](file://src/ark_agentic/studio/services/agent_service.py#L30-L198)
+- [skill_service.py:26-294](file://src/ark_agentic/studio/services/skill_service.py#L26-L294)
 
-### 环境变量配置
+**章节来源**
+- [agents.py:76-131](file://src/ark_agentic/studio/api/agents.py#L76-L131)
+- [skills.py:57-113](file://src/ark_agentic/studio/api/skills.py#L57-L113)
+- [tools.py:41-66](file://src/ark_agentic/studio/api/tools.py#L41-L66)
+- [agent_service.py:60-138](file://src/ark_agentic/studio/services/agent_service.py#L60-L138)
+- [skill_service.py:44-187](file://src/ark_agentic/studio/services/skill_service.py#L44-L187)
 
-系统支持多种环境变量配置：
+### 维基系统组件分析
+- 维基树接口：读取 zh/en 两套 repowiki 的目录树，按元数据顺序映射排序。
+- 维基页面接口：按语言与路径读取 Markdown 内容，进行路径穿越安全校验。
+- README 与首页：提供 README 文本与首页重定向。
 
-| 环境变量 | 默认值 | 用途 |
-|---------|--------|------|
-| LOG_LEVEL | INFO | 日志级别 |
-| API_HOST | 0.0.0.0 | API 主机地址 |
-| API_PORT | 8080 | API 端口号 |
-| ENABLE_JOB_MANAGER | false | 启用作业管理器 |
-| ENABLE_MEMORY | false | 启用内存功能 |
-| ENABLE_DREAM | true | 启用梦境功能 |
-| STUDIO_USERS | 默认用户 | Studio 认证用户 |
+```mermaid
+flowchart TD
+Start(["请求 /api/wiki/tree"]) --> LoadMeta["加载各语言元数据<br/>repowiki-metadata.json"]
+LoadMeta --> BuildTree["遍历 content 目录<br/>按顺序映射排序"]
+BuildTree --> ReturnTree["返回 {zh: tree, en: tree}"]
+PageStart(["请求 /api/wiki/{lang}/{path}"]) --> ValidateLang{"lang ∈ {zh,en}?"}
+ValidateLang --> |否| Err400["返回 400"]
+ValidateLang --> |是| ResolvePath["拼接文件路径"]
+ResolvePath --> CheckFile{"文件存在且为 .md?"}
+CheckFile --> |否| Err404["返回 404"]
+CheckFile --> |是| SafetyCheck["相对路径校验"]
+SafetyCheck --> |失败| Err403["返回 403"]
+SafetyCheck --> |通过| ReadMD["读取 Markdown 内容"]
+ReadMD --> ReturnMD["返回纯文本 Markdown"]
+```
+
+**图表来源**
+- [app.py:236-301](file://src/ark_agentic/app.py#L236-L301)
+
+**章节来源**
+- [app.py:236-301](file://src/ark_agentic/app.py#L236-L301)
+
+## 依赖分析
+- 应用层依赖：FastAPI、CORS、静态文件、dotenv、OpenTelemetry（可观测性）、APScheduler（可选作业）。
+- 核心运行时：Agent 注册中心、AgentRunner、会话管理、流式事件总线、工具与技能加载器。
+- Studio 依赖：文件系统扫描、YAML frontmatter 解析、路径安全校验。
+- 可选特性：作业管理与通知需要额外依赖组（proactive）。
+
+```mermaid
+graph TB
+P["pyproject.toml<br/>项目依赖"]
+S["server<br/>FastAPI+Uvicorn"]
+T["tracing<br/>OTel+LangChain"]
+J["jobs<br/>APScheduler"]
+N["notifications<br/>通知路由"]
+PR["proactive<br/>jobs+notifications"]
+DEV["dev<br/>pytest+工具链"]
+P --> S
+P --> T
+P --> J
+P --> N
+P --> PR
+P --> DEV
+```
+
+**图表来源**
+- [pyproject.toml:19-55](file://pyproject.toml#L19-L55)
 
 **章节来源**
 - [pyproject.toml:19-55](file://pyproject.toml#L19-L55)
-- [app.py:16-43](file://src/ark_agentic/app.py#L16-L43)
 
 ## 性能考虑
-
-### 流式处理优化
-- SSE 事件缓冲区大小限制
-- 心跳机制保持连接活跃
-- 异步任务管理和取消
-
-### 内存管理
-- 代理实例缓存
-- 会话状态持久化
-- 内存文件工作空间隔离
-
-### 并发处理
-- 异步 I/O 操作
-- 事件驱动架构
-- 资源池管理
+- 流式响应：SSE 事件通过队列与事件总线异步推送，避免阻塞主线程；心跳机制保障长连接稳定。
+- 会话与历史：非流式模式下直接返回结果，减少中间层处理；流式模式下按事件粒度输出，前端可渐进渲染。
+- 作业与通知：作业异步派发，通知存储按 agent 隔离，避免跨租户干扰。
+- 静态资源与维基：静态文件挂载于 /static；维基树构建按元数据顺序映射，避免全量排序成本。
 
 ## 故障排除指南
-
-### 常见问题诊断
-
-#### 代理相关错误
-- **404 错误**: 检查代理 ID 是否正确
-- **503 错误**: 确认代理已正确初始化
-
-#### 会话相关错误
-- **会话不存在**: 验证会话 ID 和用户 ID
-- **权限不足**: 检查用户认证状态
-
-#### 流式处理问题
-- **连接中断**: 检查网络连接和防火墙设置
-- **超时错误**: 调整客户端超时配置
-
-### 调试建议
-
-1. **启用详细日志**: 设置 `LOG_LEVEL=DEBUG`
-2. **检查环境变量**: 验证所有必需的配置项
-3. **测试基本功能**: 使用 Postman 集合验证核心 API
-4. **监控资源使用**: 关注内存和 CPU 使用情况
+- 404 Agent 未找到：检查 agent_id 是否正确，或在 app.py 生命周期中是否完成注册。
+- 400/409/400：Studio CRUD 接口返回的错误码，分别表示资源已存在、资源不存在、参数校验失败。
+- 503 通知/作业未初始化：在未启用相关 extras 的情况下，通知与作业路由不会挂载。
+- 路径穿越：维基页面接口对路径进行安全校验，若出现 403，请确认 lang 与 path 合法且未越权访问。
 
 **章节来源**
-- [chat.py:153-155](file://src/ark_agentic/api/chat.py#L153-L155)
-- [sessions.py:129-135](file://src/ark_agentic/studio/api/sessions.py#L129-L135)
+- [deps.py:31-37](file://src/ark_agentic/api/deps.py#L31-L37)
+- [skills.py:76-82](file://src/ark_agentic/studio/api/skills.py#L76-L82)
+- [tools.py:60-66](file://src/ark_agentic/studio/api/tools.py#L60-L66)
+- [notifications.py:157-169](file://src/ark_agentic/api/notifications.py#L157-L169)
+- [app.py:296-301](file://src/ark_agentic/app.py#L296-L301)
 
 ## 结论
+本维基系统 API 以清晰的分层与模块化设计，提供了统一的聊天、通知、作业、维基与 Studio 管理能力。通过 Agent 注册中心与共享依赖，路由层能够灵活地驱动多 Agent 场景；通过 SSE 与事件总线，实现了高吞吐的流式交互体验；通过文件系统驱动的 Studio 管理，降低了业务侧的维护成本。建议在生产环境中启用可观测性与必要的 extras，以获得更完善的监控与作业能力。
 
-Ark-Agentic 维基系统提供了一个功能完整、架构清晰的智能代理平台。系统的主要优势包括：
+## 附录
 
-1. **模块化设计**: 清晰的组件分离和职责划分
-2. **多协议支持**: 灵活的流式和非流式响应
-3. **完整的管理界面**: Studio 提供了全面的管理功能
-4. **文档集成**: 内置维基系统便于知识管理
-5. **可观测性**: 完善的追踪和监控支持
+### API 端点概览
+- 健康检查：GET /health
+- 聊天接口：POST /chat（支持流式与非流式）
+- 维基树：GET /api/wiki/tree
+- 维基页面：GET /api/wiki/{lang}/{path}
+- 通知 REST：GET/POST /api/notifications/{agent_id}/{user_id}*
+- 通知 SSE：GET /api/notifications/{agent_id}/{user_id}/stream
+- 作业管理：GET/POST /api/jobs*
+- Studio Agent：GET/POST /agents*
+- Studio 技能：GET/POST/PUT/DELETE /agents/{agent_id}/skills*
+- Studio 工具：GET/POST /agents/{agent_id}/tools*
 
-该系统适合需要智能代理能力的企业级应用场景，提供了从基础聊天交互到复杂作业调度的完整解决方案。
+注：带 * 的端点仅在启用相应 extras 或环境变量时可用。
+
+**章节来源**
+- [app.py:320-323](file://src/ark_agentic/app.py#L320-L323)
+- [app.py:236-301](file://src/ark_agentic/app.py#L236-L301)
+- [chat.py:27-177](file://src/ark_agentic/api/chat.py#L27-L177)
+- [notifications.py:39-169](file://src/ark_agentic/api/notifications.py#L39-L169)
+- [agents.py:76-131](file://src/ark_agentic/studio/api/agents.py#L76-L131)
+- [skills.py:57-113](file://src/ark_agentic/studio/api/skills.py#L57-L113)
+- [tools.py:41-66](file://src/ark_agentic/studio/api/tools.py#L41-L66)
+
+### Postman 集合参考
+- 健康检查、聊天（非流式/流式）、会话管理、幂等键、Enterprise AGUI A2UI 示例等均有示例请求，便于快速验证。
+
+**章节来源**
+- [ark-agentic-api.postman_collection.json:1-364](file://docs/postman/ark-agentic-api.postman_collection.json#L1-L364)
