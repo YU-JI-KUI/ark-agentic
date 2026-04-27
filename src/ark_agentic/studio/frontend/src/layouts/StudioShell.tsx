@@ -3,10 +3,11 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type AgentMeta } from '../api'
 import { useAuth } from '../auth'
 import DecisionDock from '../components/DecisionDock'
+import ThemeToggle from '../components/ThemeToggle'
 import {
-  AgentIcon,
   LogoutIcon,
-  OverviewIcon,
+  MoreIcon,
+  PlusIcon,
   RefreshIcon,
   RobotIcon,
   SearchIcon,
@@ -28,9 +29,9 @@ type StudioMainStyle = CSSProperties & {
 }
 
 const DEFAULT_SECTION = 'overview'
-const AGENT_RADAR_MIN_WIDTH = 240
+const AGENT_RADAR_MIN_WIDTH = 200
 const AGENT_RADAR_MAX_WIDTH = 420
-const AGENT_RADAR_DEFAULT_WIDTH = 280
+const AGENT_RADAR_DEFAULT_WIDTH = 260
 const DECISION_DOCK_MIN_WIDTH = 320
 const DECISION_DOCK_MAX_WIDTH = 560
 const DECISION_DOCK_DEFAULT_WIDTH = 380
@@ -44,10 +45,9 @@ export default function StudioShell() {
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [agentsError, setAgentsError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [agentRadarOpen, setAgentRadarOpen] = useState(true)
   const [agentRadarWidth, setAgentRadarWidth] = useState(AGENT_RADAR_DEFAULT_WIDTH)
   const [isAgentRadarResizing, setIsAgentRadarResizing] = useState(false)
-  const [decisionDockOpen, setDecisionDockOpen] = useState(true)
+  const [decisionDockOpen, setDecisionDockOpen] = useState(false)
   const [decisionDockWidth, setDecisionDockWidth] = useState(DECISION_DOCK_DEFAULT_WIDTH)
   const agentRadarResizeRef = useRef<{ startWidth: number; startX: number } | null>(null)
 
@@ -129,7 +129,6 @@ export default function StudioShell() {
   const studioMainClassName = [
     'studio-main',
     showDecisionDock ? '' : 'studio-main-dock-collapsed',
-    agentRadarOpen ? '' : 'studio-main-radar-collapsed',
   ].filter(Boolean).join(' ')
   const studioMainStyle = useMemo(
     (): StudioMainStyle => ({
@@ -140,7 +139,7 @@ export default function StudioShell() {
   )
 
   function handleAgentRadarResizeStart(event: React.PointerEvent<HTMLButtonElement>) {
-    if (event.button !== 0 || !agentRadarOpen) return
+    if (event.button !== 0) return
     agentRadarResizeRef.current = { startWidth: agentRadarWidth, startX: event.clientX }
     setIsAgentRadarResizing(true)
     document.body.style.cursor = 'col-resize'
@@ -156,14 +155,24 @@ export default function StudioShell() {
           </div>
           <div className="studio-brand-copy">
             <strong>Ark-Agentic Studio</strong>
-            <span>Agent 的可视化管理与调试工作台。</span>
+            <span>Agent 协同与运行管控平台</span>
           </div>
         </button>
 
+        <div className="cmd" aria-hidden="true">
+          <SearchIcon />
+          <span>Search agents, sessions, tools…</span>
+          <kbd>⌘K</kbd>
+        </div>
+
         <div className="studio-topbar-meta">
-          {selectedAgent && <div className="topbar-chip">Agent · {selectedAgent.name}</div>}
-          {user && <div className="topbar-chip">Role · {user.role}</div>}
-          {user && <div className="topbar-chip">User · {user.display_name}</div>}
+          <button className="hbtn" type="button" disabled title="Environment">
+            <span className="dot" />
+            Production
+          </button>
+          {user && <button className="hbtn" type="button">Role · {user.role}</button>}
+          {user && <button className="hbtn" type="button">User · {user.display_name}</button>}
+          <ThemeToggle />
           <button className="topbar-logout" onClick={logout} type="button">
             <LogoutIcon />
             Sign Out
@@ -175,96 +184,107 @@ export default function StudioShell() {
         className={studioMainClassName}
         style={studioMainStyle}
       >
-        <aside aria-label="Studio sections" className="global-rail">
-          <div className="global-rail-stack">
-            <NavLink
-              aria-label="Dashboard"
-              className={`global-rail-link ${pathname === '/' ? 'active' : ''}`}
-              onFocus={() => focusNavigate('/', pathname === '/')}
-              to="/"
-            >
-              <OverviewIcon />
-            </NavLink>
-            <button
-              aria-label={agentRadarOpen ? 'Collapse agent radar' : 'Expand agent radar'}
-              aria-pressed={agentRadarOpen}
-              className={`global-rail-link ${agentRadarOpen ? 'active' : ''}`}
-              onClick={() => setAgentRadarOpen(current => !current)}
-              type="button"
-            >
-              <AgentIcon />
-            </button>
-          </div>
-        </aside>
-
         <aside
-          aria-hidden={!agentRadarOpen}
           aria-label="Agent radar"
-          className={`agent-radar ${agentRadarOpen ? '' : 'agent-radar-collapsed'} ${isAgentRadarResizing ? 'agent-radar-resizing' : ''}`}
+          className={`agent-radar ${isAgentRadarResizing ? 'agent-radar-resizing' : ''}`}
         >
-            <button
-              aria-label="Resize agent radar"
-              className="agent-radar-resize-handle"
-              onPointerDown={handleAgentRadarResizeStart}
-              tabIndex={agentRadarOpen ? undefined : -1}
-              type="button"
-            />
-            <div className="surface-heading agent-radar-heading">
-              <span>Agent Radar</span>
-              <button
-                aria-label="Refresh agents"
-                className="panel-icon-button agent-radar-refresh-button"
-                onClick={() => void refreshAgents()}
-                tabIndex={agentRadarOpen ? undefined : -1}
-                title="Refresh agents"
-                type="button"
-              >
-                <RefreshIcon />
-              </button>
+          <button
+            aria-label="Resize agent radar"
+            className="agent-radar-resize-handle"
+            onPointerDown={handleAgentRadarResizeStart}
+            type="button"
+          />
+
+          <div className="side-section">
+            <div className="side-label">
+              <span>Workspace</span>
+              <div className="side-label-actions">
+                <button
+                  aria-label="Workspace menu"
+                  className="icon-action-button"
+                  type="button"
+                  disabled
+                  title="即将推出"
+                >
+                  <MoreIcon />
+                </button>
+              </div>
             </div>
+            <NavLink
+              aria-label="Workspace dashboard"
+              className={({ isActive }) => `nav-item ${isActive && pathname === '/' ? 'active' : ''}`}
+              to="/"
+              end
+            >
+              <span className="nav-item-shortcut">↗</span>
+              <span>Dashboard</span>
+            </NavLink>
+          </div>
 
-            <label className="radar-search">
-              <SearchIcon />
-              <input
-                aria-label="Search agents"
-                onChange={event => setQuery(event.target.value)}
-                placeholder="Search agents"
-                tabIndex={agentRadarOpen ? undefined : -1}
-                value={query}
-              />
-            </label>
+          <div className="side-section">
+            <div className="side-label">
+              <span>Agents · {agents.length}</span>
+              <div className="side-label-actions">
+                <button
+                  aria-label="Refresh agents"
+                  className="icon-action-button"
+                  onClick={() => void refreshAgents()}
+                  title="Refresh"
+                  type="button"
+                >
+                  <RefreshIcon />
+                </button>
+                <button
+                  aria-label="Create new agent"
+                  className="icon-action-button"
+                  type="button"
+                  disabled
+                  title="即将推出"
+                >
+                  <PlusIcon />
+                </button>
+              </div>
+            </div>
+          </div>
 
-            {agentsLoading && <div className="empty-surface">正在加载 Agent...</div>}
-            {agentsError && !agentsLoading && <div className="empty-surface">{agentsError}</div>}
-            {!agentsLoading && !agentsError && filteredAgents.length === 0 && (
-              <div className="empty-surface">没有匹配的 Agent。</div>
-            )}
+          <label className="radar-search">
+            <SearchIcon />
+            <input
+              aria-label="Search agents"
+              onChange={event => setQuery(event.target.value)}
+              placeholder="Search agents"
+              value={query}
+            />
+          </label>
 
-            <div aria-label="可用 Agent" className="agent-radar-list">
-              {filteredAgents.map(agent => {
-                const targetSection = activeSection === DEFAULT_SECTION ? DEFAULT_SECTION : activeSection
-                const target = `/agents/${agent.id}/${targetSection}`
-                const isActive = selectedAgent?.id === agent.id
-                return (
-                  <NavLink
+          {agentsLoading && <div className="empty-surface">正在加载 Agent...</div>}
+          {agentsError && !agentsLoading && <div className="empty-surface">{agentsError}</div>}
+          {!agentsLoading && !agentsError && filteredAgents.length === 0 && (
+            <div className="empty-surface">没有匹配的 Agent。</div>
+          )}
+
+          <div aria-label="可用 Agent" className="agent-radar-list">
+            {filteredAgents.map(agent => {
+              const targetSection = activeSection === DEFAULT_SECTION ? DEFAULT_SECTION : activeSection
+              const target = `/agents/${agent.id}/${targetSection}`
+              const isActive = selectedAgent?.id === agent.id
+              return (
+                <NavLink
                   aria-label={`打开 Agent ${agent.name}`}
                   className={`agent-radar-card ${isActive ? 'active' : ''}`}
                   key={agent.id}
                   onFocus={() => focusNavigate(target, isActive)}
-                  tabIndex={agentRadarOpen ? undefined : -1}
                   to={target}
                 >
                   <div className="agent-radar-card-top">
-                      <strong>{agent.name}</strong>
-                    </div>
-                    <p>{agent.description || '暂无描述。'}</p>
-                    <div className="agent-radar-card-meta">
-                      <span>{agent.id}</span>
-                    </div>
-                  </NavLink>
-                )
-              })}
-            </div>
+                    <strong>{agent.name}</strong>
+                    <span className="pill">{agent.id.toUpperCase()}</span>
+                  </div>
+                  <p>{agent.description || '暂无描述。'}</p>
+                </NavLink>
+              )
+            })}
+          </div>
         </aside>
 
         <div className="studio-workspace">
