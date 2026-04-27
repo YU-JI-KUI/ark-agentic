@@ -16,17 +16,20 @@
 - [src/ark_agentic/studio/services/skill_service.py](file://src/ark_agentic/studio/services/skill_service.py)
 - [src/ark_agentic/studio/services/tool_service.py](file://src/ark_agentic/studio/services/tool_service.py)
 - [src/ark_agentic/static/home.html](file://src/ark_agentic/static/home.html)
+- [src/ark_agentic/core/types.py](file://src/ark_agentic/core/types.py)
+- [src/ark_agentic/core/persistence.py](file://src/ark_agentic/core/persistence.py)
+- [src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx](file://src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx)
+- [tests/unit/core/test_format_tool_result_for_history.py](file://tests/unit/core/test_format_tool_result_for_history.py)
 - [postman/ark-agentic-api.postman_collection.json](file://postman/ark-agentic-api.postman_collection.json)
 - [README.md](file://README.md)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- 新增维基系统（repowiki）完整文档支持
-- 新增Wiki树形目录和页面加载API端点
-- 新增README内容加载端点
-- 新增健康检查端点
-- 更新前端Wiki加载和渲染功能
+- 更新工具结果元数据字段扩展，新增 result_type 和 llm_digest 字段支持
+- 更新主页文档，反映 pipx 安装过程和模型配置示例的更新
+- 增强工具结果序列化/反序列化机制，支持向后兼容性
+- 完善 Studio 前端对工具结果元数据的展示支持
 
 ## 目录
 1. [简介](#简介)
@@ -47,6 +50,7 @@ Ark-Agentic API 提供统一的 Agent 服务接口，支持：
 - Studio API：智能体管理、技能与工具管理、会话与内存管理
 - 认证：Studio 登录认证（本地用户表，bcrypt 密码哈希）
 - 维基系统：完整的中英文文档系统，支持动态加载和渲染
+- 工具结果元数据：增强的工具结果序列化支持，包含 result_type 和 llm_digest 字段
 
 本文件涵盖 HTTP 方法、URL 模式、请求/响应模式、认证方法、流式响应机制、错误处理策略、安全考虑、速率限制与版本信息，并提供常见用例、客户端实现指南与性能优化建议。
 
@@ -56,6 +60,7 @@ Ark-Agentic API 提供统一的 Agent 服务接口，支持：
 - Studio 管理：agents、memory、sessions、skills、tools、auth
 - 维基系统：wiki tree、wiki page、readme content
 - 核心能力：会话管理、记忆系统、流式协议、工具与技能系统
+- 工具结果元数据：增强的工具结果序列化与反序列化支持
 
 ```mermaid
 graph TB
@@ -75,6 +80,8 @@ B --> N["共享依赖<br/>src/ark_agentic/api/deps.py"]
 H --> O["Agent 服务层<br/>src/ark_agentic/studio/services/agent_service.py"]
 K --> P["Skill 服务层<br/>src/ark_agentic/studio/services/skill_service.py"]
 L --> Q["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
+R["工具结果元数据<br/>src/ark_agentic/core/types.py"] --> S["序列化/反序列化<br/>src/ark_agentic/core/persistence.py"]
+T["Studio 前端<br/>src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx"] --> R
 ```
 
 **图表来源**
@@ -91,6 +98,9 @@ L --> Q["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
 - [src/ark_agentic/studio/services/agent_service.py:58-198](file://src/ark_agentic/studio/services/agent_service.py#L58-L198)
 - [src/ark_agentic/studio/services/skill_service.py:40-289](file://src/ark_agentic/studio/services/skill_service.py#L40-L289)
 - [src/ark_agentic/studio/services/tool_service.py:38-235](file://src/ark_agentic/studio/services/tool_service.py#L38-L235)
+- [src/ark_agentic/core/types.py:86-101](file://src/ark_agentic/core/types.py#L86-L101)
+- [src/ark_agentic/core/persistence.py:140-186](file://src/ark_agentic/core/persistence.py#L140-L186)
+- [src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx:181-182](file://src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx#L181-L182)
 
 **章节来源**
 - [src/ark_agentic/app.py:133-216](file://src/ark_agentic/app.py#L133-L216)
@@ -101,6 +111,7 @@ L --> Q["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
 - 维基系统：动态文档加载与渲染，支持中英文双语
 - 认证：Studio 登录认证，基于 bcrypt 的密码哈希
 - 共享依赖：AgentRegistry 注入与获取，供 Chat 与 Studio 共享
+- 工具结果元数据：增强的工具结果序列化支持，包含 result_type 和 llm_digest 字段
 
 **章节来源**
 - [src/ark_agentic/api/chat.py:27-177](file://src/ark_agentic/api/chat.py#L27-L177)
@@ -113,6 +124,8 @@ L --> Q["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
 - [src/ark_agentic/studio/api/skills.py:57-113](file://src/ark_agentic/studio/api/skills.py#L57-L113)
 - [src/ark_agentic/studio/api/tools.py:41-66](file://src/ark_agentic/studio/api/tools.py#L41-L66)
 - [src/ark_agentic/studio/api/auth.py:94-115](file://src/ark_agentic/studio/api/auth.py#L94-L115)
+- [src/ark_agentic/core/types.py:86-101](file://src/ark_agentic/core/types.py#L86-L101)
+- [src/ark_agentic/core/persistence.py:140-186](file://src/ark_agentic/core/persistence.py#L140-L186)
 
 ## 架构总览
 统一入口负责：
@@ -121,6 +134,7 @@ L --> Q["Tool 服务层<br/>src/ark_agentic/studio/services/tool_service.py"]
 - 挂载 Chat 路由与 Studio 路由
 - 提供健康检查与静态页面
 - 挂载维基系统 API
+- 支持工具结果元数据的序列化与反序列化
 
 ```mermaid
 sequenceDiagram
@@ -130,6 +144,7 @@ participant Wiki as "维基系统<br/>app.py"
 participant Chat as "Chat 路由<br/>chat.py"
 participant Deps as "共享依赖<br/>deps.py"
 participant Agent as "AgentRunner"
+participant Persistence as "持久化层<br/>persistence.py"
 Client->>App : "GET /health"
 App-->>Client : "状态正常"
 Client->>Wiki : "GET /api/wiki/tree"
@@ -147,6 +162,8 @@ else 流式
 Agent-->>Chat : "事件流"
 Chat-->>Client : "SSE 文本流"
 end
+Client->>Persistence : "序列化工具结果"
+Persistence-->>Client : "包含 result_type 和 llm_digest 的 JSON"
 ```
 
 **图表来源**
@@ -154,6 +171,7 @@ end
 - [src/ark_agentic/app.py:198-263](file://src/ark_agentic/app.py#L198-L263)
 - [src/ark_agentic/api/chat.py:27-177](file://src/ark_agentic/api/chat.py#L27-L177)
 - [src/ark_agentic/api/deps.py:25-37](file://src/ark_agentic/api/deps.py#L25-L37)
+- [src/ark_agentic/core/persistence.py:140-186](file://src/ark_agentic/core/persistence.py#L140-L186)
 
 ## 详细组件分析
 
@@ -353,6 +371,48 @@ E --> |成功| F["返回 user_id/role/display_name"]
 **章节来源**
 - [src/ark_agentic/studio/api/auth.py:94-115](file://src/ark_agentic/studio/api/auth.py#L94-L115)
 
+### 工具结果元数据
+
+#### 数据模型与序列化
+工具结果现在支持两个重要的元数据字段：
+
+- **result_type**：工具结果类型枚举（json/text/image/a2ui/error）
+- **llm_digest**：LLM 摘要字符串，用于业务工具的简短摘要
+
+```mermaid
+flowchart TD
+A["AgentToolResult"] --> B["序列化为 JSON"]
+B --> C["包含 result_type 字段"]
+B --> D["包含 llm_digest 字段可选"]
+C --> E["向前兼容：旧版本 JSONL"]
+D --> F["新版本 JSONL带摘要"]
+```
+
+**图表来源**
+- [src/ark_agentic/core/types.py:86-101](file://src/ark_agentic/core/types.py#L86-L101)
+- [src/ark_agentic/core/persistence.py:140-147](file://src/ark_agentic/core/persistence.py#L140-L147)
+
+#### 序列化与反序列化机制
+- **序列化**：将 AgentToolResult 转换为字典，包含 result_type 和 llm_digest
+- **反序列化**：从字典恢复 AgentToolResult，支持向后兼容性
+- **向后兼容**：旧版本 JSONL 缺少 result_type 字段时自动推断
+
+**章节来源**
+- [src/ark_agentic/core/types.py:86-101](file://src/ark_agentic/core/types.py#L86-L101)
+- [src/ark_agentic/core/persistence.py:140-186](file://src/ark_agentic/core/persistence.py#L140-L186)
+- [tests/unit/core/test_format_tool_result_for_history.py:29-38](file://tests/unit/core/test_format_tool_result_for_history.py#L29-L38)
+
+#### Studio 前端展示支持
+Studio 前端已更新以支持新的工具结果元数据：
+
+- 显示 llm_digest 摘要信息
+- 正确处理 result_type 字段
+- 支持不同类型的工具结果展示
+
+**章节来源**
+- [src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx:181-182](file://src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx#L181-L182)
+- [src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx:314-319](file://src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx#L314-L319)
+
 ## 维基系统
 
 ### 维基树形目录 API
@@ -452,6 +512,7 @@ Mermaid-->>Client : "显示图表"
 - Studio 各模块依赖服务层进行业务逻辑处理
 - 维基系统依赖 repowiki 目录结构和元数据文件
 - 服务层不依赖 FastAPI，便于复用与测试
+- 工具结果元数据依赖核心类型定义和持久化层
 
 ```mermaid
 graph LR
@@ -464,6 +525,8 @@ StudioMemory["Studio Memory<br/>memory.py"] --> AgentRunner["AgentRunner"]
 StudioSessions["Studio Sessions<br/>sessions.py"] --> AgentRunner
 WikiAPI["Wiki API<br/>app.py"] --> WikiRoot["repowiki 目录"]
 WikiAPI --> MetaFile["repowiki-metadata.json"]
+Types["核心类型<br/>core/types.py"] --> Persistence["持久化<br/>core/persistence.py"]
+Persistence --> StudioFrontend["Studio 前端<br/>AgentWorkspacePage.tsx"]
 ```
 
 **图表来源**
@@ -475,6 +538,9 @@ WikiAPI --> MetaFile["repowiki-metadata.json"]
 - [src/ark_agentic/studio/api/tools.py:15-17](file://src/ark_agentic/studio/api/tools.py#L15-L17)
 - [src/ark_agentic/studio/services/tool_service.py:1-235](file://src/ark_agentic/studio/services/tool_service.py#L1-L235)
 - [src/ark_agentic/app.py:173](file://src/ark_agentic/app.py#L173)
+- [src/ark_agentic/core/types.py:86-101](file://src/ark_agentic/core/types.py#L86-L101)
+- [src/ark_agentic/core/persistence.py:140-186](file://src/ark_agentic/core/persistence.py#L140-L186)
+- [src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx:181-182](file://src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx#L181-L182)
 
 **章节来源**
 - [src/ark_agentic/api/deps.py:19-37](file://src/ark_agentic/api/deps.py#L19-L37)
@@ -485,6 +551,9 @@ WikiAPI --> MetaFile["repowiki-metadata.json"]
 - [src/ark_agentic/studio/api/tools.py:15-17](file://src/ark_agentic/studio/api/tools.py#L15-L17)
 - [src/ark_agentic/studio/services/tool_service.py:1-235](file://src/ark_agentic/studio/services/tool_service.py#L1-L235)
 - [src/ark_agentic/app.py:173](file://src/ark_agentic/app.py#L173)
+- [src/ark_agentic/core/types.py:86-101](file://src/ark_agentic/core/types.py#L86-L101)
+- [src/ark_agentic/core/persistence.py:140-186](file://src/ark_agentic/core/persistence.py#L140-L186)
+- [src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx:181-182](file://src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx#L181-L182)
 
 ## 性能考量
 - 并行工具调用：当 LLM 返回多个工具调用时，使用并行执行以减少总延迟
@@ -495,6 +564,7 @@ WikiAPI --> MetaFile["repowiki-metadata.json"]
 - 输出验证：自动检测数值幻觉，提升输出可靠性
 - 维基系统缓存：Wiki 树形目录按需加载，支持浏览器缓存
 - Mermaid 图表懒加载：仅在需要时渲染图表，提升页面加载性能
+- 工具结果元数据优化：高效的序列化/反序列化机制，支持向后兼容
 
 **章节来源**
 - [README.md:787-795](file://README.md#L787-L795)
@@ -514,6 +584,10 @@ WikiAPI --> MetaFile["repowiki-metadata.json"]
   - README 加载失败：检查 README.md 文件是否存在
 - 认证
   - 401 无效凭据：确认用户名存在且密码哈希匹配
+- 工具结果元数据
+  - 序列化失败：检查 AgentToolResult 字段完整性
+  - 反序列化兼容性问题：确认 JSONL 格式符合向后兼容规则
+  - Studio 前端显示异常：检查 llm_digest 格式和 result_type 值
 
 **章节来源**
 - [src/ark_agentic/api/chat.py:40-44](file://src/ark_agentic/api/chat.py#L40-L44)
@@ -521,9 +595,18 @@ WikiAPI --> MetaFile["repowiki-metadata.json"]
 - [src/ark_agentic/studio/api/sessions.py:190-197](file://src/ark_agentic/studio/api/sessions.py#L190-L197)
 - [src/ark_agentic/studio/api/auth.py:94-109](file://src/ark_agentic/studio/api/auth.py#L94-L109)
 - [src/ark_agentic/app.py:198-263](file://src/ark_agentic/app.py#L198-L263)
+- [src/ark_agentic/core/persistence.py:150-186](file://src/ark_agentic/core/persistence.py#L150-L186)
+- [src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx:181-182](file://src/ark_agentic/studio/frontend/src/pages/AgentWorkspacePage.tsx#L181-L182)
 
 ## 结论
-Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善的流式输出、多协议适配、会话与记忆管理能力。新增的维基系统进一步增强了文档管理和知识分享能力，支持中英文双语文档的动态加载与渲染。Studio API 为智能体的日常维护提供了友好的管理界面。通过合理的错误处理、安全设计与性能优化，能够满足生产环境的需求。
+Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善的流式输出、多协议适配、会话与记忆管理能力。新增的维基系统进一步增强了文档管理和知识分享能力，支持中英文双语文档的动态加载与渲染。Studio API 为智能体的日常维护提供了友好的管理界面。
+
+**更新内容**：
+- 工具结果元数据扩展：新增 result_type 和 llm_digest 字段，增强工具结果的表达能力和向后兼容性
+- 主页文档更新：反映 pipx 安装过程和模型配置示例的最新变化
+- Studio 前端增强：支持新的工具结果元数据展示
+
+通过合理的错误处理、安全设计与性能优化，能够满足生产环境的需求。
 
 ## 附录
 
@@ -560,9 +643,11 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
 - SSE 事件模型：见 [src/ark_agentic/api/models.py:73-102](file://src/ark_agentic/api/models.py#L73-L102)
 - Wiki 目录树数据模型：包含 type、name、path、children 字段
 - Wiki 页面数据模型：Markdown 文本内容
+- 工具结果元数据：AgentToolResult 包含 result_type 和 llm_digest 字段
 
 **章节来源**
 - [src/ark_agentic/api/models.py:27-104](file://src/ark_agentic/api/models.py#L27-L104)
+- [src/ark_agentic/core/types.py:86-101](file://src/ark_agentic/core/types.py#L86-L101)
 
 ### 认证方法
 - Chat API：无强制认证，可通过请求头传递用户与会话上下文
@@ -587,17 +672,20 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
 - 认证：bcrypt 密码哈希，支持环境变量配置用户表
 - Wiki 系统安全：严格的路径穿越检查，仅允许 .md 文件访问
 - README 加载：安全的文件路径解析
+- 工具结果元数据安全：序列化时的安全检查和向后兼容性保证
 
 **章节来源**
 - [src/ark_agentic/studio/api/memory.py:83-88](file://src/ark_agentic/studio/api/memory.py#L83-L88)
 - [src/ark_agentic/studio/api/sessions.py:190-197](file://src/ark_agentic/studio/api/sessions.py#L190-L197)
 - [src/ark_agentic/studio/api/auth.py:68-81](file://src/ark_agentic/studio/api/auth.py#L68-L81)
 - [src/ark_agentic/app.py:258-262](file://src/ark_agentic/app.py#L258-L262)
+- [src/ark_agentic/core/persistence.py:140-186](file://src/ark_agentic/core/persistence.py#L140-L186)
 
 ### 速率限制与版本
 - 速率限制：未内置速率限制策略，建议在网关或反向代理层实施
 - 版本：应用版本号在统一入口定义，当前为 0.1.0
 - 维基系统：版本随 repowiki 目录结构变化而更新
+- 工具结果元数据：版本随核心类型定义更新而演进
 
 **章节来源**
 - [src/ark_agentic/app.py:133-138](file://src/ark_agentic/app.py#L133-L138)
@@ -610,6 +698,7 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
 - Studio 管理：先 /auth/login 获取用户信息，再调用相应管理接口
 - 维基系统：通过 /api/wiki/tree 获取目录树，通过 /api/wiki/{lang}/{path} 获取页面内容
 - README 加载：通过 /api/readme 获取项目文档
+- 工具结果处理：客户端应正确处理 result_type 和 llm_digest 字段
 
 **章节来源**
 - [postman/ark-agentic-api.postman_collection.json:38-240](file://postman/ark-agentic-api.postman_collection.json#L38-L240)
@@ -623,6 +712,32 @@ Ark-Agentic API 提供了统一、可扩展的 Agent 服务接口，具备完善
 - 输出验证：在 before_loop_end 钩子中进行引用校验，减少无效重试
 - 维基系统优化：利用浏览器缓存，延迟加载大文件
 - Mermaid 图表优化：仅在可见区域渲染图表
+- 工具结果元数据优化：利用高效的序列化/反序列化机制，减少内存占用
 
 **章节来源**
 - [README.md:787-795](file://README.md#L787-L795)
+
+### 主页文档更新
+
+#### 安装方式更新
+**更新** 主页文档反映了安装方式的更新，从传统的 `pip install` 改为推荐的 `uv tool install` 方式：
+
+- **推荐方式**：`uv tool install ark-agentic`
+- **传统方式**：`pip install ark-agentic`
+
+#### 模型配置示例更新
+**更新** README 中的模型配置示例更加清晰，包含完整的环境变量配置：
+
+```bash
+LLM_PROVIDER=openai
+MODEL_NAME=gpt-4o
+API_KEY=sk-xxx
+# LLM_BASE_URL=https://api.openai.com/v1
+# LLM_BASE_URL_IS_FULL_URL=false
+# 完整请求 URL 示例:
+# LLM_BASE_URL=https://service-host/chat/dialog
+# LLM_BASE_URL_IS_FULL_URL=true
+```
+
+**章节来源**
+- [README.md:58-107](file://README.md#L58-L107)
