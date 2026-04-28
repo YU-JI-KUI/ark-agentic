@@ -1,5 +1,7 @@
 /* API client for Studio backend */
 
+import type { StudioRole } from './auth'
+
 const API_BASE = '/api/studio'
 const CHAT_URL = '/chat'
 
@@ -15,6 +17,24 @@ export function getAuthUserId(): string | undefined {
     } catch {
         return undefined
     }
+}
+
+export function getAuthToken(): string | undefined {
+    try {
+        const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+        if (!raw) return undefined
+        const token = JSON.parse(raw).token as string | undefined
+        return token || undefined
+    } catch {
+        return undefined
+    }
+}
+
+function withAuth(init: RequestInit = {}): RequestInit {
+    const headers = new Headers(init.headers)
+    const token = getAuthToken()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    return { ...init, headers }
 }
 
 // ── Chat / SSE Streaming ──────────────────────────────────────────
@@ -161,6 +181,23 @@ export interface MemoryFileItem {
     modified_at: string | null
 }
 
+export interface StudioUserGrant {
+    user_id: string
+    role: StudioRole
+    created_at: string
+    updated_at: string
+    created_by?: string | null
+    updated_by?: string | null
+}
+
+export interface StudioUsersPage {
+    users: StudioUserGrant[]
+    total: number
+    admin_count: number
+    limit: number
+    offset: number
+}
+
 export interface SessionDetail {
     session_id: string
     message_count: number
@@ -189,7 +226,7 @@ export interface ToolScaffoldInput {
 }
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(url, init)
+    const res = await fetch(url, withAuth(init))
     if (!res.ok) {
         const detail = await res.text()
         throw new Error(`API Error ${res.status}: ${detail}`)
@@ -200,6 +237,27 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 export const api = {
+    // Users
+    listUsers: (params: { query?: string; role?: StudioRole | 'all'; limit?: number; offset?: number } = {}) => {
+        const search = new URLSearchParams()
+        if (params.query?.trim()) search.set('query', params.query.trim())
+        if (params.role && params.role !== 'all') search.set('role', params.role)
+        if (params.limit) search.set('limit', String(params.limit))
+        if (params.offset) search.set('offset', String(params.offset))
+        const suffix = search.toString() ? `?${search.toString()}` : ''
+        return fetchJSON<StudioUsersPage>(`${API_BASE}/users${suffix}`)
+    },
+
+    saveUserGrant: (data: { user_id: string; role: StudioRole }) =>
+        fetchJSON<StudioUserGrant>(`${API_BASE}/users`, {
+            method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data),
+        }),
+
+    deleteUserGrant: (userId: string) =>
+        fetchJSON<{ status: string; user_id: string }>(`${API_BASE}/users/${encodeURIComponent(userId)}`, {
+            method: 'DELETE',
+        }),
+
     // Agents
     listAgents: () =>
         fetchJSON<{ agents: AgentMeta[] }>(`${API_BASE}/agents`).then(r => r.agents),
@@ -245,7 +303,10 @@ export const api = {
         fetchJSON<SessionDetail>(`${API_BASE}/agents/${agentId}/sessions/${sessionId}?user_id=${encodeURIComponent(userId)}`),
 
     getSessionRaw: async (agentId: string, sessionId: string, userId: string): Promise<string> => {
-        const res = await fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw?user_id=${encodeURIComponent(userId)}`)
+        const res = await fetch(
+            `${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw?user_id=${encodeURIComponent(userId)}`,
+            withAuth(),
+        )
         if (!res.ok) {
             const t = await res.text()
             throw new Error(`API Error ${res.status}: ${t}`)
@@ -254,11 +315,11 @@ export const api = {
     },
 
     putSessionRaw: (agentId: string, sessionId: string, userId: string, body: string) =>
-        fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw?user_id=${encodeURIComponent(userId)}`, {
+        fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}/raw?user_id=${encodeURIComponent(userId)}`, withAuth({
             method: 'PUT',
             headers: { 'Content-Type': 'text/plain' },
             body,
-        }).then(async res => {
+        })).then(async res => {
             if (!res.ok) {
                 const t = await res.text()
                 throw new Error(`API Error ${res.status}: ${t}`)
@@ -272,7 +333,8 @@ export const api = {
 
     getMemoryContent: async (agentId: string, filePath: string, userId: string): Promise<string> => {
         const res = await fetch(
-            `${API_BASE}/agents/${agentId}/memory/content?file_path=${encodeURIComponent(filePath)}&user_id=${encodeURIComponent(userId)}`
+            `${API_BASE}/agents/${agentId}/memory/content?file_path=${encodeURIComponent(filePath)}&user_id=${encodeURIComponent(userId)}`,
+            withAuth(),
         )
         if (!res.ok) {
             const t = await res.text()
@@ -284,7 +346,7 @@ export const api = {
     putMemoryContent: async (agentId: string, filePath: string, userId: string, body: string): Promise<{ status: string }> => {
         const res = await fetch(
             `${API_BASE}/agents/${agentId}/memory/content?file_path=${encodeURIComponent(filePath)}&user_id=${encodeURIComponent(userId)}`,
-            { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body },
+            withAuth({ method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body }),
         )
         if (!res.ok) {
             const t = await res.text()

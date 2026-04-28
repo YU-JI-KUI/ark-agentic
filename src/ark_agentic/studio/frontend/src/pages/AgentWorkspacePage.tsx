@@ -16,7 +16,7 @@ import {
   type SkillMeta,
   type ToolMeta,
 } from '../api'
-import { useAuth } from '../auth'
+import { canEditStudio, useAuth } from '../auth'
 import type { StudioShellContextValue } from '../layouts/StudioShell'
 import { ChevronRightIcon, CopyIcon, DownloadIcon, ExpandIcon, PlusIcon, SearchIcon } from '../components/StudioIcons'
 
@@ -760,7 +760,7 @@ function OverviewSection({ agentId }: { agentId: string }) {
 function SkillsSection({ agentId }: { agentId: string }) {
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
-  const canEdit = user?.role === 'editor'
+  const canEdit = canEditStudio(user?.role)
   const [skills, setSkills] = useState<SkillMeta[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1042,7 +1042,7 @@ function SkillsSection({ agentId }: { agentId: string }) {
 function ToolsSection({ agentId }: { agentId: string }) {
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
-  const canEdit = user?.role === 'editor'
+  const canEdit = canEditStudio(user?.role)
   const [tools, setTools] = useState<ToolMeta[]>([])
   const [selectedName, setSelectedName] = useState<string | null>(null)
   const [mode, setMode] = useState<ViewMode>('view')
@@ -1258,7 +1258,7 @@ function ToolsSection({ agentId }: { agentId: string }) {
 
 function SessionsSection({ agentId }: { agentId: string }) {
   const { user } = useAuth()
-  const canEdit = user?.role === 'editor'
+  const canEdit = canEditStudio(user?.role)
   const [sessions, setSessions] = useState<SessionItem[]>([])
   const [selected, setSelected] = useState<SessionItem | null>(null)
   const [collapsedUserGroups, setCollapsedUserGroups] = useState<Set<string>>(() => new Set())
@@ -1669,7 +1669,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
 function MemorySection({ agentId }: { agentId: string }) {
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
-  const canEdit = user?.role === 'editor'
+  const canEdit = canEditStudio(user?.role)
   const [files, setFiles] = useState<MemoryFileItem[]>([])
   const [selected, setSelected] = useState<MemoryFileItem | null>(null)
   const [content, setContent] = useState('')

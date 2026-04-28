@@ -9,16 +9,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ark_agentic.core.utils.env import get_agents_root
+from ark_agentic.studio.authz import StudioPrincipal, require_studio_roles, require_studio_user
 from ..services import tool_service
 from ..services.tool_service import ToolMeta
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_studio_user)])
 
 
 # ── Request Models ──────────────────────────────────────────────────
@@ -50,7 +51,11 @@ async def list_tools(agent_id: str):
 
 
 @router.post("/agents/{agent_id}/tools", response_model=ToolMeta)
-async def scaffold_tool(agent_id: str, req: ToolScaffoldRequest):
+async def scaffold_tool(
+    agent_id: str,
+    req: ToolScaffoldRequest,
+    _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
+):
     """生成 AgentTool Python 脚手架。"""
     root = get_agents_root(__file__)
     try:

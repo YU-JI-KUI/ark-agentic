@@ -8,11 +8,22 @@ from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
 from ark_agentic.studio.api.skills import router as skills_router
+from ark_agentic.studio.authz import issue_studio_token, reset_studio_user_store_cache
 from ark_agentic.studio.services.skill_service import parse_skill_dir
 
 app = FastAPI()
 app.include_router(skills_router)
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def studio_auth(tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", f"sqlite:///{tmp_path}/ark_studio.db")
+    monkeypatch.setenv("STUDIO_AUTH_TOKEN_SECRET", "test-secret")
+    reset_studio_user_store_cache()
+    client.headers.update({"Authorization": f"Bearer {issue_studio_token('admin')}"})
+    yield
+    reset_studio_user_store_cache()
 
 
 @pytest.fixture

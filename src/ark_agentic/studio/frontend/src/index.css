@@ -783,6 +783,7 @@ a:hover { text-decoration: underline; }
 }
 .form-field input,
 .form-field textarea,
+.form-field select,
 .field-input {
   width: 100%;
   padding: 8px 10px;
@@ -804,6 +805,7 @@ a:hover { text-decoration: underline; }
 }
 .form-field input:focus,
 .form-field textarea:focus,
+.form-field select:focus,
 .field-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
@@ -915,6 +917,11 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--accent-soft);
   color: var(--accent-2);
   border-radius: var(--r-md);
+}
+.feedback-banner-error {
+  color: var(--err);
+  background: var(--err-tint);
+  border-color: color-mix(in srgb, var(--err) 28%, var(--line));
 }
 
 /* =============================================================
@@ -2309,6 +2316,188 @@ pre.code-block {
   width: 12px;
   height: 12px;
   color: var(--ink-4);
+}
+
+/* =============================================================
+   USERS — Studio role grant management
+   ============================================================= */
+.users-page {
+  padding: 18px 20px 60px;
+  min-width: 0;
+}
+.users-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.users-page-header h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 600;
+  color: var(--ink);
+}
+.users-page-header p {
+  margin: 4px 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+.users-layout {
+  --users-form-width: 360px;
+  display: flex;
+  gap: 14px;
+  align-items: start;
+  transition: gap 220ms ease;
+}
+.users-layout-form-collapsed {
+  gap: 0;
+}
+.users-table-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.users-table-panel,
+.users-form-panel {
+  overflow: hidden;
+}
+.users-form-panel {
+  flex: 0 0 var(--users-form-width);
+  max-width: var(--users-form-width);
+  transform: translateX(0);
+  opacity: 1;
+  transition:
+    flex-basis 220ms ease,
+    max-width 220ms ease,
+    opacity 160ms ease,
+    transform 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease;
+}
+.users-form-panel.collapsed {
+  flex-basis: 0;
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(28px);
+  border-color: transparent;
+  box-shadow: none;
+}
+.users-form-panel.collapsed .editor-sheet,
+.users-form-panel.collapsed .feedback-banner {
+  visibility: hidden;
+}
+.users-grant-toggle svg {
+  transition: transform 180ms ease;
+}
+.users-grant-toggle.open svg {
+  transform: rotate(45deg);
+}
+.users-role-filter {
+  width: 130px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.users-table-shell {
+  overflow-x: auto;
+}
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+.users-table th,
+.users-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+.users-table th {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  background: var(--surface-2);
+}
+.users-table td {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.users-table td code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink);
+}
+.users-table tr:hover td {
+  background: var(--surface-2);
+}
+.users-table tr.selected td {
+  background: var(--accent-tint);
+}
+.users-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-4);
+}
+
+@media (max-width: 1100px) {
+  .users-layout {
+    --users-form-width: 100%;
+    flex-direction: column;
+  }
+  .users-layout-form-collapsed {
+    gap: 0;
+  }
+  .users-form-panel {
+    width: 100%;
+    max-width: none;
+    flex-basis: auto;
+    max-height: 540px;
+    transition:
+      max-height 220ms ease,
+      opacity 160ms ease,
+      transform 220ms ease,
+      border-color 220ms ease;
+  }
+  .users-form-panel.collapsed {
+    flex-basis: auto;
+    width: 100%;
+    max-width: none;
+    max-height: 0;
+    transform: translateX(0) translateY(10px);
+  }
+}
+
+@media (max-width: 720px) {
+  .users-page-header {
+    flex-direction: column;
+  }
+  .users-page-header .button-row {
+    flex-wrap: wrap;
+  }
+  .users-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .users-layout,
+  .users-form-panel,
+  .users-grant-toggle svg {
+    transition: none;
+  }
 }
 
 /* Timeline-main (sessions detail) — event-line motif */

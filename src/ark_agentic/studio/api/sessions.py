@@ -10,16 +10,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from ark_agentic.api.deps import get_registry
 from ark_agentic.core.persistence import RawJsonlValidationError, serialize_tool_result
+from ark_agentic.studio.authz import StudioPrincipal, require_studio_roles, require_studio_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_studio_user)])
 
 
 # ── Models ──────────────────────────────────────────────────────────
@@ -172,6 +173,7 @@ async def put_session_raw(
     session_id: str,
     request: Request,
     user_id: str = Query(..., description="User ID that owns this session"),
+    _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """校验并全量写回会话 JSONL；写回后重载内存。"""
     registry = get_registry()

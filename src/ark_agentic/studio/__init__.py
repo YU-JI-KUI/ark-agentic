@@ -33,9 +33,11 @@ def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
     from .api import tools as tools_api
     from .api import sessions as sessions_api
     from .api import memory as memory_api
+    from .api import users as users_api
 
     # 挂载 Studio API 路由
     app.include_router(auth_api.router, prefix="/api/studio", tags=["studio"])
+    app.include_router(users_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(agents_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(skills_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(tools_api.router, prefix="/api/studio", tags=["studio"])

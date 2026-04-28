@@ -4,6 +4,7 @@ import StudioShell from './layouts/StudioShell'
 import AgentWorkspacePage from './pages/AgentWorkspacePage'
 import LoginPage from './pages/LoginPage'
 import StudioDashboardPage from './pages/StudioDashboardPage'
+import UsersPage from './pages/UsersPage'
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<StudioShell />}>
           <Route index element={<StudioDashboardPage />} />
+          <Route path="users" element={<UsersPage />} />
           <Route path="agents/:agentId" element={<Navigate to="overview" replace />} />
           <Route path="agents/:agentId/:section" element={<AgentWorkspacePage />} />
         </Route>

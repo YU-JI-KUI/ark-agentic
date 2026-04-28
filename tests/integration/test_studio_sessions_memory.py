@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from ark_agentic.api.deps import init_registry
 from ark_agentic.studio.api.sessions import router as sessions_router
 from ark_agentic.studio.api.memory import _resolve_memory_path, router as memory_router
+from ark_agentic.studio.authz import issue_studio_token, reset_studio_user_store_cache
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.core.persistence import RawJsonlValidationError
 
@@ -122,8 +123,12 @@ VALID_JSONL_SID1 = '{"type":"session","id":"sid1","timestamp":"","cwd":""}\n{"ty
 
 
 @pytest.fixture(autouse=True)
-def setup_registry():
+def setup_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Inject a clean registry before each test."""
+    monkeypatch.setenv("STUDIO_DATABASE_URL", f"sqlite:///{tmp_path}/ark_studio.db")
+    monkeypatch.setenv("STUDIO_AUTH_TOKEN_SECRET", "test-secret")
+    reset_studio_user_store_cache()
+    client.headers.update({"Authorization": f"Bearer {issue_studio_token('admin')}"})
     registry = AgentRegistry()
     runner = DummyAgentRunner(
         [
@@ -135,6 +140,7 @@ def setup_registry():
     registry.register("insurance", runner)
     init_registry(registry)
     yield
+    reset_studio_user_store_cache()
 
 
 # ── Session list tests ──────────────────────────────────────────────

@@ -53,18 +53,25 @@ def temp_agents_dir(tmp_path: Path) -> Path:
 
 
 from ark_agentic.api import deps
+from ark_agentic.studio.authz import get_studio_user_store, issue_studio_token, reset_studio_user_store_cache
 
 @pytest.fixture
-def client(temp_agents_dir: Path) -> TestClient:
+def client(temp_agents_dir: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Create a FastAPI TestClient with the studio agents router
     and a patched get_agents_root pointing to the temp directory."""
+    monkeypatch.setenv("STUDIO_DATABASE_URL", f"sqlite:///{temp_agents_dir.parent}/ark_studio.db")
+    monkeypatch.setenv("STUDIO_AUTH_TOKEN_SECRET", "test-secret")
+    reset_studio_user_store_cache()
     app = FastAPI()
     registry = AgentRegistry()
     deps.init_registry(registry)
     app.include_router(agents_api.router, prefix="/api/studio")
 
     with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
-        yield TestClient(app)
+        test_client = TestClient(app)
+        test_client.headers.update({"Authorization": f"Bearer {issue_studio_token('admin')}"})
+        yield test_client
+    reset_studio_user_store_cache()
 
 
 # ── Helper function tests ─────────────────────────────────────────────
@@ -208,3 +215,23 @@ class TestCreateAgentEndpoint:
                 "description": "No id or name",
             })
         assert response.status_code == 422
+
+    def test_create_agent_editor_allowed(self, client: TestClient, temp_agents_dir: Path):
+        """Editor role may use Studio write endpoints."""
+        get_studio_user_store().upsert_user("ed", "editor", actor_user_id="admin")
+        response = client.post(
+            "/api/studio/agents",
+            json={"id": "editor-agent", "name": "Editor Agent"},
+            headers={"Authorization": f"Bearer {issue_studio_token('ed')}"},
+        )
+        assert response.status_code == 201
+
+    def test_create_agent_viewer_forbidden(self, client: TestClient, temp_agents_dir: Path):
+        """Viewer role cannot use Studio write endpoints."""
+        get_studio_user_store().ensure_user("view-only", default_role="viewer")
+        response = client.post(
+            "/api/studio/agents",
+            json={"id": "viewer-agent", "name": "Viewer Agent"},
+            headers={"Authorization": f"Bearer {issue_studio_token('view-only')}"},
+        )
+        assert response.status_code == 403

@@ -8,17 +8,18 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ark_agentic.api.deps import get_registry
 from ark_agentic.core.utils.env import get_agents_root
+from ark_agentic.studio.authz import StudioPrincipal, require_studio_roles, require_studio_user
 from ..services import skill_service
 from ..services.skill_service import SkillMeta
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_studio_user)])
 
 
 # ── Request Models ──────────────────────────────────────────────────
@@ -66,7 +67,11 @@ async def list_skills(agent_id: str):
 
 
 @router.post("/agents/{agent_id}/skills", response_model=SkillMeta)
-async def create_skill(agent_id: str, req: SkillCreateRequest):
+async def create_skill(
+    agent_id: str,
+    req: SkillCreateRequest,
+    _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
+):
     """创建新 Skill。"""
     root = get_agents_root(__file__)
     try:
@@ -84,7 +89,12 @@ async def create_skill(agent_id: str, req: SkillCreateRequest):
 
 
 @router.put("/agents/{agent_id}/skills/{skill_id}", response_model=SkillMeta)
-async def update_skill(agent_id: str, skill_id: str, req: SkillUpdateRequest):
+async def update_skill(
+    agent_id: str,
+    skill_id: str,
+    req: SkillUpdateRequest,
+    _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
+):
     """更新 Skill 内容。"""
     root = get_agents_root(__file__)
     try:
@@ -99,7 +109,11 @@ async def update_skill(agent_id: str, skill_id: str, req: SkillUpdateRequest):
 
 
 @router.delete("/agents/{agent_id}/skills/{skill_id}")
-async def delete_skill(agent_id: str, skill_id: str):
+async def delete_skill(
+    agent_id: str,
+    skill_id: str,
+    _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
+):
     """删除 Skill。"""
     root = get_agents_root(__file__)
     try:
