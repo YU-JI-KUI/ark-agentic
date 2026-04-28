@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ark_agentic.studio.authz import (
+from ark_agentic.studio.services.authz_service import (
     InvalidStudioRoleError,
     LastAdminError,
     StudioPrincipal,

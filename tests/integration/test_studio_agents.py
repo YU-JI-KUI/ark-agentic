@@ -8,7 +8,6 @@ Covers: list agents, get agent, create agent, and error cases.
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -53,7 +52,7 @@ def temp_agents_dir(tmp_path: Path) -> Path:
 
 
 from ark_agentic.api import deps
-from ark_agentic.studio.authz import get_studio_user_store, issue_studio_token, reset_studio_user_store_cache
+from ark_agentic.studio.services.authz_service import get_studio_user_store, issue_studio_token, reset_studio_user_store_cache
 
 @pytest.fixture
 def client(temp_agents_dir: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:

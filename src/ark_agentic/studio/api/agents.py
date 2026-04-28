@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ark_agentic.core.utils.env import get_agents_root, resolve_agent_dir
-from ark_agentic.studio.authz import StudioPrincipal, require_studio_roles, require_studio_user
+from ark_agentic.studio.services.authz_service import StudioPrincipal, require_studio_roles, require_studio_user
 
 logger = logging.getLogger(__name__)
 

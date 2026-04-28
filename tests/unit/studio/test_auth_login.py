@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from ark_agentic.studio.api import auth as auth_api
-from ark_agentic.studio.authz import get_studio_user_store, reset_studio_user_store_cache
+from ark_agentic.studio.services.authz_service import get_studio_user_store, reset_studio_user_store_cache
 
 
 @pytest.fixture

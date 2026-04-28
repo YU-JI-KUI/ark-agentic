@@ -21,7 +21,7 @@ import bcrypt
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from ark_agentic.studio.authz import StudioRole, get_studio_user_store, issue_studio_token
+from ark_agentic.studio.services.authz_service import StudioRole, get_studio_user_store, issue_studio_token
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from ark_agentic.api.deps import get_registry
 from ark_agentic.core.utils.env import get_agents_root
-from ark_agentic.studio.authz import StudioPrincipal, require_studio_roles, require_studio_user
+from ark_agentic.studio.services.authz_service import StudioPrincipal, require_studio_roles, require_studio_user
 from ..services import skill_service
 from ..services.skill_service import SkillMeta
 

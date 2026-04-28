@@ -15,7 +15,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from ark_agentic.api.deps import get_registry
-from ark_agentic.studio.authz import StudioPrincipal, require_studio_roles, require_studio_user
+from ark_agentic.studio.services.authz_service import StudioPrincipal, require_studio_roles, require_studio_user
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from ark_agentic.studio.api import users as users_api
-from ark_agentic.studio.authz import (
+from ark_agentic.studio.services.authz_service import (
     get_studio_user_store,
     issue_studio_token,
     reset_studio_user_store_cache,
