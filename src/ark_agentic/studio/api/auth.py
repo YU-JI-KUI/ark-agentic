@@ -21,6 +21,8 @@ import bcrypt
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from ark_agentic.studio.services.authz_service import StudioRole, get_studio_user_store, issue_studio_token
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -33,8 +35,9 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     user_id: str
-    role: str
+    role: StudioRole
     display_name: str
+    token: str
 
 
 class _UserEntry(BaseModel):
@@ -43,7 +46,6 @@ class _UserEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     user_id: str
-    role: str
     display_name: str
     password_hash: str = Field(..., min_length=1)
 
@@ -107,8 +109,11 @@ async def login(req: LoginRequest):
     if not _password_ok(entry, req.password):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
+    record = get_studio_user_store().ensure_user(entry.user_id, default_role="viewer")
+
     return LoginResponse(
         user_id=entry.user_id,
-        role=entry.role,
+        role=record.role,
         display_name=entry.display_name,
+        token=issue_studio_token(entry.user_id),
     )

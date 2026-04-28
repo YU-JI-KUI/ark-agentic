@@ -10,15 +10,16 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from ark_agentic.api.deps import get_registry
+from ark_agentic.studio.services.authz_service import StudioPrincipal, require_studio_roles, require_studio_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_studio_user)])
 
 
 # ── Models ──────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ async def put_memory_content(
     request: Request,
     file_path: str = Query(..., description="Relative file path within workspace"),
     user_id: str = Query("", description="User ID scope; empty for global files"),
+    _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """Write content to a memory file."""
     workspace = _get_workspace(agent_id)

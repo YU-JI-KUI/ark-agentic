@@ -1,9 +1,12 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 
+export type StudioRole = 'admin' | 'editor' | 'viewer'
+
 export interface StudioUser {
     user_id: string
-    role: 'editor' | 'viewer'
+    role: StudioRole
     display_name: string
+    token: string
 }
 
 interface AuthContextValue {
@@ -19,10 +22,24 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 function loadUser(): StudioUser | null {
     try {
         const raw = localStorage.getItem(STORAGE_KEY)
-        return raw ? JSON.parse(raw) : null
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as Partial<StudioUser>
+        if (
+            typeof parsed.user_id !== 'string' ||
+            typeof parsed.display_name !== 'string' ||
+            typeof parsed.token !== 'string' ||
+            !isStudioRole(parsed.role)
+        ) {
+            return null
+        }
+        return parsed as StudioUser
     } catch {
         return null
     }
+}
+
+function isStudioRole(value: unknown): value is StudioRole {
+    return value === 'admin' || value === 'editor' || value === 'viewer'
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -49,4 +66,12 @@ export function useAuth(): AuthContextValue {
     const ctx = useContext(AuthContext)
     if (!ctx) throw new Error('useAuth must be used within AuthProvider')
     return ctx
+}
+
+export function canEditStudio(role: StudioRole | undefined | null): boolean {
+    return role === 'admin' || role === 'editor'
+}
+
+export function canManageUsers(role: StudioRole | undefined | null): boolean {
+    return role === 'admin'
 }

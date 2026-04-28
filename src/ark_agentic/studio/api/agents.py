@@ -8,18 +8,18 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ark_agentic.core.utils.env import get_agents_root, resolve_agent_dir
+from ark_agentic.studio.services.authz_service import StudioPrincipal, require_studio_roles, require_studio_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_studio_user)])
 
 
 # ── 数据模型 ──────────────────────────────────────────────────────────
@@ -104,7 +104,10 @@ async def get_agent(agent_id: str):
 
 
 @router.post("/agents", response_model=AgentMeta, status_code=201)
-async def create_agent(request: AgentCreateRequest):
+async def create_agent(
+    request: AgentCreateRequest,
+    _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
+):
     """创建新的 Agent 目录和 agent.json。"""
     agents_root = get_agents_root(__file__)
     agent_dir = agents_root / request.id

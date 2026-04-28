@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type AgentMeta } from '../api'
-import { useAuth } from '../auth'
+import { canEditStudio, canManageUsers, useAuth } from '../auth'
 import DecisionDock from '../components/DecisionDock'
 import ThemeToggle from '../components/ThemeToggle'
 import {
@@ -124,7 +124,8 @@ export default function StudioShell() {
     void navigate(target)
   }
 
-  const canUseDecisionDock = user?.role === 'editor'
+  const canUseDecisionDock = canEditStudio(user?.role)
+  const canUseUsers = canManageUsers(user?.role)
   const showDecisionDock = canUseDecisionDock && decisionDockOpen
   const studioMainClassName = [
     'studio-main',
@@ -219,6 +220,16 @@ export default function StudioShell() {
               <span className="nav-item-shortcut">↗</span>
               <span>Dashboard</span>
             </NavLink>
+            {canUseUsers && (
+              <NavLink
+                aria-label="Users"
+                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                to="/users"
+              >
+                <span className="nav-item-shortcut">↗</span>
+                <span>Users</span>
+              </NavLink>
+            )}
           </div>
 
           <div className="side-section">
