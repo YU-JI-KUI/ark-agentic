@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
+from ark_agentic.core.stream.content_guard import TextLeakGuard
 from ark_agentic.core.stream.event_bus import StreamEventBus
 from ark_agentic.core.stream.events import AgentStreamEvent
 from ark_agentic.core.stream.output_formatter import create_formatter
@@ -158,15 +159,15 @@ async def chat(
 
     async def event_stream() -> AsyncIterator[str]:
         task = asyncio.create_task(run_agent())
+        guard = TextLeakGuard()
         try:
             while True:
                 if done_event.is_set() and queue.empty():
                     break
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=0.1)
-                    sse_line = formatter.format(event)
-                    if sse_line is not None:
-                        yield sse_line
+                    async for line in guard.process(event, formatter.format):
+                        yield line
                 except asyncio.TimeoutError:
                     continue
         finally:
