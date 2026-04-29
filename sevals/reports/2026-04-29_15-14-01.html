@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ark Eval Report · 2026-04-29 15:14:01</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          background: #f5f6fa; color: #2d3436; line-height: 1.6; }
+
+  /* ── 顶部摘要 ── */
+  .header { background: #2d3436; color: #fff; padding: 32px 40px; }
+  .header h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .header .meta { font-size: 13px; color: #b2bec3; }
+  .summary { display: flex; gap: 24px; margin-top: 20px; }
+  .stat { background: rgba(255,255,255,.08); border-radius: 8px;
+           padding: 14px 20px; min-width: 110px; }
+  .stat-value { font-size: 28px; font-weight: 700; }
+  .stat-label { font-size: 12px; color: #b2bec3; margin-top: 2px; }
+  .pass-rate { color: #fdcb6e; }
+
+  /* ── skill 卡片 ── */
+  .content { padding: 32px 40px; display: flex; flex-direction: column; gap: 28px; }
+  .skill-card { background: #fff; border-radius: 12px;
+                 box-shadow: 0 1px 4px rgba(0,0,0,.08); overflow: hidden; }
+  .skill-header { padding: 16px 24px; border-bottom: 1px solid #f0f0f0;
+                   display: flex; align-items: center; gap: 12px; }
+  .skill-name { font-size: 16px; font-weight: 600; }
+  .skill-agent { font-size: 12px; color: #636e72; background: #f0f0f0;
+                  border-radius: 4px; padding: 2px 8px; }
+  .skill-rate { margin-left: auto; font-size: 14px; font-weight: 600; }
+
+  /* ── 用例表格 ── */
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #f8f9fa; padding: 10px 16px; text-align: left;
+        font-size: 12px; color: #636e72; font-weight: 600;
+        text-transform: uppercase; letter-spacing: .5px; }
+  td { padding: 12px 16px; font-size: 13px;
+        border-top: 1px solid #f5f5f5; vertical-align: top; }
+  tr.pass td:first-child { border-left: 3px solid #00b894; }
+  tr.fail td:first-child { border-left: 3px solid #d63031; }
+  tr:hover td { background: #fafafa; }
+
+  /* ── 工具 badge ── */
+  .tools { display: flex; flex-wrap: wrap; gap: 4px; }
+  .badge { border-radius: 4px; padding: 2px 8px; font-size: 11px;
+            font-weight: 500; white-space: nowrap; }
+  .badge-hit     { background: #d4f5e9; color: #00864e; }
+  .badge-missing { background: #ffe0e0; color: #c0392b; }
+  .badge-extra   { background: #fff3cd; color: #856404; }
+  .badge-expect  { background: #e8f4fd; color: #0066cc; }
+
+  /* ── 结果 badge ── */
+  .result { font-size: 12px; font-weight: 700; border-radius: 4px;
+             padding: 3px 10px; display: inline-block; }
+  .result-pass { background: #d4f5e9; color: #00864e; }
+  .result-fail { background: #ffe0e0; color: #c0392b; }
+
+  .score { font-size: 13px; color: #636e72; }
+  .reason { font-size: 12px; color: #d63031; margin-top: 4px; }
+  .desc { font-size: 12px; color: #636e72; margin-top: 2px; }
+  .input-text { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Ark Eval Report</h1>
+  <div class="meta">运行时间：2026-04-29 15:14:01 &nbsp;·&nbsp; 模型：deepseek-chat</div>
+  <div class="summary">
+    <div class="stat">
+      <div class="stat-value pass-rate">75%</div>
+      <div class="stat-label">通过率</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">3</div>
+      <div class="stat-label">通过</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">1</div>
+      <div class="stat-label">失败</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">4</div>
+      <div class="stat-label">总用例</div>
+    </div>
+  </div>
+</div>
+
+<div class="content">
+<div class="skill-card">
+  <div class="skill-header">
+    <span class="skill-name">withdraw_money</span>
+    <span class="skill-agent">insurance</span>
+    <span class="skill-rate" style="color:#fdcb6e">3/4 &nbsp;75%</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:140px">用例 ID</th>
+        <th style="width:200px">用户输入</th>
+        <th>期望工具 / 实际工具</th>
+        <th style="width:110px">结果</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="pass">
+        <td>
+          <div>summary_no_amount</div>
+          <div class="desc">用户询问能取多少钱，应触发 SUMMARY 流程，依次调用 rule_engine + render_a2ui</div>
+        </td>
+        <td><div class="input-text">我能取多少钱</div></td>
+        <td>
+          <div class="tools"><span class="badge badge-hit">✓ render_a2ui</span>
+<span class="badge badge-hit">✓ rule_engine</span>
+<span class="badge badge-extra">+ read_skill</span></div>
+          
+        </td>
+        <td>
+          <span class="result result-pass">PASS</span>
+          <div class="score">score 1.00</div>
+        </td>
+      </tr>
+      <tr class="pass">
+        <td>
+          <div>plan_with_amount</div>
+          <div class="desc">用户指定取款金额，应触发 PLAN 流程，依次调用 rule_engine + render_a2ui</div>
+        </td>
+        <td><div class="input-text">我想取5万</div></td>
+        <td>
+          <div class="tools"><span class="badge badge-hit">✓ render_a2ui</span>
+<span class="badge badge-hit">✓ rule_engine</span>
+<span class="badge badge-extra">+ read_skill</span></div>
+          
+        </td>
+        <td>
+          <span class="result result-pass">PASS</span>
+          <div class="score">score 1.00</div>
+        </td>
+      </tr>
+      <tr class="pass">
+        <td>
+          <div>plan_channel_specific</div>
+          <div class="desc">用户指定渠道（生存金），应触发 PLAN 流程</div>
+        </td>
+        <td><div class="input-text">我想领生存金</div></td>
+        <td>
+          <div class="tools"><span class="badge badge-hit">✓ render_a2ui</span>
+<span class="badge badge-hit">✓ rule_engine</span></div>
+          
+        </td>
+        <td>
+          <span class="result result-pass">PASS</span>
+          <div class="score">score 1.00</div>
+        </td>
+      </tr>
+      <tr class="fail">
+        <td>
+          <div>no_tool_general_question</div>
+          <div class="desc">一般性咨询问题，不应调用任何工具</div>
+        </td>
+        <td><div class="input-text">取款有什么风险</div></td>
+        <td>
+          <div class="tools"><span class="badge badge-extra">+ render_a2ui</span>
+<span class="badge badge-extra">+ rule_engine</span></div>
+          <div class="reason">不应调用任何工具，但实际调用了: ['render_a2ui', 'rule_engine']</div>
+        </td>
+        <td>
+          <span class="result result-fail">FAIL</span>
+          <div class="score">score 0.00</div>
+        </td>
+      </tr>
+
+    </tbody>
+  </table>
+</div>
+
+</div>
+
+</body>
+</html>
