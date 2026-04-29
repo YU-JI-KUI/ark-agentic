@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import bcrypt
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -64,6 +64,9 @@ class InternalAuthProvider(AuthProvider):
             user_id=entry.user_id,
             display_name=entry.display_name,
         )
+
+    async def logout(self, *_args: Any, **_kwargs: Any) -> bool | None:
+        return None
 
     def _load_users(self) -> dict[str, dict]:
         raw = os.getenv("STUDIO_USERS", "")

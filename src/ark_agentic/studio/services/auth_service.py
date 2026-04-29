@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from ark_agentic.studio.services.auth import (
     AuthCredentials,
@@ -29,14 +30,29 @@ def _auth_provider_names_from_env() -> list[str]:
     return names or list(DEFAULT_AUTH_PROVIDER_NAMES)
 
 
-async def authenticate_studio_user(credentials: AuthCredentials) -> StudioUser | None:
+def _auth_provider_classes_from_env() -> list[type[AuthProvider]]:
+    provider_classes: list[type[AuthProvider]] = []
     for provider_name in _auth_provider_names_from_env():
         provider_cls = AUTH_PROVIDER_CLASSES.get(provider_name)
         if provider_cls is None:
             logger.warning("Unknown Studio auth provider configured: %s", provider_name)
             continue
+        provider_classes.append(provider_cls)
+    return provider_classes
 
+
+async def authenticate_studio_user(credentials: AuthCredentials) -> StudioUser | None:
+    for provider_cls in _auth_provider_classes_from_env():
         studio_user = await provider_cls().authenticate(credentials)
         if studio_user is not None:
             return studio_user
     return None
+
+
+async def logout_studio_user(*args: Any, **kwargs: Any) -> bool | None:
+    result: bool | None = None
+    for provider_cls in _auth_provider_classes_from_env():
+        result = await provider_cls().logout(*args, **kwargs)
+        if result:
+            return True
+    return result

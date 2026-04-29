@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import ClassVar, Mapping
+from typing import Any, ClassVar, Mapping
 
 from ark_agentic.studio.services.authz_service import StudioRole
 
@@ -32,3 +32,7 @@ class AuthProvider(ABC):
     @abstractmethod
     async def authenticate(self, credentials: AuthCredentials) -> StudioUser | None:
         """Return an authenticated user, or None when credentials do not match."""
+
+    async def logout(self, *_args: Any, **_kwargs: Any) -> bool | None:
+        """Release provider-specific login state when applicable."""
+        return None
