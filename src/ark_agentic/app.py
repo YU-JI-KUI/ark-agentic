@@ -67,8 +67,8 @@ async def lifespan(app: FastAPI):
             )
         except ImportError as e:
             raise RuntimeError(
-                "ENABLE_JOB_MANAGER=1 requires 'ark-agentic[proactive]' extras. "
-                f"Install with: pip install 'ark-agentic[proactive]' (cause: {e})"
+                "ENABLE_JOB_MANAGER=1 requires 'ark-agentic[server,jobs]' extras. "
+                f"Install with: pip install 'ark-agentic[server,jobs]' (cause: {e})"
             ) from e
 
         notification_store = NotificationStore(base_dir=get_notifications_base_dir())
@@ -196,7 +196,7 @@ async def _drop_windows_update_probes(request, call_next):
 app.include_router(chat_api.router)
 # notifications/jobs API 仅在启用 ENABLE_JOB_MANAGER 时挂载
 # (依赖 services/jobs 的 apscheduler 与 services/notifications 的 fastapi 路由,
-#  通过 ark-agentic[proactive] extras 安装)
+#  通过 ark-agentic[server,jobs] extras 安装)
 if _env_flag("ENABLE_JOB_MANAGER"):
     app.include_router(notifications_api.router)
     logger.info("Mounted /api/notifications and /api/jobs routes")

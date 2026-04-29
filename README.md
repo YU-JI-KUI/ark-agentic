@@ -407,8 +407,8 @@ AGENTS_ROOT=./src/<package>/agents
 
 ```bash
 pip install "ark-agentic[phoenix]"
-# 或
-pip install "ark-agentic[langfuse]"
+# 或：Langfuse 复用通用 OTLP 出口，安装 tracing 即可
+pip install "ark-agentic[tracing]"
 ```
 
 ```bash

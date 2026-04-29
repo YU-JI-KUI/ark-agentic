@@ -34,29 +34,11 @@ phoenix = [
     "ark-agentic[tracing]",
     "arize-phoenix-otel",
 ]
-langfuse = [
-    "ark-agentic[tracing]",
-]
 jobs = [
     "apscheduler>=3.11",
 ]
-notifications = [
-    "ark-agentic[server]",
-]
-proactive = [
-    "ark-agentic[jobs,notifications]",
-]
-dev = [
-    "ark-agentic[server,proactive]",
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.24.0",
-    "pytest-timeout>=2.3.0",
-]
 pa-jt = [
     "pycryptodome>=3.20.0",
-]
-all = [
-    "ark-agentic[dev,pa-jt,phoenix,langfuse]",
 ]
 
 [project.scripts]
@@ -108,7 +90,7 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-timeout>=2.3.0",
     "jsonschema>=4.26.0",
-    "sqlalchemy>=2.0.0",
+    "ark-agentic[server,postgres,jobs,phoenix]",
 ]
 securities = [
     "akshare>=1.18.43",
