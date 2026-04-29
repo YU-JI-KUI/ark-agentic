@@ -73,6 +73,11 @@ async def upsert_user(
     user_id = req.user_id.strip()
     if not user_id:
         raise HTTPException(status_code=422, detail="user_id is required")
+    if user_id == principal.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Admins cannot edit their own user grant",
+        )
     try:
         record = get_studio_user_store().upsert_user(
             user_id,
@@ -89,8 +94,13 @@ async def upsert_user(
 @router.delete("/users/{user_id}")
 async def delete_user(
     user_id: str,
-    _: StudioPrincipal = Depends(require_studio_roles("admin")),
+    principal: StudioPrincipal = Depends(require_studio_roles("admin")),
 ):
+    if user_id == principal.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Admins cannot delete their own user grant",
+        )
     try:
         get_studio_user_store().delete_user(user_id)
     except StudioUserNotFoundError:

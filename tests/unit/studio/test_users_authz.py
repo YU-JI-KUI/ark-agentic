@@ -59,16 +59,28 @@ def test_viewer_cannot_manage_users(client: TestClient) -> None:
     assert response.status_code == 403
 
 
-def test_last_admin_cannot_be_deleted_or_downgraded(client: TestClient) -> None:
-    downgrade = client.post(
+def test_admin_cannot_edit_self_even_when_other_admin_exists(client: TestClient) -> None:
+    get_studio_user_store().upsert_user("backup-admin", "admin", actor_user_id="admin")
+
+    response = client.post(
         "/api/studio/users",
-        json={"user_id": "admin", "role": "viewer"},
+        json={"user_id": "admin", "role": "editor"},
         headers=_headers(),
     )
-    delete = client.delete("/api/studio/users/admin", headers=_headers())
 
-    assert downgrade.status_code == 409
-    assert delete.status_code == 409
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Admins cannot edit their own user grant"
+    assert get_studio_user_store().get_user("admin").role == "admin"
+
+
+def test_admin_cannot_delete_self_even_when_other_admin_exists(client: TestClient) -> None:
+    get_studio_user_store().upsert_user("backup-admin", "admin", actor_user_id="admin")
+
+    response = client.delete("/api/studio/users/admin", headers=_headers())
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Admins cannot delete their own user grant"
+    assert get_studio_user_store().get_user("admin") is not None
 
 
 def test_users_list_supports_pagination_and_filters(client: TestClient) -> None:

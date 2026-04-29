@@ -263,6 +263,7 @@ export default function UsersPage() {
                 <tbody>
                   {users.map(item => {
                     const isLastAdmin = item.role === 'admin' && adminCount <= 1
+                    const isCurrentUser = item.user_id === user?.user_id
                     return (
                       <tr key={item.user_id} className={selectedUserId === item.user_id ? 'selected' : ''}>
                         <td><code>{item.user_id}</code></td>
@@ -271,18 +272,24 @@ export default function UsersPage() {
                         <td>{formatDate(item.updated_at)}</td>
                         <td>
                           <div className="button-row">
-                            <button className="action-button" onClick={() => startEdit(item)} type="button">
-                              Edit
-                            </button>
-                            <button
-                              className="action-button action-button-danger"
-                              disabled={isLastAdmin || saving}
-                              onClick={() => void handleDelete(item)}
-                              title={isLastAdmin ? 'At least one admin is required' : 'Delete role grant'}
-                              type="button"
-                            >
-                              Delete
-                            </button>
+                            {isCurrentUser ? (
+                              <span className="badge">Current user</span>
+                            ) : (
+                              <>
+                                <button className="action-button" onClick={() => startEdit(item)} type="button">
+                                  Edit
+                                </button>
+                                <button
+                                  className="action-button action-button-danger"
+                                  disabled={isLastAdmin || saving}
+                                  onClick={() => void handleDelete(item)}
+                                  title={isLastAdmin ? 'At least one admin is required' : 'Delete role grant'}
+                                  type="button"
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
