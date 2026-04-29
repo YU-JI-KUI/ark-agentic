@@ -15,9 +15,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from ark_agentic.api import deps
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.studio.api import agents as agents_api
 from ark_agentic.studio.api.agents import AgentMeta, _read_agent_meta, _write_agent_meta
+from ark_agentic.studio.services.authz_service import get_studio_user_store
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────
@@ -51,16 +53,10 @@ def temp_agents_dir(tmp_path: Path) -> Path:
     return agents_root
 
 
-from ark_agentic.api import deps
-from ark_agentic.studio.services.authz_service import get_studio_user_store, issue_studio_token, reset_studio_user_store_cache
-
 @pytest.fixture
-def client(temp_agents_dir: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def client(temp_agents_dir: Path, studio_auth_context) -> TestClient:
     """Create a FastAPI TestClient with the studio agents router
     and a patched get_agents_root pointing to the temp directory."""
-    monkeypatch.setenv("STUDIO_DATABASE_URL", f"sqlite:///{temp_agents_dir.parent}/ark_studio.db")
-    monkeypatch.setenv("STUDIO_AUTH_TOKEN_SECRET", "test-secret")
-    reset_studio_user_store_cache()
     app = FastAPI()
     registry = AgentRegistry()
     deps.init_registry(registry)
@@ -68,9 +64,8 @@ def client(temp_agents_dir: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient
 
     with patch("ark_agentic.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
         test_client = TestClient(app)
-        test_client.headers.update({"Authorization": f"Bearer {issue_studio_token('admin')}"})
+        studio_auth_context(client=test_client, database_dir=temp_agents_dir.parent)
         yield test_client
-    reset_studio_user_store_cache()
 
 
 # ── Helper function tests ─────────────────────────────────────────────
@@ -215,22 +210,26 @@ class TestCreateAgentEndpoint:
             })
         assert response.status_code == 422
 
-    def test_create_agent_editor_allowed(self, client: TestClient, temp_agents_dir: Path):
+    def test_create_agent_editor_allowed(
+        self, client: TestClient, temp_agents_dir: Path, studio_auth_headers,
+    ):
         """Editor role may use Studio write endpoints."""
         get_studio_user_store().upsert_user("ed", "editor", actor_user_id="admin")
         response = client.post(
             "/api/studio/agents",
             json={"id": "editor-agent", "name": "Editor Agent"},
-            headers={"Authorization": f"Bearer {issue_studio_token('ed')}"},
+            headers=studio_auth_headers("ed"),
         )
         assert response.status_code == 201
 
-    def test_create_agent_viewer_forbidden(self, client: TestClient, temp_agents_dir: Path):
+    def test_create_agent_viewer_forbidden(
+        self, client: TestClient, temp_agents_dir: Path, studio_auth_headers,
+    ):
         """Viewer role cannot use Studio write endpoints."""
         get_studio_user_store().ensure_user("view-only", default_role="viewer")
         response = client.post(
             "/api/studio/agents",
             json={"id": "viewer-agent", "name": "Viewer Agent"},
-            headers={"Authorization": f"Bearer {issue_studio_token('view-only')}"},
+            headers=studio_auth_headers("view-only"),
         )
         assert response.status_code == 403
