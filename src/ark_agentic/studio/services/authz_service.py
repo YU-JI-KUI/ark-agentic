@@ -358,6 +358,10 @@ def issue_studio_token(user_id: str) -> str:
     return f"{signing_input}.{_b64encode(signature)}"
 
 
+def issue_studio_token_id(user_id: str) -> str:
+    return hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+
+
 def _decode_studio_token(token: str) -> dict:
     try:
         header_b64, payload_b64, signature_b64 = token.split(".", 2)

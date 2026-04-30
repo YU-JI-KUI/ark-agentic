@@ -163,9 +163,35 @@ ENV_SAMPLE_TEMPLATE = """\
 # Common options
 # DEFAULT_TEMPERATURE=0.7
 
+# ---- 可观测性 (OpenTelemetry tracing) ----
+# TRACING controls which monitoring backends receive spans.
+# Comma-separated list of: phoenix, langfuse, console, otlp
+# Special value "auto" enables every provider whose credentials are set.
+# Leave unset (or empty) to disable tracing entirely (NoOp tracer, zero cost).
+TRACING=console
+
+# Phoenix (set TRACING=phoenix to enable)
+# PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006/v1/traces
+
+# Langfuse (set TRACING=langfuse + provide credentials)
+# LANGFUSE_PUBLIC_KEY=
+# LANGFUSE_SECRET_KEY=
+# LANGFUSE_HOST=https://cloud.langfuse.com
+
+# Generic OTLP (set TRACING=otlp + endpoint)
+# OTEL_EXPORTER_OTLP_ENDPOINT=
+# OTEL_EXPORTER_OTLP_HEADERS=
+
 # Studio configuration (optional)
 # ENABLE_STUDIO=true
 # AGENTS_ROOT=./src/{package_name}/agents
+# 默认使用 SQLite；PostgreSQL 可设置为 postgresql+psycopg://user:pass@host:5432/db
+# STUDIO_DATABASE_URL=sqlite:///data/ark_studio.db
+# 逗号分隔的登录认证 provider；当前内置支持 internal，未知 provider 会跳过并记录 warning
+# STUDIO_AUTH_PROVIDERS=internal
+# 生产环境必须设置稳定密钥；未设置时进程内临时生成，重启后 token 失效
+# STUDIO_AUTH_TOKEN_SECRET=
+# STUDIO_AUTH_TOKEN_TTL_SECONDS=43200
 """
 
 API_APP_TEMPLATE = '''\
