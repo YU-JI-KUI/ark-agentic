@@ -14,16 +14,27 @@
 - [test_auth_login.py](file://tests/unit/studio/test_auth_login.py)
 </cite>
 
+## 更新摘要
+**变更内容**
+- 新增完整的Studio用户管理API架构分析
+- 补充详细的API端点规范和数据模型
+- 增加前端集成示例和权限控制机制
+- 完善认证和授权服务的技术细节
+- 添加性能考虑和故障排除指南
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
 3. [核心组件](#核心组件)
 4. [架构概览](#架构概览)
 5. [详细组件分析](#详细组件分析)
-6. [依赖关系分析](#依赖关系分析)
-7. [性能考虑](#性能考虑)
-8. [故障排除指南](#故障排除指南)
-9. [结论](#结论)
+6. [API端点规范](#api端点规范)
+7. [认证与授权机制](#认证与授权机制)
+8. [前端集成示例](#前端集成示例)
+9. [依赖关系分析](#依赖关系分析)
+10. [性能考虑](#性能考虑)
+11. [故障排除指南](#故障排除指南)
+12. [结论](#结论)
 
 ## 简介
 
@@ -65,11 +76,6 @@ I --> A
 ```
 
 **图表来源**
-- [users.py:1-101](file://src/ark_agentic/studio/api/users.py#L1-L101)
-- [auth.py:1-120](file://src/ark_agentic/studio/api/auth.py#L1-L120)
-- [authz_service.py:1-419](file://src/ark_agentic/studio/services/authz_service.py#L1-L419)
-
-**章节来源**
 - [users.py:1-101](file://src/ark_agentic/studio/api/users.py#L1-L101)
 - [auth.py:1-120](file://src/ark_agentic/studio/api/auth.py#L1-L120)
 - [authz_service.py:1-419](file://src/ark_agentic/studio/services/authz_service.py#L1-L419)
@@ -334,6 +340,235 @@ UsersPage --> AuthContext : depends on
 **章节来源**
 - [UsersPage.tsx:184-190](file://src/ark_agentic/studio/frontend/src/pages/UsersPage.tsx#L184-L190)
 - [auth.tsx:75-77](file://src/ark_agentic/studio/frontend/src/auth.tsx#L75-L77)
+
+## API端点规范
+
+### 用户管理端点
+
+#### 获取用户列表
+
+**请求**
+```
+GET /api/studio/users
+Authorization: Bearer {token}
+```
+
+**查询参数**
+- `query` (可选): 用户ID子串过滤
+- `role` (可选): 角色过滤 (admin/editor/viewer/all)
+- `limit` (可选): 每页数量，默认50，最大200
+- `offset` (可选): 偏移量，默认0
+
+**响应**
+```json
+{
+  "users": [
+    {
+      "user_id": "string",
+      "role": "admin|editor|viewer",
+      "created_at": "datetime",
+      "updated_at": "datetime",
+      "created_by": "string|null",
+      "updated_by": "string|null"
+    }
+  ],
+  "total": 0,
+  "admin_count": 0,
+  "limit": 0,
+  "offset": 0
+}
+```
+
+#### 创建或更新用户
+
+**请求**
+```
+POST /api/studio/users
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+**请求体**
+```json
+{
+  "user_id": "string",
+  "role": "admin|editor|viewer"
+}
+```
+
+**响应**
+```json
+{
+  "user_id": "string",
+  "role": "admin|editor|viewer",
+  "created_at": "datetime",
+  "updated_at": "datetime",
+  "created_by": "string|null",
+  "updated_by": "string|null"
+}
+```
+
+#### 删除用户
+
+**请求**
+```
+DELETE /api/studio/users/{user_id}
+Authorization: Bearer {token}
+```
+
+**响应**
+```json
+{
+  "status": "deleted",
+  "user_id": "string"
+}
+```
+
+### 认证端点
+
+#### 用户登录
+
+**请求**
+```
+POST /api/studio/auth/login
+Content-Type: application/json
+```
+
+**请求体**
+```json
+{
+  "username": "string",
+  "password": "string"
+}
+```
+
+**响应**
+```json
+{
+  "user_id": "string",
+  "role": "admin|editor|viewer",
+  "display_name": "string",
+  "token": "string"
+}
+```
+
+## 认证与授权机制
+
+### JWT令牌管理
+
+系统使用自定义的JWT实现，支持以下功能：
+
+- **令牌结构**: 包含用户ID、签发时间、过期时间
+- **签名算法**: HS256 HMAC签名
+- **过期时间**: 默认12小时，可通过环境变量配置
+- **密钥管理**: 支持环境变量配置的安全密钥
+
+### 权限验证流程
+
+```mermaid
+flowchart TD
+A[接收请求] --> B{是否包含Authorization头}
+B --> |否| C[返回401未授权]
+B --> |是| D[解析Bearer令牌]
+D --> E[验证签名完整性]
+E --> |失败| F[返回401无效令牌]
+E --> |成功| G[检查过期时间]
+G --> |过期| H[返回401令牌过期]
+G --> |有效| I[查询用户信息]
+I --> |不存在| J[返回403无权限]
+I --> |存在| K[检查角色权限]
+K --> |不足| L[返回403权限不足]
+K --> |足够| M[继续处理请求]
+```
+
+**图表来源**
+- [authz_service.py:398-418](file://src/ark_agentic/studio/services/authz_service.py#L398-L418)
+
+### 最后管理员保护
+
+系统实现了智能的管理员保护机制：
+
+- **删除保护**: 确保至少存在一个管理员
+- **降级保护**: 管理员不能被降级为非管理员
+- **冲突检测**: 在事务中检查管理员数量
+
+**章节来源**
+- [authz_service.py:284-290](file://src/ark_agentic/studio/services/authz_service.py#L284-L290)
+- [users.py:94-100](file://src/ark_agentic/studio/api/users.py#L94-L100)
+
+## 前端集成示例
+
+### 用户管理页面实现
+
+前端用户管理页面提供了完整的用户管理功能：
+
+#### 主要功能特性
+
+- **分页浏览**: 支持50条记录每页的分页显示
+- **实时搜索**: 按用户ID进行模糊搜索
+- **角色过滤**: 支持按角色类型过滤用户
+- **权限控制**: 基于角色的UI元素显示控制
+- **表单验证**: 客户端和服务器端双重验证
+
+#### API调用封装
+
+前端通过专门的API客户端封装所有Studio后端调用：
+
+```typescript
+const api = {
+  listUsers: (params: { query?: string; role?: StudioRole | 'all'; limit?: number; offset?: number }) => {
+    // 实现分页和过滤的URL参数构建
+  },
+  
+  saveUserGrant: (data: { user_id: string; role: StudioRole }) => {
+    // POST请求保存用户角色授权
+  },
+  
+  deleteUserGrant: (userId: string) => {
+    // DELETE请求删除用户角色授权
+  }
+}
+```
+
+**章节来源**
+- [UsersPage.tsx:55-182](file://src/ark_agentic/studio/frontend/src/pages/UsersPage.tsx#L55-L182)
+- [api.ts:239-259](file://src/ark_agentic/studio/frontend/src/api.ts#L239-L259)
+
+### 认证状态管理
+
+前端使用React Context管理用户认证状态：
+
+#### 认证上下文
+
+```typescript
+interface AuthContextValue {
+  user: StudioUser | null,
+  login: (user: StudioUser) => void,
+  logout: () => void,
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
+  return ctx
+}
+```
+
+#### 权限检查函数
+
+```typescript
+export function canManageUsers(role: StudioRole | undefined | null): boolean {
+  return role === 'admin'
+}
+
+export function canEditStudio(role: StudioRole | undefined | null): boolean {
+  return role === 'admin' || role === 'editor'
+}
+```
+
+**章节来源**
+- [auth.tsx:12-77](file://src/ark_agentic/studio/frontend/src/auth.tsx#L12-L77)
+- [UsersPage.tsx:25-42](file://src/ark_agentic/studio/frontend/src/pages/UsersPage.tsx#L25-L42)
 
 ## 依赖关系分析
 

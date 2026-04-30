@@ -715,12 +715,12 @@ agents/securities/
 
 ### 依赖
 
-`security_info_search` 依赖 `[stock-search]` 可选包组：
+`security_info_search` 依赖 `securities` dependency group：
 
 ```bash
-uv add 'ark-agentic[stock-search]'
+uv sync --group securities
 # 或单独安装
-uv add rapidfuzz pypinyin
+uv add akshare rapidfuzz pypinyin
 ```
 
 缺少依赖时降级为精确匹配（仅支持代码精确查找和名称完全匹配）。
@@ -896,7 +896,7 @@ display_data = extract_account_overview(api_response)
 # 运行参数映射和字段提取单元测试
 uv run pytest tests/agents/securities/ -v
 
-# 运行股票信息查询相关测试（需要 stock-search 依赖）
+# 运行股票信息查询相关测试（需要 securities group 依赖）
 uv run pytest tests/agents/securities/test_security_info_search.py -v
 
 # 运行集成测试

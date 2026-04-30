@@ -15,7 +15,15 @@
 - [src/ark_agentic/core/llm/sampling.py](file://src/ark_agentic/core/llm/sampling.py)
 - [src/ark_agentic/core/tools/base.py](file://src/ark_agentic/core/tools/base.py)
 - [src/ark_agentic/core/utils/env.py](file://src/ark_agentic/core/utils/env.py)
+- [pyproject.toml](file://pyproject.toml)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 更新了 langfuse 集成从独立 extras 迁移到统一追踪系统的说明
+- 新增了统一追踪系统配置和依赖关系的详细说明
+- 更新了环境变量配置和安装方式的相关内容
+- 补充了新的依赖配置和安装命令
 
 ## 目录
 1. [简介](#简介)
@@ -34,6 +42,8 @@
 
 1. **可观测性多 Provider 支持**：通过统一的 TracingProvider 协议，支持 Phoenix、Langfuse、Console、OTLP 等多个监控后端的并行导出
 2. **LLM 多 Provider 支持**：通过工厂模式支持 PA 内部模型和 OpenAI 兼容模型的统一管理
+
+**更新** 项目现已采用统一的追踪系统配置，langfuse 集成不再作为独立的 extras，而是通过统一的 `ark-agentic[tracing]` 依赖进行管理。
 
 这种设计提供了高度的灵活性和可扩展性，允许开发者根据需求选择合适的监控方案，并轻松添加新的 Provider。
 
@@ -224,7 +234,7 @@ LogInfo --> End([完成])
 
 #### Langfuse Provider（Langfuse 云服务）
 
-Langfuse Provider 支持云端监控服务：
+**更新** Langfuse Provider 现已集成到统一的追踪系统中，通过 `ark-agentic[tracing]` 依赖进行管理：
 
 ```mermaid
 sequenceDiagram
@@ -352,6 +362,8 @@ PSX-->>Request : 返回带认证的请求
 
 ## 依赖分析
 
+**更新** 项目现在采用统一的追踪系统依赖配置：
+
 系统采用松耦合的设计，通过协议和工厂模式实现依赖注入：
 
 ```mermaid
@@ -373,6 +385,8 @@ L[OpenTelemetry SDK]
 M[LangChain]
 N[HTTPX]
 O[PyCryptodome]
+P[OpenInference]
+Q[Arize Phoenix]
 end
 B --> L
 C --> L
@@ -383,6 +397,8 @@ H --> M
 G --> N
 H --> N
 G --> O
+F --> P
+E --> Q
 ```
 
 **图表来源**
@@ -403,6 +419,14 @@ G --> O
 2. **多 Provider 模式**：`TRACING=phoenix,langfuse` 支持并行导出
 3. **自动模式**：`TRACING=auto` 根据凭据自动启用可用的 Provider
 4. **禁用模式**：未设置或为空字符串时完全禁用追踪
+
+### 安装和配置更新
+
+**更新** 由于 langfuse 集成已迁移到统一追踪系统，安装方式已简化：
+
+- **统一安装**：`uv add 'ark-agentic[tracing]'` - 包含所有追踪相关的依赖
+- **Phoenix 安装**：`uv add 'ark-agentic[phoenix]'` - 包含 Phoenix 特定的依赖
+- **PA-JT 安装**：`uv add 'ark-agentic[pa-jt]'` - 包含 PA-JT 特定的加密依赖
 
 ### 性能优化建议
 
@@ -441,13 +465,24 @@ G --> O
 2. 优化网络连接
 3. 调整批量导出大小和频率
 
+#### 依赖安装问题
+
+**更新** 由于依赖结构的变更，可能出现以下问题：
+
+**症状**：安装失败或功能缺失
+**原因**：旧的独立 extras 依赖已废弃
+**解决方案**：
+1. 升级到统一的追踪系统依赖
+2. 使用新的安装命令：`uv add 'ark-agentic[tracing]'`
+3. 确保所有必需的追踪依赖都已正确安装
+
 **章节来源**
 - [src/ark_agentic/core/observability/tracing.py:35-53](file://src/ark_agentic/core/observability/tracing.py#L35-L53)
 - [src/ark_agentic/core/observability/tracing.py:102-114](file://src/ark_agentic/core/observability/tracing.py#L102-L114)
 
 ## 结论
 
-本项目通过精心设计的多 Provider 支持体系，为不同场景提供了灵活的监控和 LLM 服务选择：
+**更新** 本项目通过精心设计的多 Provider 支持体系，为不同场景提供了灵活的监控和 LLM 服务选择。随着 langfuse 集成迁移到统一追踪系统，项目在依赖管理和配置复杂度方面得到了显著改善。
 
 ### 主要优势
 
@@ -455,6 +490,7 @@ G --> O
 2. **运行时灵活性**：支持动态配置和多 Provider 并行导出
 3. **环境友好**：针对不同环境提供最优的默认配置
 4. **性能优化**：智能的凭据检测和自动模式减少不必要的开销
+5. **简化依赖管理**：统一的追踪系统减少了依赖冲突的可能性
 
 ### 最佳实践
 
@@ -462,5 +498,14 @@ G --> O
 2. **测试环境**：使用 Phoenix Provider 进行本地监控
 3. **生产环境**：使用 Langfuse 或 OTLP Provider 进行云端监控
 4. **混合部署**：结合多个 Provider 确保监控的可靠性
+5. **依赖管理**：使用统一的追踪系统依赖，避免版本冲突
 
-这种设计不仅满足了当前的功能需求，还为未来的扩展奠定了坚实的基础，使得系统能够适应不断变化的技术要求和业务场景。
+### 依赖配置最佳实践
+
+**更新** 建议使用统一的追踪系统依赖配置：
+
+- **完整功能**：`uv add 'ark-agentic[server,postgres,jobs,tracing,phoenix]'`
+- **最小化配置**：`uv add 'ark-agentic[server,postgres,jobs]'` - 仅基础功能
+- **自定义组合**：根据需要选择特定的 extras 组合
+
+这种设计不仅满足了当前的功能需求，还为未来的扩展奠定了坚实的基础，使得系统能够适应不断变化的技术要求和业务场景。统一的追踪系统配置进一步简化了部署和维护工作，提高了系统的整体稳定性。
