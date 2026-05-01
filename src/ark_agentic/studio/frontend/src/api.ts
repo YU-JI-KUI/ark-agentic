@@ -30,10 +30,28 @@ export function getAuthToken(): string | undefined {
     }
 }
 
+export function getAuthTokenId(): string | undefined {
+    try {
+        const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+        if (!raw) return undefined
+        const tokenId = JSON.parse(raw).token_id as string | undefined
+        return tokenId || undefined
+    } catch {
+        return undefined
+    }
+}
+
 function withAuth(init: RequestInit = {}): RequestInit {
     const headers = new Headers(init.headers)
     const token = getAuthToken()
     if (token) headers.set('Authorization', `Bearer ${token}`)
+    return { ...init, headers }
+}
+
+function withTokenId(init: RequestInit = {}): RequestInit {
+    const headers = new Headers(init.headers)
+    const tokenId = getAuthTokenId()
+    if (tokenId) headers.set('X-Token-ID', tokenId)
     return { ...init, headers }
 }
 
@@ -237,6 +255,13 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 export const api = {
+    // Auth
+    logout: () =>
+        fetchJSON<{ status: string; result: boolean | null }>(
+            `${API_BASE}/auth/logout`,
+            withTokenId({ method: 'POST' }),
+        ),
+
     // Users
     listUsers: (params: { query?: string; role?: StudioRole | 'all'; limit?: number; offset?: number } = {}) => {
         const search = new URLSearchParams()

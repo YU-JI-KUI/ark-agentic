@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { api } from './api'
 
 export type StudioRole = 'admin' | 'editor' | 'viewer'
 
@@ -7,6 +8,7 @@ export interface StudioUser {
     role: StudioRole
     display_name: string
     token: string
+    token_id: string
 }
 
 interface AuthContextValue {
@@ -28,6 +30,7 @@ function loadUser(): StudioUser | null {
             typeof parsed.user_id !== 'string' ||
             typeof parsed.display_name !== 'string' ||
             typeof parsed.token !== 'string' ||
+            typeof parsed.token_id !== 'string' ||
             !isStudioRole(parsed.role)
         ) {
             return null
@@ -51,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const logout = useCallback(() => {
+        void api.logout().catch(() => undefined)
         localStorage.removeItem(STORAGE_KEY)
         setUser(null)
     }, [])
