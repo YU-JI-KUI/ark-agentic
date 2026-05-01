@@ -20,10 +20,10 @@
 
 ## 更新摘要
 **变更内容**
-- 更新了 langfuse 集成从独立 extras 迁移到统一追踪系统的说明
-- 新增了统一追踪系统配置和依赖关系的详细说明
-- 更新了环境变量配置和安装方式的相关内容
-- 补充了新的依赖配置和安装命令
+- 新增了 Phoenix Provider 的详细配置选项和环境变量说明
+- 增强了 LLM Provider 的依赖管理说明，包括 PA-JT 加密依赖
+- 完善了故障排除指南，增加了 Phoenix 本地开发配置
+- 更新了依赖配置的最佳实践建议
 
 ## 目录
 1. [简介](#简介)
@@ -43,7 +43,7 @@
 1. **可观测性多 Provider 支持**：通过统一的 TracingProvider 协议，支持 Phoenix、Langfuse、Console、OTLP 等多个监控后端的并行导出
 2. **LLM 多 Provider 支持**：通过工厂模式支持 PA 内部模型和 OpenAI 兼容模型的统一管理
 
-**更新** 项目现已采用统一的追踪系统配置，langfuse 集成不再作为独立的 extras，而是通过统一的 `ark-agentic[tracing]` 依赖进行管理。
+**更新** 项目现已采用统一的追踪系统配置，langfuse 集成不再作为独立的 extras，而是通过统一的 `ark-agentic[tracing]` 依赖进行管理。Phoenix Provider 作为本地开发的重要组成部分，提供了专门的配置选项和环境变量支持。
 
 这种设计提供了高度的灵活性和可扩展性，允许开发者根据需求选择合适的监控方案，并轻松添加新的 Provider。
 
@@ -279,7 +279,7 @@ LogSuccess --> End([完成])
 
 #### Phoenix Provider（本地收集器）
 
-Phoenix Provider 专为本地开发环境设计：
+**更新** Phoenix Provider 作为本地开发的重要组成部分，提供了丰富的配置选项：
 
 ```mermaid
 flowchart TD
@@ -288,16 +288,18 @@ CheckEndpoint --> EndpointExists{"端点存在？"}
 EndpointExists --> |否| NoCreds["无凭据"]
 EndpointExists --> |是| HasCreds["有凭据"]
 NoCreds --> SkipInstall["跳过安装"]
-HasCreds --> CreateExporter["创建 OTLPSpanExporter"]
-CreateExporter --> SetDefaultEndpoint["设置默认端点 http://127.0.0.1:6006/v1/traces"]
-SetDefaultEndpoint --> CreateProcessor["创建 BatchSpanProcessor"]
+HasCreds --> ReadEnv["读取 Phoenix 环境变量"]
+ReadEnv --> SetDefaults["设置默认值"]
+SetDefaults --> RegisterOTEL["注册 OpenTelemetry"]
+RegisterOTEL --> CreateExporter["创建 OTLPSpanExporter"]
+CreateExporter --> CreateProcessor["创建 BatchSpanProcessor"]
 CreateProcessor --> AddToTP["添加到 TracerProvider"]
 AddToTP --> LogSuccess["记录成功日志"]
 LogSuccess --> End([完成])
 ```
 
 **图表来源**
-- [src/ark_agentic/core/observability/providers/phoenix.py:18-34](file://src/ark_agentic/core/observability/providers/phoenix.py#L18-L34)
+- [src/ark_agentic/core/observability/providers/phoenix.py:18-67](file://src/ark_agentic/core/observability/providers/phoenix.py#L18-L67)
 
 ### LLM Provider 分析
 
@@ -356,7 +358,7 @@ PSX-->>Request : 返回带认证的请求
 - [src/ark_agentic/core/observability/providers/console.py:1-35](file://src/ark_agentic/core/observability/providers/console.py#L1-L35)
 - [src/ark_agentic/core/observability/providers/langfuse.py:1-48](file://src/ark_agentic/core/observability/providers/langfuse.py#L1-L48)
 - [src/ark_agentic/core/observability/providers/otlp.py:1-40](file://src/ark_agentic/core/observability/providers/otlp.py#L1-L40)
-- [src/ark_agentic/core/observability/providers/phoenix.py:1-40](file://src/ark_agentic/core/observability/providers/phoenix.py#L1-L40)
+- [src/ark_agentic/core/observability/providers/phoenix.py:1-67](file://src/ark_agentic/core/observability/providers/phoenix.py#L1-L67)
 - [src/ark_agentic/core/llm/pa_jt_llm.py:1-166](file://src/ark_agentic/core/llm/pa_jt_llm.py#L1-L166)
 - [src/ark_agentic/core/llm/pa_sx_llm.py:1-86](file://src/ark_agentic/core/llm/pa_sx_llm.py#L1-L86)
 
@@ -428,11 +430,18 @@ E --> Q
 - **Phoenix 安装**：`uv add 'ark-agentic[phoenix]'` - 包含 Phoenix 特定的依赖
 - **PA-JT 安装**：`uv add 'ark-agentic[pa-jt]'` - 包含 PA-JT 特定的加密依赖
 
+**更新** Phoenix Provider 的性能优化建议：
+
+- **批量导出**：默认启用批量导出以减少网络开销
+- **自动仪器化**：默认启用自动仪器化捕获 LLM 调用细节
+- **本地开发**：Phoenix 作为本地开发首选，性能开销最小
+
 ### 性能优化建议
 
 - **生产环境**：推荐使用 `TRACING=auto` 自动模式，避免不必要的网络开销
 - **开发环境**：可以使用 `TRACING=console` 进行本地调试
 - **混合部署**：对于关键应用，可以同时启用多个 Provider 确保监控可靠性
+- **Phoenix 优化**：本地开发时可调整批量大小和自动仪器化选项
 
 ## 故障排除指南
 
@@ -476,9 +485,22 @@ E --> Q
 2. 使用新的安装命令：`uv add 'ark-agentic[tracing]'`
 3. 确保所有必需的追踪依赖都已正确安装
 
+#### Phoenix 本地开发问题
+
+**更新** Phoenix Provider 作为本地开发的重要组件，可能遇到以下问题：
+
+**症状**：Phoenix 无法连接本地收集器
+**原因**：端点配置错误或本地服务未启动
+**解决方案**：
+1. 确认 `PHOENIX_COLLECTOR_ENDPOINT` 环境变量设置正确
+2. 验证本地 Phoenix 服务已在 `http://127.0.0.1:6006` 启动
+3. 检查防火墙设置允许本地连接
+4. 如需自定义端点，设置 `PHOENIX_PROTOCOL` 环境变量
+
 **章节来源**
 - [src/ark_agentic/core/observability/tracing.py:35-53](file://src/ark_agentic/core/observability/tracing.py#L35-L53)
 - [src/ark_agentic/core/observability/tracing.py:102-114](file://src/ark_agentic/core/observability/tracing.py#L102-L114)
+- [src/ark_agentic/core/observability/providers/phoenix.py:18-67](file://src/ark_agentic/core/observability/providers/phoenix.py#L18-L67)
 
 ## 结论
 
@@ -491,6 +513,7 @@ E --> Q
 3. **环境友好**：针对不同环境提供最优的默认配置
 4. **性能优化**：智能的凭据检测和自动模式减少不必要的开销
 5. **简化依赖管理**：统一的追踪系统减少了依赖冲突的可能性
+6. **本地开发优化**：Phoenix Provider 提供了完善的本地开发体验
 
 ### 最佳实践
 
@@ -507,5 +530,10 @@ E --> Q
 - **完整功能**：`uv add 'ark-agentic[server,postgres,jobs,tracing,phoenix]'`
 - **最小化配置**：`uv add 'ark-agentic[server,postgres,jobs]'` - 仅基础功能
 - **自定义组合**：根据需要选择特定的 extras 组合
+
+**更新** PA-JT Provider 的依赖管理：
+
+- **加密依赖**：`uv add 'ark-agentic[pa-jt]'` - 包含 pycryptodome 依赖
+- **环境要求**：确保系统满足 PA-JT 签名算法的加密需求
 
 这种设计不仅满足了当前的功能需求，还为未来的扩展奠定了坚实的基础，使得系统能够适应不断变化的技术要求和业务场景。统一的追踪系统配置进一步简化了部署和维护工作，提高了系统的整体稳定性。
