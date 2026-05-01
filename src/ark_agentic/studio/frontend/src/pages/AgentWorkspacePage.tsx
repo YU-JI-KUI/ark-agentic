@@ -1458,8 +1458,13 @@ function SessionsSection({ agentId }: { agentId: string }) {
       try {
         const nextSessions = await api.listSessions(agentId)
         if (!cancelled) {
-          setSessions(nextSessions)
-          setSelected(nextSessions[0] ?? null)
+          const sorted = [...nextSessions].sort(
+            (a, b) =>
+              getTimestampValue(b.updated_at || b.created_at) -
+              getTimestampValue(a.updated_at || a.created_at),
+          )
+          setSessions(sorted)
+          setSelected(sorted[0] ?? null)
         }
       } catch (nextError) {
         if (!cancelled) setError(nextError instanceof Error ? nextError.message : String(nextError))
