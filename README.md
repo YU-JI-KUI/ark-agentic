@@ -403,12 +403,10 @@ AGENTS_ROOT=./src/<package>/agents
 
 ### 可观测性
 
-按 provider 选择安装依赖：
+tracing 与 Phoenix / Langfuse provider 已并入 `server` extras，安装服务端即开箱可用：
 
 ```bash
-pip install "ark-agentic[phoenix]"
-# 或：Langfuse 复用通用 OTLP 出口，安装 tracing 即可
-pip install "ark-agentic[tracing]"
+pip install "ark-agentic[server]"
 ```
 
 ```bash

@@ -18,24 +18,18 @@ dependencies = [
 
 [project.optional-dependencies]
 server = [
-    "bcrypt>=5.0.0",
     "fastapi>=0.128.0",
-    "sqlalchemy>=2.0.0",
     "uvicorn[standard]>=0.40.0",
-]
-postgres = [
-    "psycopg[binary]>=3.2.0",
-]
-tracing = [
+    "bcrypt>=5.0.0",
+    "sqlalchemy>=2.0.0",
+    "apscheduler>=3.11",
     "opentelemetry-exporter-otlp-proto-http",
     "openinference-instrumentation-langchain",
-]
-phoenix = [
-    "ark-agentic[tracing]",
     "arize-phoenix-otel",
 ]
-jobs = [
-    "apscheduler>=3.11",
+# db: 切换到 PostgreSQL 时加装（默认 SQLite 不需要）
+db = [
+    "psycopg[binary]>=3.2.0",
 ]
 pa-jt = [
     "pycryptodome>=3.20.0",
@@ -90,7 +84,7 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-timeout>=2.3.0",
     "jsonschema>=4.26.0",
-    "ark-agentic[server,postgres,jobs,phoenix]",
+    "ark-agentic[server,db,pa-jt]",
 ]
 securities = [
     "akshare>=1.18.43",
