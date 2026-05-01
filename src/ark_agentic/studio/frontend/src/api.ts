@@ -223,6 +223,11 @@ export interface SessionDetail {
     messages: MessageItem[]
 }
 
+export interface TraceLinkConfig {
+    enabled: boolean
+    template: string | null
+}
+
 // ── Mutation Input Types ───────────────────────────────────────────
 
 export interface SkillCreateInput {
@@ -351,6 +356,10 @@ export const api = {
             }
             return res.json() as Promise<{ status: string; session_id: string }>
         }),
+
+    // Config
+    getTraceLinkConfig: () =>
+        fetchJSON<TraceLinkConfig>(`${API_BASE}/config/trace-link`),
 
     // Memory
     listMemoryFiles: (agentId: string) =>

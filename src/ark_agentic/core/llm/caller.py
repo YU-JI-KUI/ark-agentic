@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -21,6 +22,70 @@ from .sampling import SamplingConfig
 from ..types import AgentMessage, ToolCall
 
 logger = logging.getLogger(__name__)
+
+
+def _tool_calls_from_lc_raw(raw: list[Any]) -> list[ToolCall]:
+    """LangChain `tool_calls` / AIMessageChunk.tool_calls (dict or object)."""
+    out: list[ToolCall] = []
+    for tc in raw:
+        tid = ""
+        name = ""
+        args: Any = None
+        if isinstance(tc, dict):
+            tid = str(tc.get("id") or "")
+            name = str(tc.get("name") or "")
+            args = tc.get("args")
+            if args is None and isinstance(tc.get("function"), dict):
+                fn = tc["function"]
+                name = name or str(fn.get("name") or "")
+                raw_args = fn.get("arguments")
+                if isinstance(raw_args, str):
+                    try:
+                        args = json.loads(raw_args) if raw_args.strip() else {}
+                    except json.JSONDecodeError:
+                        args = {"_raw": raw_args}
+                elif isinstance(raw_args, dict):
+                    args = raw_args
+        else:
+            tid = str(getattr(tc, "id", "") or "")
+            name = str(getattr(tc, "name", "") or "")
+            args = getattr(tc, "args", None)
+        if isinstance(args, str):
+            try:
+                args = json.loads(args) if args.strip() else {}
+            except json.JSONDecodeError:
+                args = {"_raw": args}
+        if not isinstance(args, dict):
+            args = {}
+        out.append(ToolCall(id=tid, name=name, arguments=args))
+    return out
+
+
+def _attach_call_metadata(
+    msg: AgentMessage, llm: Any, t_start: float, t_end: float
+) -> None:
+    """Display-only metadata derived from a single LLM round-trip.
+
+    Sparse: ``sampling`` is omitted when the underlying LLM doesn't expose
+    ``temperature`` / ``top_p`` attributes. Type-guarded so that loosely-typed
+    test doubles (e.g. ``MagicMock``) don't leak unserialisable attrs into the
+    metadata dict. Not consumed by runtime — see spec §9.
+    """
+    model_attr = getattr(llm, "model", None)
+    if isinstance(model_attr, str) and model_attr:
+        msg.metadata["model_used"] = model_attr
+
+    sampling: dict[str, Any] = {}
+    temperature = getattr(llm, "temperature", None)
+    if isinstance(temperature, (int, float)) and not isinstance(temperature, bool):
+        sampling["temperature"] = temperature
+    top_p = getattr(llm, "top_p", None)
+    if isinstance(top_p, (int, float)) and not isinstance(top_p, bool):
+        sampling["top_p"] = top_p
+    if sampling:
+        msg.metadata["sampling"] = sampling
+
+    msg.metadata["latency_ms"] = int((t_end - t_start) * 1000)
 
 
 class LLMCaller:
@@ -86,12 +151,16 @@ class LLMCaller:
         async def _invoke() -> AIMessage:
             return await llm.ainvoke(messages)
 
+        t_start = time.monotonic()
         ai_msg = await with_retry(
             _invoke,
             max_retries=self._max_retries,
             model=model_override,
         )
-        return self._ai_message_to_agent_message(ai_msg)
+        t_end = time.monotonic()
+        msg = self._ai_message_to_agent_message(ai_msg)
+        _attach_call_metadata(msg, llm, t_start, t_end)
+        return msg
 
     async def call_streaming(
         self,
@@ -108,6 +177,9 @@ class LLMCaller:
         Thinking 模型（如 Qwen3-Thinking / DeepSeek-R1）会在 chunk.additional_kwargs
         里返回独立的 reasoning_content 字段；此处识别并路由到 thinking_callback，
         前端 UI 复用现有 on_thinking_delta 事件流，无需感知模型差异。
+
+        部分提供商（如 DeepSeek 经 OpenAI 兼容层）在流式结束时只在末 chunk 上给出聚合后的
+        ``tool_calls``，``tool_call_chunks`` 为空；此时从末 chunk 回填工具调用。
         """
         llm = self.get_llm(
             model_override=model_override,
@@ -127,11 +199,14 @@ class LLMCaller:
         def _stream_factory():
             return llm.astream(messages)
 
+        t_start = time.monotonic()
+        last_stream_chunk: Any = None
         async for chunk in with_retry_iterator(
             _stream_factory,
             max_retries=self._max_retries,
             model=model,
         ):
+            last_stream_chunk = chunk
             reasoning = ""
             if hasattr(chunk, "additional_kwargs") and chunk.additional_kwargs:
                 reasoning_raw = chunk.additional_kwargs.get("reasoning_content")
@@ -181,13 +256,26 @@ class LLMCaller:
                     args = {"_raw": tc["args"]}
                 parsed_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
 
+        if (
+            finish_reason == "tool_calls"
+            and not parsed_tool_calls
+            and last_stream_chunk is not None
+        ):
+            attr_tcs = getattr(last_stream_chunk, "tool_calls", None) or []
+            if attr_tcs:
+                parsed_tool_calls = _tool_calls_from_lc_raw(attr_tcs)
+
+        t_end = time.monotonic()
         msg = AgentMessage.assistant(content=full_content, tool_calls=parsed_tool_calls)
         msg.metadata["finish_reason"] = finish_reason
         if usage:
             msg.metadata["usage"] = usage
+        _attach_call_metadata(msg, llm, t_start, t_end)
 
         logger.debug(
-            "[LLM_STREAM_DONE] content=%dB tools=%d", len(full_content), len(tool_calls_data)
+            "[LLM_STREAM_DONE] content=%dB tools=%d",
+            len(full_content),
+            len(parsed_tool_calls or []),
         )
         return msg
 

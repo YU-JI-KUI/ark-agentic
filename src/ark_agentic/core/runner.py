@@ -446,6 +446,11 @@ class AgentRunner:
 
         Returns RunResult on halt (early exit), CallbackContext on success.
         """
+        # Pop display-only meta:* keys before they reach AgentMessage.metadata via
+        # input_context. They re-enter under their proper top-level key names below.
+        chat_request_meta = input_context.pop("meta:chat_request", None)
+        trace_correlation = input_context.pop("meta:trace_correlation", None)
+
         session = self.session_manager.get_session_required(session_id)
         session.user_id = user_id
         cb_ctx = CallbackContext(
@@ -465,6 +470,9 @@ class AgentRunner:
         if r and r.action == HookAction.ABORT:
             self._merge_input_context(session, input_context)
             user_message = AgentMessage.user(user_input, metadata=input_context)
+            self._augment_user_metadata(
+                user_message, chat_request_meta, trace_correlation
+            )
             self.session_manager.add_message_sync(session_id, user_message)
             resp = r.response or AgentMessage.assistant("")
             self.session_manager.add_message_sync(session_id, resp)
@@ -494,6 +502,9 @@ class AgentRunner:
                 logger.info("Merged %d external history message(s)", len(ops))
 
         user_message = AgentMessage.user(user_input, metadata=input_context)
+        self._augment_user_metadata(
+            user_message, chat_request_meta, trace_correlation
+        )
         self.session_manager.add_message_sync(session_id, user_message)
 
         if self.config.auto_compact:
@@ -517,6 +528,26 @@ class AgentRunner:
         session.state["temp:user_input"] = user_input
 
         return cb_ctx
+
+    @staticmethod
+    def _augment_user_metadata(
+        msg: AgentMessage,
+        chat_request: dict[str, Any] | None,
+        trace_correlation: str | None,
+    ) -> None:
+        """Display-only metadata for the Studio session-detail panel (spec §4.1)."""
+        from .observability import current_trace_id_or_none
+
+        if chat_request:
+            msg.metadata["chat_request"] = chat_request
+
+        trace_id = current_trace_id_or_none()
+        if trace_id or trace_correlation:
+            trace_obj: dict[str, Any] = msg.metadata.setdefault("trace", {})
+            if trace_id:
+                trace_obj["trace_id"] = trace_id
+            if trace_correlation:
+                trace_obj["correlation_id"] = trace_correlation
 
     async def _finalize_run(
         self,
@@ -925,6 +956,17 @@ class AgentRunner:
         )
         if am and am.response:
             response = am.response
+
+        # Display-only assistant metadata (Studio session-detail UI). See spec §4.2.
+        from .observability import current_trace_id_or_none
+        session_for_meta = self.session_manager.get_session(session_id)
+        if session_for_meta is not None and session_for_meta.active_skills:
+            response.metadata["active_skills_at_turn"] = list(
+                session_for_meta.active_skills
+            )
+        trace_id = current_trace_id_or_none()
+        if trace_id:
+            response.metadata.setdefault("trace", {})["trace_id"] = trace_id
 
         usage = response.metadata.get("usage", {})
         turn_prompt = usage.get("prompt_tokens", 0)

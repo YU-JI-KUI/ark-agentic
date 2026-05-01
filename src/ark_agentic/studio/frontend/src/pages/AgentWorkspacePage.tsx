@@ -127,7 +127,13 @@ function formatBytes(size: number) {
 
 type TimelineItemBase = { turn: number }
 type TimelineItem =
-  | (TimelineItemBase & { kind: 'user' | 'assistant'; role: string; text: string; raw: MessageItem })
+  | (TimelineItemBase & {
+      kind: 'user' | 'assistant'
+      role: string
+      text: string
+      raw: MessageItem
+      metadata?: Record<string, unknown> | null
+    })
   | (TimelineItemBase & {
       kind: 'tool'
       name: string
@@ -167,6 +173,7 @@ function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
         text: message.content,
         turn: turnIdx,
         raw: message,
+        metadata: message.metadata ?? undefined,
       })
     }
 
@@ -291,6 +298,145 @@ function tryParseJson(value: unknown): { ok: boolean; data: unknown } {
   } catch {
     return { ok: false, data: value }
   }
+}
+
+function makeTraceLinkResolver(template: string | null): (traceId: string) => string | null {
+  if (!template) return () => null
+  return (traceId: string) => template.replace('{trace_id}', traceId)
+}
+
+function TraceLinkButton({
+  url,
+  reason,
+}: {
+  url: string | null
+  reason?: string
+}) {
+  if (url) {
+    return (
+      <a
+        className="action-button"
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        title="Open this turn's trace in the configured tracing UI"
+      >
+        View in trace ↗
+      </a>
+    )
+  }
+  return (
+    <button
+      className="action-button"
+      type="button"
+      disabled
+      title={reason ?? 'Tracing not configured'}
+    >
+      View in trace ↗
+    </button>
+  )
+}
+
+function UserDetail({
+  metadata,
+  traceUrl,
+  traceReason,
+}: {
+  metadata: Record<string, unknown>
+  traceUrl: string | null
+  traceReason: string
+}) {
+  const chatRequest = (metadata['chat_request'] ?? null) as
+    | Record<string, unknown>
+    | null
+  const hasChatRequest =
+    !!chatRequest && typeof chatRequest === 'object' && Object.keys(chatRequest).length > 0
+  return (
+    <>
+      <div className="dt-toolbar">
+        <TraceLinkButton url={traceUrl} reason={traceReason} />
+      </div>
+      {hasChatRequest ? (
+        <div className="dt-block">
+          <div className="dt-label">chat request</div>
+          <div className="tool-output-tree">
+            <JsonValue value={chatRequest} />
+          </div>
+        </div>
+      ) : (
+        <div className="dt-empty">No request metadata captured for this message.</div>
+      )}
+    </>
+  )
+}
+
+function AssistantDetail({
+  rawThinking,
+  metadata,
+  usage,
+  traceUrl,
+  traceReason,
+}: {
+  rawThinking: string | null
+  metadata: Record<string, unknown>
+  usage: { prompt_tokens?: number; completion_tokens?: number } | null
+  traceUrl: string | null
+  traceReason: string
+}) {
+  const modelUsed = metadata['model_used'] as string | undefined
+  const sampling = (metadata['sampling'] ?? {}) as Record<string, unknown>
+  const latencyMs = metadata['latency_ms'] as number | undefined
+  const finishReason = metadata['finish_reason'] as string | undefined
+  const activeSkills = (metadata['active_skills_at_turn'] ?? []) as string[]
+
+  const runChips: string[] = []
+  if (modelUsed) runChips.push(modelUsed)
+  if ('temperature' in sampling) runChips.push(`temp=${sampling.temperature}`)
+  if ('top_p' in sampling) runChips.push(`top_p=${sampling.top_p}`)
+  if (typeof latencyMs === 'number') runChips.push(`${latencyMs}ms`)
+  if (finishReason) runChips.push(finishReason)
+
+  return (
+    <>
+      <div className="dt-toolbar">
+        <TraceLinkButton url={traceUrl} reason={traceReason} />
+      </div>
+
+      {rawThinking && (
+        <div className="dt-block">
+          <div className="dt-label">thinking</div>
+          <pre className="code-block compact">{rawThinking}</pre>
+        </div>
+      )}
+
+      {runChips.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">run</div>
+          <div className="dt-value mono">{runChips.join(' · ')}</div>
+        </div>
+      )}
+
+      {activeSkills.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">skills</div>
+          <div className="dt-value">
+            {activeSkills.map(s => (
+              <span className="chip" key={s}>{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {usage && (usage.prompt_tokens || usage.completion_tokens) ? (
+        <div className="dt-row">
+          <div className="dt-label">tokens</div>
+          <div className="dt-value mono">
+            {usage.prompt_tokens ?? 0} in · {usage.completion_tokens ?? 0} out
+          </div>
+        </div>
+      ) : null}
+    </>
+  )
 }
 
 function ToolDetail({
@@ -435,29 +581,29 @@ export default function AgentWorkspacePage() {
     void navigate(`/agents/${agentId}/${targetSection}`)
   }
 
-  const isSplitSection = activeSection === 'skills' || activeSection === 'tools' || activeSection === 'sessions' || activeSection === 'memory'
-
   return (
-    <div className={`workspace-page ${isSplitSection ? 'workspace-page-split' : ''}`}>
+    <div className="workspace-page workspace-page-split">
       <div aria-atomic="true" aria-live="polite" className="sr-only">
         {selectedAgent ? `${selectedAgent.name}, ${activeSection} section` : 'No agent selected'}
       </div>
       <section className="workspace-context-bar">
         <div className="workspace-context-head">
           <div className="workspace-context-copy">
-            <h1>{selectedAgent?.name ?? agentId}</h1>
+            <div className="workspace-context-title-row">
+              <h1>{selectedAgent?.name ?? agentId}</h1>
+              <span className="workspace-context-meta-inline">
+                <span>{(selectedAgent?.id ?? agentId).toUpperCase()}</span>
+                <span aria-hidden="true">·</span>
+                <span>{formatAgentDate(selectedAgent?.updated_at)}</span>
+              </span>
+            </div>
             {selectedAgent?.description && <p>{selectedAgent.description}</p>}
           </div>
-          <div className="workspace-context-meta">
-            <span>{(selectedAgent?.id ?? agentId).toUpperCase()}</span>
-            <span>{formatAgentDate(selectedAgent?.updated_at)}</span>
+          <div className="workspace-context-actions">
+            <button className="btn btn-sm" disabled type="button" title="即将推出">Configure</button>
+            <button className="btn btn-sm" disabled type="button" title="即将推出">Export</button>
+            <button className="btn btn-accent btn-sm" disabled type="button" title="即将推出">Test agent</button>
           </div>
-        </div>
-
-        <div className="workspace-context-actions">
-          <button className="btn btn-sm" disabled type="button" title="即将推出">Configure</button>
-          <button className="btn btn-sm" disabled type="button" title="即将推出">Export</button>
-          <button className="btn btn-accent btn-sm" disabled type="button" title="即将推出">Test agent</button>
         </div>
 
         <nav aria-label="Agent sections" className="workspace-tab-row">
@@ -558,7 +704,7 @@ function OverviewSection({ agentId }: { agentId: string }) {
   }
 
   return (
-    <>
+    <div className="workspace-overview-scroll">
       <section className="workspace-grid-four overview-metric-grid">
         <div className="metric-surface metric-surface-compact">
           <div className="metric-surface-compact-copy">
@@ -753,7 +899,7 @@ function OverviewSection({ agentId }: { agentId: string }) {
           </div>
         </article>
       </section>
-    </>
+    </div>
   )
 }
 
@@ -1272,6 +1418,21 @@ function SessionsSection({ agentId }: { agentId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [feedbackTone, setFeedbackTone] = useState<'status' | 'alert'>('status')
+  const [traceLinkTemplate, setTraceLinkTemplate] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.getTraceLinkConfig()
+      .then(cfg => {
+        if (!cancelled) setTraceLinkTemplate(cfg.template)
+      })
+      .catch(() => {
+        /* silently degrade — links won't render */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const groupedSessions = useMemo(() => {
     const byUser = new Map<string, SessionItem[]>()
@@ -1508,7 +1669,37 @@ function SessionsSection({ agentId }: { agentId: string }) {
           <div className="editor-sheet">
             <div className="session-detail-header">
               <div className="session-title-row">
-                <h2>{selected.first_message || selected.session_id}</h2>
+                <div className="session-title-block">
+                  <div className="session-title" title={selected.first_message || selected.session_id}>
+                    {selected.first_message || selected.session_id}
+                  </div>
+                  <div className="session-meta-row">
+                    <button
+                      className="session-meta-id"
+                      onClick={() => void copyText(selected.session_id)}
+                      type="button"
+                      title="Copy session id"
+                    >
+                      #{selected.session_id.slice(0, 8)}
+                      <CopyIcon />
+                    </button>
+                    {detail && (
+                      <span className="session-meta-item">
+                        {detail.messages.length} msg
+                      </span>
+                    )}
+                    <span
+                      className={`session-meta-trace ${traceLinkTemplate ? 'on' : 'off'}`}
+                      title={
+                        traceLinkTemplate
+                          ? 'Trace UI configured — deep links available'
+                          : 'TRACING env not set — no deep links to trace UI'
+                      }
+                    >
+                      trace: {traceLinkTemplate ? 'on' : 'off'}
+                    </span>
+                  </div>
+                </div>
                 <div className="session-actions">
                   <button
                     className="chip"
@@ -1518,7 +1709,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
                     disabled={!detail}
                   >
                     <DownloadIcon />
-                    Raw JSONL
+                    Raw
                   </button>
                   {canEdit && (
                     <button
@@ -1527,18 +1718,9 @@ function SessionsSection({ agentId }: { agentId: string }) {
                       type="button"
                       title="Edit raw JSONL"
                     >
-                      {editingRaw ? 'Close raw' : 'Edit raw'}
+                      {editingRaw ? 'Close edit' : 'Edit'}
                     </button>
                   )}
-                  <button
-                    aria-label="Copy session id"
-                    className="icon-action-button"
-                    onClick={() => void copyText(selected.session_id)}
-                    type="button"
-                    title="Copy session id"
-                  >
-                    <CopyIcon />
-                  </button>
                   <button
                     aria-label="Expand all"
                     className="icon-action-button"
@@ -1593,20 +1775,32 @@ function SessionsSection({ agentId }: { agentId: string }) {
                     const usage = (it.raw?.metadata?.usage ?? null) as
                       | { prompt_tokens?: number; completion_tokens?: number }
                       | null
+                    const md = !isTool ? ((it.metadata ?? {}) as Record<string, unknown>) : {}
+                    const traceObj = md['trace'] as { trace_id?: string } | undefined
+                    const traceId = traceObj?.trace_id
+                    const traceUrl =
+                      traceId && traceLinkTemplate
+                        ? makeTraceLinkResolver(traceLinkTemplate)(traceId)
+                        : null
+                    const traceReason = !traceLinkTemplate
+                      ? 'Tracing UI not configured — set TRACING env var (phoenix / langfuse / otlp) or STUDIO_TRACE_URL_TEMPLATE'
+                      : !traceId
+                        ? 'No trace_id captured for this message — TRACING was not active when this turn ran'
+                        : 'Trace available'
                     return (
                       <li className={`tlm-item ${it.kind} ${isOpen ? 'active' : ''}`} key={i}>
                         <div
-                          aria-expanded={isUser ? undefined : isOpen}
-                          className={`tlm-row ${isUser ? 'tlm-static' : ''}`}
-                          onClick={isUser ? undefined : () => setExpanded(e => ({ ...e, [i]: !e[i] }))}
-                          role={isUser ? undefined : 'button'}
-                          tabIndex={isUser ? -1 : 0}
-                          onKeyDown={isUser ? undefined : (event => {
+                          aria-expanded={isOpen}
+                          className="tlm-row"
+                          onClick={() => setExpanded(e => ({ ...e, [i]: !e[i] }))}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={event => {
                             if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault()
                               setExpanded(e => ({ ...e, [i]: !e[i] }))
                             }
-                          })}
+                          }}
                         >
                           <span className={`tlm-marker tlm-marker-${it.kind}${isTool && it.isError ? ' err' : ''}`} aria-hidden="true" />
                           <span className={`tlm-pill tlm-pill-${it.kind}`}>
@@ -1616,35 +1810,22 @@ function SessionsSection({ agentId }: { agentId: string }) {
                           <span className={`tlm-gutter ${isTool && it.isError ? 'err' : ''}`}>
                             {isTool ? (it.isError ? 'ERR' : 'OK') : zeropad(it.turn)}
                           </span>
-                          {!isUser && (
-                            <ChevronRightIcon className={`tlm-chevron ${isOpen ? 'open' : ''}`} />
-                          )}
+                          <ChevronRightIcon className={`tlm-chevron ${isOpen ? 'open' : ''}`} />
                         </div>
-                        {!isUser && isOpen && (
+                        {isOpen && (
                           <div className="tlm-detail">
                             {isTool ? (
                               <ToolDetail item={it} usage={usage} />
+                            ) : isUser ? (
+                              <UserDetail metadata={md} traceUrl={traceUrl} traceReason={traceReason} />
                             ) : isAssistant ? (
-                              <>
-                                {it.raw.thinking && (
-                                  <div className="dt-block">
-                                    <div className="dt-label">thinking</div>
-                                    <pre className="code-block compact">{it.raw.thinking}</pre>
-                                  </div>
-                                )}
-                                <div className="dt-block">
-                                  <div className="dt-label">prompt</div>
-                                  <div className="dt-empty">No prompt data available.</div>
-                                </div>
-                                {usage && (usage.prompt_tokens || usage.completion_tokens) && (
-                                  <div className="dt-row">
-                                    <div className="dt-label">tokens</div>
-                                    <div className="dt-value mono">
-                                      {usage.prompt_tokens ?? 0} in · {usage.completion_tokens ?? 0} out
-                                    </div>
-                                  </div>
-                                )}
-                              </>
+                              <AssistantDetail
+                                rawThinking={it.raw.thinking ?? null}
+                                metadata={md}
+                                usage={usage}
+                                traceUrl={traceUrl}
+                                traceReason={traceReason}
+                              />
                             ) : null}
                           </div>
                         )}
