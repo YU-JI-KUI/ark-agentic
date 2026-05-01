@@ -14,12 +14,11 @@
       --orange-light: #ff9752;
       --orange-pale: #fff0e6;
       --orange-bg: #fff7f0;
-      /* 外层画框 vs 主内容面：避免滚动区与背景糊成一片 */
+      /* 外层画框（仅 body）；主列内仍为原先暖色渐变 */
       --chrome-bg-start: #ddd9d5;
       --chrome-bg-end: #e8e4e0;
-      --surface-main: #fffdfb;
-      --surface-main-mid: #faf6f2;
-      --surface-main-end: #f5f1ed;
+      --bg-start: #fef0e8;
+      --bg-end: #fce8df;
       --white: #ffffff;
       --text: #222222;
       --text-secondary: #555555;
@@ -69,7 +68,7 @@
       flex-direction: column;
       position: relative;
       overflow: hidden;
-      background: linear-gradient(180deg, #ece9e5 0%, #e6e2de 100%);
+      background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 40%, #f8f0ec 100%);
       box-shadow:
         0 0 0 1px rgba(0, 0, 0, 0.04),
         0 12px 40px rgba(50, 35, 25, 0.12);
@@ -278,8 +277,6 @@
       overflow-y: auto;
       overflow-x: hidden;
       -webkit-overflow-scrolling: touch;
-      background: linear-gradient(180deg, var(--surface-main) 0%, var(--surface-main-mid) 45%, var(--surface-main-end) 100%);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
     }
 
     .scroll-content::-webkit-scrollbar {
@@ -686,8 +683,7 @@
    ============================================================ */
     .bottom-bar {
       flex-shrink: 0;
-      background: var(--surface-main-end);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+      background: transparent;
     }
 
     /* Quick pills */

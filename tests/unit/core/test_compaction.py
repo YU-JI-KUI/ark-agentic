@@ -49,6 +49,30 @@ class TestTokenEstimation:
         # Content + structure overhead (4)
         assert tokens >= 4
 
+    def test_estimate_tool_message_tokens_uses_a2ui_digest(self) -> None:
+        from ark_agentic.core.types import AgentMessage, AgentToolResult
+
+        big_components = [
+            {"type": "Card", "data": {"text": "保单信息" * 50, "amount": 99999}}
+            for _ in range(20)
+        ]
+        big_msg = AgentMessage.tool([
+            AgentToolResult.a2ui_result("tc_a2ui", big_components),
+        ])
+        assert estimate_message_tokens(big_msg) < 30
+
+    def test_estimate_tool_message_tokens_explicit_digest(self) -> None:
+        from ark_agentic.core.types import AgentMessage, AgentToolResult
+
+        msg = AgentMessage.tool([
+            AgentToolResult.json_result(
+                "tc_dig",
+                {"data": list(range(500))},
+                llm_digest="ok",
+            ),
+        ])
+        assert estimate_message_tokens(msg) < 15
+
 
 class TestAdaptiveChunking:
     """Tests for adaptive chunking."""

@@ -54,7 +54,6 @@ from .types import (
     ToolCall,
     ToolLoopAction,
     ToolResultType,
-    format_tool_result_for_history,
 )
 if TYPE_CHECKING:
     from .memory.manager import MemoryManager
@@ -1164,20 +1163,6 @@ class AgentRunner:
         )
         messages.append({"role": "system", "content": system_prompt})
 
-        # A2UI tool result 遮蔽：将大体积组件 payload 替换为极简标记，节省 token。
-        # arguments 保留原值，作为模型后续调用的 few-shot 示例。
-        _A2UI_TOOL = "render_a2ui"
-        a2ui_tc_ids: set[str] = set()
-        for msg in session.messages:
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    if tc.name == _A2UI_TOOL:
-                        a2ui_tc_ids.add(tc.id)
-            if msg.tool_results:
-                for tr in msg.tool_results:
-                    if tr.result_type == ToolResultType.A2UI:
-                        a2ui_tc_ids.add(tr.tool_call_id)
-
         # 历史消息
         for msg in session.messages:
             if msg.role == MessageRole.SYSTEM:
@@ -1214,9 +1199,7 @@ class AgentRunner:
                             {
                                 "role": "tool",
                                 "tool_call_id": tr.tool_call_id,
-                                "content": format_tool_result_for_history(
-                                    tr, a2ui_tc_ids,
-                                ),
+                                "content": tr.llm_digest,
                             }
                         )
 

@@ -142,8 +142,8 @@ def serialize_tool_result(tr: AgentToolResult) -> dict[str, Any]:
         "content": content,
         "is_error": tr.is_error,
     }
-    if tr.llm_digest is not None:
-        result["llm_digest"] = tr.llm_digest
+    if tr._llm_digest is not None:
+        result["llm_digest"] = tr._llm_digest
     return result
 
 

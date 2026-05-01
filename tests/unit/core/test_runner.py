@@ -709,48 +709,14 @@ async def test_non_a2ui_tool_call_args_not_redacted(tmp_sessions_dir: Path) -> N
     assert args["key"] == "important_value", "Non-A2UI tool args must not be redacted"
 
 
-@pytest.mark.asyncio
-async def test_a2ui_marker_by_name_not_result_type(tmp_sessions_dir: Path) -> None:
-    """A2UI tool result marker must work based on tool call name, not result_type.
-
-    Simulates a disk-reloaded session where result_type=A2UI was lost (deserialized as JSON).
-    The name-based check on the tool call must still apply the a2ui_emitted marker.
-    """
-    runner = _make_runner_with_a2ui(tmp_sessions_dir, responses=[])
-    session = runner.session_manager.create_session_sync()
-
-    # Use "render_a2ui" name to match the name-based check in _build_messages
-    tc = ToolCall(id="call_name_test", name="render_a2ui", arguments={"blocks": []})
-    assistant_msg = AgentMessage.assistant(content="", tool_calls=[tc])
-    session.add_message(assistant_msg)
-
-    # Simulate disk-reloaded result: result_type is JSON (not A2UI)
-    fake_result = AgentToolResult(
-        tool_call_id="call_name_test",
-        result_type=ToolResultType.JSON,
-        content={
-            "event": "beginRendering",
-            "surfaceId": "abc",
-            "components": [{"id": "x"}],
-        },
-    )
-    tool_msg = AgentMessage.tool([fake_result])
-    session.add_message(tool_msg)
-
-    messages = runner._build_messages(session.session_id, session.state)
-    tool_messages = [
-        m
-        for m in messages
-        if m["role"] == "tool" and m.get("tool_call_id") == "call_name_test"
-    ]
-
-    assert len(tool_messages) == 1
-    content = tool_messages[0]["content"]
-    assert content.startswith("[已向用户展示卡片"), (
-        "Must apply masking based on tool name, even when result_type is JSON"
-    )
-    assert "beginRendering" not in content
-    assert "surfaceId" not in content
+# NOTE: removed `test_a2ui_marker_by_name_not_result_type` — the name-based
+# shadow it covered was deliberately removed in the digest refactor. The new
+# contract is: only `tr.llm_digest` (explicit value or property fallback)
+# decides what the LLM sees, and the a2ui_result() factory always sets a
+# default digest so a real disk roundtrip will preserve the marker. The case
+# the old test simulated (manually constructed JSON result tagged as A2UI by
+# tool name only) is no longer a supported masking path. See
+# tests/unit/core/test_runner_build_messages.py for the replacement contract.
 
 
 class _FakeMemoryManager:

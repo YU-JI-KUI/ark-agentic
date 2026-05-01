@@ -76,7 +76,7 @@ def estimate_message_tokens(message: AgentMessage) -> int:
 
     if message.tool_results:
         for tr in message.tool_results:
-            tokens += estimate_tokens(str(tr.content))
+            tokens += estimate_tokens(tr.llm_digest)
 
     # 消息结构开销
     tokens += 4
