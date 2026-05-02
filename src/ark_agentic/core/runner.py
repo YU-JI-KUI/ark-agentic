@@ -164,6 +164,11 @@ class _LoopState:
     all_tool_calls: list[ToolCall] = field(default_factory=list)
     all_tool_results: list[AgentToolResult] = field(default_factory=list)
 
+    # 每轮 _run_turn 在 _build_messages/_build_tools 之后填充，
+    # _model_phase 写到 assistant 消息 metadata（sparse write）。
+    last_tools_mounted: list[str] = field(default_factory=list)
+    last_memory_used: int = 0
+
     def make_result(self, response: AgentMessage, **overrides: Any) -> RunResult:
         return RunResult(
             response=response,
@@ -448,7 +453,6 @@ class AgentRunner:
         # Pop display-only meta:* keys before they reach AgentMessage.metadata via
         # input_context. They re-enter under their proper top-level key names below.
         chat_request_meta = input_context.pop("meta:chat_request", None)
-        trace_correlation = input_context.pop("meta:trace_correlation", None)
 
         session = self.session_manager.get_session_required(session_id)
         session.user_id = user_id
@@ -469,9 +473,7 @@ class AgentRunner:
         if r and r.action == HookAction.ABORT:
             self._merge_input_context(session, input_context)
             user_message = AgentMessage.user(user_input, metadata=input_context)
-            self._augment_user_metadata(
-                user_message, chat_request_meta, trace_correlation
-            )
+            self._augment_user_metadata(user_message, chat_request_meta)
             self.session_manager.add_message_sync(session_id, user_message)
             resp = r.response or AgentMessage.assistant("")
             self.session_manager.add_message_sync(session_id, resp)
@@ -501,9 +503,7 @@ class AgentRunner:
                 logger.info("Merged %d external history message(s)", len(ops))
 
         user_message = AgentMessage.user(user_input, metadata=input_context)
-        self._augment_user_metadata(
-            user_message, chat_request_meta, trace_correlation
-        )
+        self._augment_user_metadata(user_message, chat_request_meta)
         self.session_manager.add_message_sync(session_id, user_message)
 
         if self.config.auto_compact:
@@ -532,21 +532,14 @@ class AgentRunner:
     def _augment_user_metadata(
         msg: AgentMessage,
         chat_request: dict[str, Any] | None,
-        trace_correlation: str | None,
     ) -> None:
-        """Display-only metadata for the Studio session-detail panel (spec §4.1)."""
-        from .observability import current_trace_id_or_none
+        """Display-only metadata for the Studio user-message panel.
 
+        Only `chat_request` lives here; trace correlation is observability
+        cross-cut surfaced via the assistant message's trace.trace_id link.
+        """
         if chat_request:
             msg.metadata["chat_request"] = chat_request
-
-        trace_id = current_trace_id_or_none()
-        if trace_id or trace_correlation:
-            trace_obj: dict[str, Any] = msg.metadata.setdefault("trace", {})
-            if trace_id:
-                trace_obj["trace_id"] = trace_id
-            if trace_correlation:
-                trace_obj["correlation_id"] = trace_correlation
 
     async def _finalize_run(
         self,
@@ -828,6 +821,17 @@ class AgentRunner:
             session=session,
         )
         tools = self._build_tools(state=state, session=session)
+
+        # Capture per-turn build outputs for the Studio session-detail UI.
+        # `_memory_lines` is set as a side channel by _build_system_prompt;
+        # pop it so it doesn't leak to the next turn or the LLM.
+        ls.last_tools_mounted = [
+            (t.get("function", {}).get("name") or t.get("name") or "")
+            for t in tools
+        ]
+        ls.last_tools_mounted = [n for n in ls.last_tools_mounted if n]
+        ls.last_memory_used = int(state.pop("_memory_lines", 0) or 0)
+
         logger.info(
             "Turn %d | messages=%d tools=%d model=%s",
             ls.turns,
@@ -1004,6 +1008,16 @@ class AgentRunner:
         trace_id = current_trace_id_or_none()
         if trace_id:
             response.metadata.setdefault("trace", {})["trace_id"] = trace_id
+        if ls.last_tools_mounted:
+            response.metadata["tools_mounted"] = list(ls.last_tools_mounted)
+        if self._memory_manager is not None:
+            # Always record line count (including 0) so Studio can distinguish
+            # "profile empty this turn" from "memory feature not configured".
+            response.metadata["memory_used"] = int(ls.last_memory_used)
+        if cb_ctx is not None:
+            router_decision = cb_ctx.metadata.pop("_router_decision", None)
+            if router_decision is not None:
+                response.metadata["router_decision"] = router_decision
 
         usage = response.metadata.get("usage", {})
         turn_prompt = usage.get("prompt_tokens", 0)
@@ -1094,7 +1108,11 @@ class AgentRunner:
         else:
             tool_results = await self._tool_executor.execute(
                 tool_calls,
-                {**state, "session_id": session_id},
+                {
+                    **state,
+                    "session_id": session_id,
+                    "_active_skill_id": session.current_active_skill_id,
+                },
                 handler=handler,
             )
 
@@ -1299,6 +1317,13 @@ class AgentRunner:
                 current or "<none>", decision.skill_id, decision.reason,
             )
 
+        # Stash for assistant-message metadata; popped once by _model_phase so
+        # only the first assistant message of the run carries router_decision.
+        cb_ctx.metadata["_router_decision"] = {
+            "skill_id": decision.skill_id,
+            "reason": decision.reason,
+        }
+
         add_span_attributes({
             "ark.router.candidate_count": len(candidates),
             "ark.router.decision": decision.skill_id or "none",
@@ -1382,6 +1407,12 @@ class AgentRunner:
                     )
                 except Exception:
                     pass
+
+        # Side channel for _run_turn → _LoopState.last_memory_used; popped on
+        # read so it never reaches the LLM or persists across turns.
+        state["_memory_lines"] = (
+            len(profile_content.splitlines()) if profile_content else 0
+        )
 
         flow_hint = state.get("_flow_hint", "")
 

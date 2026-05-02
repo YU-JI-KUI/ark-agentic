@@ -1,4 +1,8 @@
-"""Unit tests for LLMCaller metadata enrichment (model_used, sampling, latency_ms)."""
+"""Unit tests for LLMCaller metadata enrichment (model_used, latency_ms).
+
+Sampling fields (temperature, top_p) are intentionally not stored — see
+caller.py:_attach_call_metadata for rationale.
+"""
 
 from __future__ import annotations
 
@@ -40,20 +44,8 @@ async def test_call_writes_model_used_and_latency() -> None:
 
 
 @pytest.mark.asyncio
-async def test_call_writes_sampling_when_attrs_present() -> None:
+async def test_call_does_not_write_sampling() -> None:
     llm = _make_llm(temperature=0.7, top_p=0.9)
-    llm.ainvoke = AsyncMock(return_value=AIMessage(content="hi"))
-    caller = LLMCaller(llm)
-    msg = await caller.call([], [])
-    assert msg.metadata["sampling"] == {"temperature": 0.7, "top_p": 0.9}
-
-
-@pytest.mark.asyncio
-async def test_call_omits_sampling_when_attrs_absent() -> None:
-    llm = MagicMock(spec=["model", "bind_tools", "model_copy", "ainvoke"])
-    llm.model = "m"
-    llm.bind_tools = MagicMock(side_effect=lambda *a, **k: llm)
-    llm.model_copy = MagicMock(side_effect=lambda update=None: llm)
     llm.ainvoke = AsyncMock(return_value=AIMessage(content="hi"))
     caller = LLMCaller(llm)
     msg = await caller.call([], [])
@@ -72,6 +64,6 @@ async def test_call_streaming_writes_metadata() -> None:
     caller = LLMCaller(llm)
     msg = await caller.call_streaming([], [])
     assert msg.metadata["model_used"] == "stream-model"
-    assert msg.metadata["sampling"] == {"temperature": 0.3, "top_p": 1.0}
+    assert "sampling" not in msg.metadata
     assert msg.metadata["latency_ms"] >= 0
     assert "finish_reason" in msg.metadata

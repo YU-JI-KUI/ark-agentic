@@ -134,6 +134,40 @@ async def test_executor_parallel_returns_all_results_including_stop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_executor_records_duration_ms_on_result() -> None:
+    """Every tool result carries a per-call latency in metadata."""
+    reg = ToolRegistry()
+    reg.register(_EchoTool())
+    ex = ToolExecutor(reg, timeout=5.0, max_calls_per_turn=5)
+    out = await ex.execute([ToolCall.create("echo", {})], {})
+    assert "duration_ms" in out[0].metadata
+    assert isinstance(out[0].metadata["duration_ms"], int)
+    assert out[0].metadata["duration_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_executor_records_owning_skill_when_active() -> None:
+    """When ctx carries _active_skill_id, it lands on the result metadata."""
+    reg = ToolRegistry()
+    reg.register(_EchoTool())
+    ex = ToolExecutor(reg, timeout=5.0, max_calls_per_turn=5)
+    out = await ex.execute(
+        [ToolCall.create("echo", {})],
+        {"_active_skill_id": "skill_x"},
+    )
+    assert out[0].metadata["owning_skill"] == "skill_x"
+
+
+@pytest.mark.asyncio
+async def test_executor_omits_owning_skill_when_none_active() -> None:
+    reg = ToolRegistry()
+    reg.register(_EchoTool())
+    ex = ToolExecutor(reg, timeout=5.0, max_calls_per_turn=5)
+    out = await ex.execute([ToolCall.create("echo", {})], {})
+    assert "owning_skill" not in out[0].metadata
+
+
+@pytest.mark.asyncio
 async def test_executor_dispatches_events_to_handler() -> None:
     from ark_agentic.core.types import CustomToolEvent
 

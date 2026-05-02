@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import uuid
 from typing import Any, AsyncIterator
 
@@ -26,28 +25,24 @@ router = APIRouter()
 
 
 def build_chat_request_meta(
-    request: ChatRequest, *, message_id: str, store_correlation: bool
+    request: ChatRequest, *, message_id: str
 ) -> dict[str, Any]:
     """Sparse summary of ChatRequest fields for the Studio session-detail UI.
 
-    Display-only — see spec §4.1. Only stores fields that differ from
-    documented defaults. ``store_correlation`` gates the privacy-sensitive
-    ``idempotency_key`` field.
+    Keeps only fields that change agent behaviour for this turn. Static config
+    (``stream``, ``protocol``) and observability (``idempotency_key``,
+    ``trace_id``) are intentionally omitted — they belong in the Langfuse
+    monitoring dashboard, not the per-session timeline.
     """
-    meta: dict[str, Any] = {"agent_id": request.agent_id, "message_id": message_id}
+    meta: dict[str, Any] = {"message_id": message_id}
 
     if request.run_options is not None:
-        meta["has_run_options"] = True
         if request.run_options.model:
             meta["model"] = request.run_options.model
         provider = getattr(request.run_options, "provider", None)
         if provider:
             meta["provider"] = provider
 
-    if request.stream:
-        meta["stream"] = True
-    if request.protocol and request.protocol != "internal":
-        meta["protocol"] = request.protocol
     if request.source_bu_type:
         meta["source_bu_type"] = request.source_bu_type
     if request.app_type:
@@ -56,16 +51,8 @@ def build_chat_request_meta(
         meta["use_history"] = False
     if request.history:
         meta["external_history_count"] = len(request.history)
-    if store_correlation and request.idempotency_key:
-        meta["idempotency_key"] = request.idempotency_key
 
     return meta
-
-
-def _store_trace_correlation_enabled() -> bool:
-    return os.getenv("STUDIO_STORE_TRACE_CORRELATION", "").lower() in (
-        "1", "true", "yes",
-    )
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -102,12 +89,9 @@ async def chat(
     input_context["temp:message_id"] = message_id
 
     # ── display-only metadata for Studio session-detail UI ──
-    store_correlation = _store_trace_correlation_enabled()
     input_context["meta:chat_request"] = build_chat_request_meta(
-        request, message_id=message_id, store_correlation=store_correlation
+        request, message_id=message_id
     )
-    if store_correlation and x_ark_trace_id:
-        input_context["meta:trace_correlation"] = x_ark_trace_id
 
     # ── resolve session_id ──
     session_id = request.session_id or x_ark_session_id

@@ -145,6 +145,9 @@ type TimelineItem =
       toolCallId: string
       sub: number
       raw: MessageItem
+      preamble?: string
+      owningSkill?: string
+      durationMs?: number
     })
 
 function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
@@ -166,7 +169,14 @@ function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
     if (message.role === 'tool') continue
 
     turnIdx += 1
-    if (message.content) {
+    const calls = message.tool_calls ?? []
+
+    // When the assistant returns content alongside tool_calls, the text is a
+    // preamble for the call ("Sure, let me look that up.") — fold it into the
+    // first tool item rather than emit a phantom assistant bubble. The wire
+    // format keeps message.content intact so LLM history reconstruction is
+    // unaffected.
+    if (message.content && calls.length === 0) {
       items.push({
         kind: message.role === 'user' ? 'user' : 'assistant',
         role: message.role,
@@ -177,9 +187,11 @@ function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
       })
     }
 
-    const calls = message.tool_calls ?? []
     calls.forEach((call, sub) => {
       const result = resultsByCallId.get(call.id)
+      const md = (result?.metadata ?? {}) as Record<string, unknown>
+      const owningSkill = typeof md.owning_skill === 'string' ? md.owning_skill : undefined
+      const durationMs = typeof md.duration_ms === 'number' ? md.duration_ms : undefined
       items.push({
         kind: 'tool',
         name: call.name,
@@ -192,6 +204,9 @@ function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
         sub,
         turn: turnIdx,
         raw: message,
+        preamble: sub === 0 && message.content ? message.content : undefined,
+        owningSkill,
+        durationMs,
       })
     })
   }
@@ -346,24 +361,98 @@ function UserDetail({
   traceUrl: string | null
   traceReason: string
 }) {
+  const [historyOpen, setHistoryOpen] = useState(false)
   const chatRequest = (metadata['chat_request'] ?? null) as
     | Record<string, unknown>
     | null
-  const hasChatRequest =
-    !!chatRequest && typeof chatRequest === 'object' && Object.keys(chatRequest).length > 0
+
+  const messageId = chatRequest?.message_id as string | undefined
+  const sourceBu = chatRequest?.source_bu_type as string | undefined
+  const appType = chatRequest?.app_type as string | undefined
+  const externalHistoryCount = chatRequest?.external_history_count as number | undefined
+  const useHistory = chatRequest?.use_history as boolean | undefined
+  const overrideModel = chatRequest?.model as string | undefined
+  const overrideProvider = chatRequest?.provider as string | undefined
+
+  const callerChips: { key: string; label: string }[] = []
+  if (sourceBu) callerChips.push({ key: 'bu', label: sourceBu })
+  if (appType) callerChips.push({ key: 'app', label: appType })
+
+  const overrideChips: { key: string; label: string }[] = []
+  if (overrideModel) overrideChips.push({ key: 'model', label: `model=${overrideModel}` })
+  if (overrideProvider) overrideChips.push({ key: 'provider', label: `provider=${overrideProvider}` })
+
+  const hasAnyField =
+    !!messageId || callerChips.length > 0 || overrideChips.length > 0 ||
+    typeof externalHistoryCount === 'number' || useHistory === false
+
   return (
     <>
       <div className="dt-toolbar">
         <TraceLinkButton url={traceUrl} reason={traceReason} />
       </div>
-      {hasChatRequest ? (
-        <div className="dt-block">
-          <div className="dt-label">chat request</div>
-          <div className="tool-output-tree">
-            <JsonValue value={chatRequest} />
+
+      {messageId && (
+        <div className="dt-row dt-row-message-id">
+          <div className="dt-label">message_id</div>
+          <div className="dt-value mono dt-message-id-value" title={messageId}>
+            <code className="dt-message-id-code">{messageId}</code>
+            <CopyButton value={messageId} title="message_id" />
           </div>
         </div>
-      ) : (
+      )}
+
+      {callerChips.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">caller</div>
+          <div className="dt-value">
+            {callerChips.map(c => <span className="chip" key={c.key}>{c.label}</span>)}
+          </div>
+        </div>
+      )}
+
+      {overrideChips.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">overrides</div>
+          <div className="dt-value">
+            {overrideChips.map(c => <span className="chip" key={c.key}>{c.label}</span>)}
+          </div>
+        </div>
+      )}
+
+      {typeof externalHistoryCount === 'number' && externalHistoryCount > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">history</div>
+          <div className="dt-value">
+            <button
+              className="chip"
+              onClick={() => setHistoryOpen(prev => !prev)}
+              type="button"
+              title="Show injected history messages"
+            >
+              {externalHistoryCount} {externalHistoryCount === 1 ? 'message' : 'messages'} injected
+              {historyOpen ? ' ▾' : ' ▸'}
+            </button>
+            {historyOpen && (
+              <div className="dt-empty" style={{ marginTop: 6 }}>
+                History payload is not stored on the session. Inspect the originating call
+                in the trace dashboard to view the injected messages.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {useHistory === false && (
+        <div className="dt-row">
+          <div className="dt-label">history</div>
+          <div className="dt-value">
+            <span className="chip chip-error">use_history=false</span>
+          </div>
+        </div>
+      )}
+
+      {!hasAnyField && (
         <div className="dt-empty">No request metadata captured for this message.</div>
       )}
     </>
@@ -373,26 +462,30 @@ function UserDetail({
 function AssistantDetail({
   rawThinking,
   metadata,
-  usage,
   traceUrl,
   traceReason,
 }: {
   rawThinking: string | null
   metadata: Record<string, unknown>
-  usage: { prompt_tokens?: number; completion_tokens?: number } | null
   traceUrl: string | null
   traceReason: string
 }) {
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const toolsMounted = (metadata['tools_mounted'] ?? []) as string[]
+  const toolsPreviewCount = 5
+
   const modelUsed = metadata['model_used'] as string | undefined
-  const sampling = (metadata['sampling'] ?? {}) as Record<string, unknown>
   const latencyMs = metadata['latency_ms'] as number | undefined
   const finishReason = metadata['finish_reason'] as string | undefined
   const activeSkills = (metadata['active_skill_ids'] ?? []) as string[]
+  const memoryUsedRaw = metadata['memory_used']
+  const memoryLineCount = typeof memoryUsedRaw === 'number' ? memoryUsedRaw : undefined
+  const routerDecision = metadata['router_decision'] as
+    | { skill_id?: string | null; reason?: string }
+    | undefined
 
   const runChips: string[] = []
   if (modelUsed) runChips.push(modelUsed)
-  if ('temperature' in sampling) runChips.push(`temp=${sampling.temperature}`)
-  if ('top_p' in sampling) runChips.push(`top_p=${sampling.top_p}`)
   if (typeof latencyMs === 'number') runChips.push(`${latencyMs}ms`)
   if (finishReason) runChips.push(finishReason)
 
@@ -401,6 +494,31 @@ function AssistantDetail({
       <div className="dt-toolbar">
         <TraceLinkButton url={traceUrl} reason={traceReason} />
       </div>
+
+      {activeSkills.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">active skill</div>
+          <div className="dt-value">
+            {activeSkills.map(s => (
+              <span className="chip" key={s}>{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {routerDecision && (
+        <div className="dt-row">
+          <div className="dt-label">router</div>
+          <div className="dt-value">
+            <span className="chip">{routerDecision.skill_id ?? '(no change)'}</span>
+            {routerDecision.reason && (
+              <span className="dt-value mono" style={{ marginLeft: 8 }}>
+                {routerDecision.reason}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {rawThinking && (
         <div className="dt-block">
@@ -416,35 +534,54 @@ function AssistantDetail({
         </div>
       )}
 
-      {activeSkills.length > 0 && (
+      {memoryLineCount !== undefined && (
         <div className="dt-row">
-          <div className="dt-label">skills</div>
+          <div className="dt-label">memory</div>
           <div className="dt-value">
-            {activeSkills.map(s => (
-              <span className="chip" key={s}>{s}</span>
-            ))}
+            {memoryLineCount > 0 ? (
+              <span className="mono">
+                {memoryLineCount} {memoryLineCount === 1 ? 'line' : 'lines'} from user profile
+              </span>
+            ) : (
+              <span>None injected this turn (empty or unavailable profile)</span>
+            )}
+            <div className="dt-empty" style={{ marginTop: 4, fontSize: 11.5 }}>
+              Injected text and full prompt: use <strong>View in trace</strong> above.
+            </div>
           </div>
         </div>
       )}
 
-      {usage && (usage.prompt_tokens || usage.completion_tokens) ? (
+      {toolsMounted.length > 0 && (
         <div className="dt-row">
-          <div className="dt-label">tokens</div>
-          <div className="dt-value mono">
-            {usage.prompt_tokens ?? 0} in · {usage.completion_tokens ?? 0} out
+          <div className="dt-label">tools mounted</div>
+          <div className="dt-value dt-tools-mounted-value">
+            <div className="dt-tools-inline">
+              {(toolsOpen ? toolsMounted : toolsMounted.slice(0, toolsPreviewCount)).map(
+                t => <span className="chip" key={t}>{t}</span>,
+              )}
+              {toolsMounted.length > toolsPreviewCount && (
+                <button
+                  className="chip dt-tools-toggle"
+                  onClick={() => setToolsOpen(prev => !prev)}
+                  type="button"
+                  title={toolsOpen ? 'Show fewer' : 'Show all tool names'}
+                >
+                  {toolsOpen ? '▾' : `+${toolsMounted.length - toolsPreviewCount} ▸`}
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      ) : null}
+      )}
     </>
   )
 }
 
 function ToolDetail({
   item,
-  usage,
 }: {
   item: Extract<TimelineItem, { kind: 'tool' }>
-  usage: { prompt_tokens?: number; completion_tokens?: number } | null
 }) {
   const [showRaw, setShowRaw] = useState(false)
   const parsedResult = tryParseJson(item.result)
@@ -456,6 +593,13 @@ function ToolDetail({
         <span className={`chip chip-result chip-result-${resultLabel}`}>{resultLabel}</span>
         {item.isError && <span className="chip chip-error">error</span>}
       </div>
+
+      {item.preamble && (
+        <div className="dt-block">
+          <div className="dt-label">preamble</div>
+          <pre className="code-block compact">{item.preamble}</pre>
+        </div>
+      )}
 
       {item.llmDigest && (
         <div className="dt-block">
@@ -502,10 +646,16 @@ function ToolDetail({
           <dt>turn</dt>
           <dd>{zeropad(item.turn)}</dd>
         </div>
-        {usage && (usage.prompt_tokens || usage.completion_tokens) && (
+        {item.owningSkill && (
           <div className="tool-meta-item">
-            <dt>tokens</dt>
-            <dd>{usage.prompt_tokens ?? 0} in · {usage.completion_tokens ?? 0} out</dd>
+            <dt>owning skill</dt>
+            <dd>{item.owningSkill}</dd>
+          </div>
+        )}
+        {typeof item.durationMs === 'number' && (
+          <div className="tool-meta-item">
+            <dt>duration</dt>
+            <dd>{item.durationMs}ms</dd>
           </div>
         )}
       </dl>
@@ -621,11 +771,11 @@ export default function AgentWorkspacePage() {
         </nav>
       </section>
 
-      {activeSection === 'overview' && <OverviewSection agentId={agentId} />}
-      {activeSection === 'skills' && <SkillsSection agentId={agentId} />}
-      {activeSection === 'tools' && <ToolsSection agentId={agentId} />}
-      {activeSection === 'sessions' && <SessionsSection agentId={agentId} />}
-      {activeSection === 'memory' && <MemorySection agentId={agentId} />}
+      {activeSection === 'overview' && <OverviewSection key={agentId} agentId={agentId} />}
+      {activeSection === 'skills' && <SkillsSection key={agentId} agentId={agentId} />}
+      {activeSection === 'tools' && <ToolsSection key={agentId} agentId={agentId} />}
+      {activeSection === 'sessions' && <SessionsSection key={agentId} agentId={agentId} />}
+      {activeSection === 'memory' && <MemorySection key={agentId} agentId={agentId} />}
     </div>
   )
 }
@@ -1648,9 +1798,6 @@ function SessionsSection({ agentId }: { agentId: string }) {
       </div>
 
       <div className="workspace-surface split-detail session-detail-panel">
-        <div className="surface-heading">
-          <span>Session Detail</span>
-        </div>
         <div aria-atomic="true" aria-live="polite" className="sr-only">
           {detailLoading
             ? 'Loading session detail'
@@ -1777,9 +1924,6 @@ function SessionsSection({ agentId }: { agentId: string }) {
                     const isAssistant = it.kind === 'assistant'
                     const isTool = it.kind === 'tool'
                     const summary = isTool ? it.name : summarizeText(it.text)
-                    const usage = (it.raw?.metadata?.usage ?? null) as
-                      | { prompt_tokens?: number; completion_tokens?: number }
-                      | null
                     const md = !isTool ? ((it.metadata ?? {}) as Record<string, unknown>) : {}
                     const traceObj = md['trace'] as { trace_id?: string } | undefined
                     const traceId = traceObj?.trace_id
@@ -1820,14 +1964,13 @@ function SessionsSection({ agentId }: { agentId: string }) {
                         {isOpen && (
                           <div className="tlm-detail">
                             {isTool ? (
-                              <ToolDetail item={it} usage={usage} />
+                              <ToolDetail item={it} />
                             ) : isUser ? (
                               <UserDetail metadata={md} traceUrl={traceUrl} traceReason={traceReason} />
                             ) : isAssistant ? (
                               <AssistantDetail
                                 rawThinking={it.raw.thinking ?? null}
                                 metadata={md}
-                                usage={usage}
                                 traceUrl={traceUrl}
                                 traceReason={traceReason}
                               />

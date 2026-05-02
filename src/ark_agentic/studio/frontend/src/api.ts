@@ -186,6 +186,7 @@ export interface MessageItem {
         is_error?: boolean
         result_type?: string
         llm_digest?: string | null
+        metadata?: Record<string, unknown> | null
     }> | null
     thinking?: string | null
     metadata?: Record<string, unknown> | null

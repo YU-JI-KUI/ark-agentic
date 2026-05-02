@@ -1234,7 +1234,6 @@ pre.code-block {
 
 /* Detail header */
 .session-detail-panel { overflow: hidden; }
-.session-detail-panel > .surface-heading { flex-shrink: 0; }
 .session-detail-panel .editor-sheet {
   overflow: hidden;
   padding: 0;
@@ -1961,6 +1960,22 @@ pre.code-block {
   font-size: 10px;
   color: var(--ink-4);
   letter-spacing: 0.04em;
+}
+
+.studio-nav-footer {
+  flex-shrink: 0;
+  padding: 8px 0 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.studio-nav-footer .nav-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--ink-3);
+}
+.studio-nav-footer .nav-item.active svg {
+  color: var(--accent);
 }
 
 /* Agent radar — group pill */
@@ -2813,6 +2828,31 @@ pre.code-block {
   gap: 10px;
   padding: 4px 0;
   font-size: 12px;
+}
+.dt-row-message-id {
+  align-items: center;
+}
+.dt-row-message-id .dt-message-id-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dt-message-id-code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dt-tools-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dt-tools-inline .dt-tools-toggle {
+  flex-shrink: 0;
 }
 .dt-label {
   font-family: var(--mono);

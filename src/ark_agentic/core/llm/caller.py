@@ -66,24 +66,13 @@ def _attach_call_metadata(
 ) -> None:
     """Display-only metadata derived from a single LLM round-trip.
 
-    Sparse: ``sampling`` is omitted when the underlying LLM doesn't expose
-    ``temperature`` / ``top_p`` attributes. Type-guarded so that loosely-typed
-    test doubles (e.g. ``MagicMock``) don't leak unserialisable attrs into the
-    metadata dict. Not consumed by runtime — see spec §9.
+    Records the model used and the per-call latency. Static sampling
+    config (temperature, top_p) is intentionally not stored — it belongs in
+    the Langfuse monitoring dashboard, not in the per-session timeline.
     """
     model_attr = getattr(llm, "model", None)
     if isinstance(model_attr, str) and model_attr:
         msg.metadata["model_used"] = model_attr
-
-    sampling: dict[str, Any] = {}
-    temperature = getattr(llm, "temperature", None)
-    if isinstance(temperature, (int, float)) and not isinstance(temperature, bool):
-        sampling["temperature"] = temperature
-    top_p = getattr(llm, "top_p", None)
-    if isinstance(top_p, (int, float)) and not isinstance(top_p, bool):
-        sampling["top_p"] = top_p
-    if sampling:
-        msg.metadata["sampling"] = sampling
 
     msg.metadata["latency_ms"] = int((t_end - t_start) * 1000)
 

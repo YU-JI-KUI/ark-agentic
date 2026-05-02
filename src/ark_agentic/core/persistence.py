@@ -144,6 +144,8 @@ def serialize_tool_result(tr: AgentToolResult) -> dict[str, Any]:
     }
     if tr._llm_digest is not None:
         result["llm_digest"] = tr._llm_digest
+    if tr.metadata:
+        result["metadata"] = tr.metadata
     return result
 
 
@@ -182,6 +184,7 @@ def deserialize_tool_result(data: dict[str, Any]) -> AgentToolResult:
         result_type=result_type,
         content=content,
         is_error=is_error,
+        metadata=data.get("metadata") or None,
         llm_digest=data.get("llm_digest"),
     )
 

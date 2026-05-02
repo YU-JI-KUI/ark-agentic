@@ -32,8 +32,6 @@ data/ark_sessions
 .*/
 
 
-# Claude
-CLAUDE.md
 .agent/
 .claude/
 .continue/

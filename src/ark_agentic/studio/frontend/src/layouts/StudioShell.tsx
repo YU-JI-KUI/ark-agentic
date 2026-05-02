@@ -6,12 +6,13 @@ import DecisionDock from '../components/DecisionDock'
 import ThemeToggle from '../components/ThemeToggle'
 import {
   LogoutIcon,
-  MoreIcon,
+  OverviewIcon,
   PlusIcon,
   RefreshIcon,
   RobotIcon,
   SearchIcon,
   SparkIcon,
+  UsersIcon,
 } from '../components/StudioIcons'
 
 export interface StudioShellContextValue {
@@ -198,42 +199,6 @@ export default function StudioShell() {
 
           <div className="side-section">
             <div className="side-label">
-              <span>Workspace</span>
-              <div className="side-label-actions">
-                <button
-                  aria-label="Workspace menu"
-                  className="icon-action-button"
-                  type="button"
-                  disabled
-                  title="即将推出"
-                >
-                  <MoreIcon />
-                </button>
-              </div>
-            </div>
-            <NavLink
-              aria-label="Workspace dashboard"
-              className={({ isActive }) => `nav-item ${isActive && pathname === '/' ? 'active' : ''}`}
-              to="/"
-              end
-            >
-              <span className="nav-item-shortcut">↗</span>
-              <span>Dashboard</span>
-            </NavLink>
-            {canUseUsers && (
-              <NavLink
-                aria-label="Users"
-                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                to="/users"
-              >
-                <span className="nav-item-shortcut">↗</span>
-                <span>Users</span>
-              </NavLink>
-            )}
-          </div>
-
-          <div className="side-section">
-            <div className="side-label">
               <span>Agents · {agents.length}</span>
               <div className="side-label-actions">
                 <button
@@ -296,6 +261,24 @@ export default function StudioShell() {
               )
             })}
           </div>
+
+          <nav aria-label="Studio navigation" className="studio-nav-footer">
+            <NavLink
+              aria-label="Dashboard"
+              className={({ isActive }) => `nav-item ${isActive && pathname === '/' ? 'active' : ''}`}
+              to="/"
+              end
+            >
+              <OverviewIcon />
+              <span>Dashboard</span>
+            </NavLink>
+            {canUseUsers && (
+              <NavLink aria-label="Users" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} to="/users">
+                <UsersIcon />
+                <span>Users</span>
+              </NavLink>
+            )}
+          </nav>
         </aside>
 
         <div className="studio-workspace">
