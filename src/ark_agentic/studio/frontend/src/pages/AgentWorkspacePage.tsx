@@ -396,8 +396,10 @@ function UserDetail({
         <div className="dt-row dt-row-message-id">
           <div className="dt-label">message_id</div>
           <div className="dt-value mono dt-message-id-value" title={messageId}>
-            <code className="dt-message-id-code">{messageId}</code>
-            <CopyButton value={messageId} title="message_id" />
+            <span className="dt-message-id-cluster">
+              <code className="dt-message-id-code">{messageId}</code>
+              <CopyButton value={messageId} title="message_id" />
+            </span>
           </div>
         </div>
       )}
@@ -541,13 +543,20 @@ function AssistantDetail({
             {memoryLineCount > 0 ? (
               <span className="mono">
                 {memoryLineCount} {memoryLineCount === 1 ? 'line' : 'lines'} from user profile
+                <span className="dt-memory-hint">
+                  {' '}
+                  — Injected text and full prompt: use <strong>View in trace</strong>.
+                </span>
               </span>
             ) : (
-              <span>None injected this turn (empty or unavailable profile)</span>
+              <span>
+                None injected this turn (empty or unavailable profile)
+                <span className="dt-memory-hint">
+                  {' '}
+                  — Injected text and full prompt: use <strong>View in trace</strong>.
+                </span>
+              </span>
             )}
-            <div className="dt-empty" style={{ marginTop: 4, fontSize: 11.5 }}>
-              Injected text and full prompt: use <strong>View in trace</strong> above.
-            </div>
           </div>
         </div>
       )}
@@ -638,7 +647,7 @@ function ToolDetail({
       </div>
 
       <dl className="tool-meta">
-        <div className="tool-meta-item">
+        <div className="tool-meta-item tool-meta-item-tool-call-id">
           <dt>tool_call_id</dt>
           <dd><code>{item.toolCallId || '—'}</code></dd>
         </div>
