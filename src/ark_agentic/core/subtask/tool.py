@@ -125,8 +125,6 @@ class SpawnSubtasksTool(AgentTool):
         )
 
         merged_state_delta: dict[str, Any] = {}
-        total_prompt = 0
-        total_completion = 0
         subtask_results: list[dict[str, Any]] = []
 
         for r in results:
@@ -140,15 +138,6 @@ class SpawnSubtasksTool(AgentTool):
                             k, merged_state_delta[k], v,
                         )
                     merged_state_delta[k] = v
-            total_prompt += r.get("prompt_tokens", 0)
-            total_completion += r.get("completion_tokens", 0)
-
-        if parent_session_id:
-            self._session_manager.update_token_usage(
-                parent_session_id,
-                prompt_tokens=total_prompt,
-                completion_tokens=total_completion,
-            )
 
         metadata: dict[str, Any] = {}
         if merged_state_delta:
@@ -272,7 +261,6 @@ class SpawnSubtasksTool(AgentTool):
                 "turns": result.turns,
                 "tools_called": tools_called,
                 "tool_calls_count": result.tool_calls_count,
-                "token_usage": {"prompt": result.prompt_tokens, "completion": result.completion_tokens},
                 "duration_ms": elapsed_ms,
             }
 
@@ -292,8 +280,6 @@ class SpawnSubtasksTool(AgentTool):
             return {
                 "payload": payload,
                 "state_delta": state_delta,
-                "prompt_tokens": result.prompt_tokens,
-                "completion_tokens": result.completion_tokens,
                 "label": label,
                 "transcript": transcript,
             }

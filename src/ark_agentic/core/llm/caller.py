@@ -61,21 +61,6 @@ def _tool_calls_from_lc_raw(raw: list[Any]) -> list[ToolCall]:
     return out
 
 
-def _attach_call_metadata(
-    msg: AgentMessage, llm: Any, t_start: float, t_end: float
-) -> None:
-    """Display-only metadata derived from a single LLM round-trip.
-
-    Records the model used and the per-call latency. Static sampling
-    config (temperature, top_p) is intentionally not stored — it belongs in
-    the Langfuse monitoring dashboard, not in the per-session timeline.
-    """
-    model_attr = getattr(llm, "model", None)
-    if isinstance(model_attr, str) and model_attr:
-        msg.metadata["model_used"] = model_attr
-
-    msg.metadata["latency_ms"] = int((t_end - t_start) * 1000)
-
 
 class LLMCaller:
     """LLM 调用封装（SRP: 只负责 LLM 交互与消息转换）。"""
@@ -148,7 +133,6 @@ class LLMCaller:
         )
         t_end = time.monotonic()
         msg = self._ai_message_to_agent_message(ai_msg)
-        _attach_call_metadata(msg, llm, t_start, t_end)
         return msg
 
     async def call_streaming(
@@ -256,10 +240,7 @@ class LLMCaller:
 
         t_end = time.monotonic()
         msg = AgentMessage.assistant(content=full_content, tool_calls=parsed_tool_calls)
-        msg.metadata["finish_reason"] = finish_reason
-        if usage:
-            msg.metadata["usage"] = usage
-        _attach_call_metadata(msg, llm, t_start, t_end)
+        msg.finish_reason = finish_reason
 
         logger.debug(
             "[LLM_STREAM_DONE] content=%dB tools=%d",
@@ -282,13 +263,6 @@ class LLMCaller:
         msg = AgentMessage.assistant(content=content, tool_calls=tool_calls)
 
         rm = getattr(ai_msg, "response_metadata", {}) or {}
-        msg.metadata["finish_reason"] = rm.get("finish_reason", "stop")
-
-        um = getattr(ai_msg, "usage_metadata", None)
-        if um:
-            msg.metadata["usage"] = {
-                "prompt_tokens": um.get("input_tokens", 0),
-                "completion_tokens": um.get("output_tokens", 0),
-            }
+        msg.finish_reason = rm.get("finish_reason", "stop")
 
         return msg

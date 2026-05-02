@@ -23,7 +23,7 @@ if sys.platform != "win32":
 else:
     fcntl = None  # type: ignore
 
-from .types import AgentMessage, AgentToolResult, MessageRole, ToolCall, ToolResultType
+from .types import AgentMessage, AgentToolResult, MessageRole, ToolCall, ToolResultType, TurnContext
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +215,14 @@ def serialize_message(msg: AgentMessage) -> dict[str, Any]:
     if msg.metadata:
         result["metadata"] = msg.metadata
 
+    if msg.finish_reason is not None:
+        result["finish_reason"] = msg.finish_reason
+    if msg.turn_context is not None:
+        result["turn_context"] = {
+            "active_skill_id": msg.turn_context.active_skill_id,
+            "tools_mounted": msg.turn_context.tools_mounted,
+        }
+
     return result
 
 
@@ -250,6 +258,7 @@ def deserialize_message(data: dict[str, Any]) -> AgentMessage:
     ts = data.get("timestamp")
     timestamp = datetime.fromtimestamp(ts / 1000) if ts else datetime.now()
 
+    turn_ctx = data.get("turn_context")
     return AgentMessage(
         role=role,
         content=content,
@@ -258,6 +267,15 @@ def deserialize_message(data: dict[str, Any]) -> AgentMessage:
         thinking=data.get("thinking"),
         timestamp=timestamp,
         metadata=data.get("metadata", {}),
+        finish_reason=data.get("finish_reason"),
+        turn_context=(
+            TurnContext(
+                active_skill_id=turn_ctx.get("active_skill_id"),
+                tools_mounted=turn_ctx.get("tools_mounted", []),
+            )
+            if turn_ctx
+            else None
+        ),
     )
 
 
