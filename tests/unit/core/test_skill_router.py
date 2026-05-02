@@ -148,7 +148,6 @@ async def test_llm_router_returns_none_when_llm_says_null() -> None:
 
 @pytest.mark.asyncio
 async def test_llm_router_history_includes_tool_turns() -> None:
-    """Tool turns in history are passed to LLM via format_tool_result_for_history."""
     llm = _FakeChatModel(['{"skill_id": "a", "reason": ""}'])
     router = LLMSkillRouter(llm_factory=lambda: llm, history_window=4, timeout=5.0)
     tool_msg = AgentMessage.tool([
@@ -172,6 +171,34 @@ async def test_llm_router_history_includes_tool_turns() -> None:
     await router.route(ctx)
     sent = str(llm.last_messages)
     assert "[policy_query] 1 policy returned" in sent
+
+
+@pytest.mark.asyncio
+async def test_llm_router_history_a2ui_error_not_swallowed() -> None:
+    llm = _FakeChatModel(['{"skill_id": "a", "reason": ""}'])
+    router = LLMSkillRouter(llm_factory=lambda: llm, history_window=4, timeout=5.0)
+    tool_msg = AgentMessage.tool([
+        AgentToolResult.error_result(
+            "tc_a2ui_err", "Template missing: withdraw_summary",
+        ),
+    ])
+    from ark_agentic.core.types import ToolCall
+    ctx = RouteContext(
+        user_input="再来一次",
+        history=[
+            AgentMessage.assistant(
+                content="",
+                tool_calls=[ToolCall(id="tc_a2ui_err", name="render_a2ui", arguments={})],
+            ),
+            tool_msg,
+        ],
+        current_active_skill_id="a",
+        candidate_skills=[_skill("a")],
+    )
+    await router.route(ctx)
+    sent = str(llm.last_messages)
+    assert "Template missing: withdraw_summary" in sent
+    assert "[已向用户展示卡片" not in sent
 
 
 # ============ LLMSkillRouter fallback ============

@@ -428,52 +428,65 @@ a:hover { text-decoration: underline; }
 }
 .workspace-page-split > * { flex-shrink: 1; }
 
+/* Overview now lives inside the split layout; it provides its own scroll +
+   padding so it matches sessions/skills/tools (full-bleed header bar, content
+   area scrolls independently). */
+.workspace-overview-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .workspace-context-bar {
   background: var(--surface);
   border-bottom: 1px solid var(--line);
   padding: 14px 20px 0;
   flex-shrink: 0;
 }
-.workspace-page:not(.workspace-page-split) .workspace-context-bar {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  padding: 14px 18px 0;
-}
 .workspace-context-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
 }
-.workspace-context-copy { min-width: 0; }
+.workspace-context-copy { min-width: 0; flex: 1 1 auto; }
 .workspace-context-copy h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.005em;
   color: var(--ink);
+  line-height: 1.2;
 }
 .workspace-context-copy p {
-  margin: 4px 0 0;
-  font-size: 12.5px;
+  margin: 2px 0 0;
+  font-size: 11.5px;
   color: var(--ink-3);
   max-width: 720px;
+  line-height: 1.4;
 }
-.workspace-context-meta {
+.workspace-context-title-row {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-shrink: 0;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-.workspace-context-meta span {
+.workspace-context-meta-inline {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 10px;
   letter-spacing: 0.04em;
   color: var(--ink-4);
   text-transform: uppercase;
 }
+.workspace-context-meta-inline > span[aria-hidden] { opacity: 0.5; }
 
 .workspace-tab-row {
   display: flex;
@@ -481,10 +494,6 @@ a:hover { text-decoration: underline; }
   gap: 0;
   margin-top: 12px;
   border-bottom: 1px solid var(--line);
-}
-.workspace-page:not(.workspace-page-split) .workspace-tab-row {
-  margin-top: 14px;
-  border-bottom: none;
 }
 .workspace-tab {
   position: relative;
@@ -1225,7 +1234,6 @@ pre.code-block {
 
 /* Detail header */
 .session-detail-panel { overflow: hidden; }
-.session-detail-panel > .surface-heading { flex-shrink: 0; }
 .session-detail-panel .editor-sheet {
   overflow: hidden;
   padding: 0;
@@ -1954,6 +1962,22 @@ pre.code-block {
   letter-spacing: 0.04em;
 }
 
+.studio-nav-footer {
+  flex-shrink: 0;
+  padding: 8px 0 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.studio-nav-footer .nav-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--ink-3);
+}
+.studio-nav-footer .nav-item.active svg {
+  color: var(--accent);
+}
+
 /* Agent radar — group pill */
 .pill {
   font-family: var(--mono);
@@ -2645,6 +2669,7 @@ pre.code-block {
 .tlm-chevron.open { transform: rotate(90deg); color: var(--ink-2); }
 .tlm-item.tlm-static .tlm-row > .tlm-chevron { visibility: hidden; }
 .tlm-detail {
+  position: relative;
   margin: 4px 0 10px;
   padding: 12px 14px;
   background: var(--surface-2);
@@ -2653,6 +2678,26 @@ pre.code-block {
   border-radius: var(--r-md);
 }
 .tlm-item.tool .tlm-detail { border-left-color: var(--accent); }
+
+.dt-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 1;
+}
+.dt-toolbar .action-button {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+/* Reserve room on the first content row so the absolutely-positioned toolbar
+   doesn't overlap the leading label. Only the FIRST content child needs it. */
+.dt-toolbar + .dt-block,
+.dt-toolbar + .dt-row,
+.dt-toolbar + .dt-empty { margin-top: 0; padding-right: 130px; min-height: 22px; }
 
 /* Tool detail panel */
 .tool-detail-head {
@@ -2784,6 +2829,31 @@ pre.code-block {
   padding: 4px 0;
   font-size: 12px;
 }
+.dt-row-message-id {
+  align-items: center;
+}
+.dt-row-message-id .dt-message-id-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dt-message-id-code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dt-tools-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dt-tools-inline .dt-tools-toggle {
+  flex-shrink: 0;
+}
 .dt-label {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -2830,10 +2900,62 @@ pre.code-block {
 /* Sessions detail header — actions row + state footer */
 .session-title-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
 }
+.session-title-block {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.session-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-meta-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.session-meta-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 11px;
+  cursor: pointer;
+}
+.session-meta-id:hover { color: var(--ink); }
+.session-meta-id svg { width: 11px; height: 11px; opacity: 0.7; }
+.session-meta-item {
+  font-variant-numeric: tabular-nums;
+}
+.session-meta-trace {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 9px;
+  font-size: 10.5px;
+  border: 1px solid var(--line);
+}
+.session-meta-trace.on { color: var(--ok, #4a9); border-color: color-mix(in srgb, var(--ok, #4a9) 35%, var(--line)); }
+.session-meta-trace.off { color: var(--ink-3); opacity: 0.75; }
+
 .session-actions {
   display: inline-flex;
   gap: 4px;
@@ -3196,8 +3318,8 @@ pre.code-block {
 }
 
 .workspace-context-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-  flex-wrap: wrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }

@@ -127,7 +127,13 @@ function formatBytes(size: number) {
 
 type TimelineItemBase = { turn: number }
 type TimelineItem =
-  | (TimelineItemBase & { kind: 'user' | 'assistant'; role: string; text: string; raw: MessageItem })
+  | (TimelineItemBase & {
+      kind: 'user' | 'assistant'
+      role: string
+      text: string
+      raw: MessageItem
+      metadata?: Record<string, unknown> | null
+    })
   | (TimelineItemBase & {
       kind: 'tool'
       name: string
@@ -139,6 +145,9 @@ type TimelineItem =
       toolCallId: string
       sub: number
       raw: MessageItem
+      preamble?: string
+      owningSkill?: string
+      durationMs?: number
     })
 
 function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
@@ -160,19 +169,29 @@ function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
     if (message.role === 'tool') continue
 
     turnIdx += 1
-    if (message.content) {
+    const calls = message.tool_calls ?? []
+
+    // When the assistant returns content alongside tool_calls, the text is a
+    // preamble for the call ("Sure, let me look that up.") — fold it into the
+    // first tool item rather than emit a phantom assistant bubble. The wire
+    // format keeps message.content intact so LLM history reconstruction is
+    // unaffected.
+    if (message.content && calls.length === 0) {
       items.push({
         kind: message.role === 'user' ? 'user' : 'assistant',
         role: message.role,
         text: message.content,
         turn: turnIdx,
         raw: message,
+        metadata: message.metadata ?? undefined,
       })
     }
 
-    const calls = message.tool_calls ?? []
     calls.forEach((call, sub) => {
       const result = resultsByCallId.get(call.id)
+      const md = (result?.metadata ?? {}) as Record<string, unknown>
+      const owningSkill = typeof md.owning_skill === 'string' ? md.owning_skill : undefined
+      const durationMs = typeof md.duration_ms === 'number' ? md.duration_ms : undefined
       items.push({
         kind: 'tool',
         name: call.name,
@@ -185,6 +204,9 @@ function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
         sub,
         turn: turnIdx,
         raw: message,
+        preamble: sub === 0 && message.content ? message.content : undefined,
+        owningSkill,
+        durationMs,
       })
     })
   }
@@ -293,12 +315,273 @@ function tryParseJson(value: unknown): { ok: boolean; data: unknown } {
   }
 }
 
+function makeTraceLinkResolver(template: string | null): (traceId: string) => string | null {
+  if (!template) return () => null
+  return (traceId: string) => template.replace('{trace_id}', traceId)
+}
+
+function TraceLinkButton({
+  url,
+  reason,
+}: {
+  url: string | null
+  reason?: string
+}) {
+  if (url) {
+    return (
+      <a
+        className="action-button"
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        title="Open this turn's trace in the configured tracing UI"
+      >
+        View in trace ↗
+      </a>
+    )
+  }
+  return (
+    <button
+      className="action-button"
+      type="button"
+      disabled
+      title={reason ?? 'Tracing not configured'}
+    >
+      View in trace ↗
+    </button>
+  )
+}
+
+function UserDetail({
+  metadata,
+  traceUrl,
+  traceReason,
+}: {
+  metadata: Record<string, unknown>
+  traceUrl: string | null
+  traceReason: string
+}) {
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const chatRequest = (metadata['chat_request'] ?? null) as
+    | Record<string, unknown>
+    | null
+
+  const messageId = chatRequest?.message_id as string | undefined
+  const sourceBu = chatRequest?.source_bu_type as string | undefined
+  const appType = chatRequest?.app_type as string | undefined
+  const externalHistoryCount = chatRequest?.external_history_count as number | undefined
+  const useHistory = chatRequest?.use_history as boolean | undefined
+  const overrideModel = chatRequest?.model as string | undefined
+  const overrideProvider = chatRequest?.provider as string | undefined
+
+  const callerChips: { key: string; label: string }[] = []
+  if (sourceBu) callerChips.push({ key: 'bu', label: sourceBu })
+  if (appType) callerChips.push({ key: 'app', label: appType })
+
+  const overrideChips: { key: string; label: string }[] = []
+  if (overrideModel) overrideChips.push({ key: 'model', label: `model=${overrideModel}` })
+  if (overrideProvider) overrideChips.push({ key: 'provider', label: `provider=${overrideProvider}` })
+
+  const hasAnyField =
+    !!messageId || callerChips.length > 0 || overrideChips.length > 0 ||
+    typeof externalHistoryCount === 'number' || useHistory === false
+
+  return (
+    <>
+      <div className="dt-toolbar">
+        <TraceLinkButton url={traceUrl} reason={traceReason} />
+      </div>
+
+      {messageId && (
+        <div className="dt-row dt-row-message-id">
+          <div className="dt-label">message_id</div>
+          <div className="dt-value mono dt-message-id-value" title={messageId}>
+            <code className="dt-message-id-code">{messageId}</code>
+            <CopyButton value={messageId} title="message_id" />
+          </div>
+        </div>
+      )}
+
+      {callerChips.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">caller</div>
+          <div className="dt-value">
+            {callerChips.map(c => <span className="chip" key={c.key}>{c.label}</span>)}
+          </div>
+        </div>
+      )}
+
+      {overrideChips.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">overrides</div>
+          <div className="dt-value">
+            {overrideChips.map(c => <span className="chip" key={c.key}>{c.label}</span>)}
+          </div>
+        </div>
+      )}
+
+      {typeof externalHistoryCount === 'number' && externalHistoryCount > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">history</div>
+          <div className="dt-value">
+            <button
+              className="chip"
+              onClick={() => setHistoryOpen(prev => !prev)}
+              type="button"
+              title="Show injected history messages"
+            >
+              {externalHistoryCount} {externalHistoryCount === 1 ? 'message' : 'messages'} injected
+              {historyOpen ? ' ▾' : ' ▸'}
+            </button>
+            {historyOpen && (
+              <div className="dt-empty" style={{ marginTop: 6 }}>
+                History payload is not stored on the session. Inspect the originating call
+                in the trace dashboard to view the injected messages.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {useHistory === false && (
+        <div className="dt-row">
+          <div className="dt-label">history</div>
+          <div className="dt-value">
+            <span className="chip chip-error">use_history=false</span>
+          </div>
+        </div>
+      )}
+
+      {!hasAnyField && (
+        <div className="dt-empty">No request metadata captured for this message.</div>
+      )}
+    </>
+  )
+}
+
+function AssistantDetail({
+  rawThinking,
+  metadata,
+  traceUrl,
+  traceReason,
+}: {
+  rawThinking: string | null
+  metadata: Record<string, unknown>
+  traceUrl: string | null
+  traceReason: string
+}) {
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const toolsMounted = (metadata['tools_mounted'] ?? []) as string[]
+  const toolsPreviewCount = 5
+
+  const modelUsed = metadata['model_used'] as string | undefined
+  const latencyMs = metadata['latency_ms'] as number | undefined
+  const finishReason = metadata['finish_reason'] as string | undefined
+  const activeSkills = (metadata['active_skill_ids'] ?? []) as string[]
+  const memoryUsedRaw = metadata['memory_used']
+  const memoryLineCount = typeof memoryUsedRaw === 'number' ? memoryUsedRaw : undefined
+  const routerDecision = metadata['router_decision'] as
+    | { skill_id?: string | null; reason?: string }
+    | undefined
+
+  const runChips: string[] = []
+  if (modelUsed) runChips.push(modelUsed)
+  if (typeof latencyMs === 'number') runChips.push(`${latencyMs}ms`)
+  if (finishReason) runChips.push(finishReason)
+
+  return (
+    <>
+      <div className="dt-toolbar">
+        <TraceLinkButton url={traceUrl} reason={traceReason} />
+      </div>
+
+      {activeSkills.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">active skill</div>
+          <div className="dt-value">
+            {activeSkills.map(s => (
+              <span className="chip" key={s}>{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {routerDecision && (
+        <div className="dt-row">
+          <div className="dt-label">router</div>
+          <div className="dt-value">
+            <span className="chip">{routerDecision.skill_id ?? '(no change)'}</span>
+            {routerDecision.reason && (
+              <span className="dt-value mono" style={{ marginLeft: 8 }}>
+                {routerDecision.reason}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {rawThinking && (
+        <div className="dt-block">
+          <div className="dt-label">thinking</div>
+          <pre className="code-block compact">{rawThinking}</pre>
+        </div>
+      )}
+
+      {runChips.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">run</div>
+          <div className="dt-value mono">{runChips.join(' · ')}</div>
+        </div>
+      )}
+
+      {memoryLineCount !== undefined && (
+        <div className="dt-row">
+          <div className="dt-label">memory</div>
+          <div className="dt-value">
+            {memoryLineCount > 0 ? (
+              <span className="mono">
+                {memoryLineCount} {memoryLineCount === 1 ? 'line' : 'lines'} from user profile
+              </span>
+            ) : (
+              <span>None injected this turn (empty or unavailable profile)</span>
+            )}
+            <div className="dt-empty" style={{ marginTop: 4, fontSize: 11.5 }}>
+              Injected text and full prompt: use <strong>View in trace</strong> above.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toolsMounted.length > 0 && (
+        <div className="dt-row">
+          <div className="dt-label">tools mounted</div>
+          <div className="dt-value dt-tools-mounted-value">
+            <div className="dt-tools-inline">
+              {(toolsOpen ? toolsMounted : toolsMounted.slice(0, toolsPreviewCount)).map(
+                t => <span className="chip" key={t}>{t}</span>,
+              )}
+              {toolsMounted.length > toolsPreviewCount && (
+                <button
+                  className="chip dt-tools-toggle"
+                  onClick={() => setToolsOpen(prev => !prev)}
+                  type="button"
+                  title={toolsOpen ? 'Show fewer' : 'Show all tool names'}
+                >
+                  {toolsOpen ? '▾' : `+${toolsMounted.length - toolsPreviewCount} ▸`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 function ToolDetail({
   item,
-  usage,
 }: {
   item: Extract<TimelineItem, { kind: 'tool' }>
-  usage: { prompt_tokens?: number; completion_tokens?: number } | null
 }) {
   const [showRaw, setShowRaw] = useState(false)
   const parsedResult = tryParseJson(item.result)
@@ -310,6 +593,13 @@ function ToolDetail({
         <span className={`chip chip-result chip-result-${resultLabel}`}>{resultLabel}</span>
         {item.isError && <span className="chip chip-error">error</span>}
       </div>
+
+      {item.preamble && (
+        <div className="dt-block">
+          <div className="dt-label">preamble</div>
+          <pre className="code-block compact">{item.preamble}</pre>
+        </div>
+      )}
 
       {item.llmDigest && (
         <div className="dt-block">
@@ -356,10 +646,16 @@ function ToolDetail({
           <dt>turn</dt>
           <dd>{zeropad(item.turn)}</dd>
         </div>
-        {usage && (usage.prompt_tokens || usage.completion_tokens) && (
+        {item.owningSkill && (
           <div className="tool-meta-item">
-            <dt>tokens</dt>
-            <dd>{usage.prompt_tokens ?? 0} in · {usage.completion_tokens ?? 0} out</dd>
+            <dt>owning skill</dt>
+            <dd>{item.owningSkill}</dd>
+          </div>
+        )}
+        {typeof item.durationMs === 'number' && (
+          <div className="tool-meta-item">
+            <dt>duration</dt>
+            <dd>{item.durationMs}ms</dd>
           </div>
         )}
       </dl>
@@ -435,29 +731,29 @@ export default function AgentWorkspacePage() {
     void navigate(`/agents/${agentId}/${targetSection}`)
   }
 
-  const isSplitSection = activeSection === 'skills' || activeSection === 'tools' || activeSection === 'sessions' || activeSection === 'memory'
-
   return (
-    <div className={`workspace-page ${isSplitSection ? 'workspace-page-split' : ''}`}>
+    <div className="workspace-page workspace-page-split">
       <div aria-atomic="true" aria-live="polite" className="sr-only">
         {selectedAgent ? `${selectedAgent.name}, ${activeSection} section` : 'No agent selected'}
       </div>
       <section className="workspace-context-bar">
         <div className="workspace-context-head">
           <div className="workspace-context-copy">
-            <h1>{selectedAgent?.name ?? agentId}</h1>
+            <div className="workspace-context-title-row">
+              <h1>{selectedAgent?.name ?? agentId}</h1>
+              <span className="workspace-context-meta-inline">
+                <span>{(selectedAgent?.id ?? agentId).toUpperCase()}</span>
+                <span aria-hidden="true">·</span>
+                <span>{formatAgentDate(selectedAgent?.updated_at)}</span>
+              </span>
+            </div>
             {selectedAgent?.description && <p>{selectedAgent.description}</p>}
           </div>
-          <div className="workspace-context-meta">
-            <span>{(selectedAgent?.id ?? agentId).toUpperCase()}</span>
-            <span>{formatAgentDate(selectedAgent?.updated_at)}</span>
+          <div className="workspace-context-actions">
+            <button className="btn btn-sm" disabled type="button" title="即将推出">Configure</button>
+            <button className="btn btn-sm" disabled type="button" title="即将推出">Export</button>
+            <button className="btn btn-accent btn-sm" disabled type="button" title="即将推出">Test agent</button>
           </div>
-        </div>
-
-        <div className="workspace-context-actions">
-          <button className="btn btn-sm" disabled type="button" title="即将推出">Configure</button>
-          <button className="btn btn-sm" disabled type="button" title="即将推出">Export</button>
-          <button className="btn btn-accent btn-sm" disabled type="button" title="即将推出">Test agent</button>
         </div>
 
         <nav aria-label="Agent sections" className="workspace-tab-row">
@@ -475,11 +771,11 @@ export default function AgentWorkspacePage() {
         </nav>
       </section>
 
-      {activeSection === 'overview' && <OverviewSection agentId={agentId} />}
-      {activeSection === 'skills' && <SkillsSection agentId={agentId} />}
-      {activeSection === 'tools' && <ToolsSection agentId={agentId} />}
-      {activeSection === 'sessions' && <SessionsSection agentId={agentId} />}
-      {activeSection === 'memory' && <MemorySection agentId={agentId} />}
+      {activeSection === 'overview' && <OverviewSection key={agentId} agentId={agentId} />}
+      {activeSection === 'skills' && <SkillsSection key={agentId} agentId={agentId} />}
+      {activeSection === 'tools' && <ToolsSection key={agentId} agentId={agentId} />}
+      {activeSection === 'sessions' && <SessionsSection key={agentId} agentId={agentId} />}
+      {activeSection === 'memory' && <MemorySection key={agentId} agentId={agentId} />}
     </div>
   )
 }
@@ -558,7 +854,7 @@ function OverviewSection({ agentId }: { agentId: string }) {
   }
 
   return (
-    <>
+    <div className="workspace-overview-scroll">
       <section className="workspace-grid-four overview-metric-grid">
         <div className="metric-surface metric-surface-compact">
           <div className="metric-surface-compact-copy">
@@ -753,7 +1049,7 @@ function OverviewSection({ agentId }: { agentId: string }) {
           </div>
         </article>
       </section>
-    </>
+    </div>
   )
 }
 
@@ -1272,6 +1568,21 @@ function SessionsSection({ agentId }: { agentId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [feedbackTone, setFeedbackTone] = useState<'status' | 'alert'>('status')
+  const [traceLinkTemplate, setTraceLinkTemplate] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.getTraceLinkConfig()
+      .then(cfg => {
+        if (!cancelled) setTraceLinkTemplate(cfg.template)
+      })
+      .catch(() => {
+        /* silently degrade — links won't render */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const groupedSessions = useMemo(() => {
     const byUser = new Map<string, SessionItem[]>()
@@ -1297,8 +1608,13 @@ function SessionsSection({ agentId }: { agentId: string }) {
       try {
         const nextSessions = await api.listSessions(agentId)
         if (!cancelled) {
-          setSessions(nextSessions)
-          setSelected(nextSessions[0] ?? null)
+          const sorted = [...nextSessions].sort(
+            (a, b) =>
+              getTimestampValue(b.updated_at || b.created_at) -
+              getTimestampValue(a.updated_at || a.created_at),
+          )
+          setSessions(sorted)
+          setSelected(sorted[0] ?? null)
         }
       } catch (nextError) {
         if (!cancelled) setError(nextError instanceof Error ? nextError.message : String(nextError))
@@ -1482,9 +1798,6 @@ function SessionsSection({ agentId }: { agentId: string }) {
       </div>
 
       <div className="workspace-surface split-detail session-detail-panel">
-        <div className="surface-heading">
-          <span>Session Detail</span>
-        </div>
         <div aria-atomic="true" aria-live="polite" className="sr-only">
           {detailLoading
             ? 'Loading session detail'
@@ -1508,7 +1821,37 @@ function SessionsSection({ agentId }: { agentId: string }) {
           <div className="editor-sheet">
             <div className="session-detail-header">
               <div className="session-title-row">
-                <h2>{selected.first_message || selected.session_id}</h2>
+                <div className="session-title-block">
+                  <div className="session-title" title={selected.first_message || selected.session_id}>
+                    {selected.first_message || selected.session_id}
+                  </div>
+                  <div className="session-meta-row">
+                    <button
+                      className="session-meta-id"
+                      onClick={() => void copyText(selected.session_id)}
+                      type="button"
+                      title="Copy session id"
+                    >
+                      #{selected.session_id.slice(0, 8)}
+                      <CopyIcon />
+                    </button>
+                    {detail && (
+                      <span className="session-meta-item">
+                        {detail.messages.length} msg
+                      </span>
+                    )}
+                    <span
+                      className={`session-meta-trace ${traceLinkTemplate ? 'on' : 'off'}`}
+                      title={
+                        traceLinkTemplate
+                          ? 'Trace UI configured — deep links available'
+                          : 'TRACING env not set — no deep links to trace UI'
+                      }
+                    >
+                      trace: {traceLinkTemplate ? 'on' : 'off'}
+                    </span>
+                  </div>
+                </div>
                 <div className="session-actions">
                   <button
                     className="chip"
@@ -1518,7 +1861,7 @@ function SessionsSection({ agentId }: { agentId: string }) {
                     disabled={!detail}
                   >
                     <DownloadIcon />
-                    Raw JSONL
+                    Raw
                   </button>
                   {canEdit && (
                     <button
@@ -1527,18 +1870,9 @@ function SessionsSection({ agentId }: { agentId: string }) {
                       type="button"
                       title="Edit raw JSONL"
                     >
-                      {editingRaw ? 'Close raw' : 'Edit raw'}
+                      {editingRaw ? 'Close edit' : 'Edit'}
                     </button>
                   )}
-                  <button
-                    aria-label="Copy session id"
-                    className="icon-action-button"
-                    onClick={() => void copyText(selected.session_id)}
-                    type="button"
-                    title="Copy session id"
-                  >
-                    <CopyIcon />
-                  </button>
                   <button
                     aria-label="Expand all"
                     className="icon-action-button"
@@ -1590,23 +1924,32 @@ function SessionsSection({ agentId }: { agentId: string }) {
                     const isAssistant = it.kind === 'assistant'
                     const isTool = it.kind === 'tool'
                     const summary = isTool ? it.name : summarizeText(it.text)
-                    const usage = (it.raw?.metadata?.usage ?? null) as
-                      | { prompt_tokens?: number; completion_tokens?: number }
-                      | null
+                    const md = !isTool ? ((it.metadata ?? {}) as Record<string, unknown>) : {}
+                    const traceObj = md['trace'] as { trace_id?: string } | undefined
+                    const traceId = traceObj?.trace_id
+                    const traceUrl =
+                      traceId && traceLinkTemplate
+                        ? makeTraceLinkResolver(traceLinkTemplate)(traceId)
+                        : null
+                    const traceReason = !traceLinkTemplate
+                      ? 'Tracing UI not configured — set TRACING env var (phoenix / langfuse / otlp) or STUDIO_TRACE_URL_TEMPLATE'
+                      : !traceId
+                        ? 'No trace_id captured for this message — TRACING was not active when this turn ran'
+                        : 'Trace available'
                     return (
                       <li className={`tlm-item ${it.kind} ${isOpen ? 'active' : ''}`} key={i}>
                         <div
-                          aria-expanded={isUser ? undefined : isOpen}
-                          className={`tlm-row ${isUser ? 'tlm-static' : ''}`}
-                          onClick={isUser ? undefined : () => setExpanded(e => ({ ...e, [i]: !e[i] }))}
-                          role={isUser ? undefined : 'button'}
-                          tabIndex={isUser ? -1 : 0}
-                          onKeyDown={isUser ? undefined : (event => {
+                          aria-expanded={isOpen}
+                          className="tlm-row"
+                          onClick={() => setExpanded(e => ({ ...e, [i]: !e[i] }))}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={event => {
                             if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault()
                               setExpanded(e => ({ ...e, [i]: !e[i] }))
                             }
-                          })}
+                          }}
                         >
                           <span className={`tlm-marker tlm-marker-${it.kind}${isTool && it.isError ? ' err' : ''}`} aria-hidden="true" />
                           <span className={`tlm-pill tlm-pill-${it.kind}`}>
@@ -1616,35 +1959,21 @@ function SessionsSection({ agentId }: { agentId: string }) {
                           <span className={`tlm-gutter ${isTool && it.isError ? 'err' : ''}`}>
                             {isTool ? (it.isError ? 'ERR' : 'OK') : zeropad(it.turn)}
                           </span>
-                          {!isUser && (
-                            <ChevronRightIcon className={`tlm-chevron ${isOpen ? 'open' : ''}`} />
-                          )}
+                          <ChevronRightIcon className={`tlm-chevron ${isOpen ? 'open' : ''}`} />
                         </div>
-                        {!isUser && isOpen && (
+                        {isOpen && (
                           <div className="tlm-detail">
                             {isTool ? (
-                              <ToolDetail item={it} usage={usage} />
+                              <ToolDetail item={it} />
+                            ) : isUser ? (
+                              <UserDetail metadata={md} traceUrl={traceUrl} traceReason={traceReason} />
                             ) : isAssistant ? (
-                              <>
-                                {it.raw.thinking && (
-                                  <div className="dt-block">
-                                    <div className="dt-label">thinking</div>
-                                    <pre className="code-block compact">{it.raw.thinking}</pre>
-                                  </div>
-                                )}
-                                <div className="dt-block">
-                                  <div className="dt-label">prompt</div>
-                                  <div className="dt-empty">No prompt data available.</div>
-                                </div>
-                                {usage && (usage.prompt_tokens || usage.completion_tokens) && (
-                                  <div className="dt-row">
-                                    <div className="dt-label">tokens</div>
-                                    <div className="dt-value mono">
-                                      {usage.prompt_tokens ?? 0} in · {usage.completion_tokens ?? 0} out
-                                    </div>
-                                  </div>
-                                )}
-                              </>
+                              <AssistantDetail
+                                rawThinking={it.raw.thinking ?? null}
+                                metadata={md}
+                                traceUrl={traceUrl}
+                                traceReason={traceReason}
+                              />
                             ) : null}
                           </div>
                         )}

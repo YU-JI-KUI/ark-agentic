@@ -18,8 +18,6 @@ data/*
 # Worktrees
 .worktrees/
 .env
-# Claude
-CLAUDE.md
 
 node_modules/
 
@@ -32,8 +30,6 @@ data/ark_sessions
 .*/
 
 
-# Claude
-CLAUDE.md
 .agent/
 .claude/
 .continue/

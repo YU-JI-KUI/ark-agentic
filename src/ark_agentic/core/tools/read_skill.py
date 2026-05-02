@@ -2,9 +2,12 @@
 read_skill 工具
 
 Skill 一等公民模型：
-- 正文由 runner 下一轮注入 system prompt 的 <active_skill> 段（以 `_active_skill_id` 为锚）
+- 正文由 runner 下一轮注入 system prompt 的 <active_skill> 段（以
+  `session.active_skill_ids[-1]` 为锚，newest-wins）
 - 本工具只返回"加载凭证 digest"，避免正文以 tool_result 形式重复占用上下文
 - 切换 skill 时，新 skill 正文直接替换 <active_skill>，旧正文随之退出上下文
+- 通过 typed `session_effects` 通道触发 SSOT 写入（不经由 `state_delta`），
+  保证 `session.state` 与 active-skill 状态完全解耦
 """
 
 from __future__ import annotations
@@ -17,7 +20,8 @@ from ..types import AgentToolResult, ToolCall
 
 
 class ReadSkillTool(AgentTool):
-    """按 skill id 激活一个技能：更新 `_active_skill_id`，下一轮 system prompt 注入正文。"""
+    """按 skill id 激活一个技能：通过 typed `session_effects` 写入 SSOT，
+    下一轮 system prompt 注入正文。"""
 
     name = "read_skill"
     visibility = "always"
@@ -71,5 +75,9 @@ class ReadSkillTool(AgentTool):
         return AgentToolResult.text_result(
             tool_call.id,
             digest,
-            metadata={"state_delta": {"_active_skill_id": skill_id}},
+            metadata={
+                "session_effects": [
+                    {"op": "activate_skill", "skill_ids": [skill_id]},
+                ],
+            },
         )

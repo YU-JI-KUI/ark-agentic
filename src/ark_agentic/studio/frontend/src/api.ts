@@ -186,6 +186,7 @@ export interface MessageItem {
         is_error?: boolean
         result_type?: string
         llm_digest?: string | null
+        metadata?: Record<string, unknown> | null
     }> | null
     thinking?: string | null
     metadata?: Record<string, unknown> | null
@@ -221,6 +222,11 @@ export interface SessionDetail {
     message_count: number
     state: Record<string, unknown>
     messages: MessageItem[]
+}
+
+export interface TraceLinkConfig {
+    enabled: boolean
+    template: string | null
 }
 
 // ── Mutation Input Types ───────────────────────────────────────────
@@ -351,6 +357,10 @@ export const api = {
             }
             return res.json() as Promise<{ status: string; session_id: string }>
         }),
+
+    // Config
+    getTraceLinkConfig: () =>
+        fetchJSON<TraceLinkConfig>(`${API_BASE}/config/trace-link`),
 
     // Memory
     listMemoryFiles: (agentId: string) =>

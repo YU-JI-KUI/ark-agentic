@@ -171,7 +171,7 @@ class SessionManager:
             model=store_entry.model if store_entry else "Qwen3-80B-Instruct",
             provider=store_entry.provider if store_entry else "ark",
             messages=messages,
-            active_skills=store_entry.active_skills if store_entry else [],
+            active_skill_ids=store_entry.active_skill_ids if store_entry else [],
             state=store_entry.state if store_entry else {},
         )
         if store_entry:
@@ -214,7 +214,7 @@ class SessionManager:
             model=store_entry.model if store_entry else "Qwen3-80B-Instruct",
             provider=store_entry.provider if store_entry else "ark",
             messages=messages,
-            active_skills=store_entry.active_skills if store_entry else [],
+            active_skill_ids=store_entry.active_skill_ids if store_entry else [],
             state=store_entry.state if store_entry else {},
         )
 
@@ -254,7 +254,7 @@ class SessionManager:
             completion_tokens=session.token_usage.completion_tokens,
             total_tokens=session.token_usage.total_tokens,
             compaction_count=session.compaction_stats.compacted_messages,
-            active_skills=session.active_skills,
+            active_skill_ids=session.active_skill_ids,
             state=session.state,
         )
 
@@ -431,14 +431,18 @@ class SessionManager:
 
     # ============ 技能管理 ============
 
-    def set_active_skills(self, session_id: str, skill_ids: list[str]) -> None:
-        session = self.get_session_required(session_id)
-        session.active_skills = skill_ids
-        session.updated_at = datetime.now()
+    def set_active_skill_ids(self, session_id: str, skill_ids: list[str]) -> None:
+        """覆盖式写入 session.active_skill_ids（SSOT）。
 
-    def get_active_skills(self, session_id: str) -> list[str]:
+        full 模式 session 的此字段会在 `_run_turn` 顶部每轮被 clobber 为
+        所有已加载 skill；外部覆盖在下轮失效。
+        """
         session = self.get_session_required(session_id)
-        return session.active_skills
+        session.set_active_skill_ids(skill_ids)
+
+    def get_active_skill_ids(self, session_id: str) -> list[str]:
+        session = self.get_session_required(session_id)
+        return session.active_skill_ids
 
     # ============ 状态管理 ============
 
@@ -477,5 +481,5 @@ class SessionManager:
                     else None
                 ),
             },
-            "active_skills": session.active_skills,
+            "active_skill_ids": session.active_skill_ids,
         }

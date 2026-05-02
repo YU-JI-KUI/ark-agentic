@@ -41,7 +41,7 @@ def mock_runner():
             model="mock",
             provider="mock",
             state={},
-            active_skills=[],
+            active_skill_ids=[],
             messages=[],
         )
 

@@ -14,6 +14,9 @@
       --orange-light: #ff9752;
       --orange-pale: #fff0e6;
       --orange-bg: #fff7f0;
+      /* 外层画框（仅 body）；主列内仍为原先暖色渐变 */
+      --chrome-bg-start: #ddd9d5;
+      --chrome-bg-end: #e8e4e0;
       --bg-start: #fef0e8;
       --bg-end: #fce8df;
       --white: #ffffff;
@@ -48,7 +51,7 @@
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
         "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
       color: var(--text);
-      background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 40%, #f8f0ec 100%);
+      background: linear-gradient(165deg, var(--chrome-bg-start) 0%, var(--chrome-bg-end) 55%, #e3dfdb 100%);
       display: flex;
       justify-content: center;
       -webkit-font-smoothing: antialiased;
@@ -65,6 +68,10 @@
       flex-direction: column;
       position: relative;
       overflow: hidden;
+      background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 40%, #f8f0ec 100%);
+      box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.04),
+        0 12px 40px rgba(50, 35, 25, 0.12);
     }
 
     /* ============================================================
@@ -73,7 +80,7 @@
     .header {
       flex-shrink: 0;
       background: linear-gradient(135deg, #ee7b3a 0%, #f6a36a 60%, #f8bb8a 100%);
-      padding: 14px 16px 10px;
+      padding: 8px 12px 6px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -84,18 +91,14 @@
       display: flex;
       align-items: center;
       gap: 4px;
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 600;
-    }
-
-    .header-left svg {
-      flex-shrink: 0;
     }
 
     .header-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
 
     .header-btn {
@@ -176,7 +179,7 @@
     /* Notification dropdown */
     .notif-dropdown {
       position: absolute;
-      top: 48px;
+      top: 42px;
       right: 12px;
       width: 320px;
       background: #fff;
@@ -253,24 +256,6 @@
       text-align: center;
       font-size: 13px;
       color: #bbb;
-    }
-
-    .session-tag {
-      font-size: 10px;
-      opacity: 0.65;
-      max-width: 70px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    /* Sub-header */
-    .sub-header {
-      flex-shrink: 0;
-      text-align: center;
-      font-size: 12px;
-      color: rgba(120, 80, 50, 0.45);
-      padding: 6px 0 2px;
     }
 
     /* ============================================================
@@ -799,20 +784,61 @@
       cursor: not-allowed;
     }
 
-    /* Toggle */
+    /* Bottom meta: 流式左对齐，会话ID右对齐，中间为状态 */
     .input-meta {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      gap: 8px;
       padding: 4px 2px 0;
       font-size: 11px;
       color: var(--text-muted);
+      min-width: 0;
+    }
+
+    .input-meta-status {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: left;
+    }
+
+    .input-meta-session {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      margin-left: auto;
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: min(280px, calc(100% - 96px));
+    }
+
+    .input-session-field {
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
+
+    .session-tag {
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: min(220px, 42vw);
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
     }
 
     .toggle-wrap {
       display: flex;
       align-items: center;
       gap: 5px;
+      flex-shrink: 0;
       cursor: pointer;
       user-select: none;
     }
@@ -861,14 +887,23 @@
     <!-- ======== Header ======== -->
     <div class="header">
       <div class="header-left">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path d="M12.5 15L7.5 10L12.5 5" stroke="white" stroke-width="2" stroke-linecap="round"
-            stroke-linejoin="round" />
-        </svg>
         <span>保险服务</span>
       </div>
       <div class="header-right">
-        <!-- Notification Bell -->
+        <select class="user-select" id="userSelect">
+          <option value="U001">张明</option>
+          <option value="U002">李芳</option>
+          <option value="U003">王伟</option>
+          <option value="_custom">自定义…</option>
+        </select>
+        <button class="header-btn" id="newSessionBtn" title="新会话">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <!-- Notification Bell（最右侧） -->
         <button class="notif-btn" id="notifBtn" title="通知">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round">
@@ -887,28 +922,8 @@
             <div class="notif-empty">暂无通知</div>
           </div>
         </div>
-        <select class="user-select" id="agentSelect">
-          <option value="insurance" selected>保险</option>
-          <option value="securities">证券</option>
-        </select>
-        <select class="user-select" id="userSelect">
-          <option value="U001">张明</option>
-          <option value="U002">李芳</option>
-          <option value="U003">王伟</option>
-          <option value="_custom">自定义…</option>
-        </select>
-        <button class="header-btn" id="newSessionBtn" title="新会话">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-        </button>
       </div>
     </div>
-
-    <!-- ======== Sub-header ======== -->
-    <div class="sub-header" id="subHeader">下拉查看历史记录</div>
 
     <!-- ======== Scroll content ======== -->
     <div class="scroll-content" id="scrollContent">
@@ -1066,7 +1081,11 @@
             </div>
             <span id="toggleLabel">流式</span>
           </div>
-          <span id="statusText"></span>
+          <span id="statusText" class="input-meta-status"></span>
+          <div class="input-meta-session">
+            <span class="input-session-field">会话ID</span>
+            <span class="session-tag" id="sessionIdValue" title=""></span>
+          </div>
         </div>
       </div>
     </div>
@@ -1078,8 +1097,28 @@
     (function () {
       'use strict';
 
+      const SESSION_STORAGE_KEY = 'ark_session_insurance';
+      // #region agent log
+      (function () {
+        var navType = 'unknown', reloaded = false;
+        try {
+          var n = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+          if (n) navType = n.type;
+          if (navType === 'reload' || (performance.navigation && performance.navigation.type === 1)) reloaded = true;
+        } catch (e) {}
+        var had = !!sessionStorage.getItem(SESSION_STORAGE_KEY);
+        var hadLegacy = !!sessionStorage.getItem('ark_session_id');
+        if (reloaded) sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        sessionStorage.removeItem('ark_session_id');
+        fetch('http://127.0.0.1:7417/ingest/da0531bb-7e44-4185-a534-162607333adc', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b5f868' }, body: JSON.stringify({ sessionId: 'b5f868', hypothesisId: 'H1', location: 'insurance.html:session-init', message: 'nav vs storage', data: { navType: navType, reloaded: reloaded, hadBeforeClear: had, hadLegacy: hadLegacy, key: SESSION_STORAGE_KEY, timestamp: Date.now() } }) }).catch(function () {});
+      })();
+      // #endregion
+
       // ---- State ----
-      let sessionId = sessionStorage.getItem('ark_session_id') || null;
+      let sessionId = sessionStorage.getItem(SESSION_STORAGE_KEY) || null;
+      // #region agent log
+      fetch('http://127.0.0.1:7417/ingest/da0531bb-7e44-4185-a534-162607333adc', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b5f868' }, body: JSON.stringify({ sessionId: 'b5f868', hypothesisId: 'H2', location: 'insurance.html:after-read', message: 'sessionId after init', data: { hasSession: !!sessionId, timestamp: Date.now() } }) }).catch(function () {});
+      // #endregion
       let isStreaming = true;
       let isSending = false;
       let userScrolled = false;
@@ -1099,13 +1138,23 @@
       const $streamToggle = document.getElementById('streamToggle');
       const $statusText = document.getElementById('statusText');
       const $userSelect = document.getElementById('userSelect');
-      const $agentSelect = document.getElementById('agentSelect');
-      const $subHeader = document.getElementById('subHeader');
       const $notifBtn = document.getElementById('notifBtn');
       const $notifBadge = document.getElementById('notifBadge');
       const $notifDropdown = document.getElementById('notifDropdown');
       const $notifList = document.getElementById('notifList');
       const $notifMarkAll = document.getElementById('notifMarkAll');
+
+      function updateSessionIdLabel() {
+        const el = document.getElementById('sessionIdValue');
+        if (!el) return;
+        if (sessionId) {
+          el.textContent = sessionId;
+          el.title = sessionId;
+        } else {
+          el.textContent = '—';
+          el.title = '尚无会话，发送消息后建立';
+        }
+      }
 
       // ---- Notification system (SSE + REST) ----
       let notifications = [];
@@ -1255,6 +1304,7 @@
       // 初始渲染 + 连接 SSE（自动拉取历史通知）
       renderNotifications();
       connectNotifStream(selectedUserId);
+      updateSessionIdLabel();
 
       // ---- Init user selector ----
       $userSelect.value = selectedUserId;
@@ -1284,25 +1334,14 @@
         connectNotifStream(selectedUserId);
       });
 
-      // ---- Agent selector → 整页跳转 ----
-      $agentSelect.addEventListener('change', () => {
-        const target = $agentSelect.value;
-        sessionStorage.setItem('ark_agent', target);
-        if (target === 'securities') {
-          window.location.href = '/securities';
-        } else {
-          window.location.href = '/insurance';
-        }
-      });
-
       // ---- New session ----
       $newSessionBtn.addEventListener('click', () => {
         sessionId = null;
-        sessionStorage.removeItem('ark_session_id');
+        sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        updateSessionIdLabel();
         $chat.innerHTML = '';
         $chat.classList.add('hidden');
         $welcome.classList.remove('hidden');
-        $subHeader.classList.remove('hidden');
       });
 
       // ---- Stream toggle ----
@@ -1373,7 +1412,6 @@
         $statusText.textContent = '';
 
         $welcome.classList.add('hidden');
-        $subHeader.classList.add('hidden');
         $chat.classList.remove('hidden');
 
         appendUserMessage(text);
@@ -1421,7 +1459,8 @@
         const data = await resp.json();
         if (data.session_id) {
           sessionId = data.session_id;
-          sessionStorage.setItem('ark_session_id', sessionId);
+          sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+          updateSessionIdLabel();
         }
         appendAssistantMessage(data.response, data.usage);
         $statusText.textContent = '';
@@ -1487,7 +1526,11 @@
 
             if (d.conversation_id && !sessionId) {
               sessionId = d.conversation_id;
-              sessionStorage.setItem('ark_session_id', sessionId);
+              sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+              updateSessionIdLabel();
+              // #region agent log
+              fetch('http://127.0.0.1:7417/ingest/da0531bb-7e44-4185-a534-162607333adc', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b5f868' }, body: JSON.stringify({ sessionId: 'b5f868', hypothesisId: 'H3', location: 'insurance.html:stream-session', message: 'conversation_id bound', data: { timestamp: Date.now() } }) }).catch(function () {});
+              // #endregion
             }
 
             switch (eventType) {
