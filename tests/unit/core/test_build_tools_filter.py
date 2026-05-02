@@ -11,7 +11,20 @@ from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.tools.registry import ToolRegistry
-from ark_agentic.core.types import AgentToolResult, SkillEntry, SkillMetadata, SkillLoadMode, ToolCall
+from ark_agentic.core.types import (
+    AgentToolResult,
+    SessionEntry,
+    SkillEntry,
+    SkillLoadMode,
+    SkillMetadata,
+    ToolCall,
+)
+
+
+def _session_with_active(skill_ids: list[str]) -> SessionEntry:
+    s = SessionEntry.create()
+    s.active_skill_ids = list(skill_ids)
+    return s
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -90,7 +103,7 @@ class TestBuildToolsFullMode:
             all_skills=all_skills,
             load_mode=SkillLoadMode.full,
         )
-        schemas = runner._build_tools(state={"_active_skill_id": "s1"})
+        schemas = runner._build_tools(state={}, session=_session_with_active(["s1"]))
         names = {s["function"]["name"] for s in schemas}
         assert names == {"tool_a", "tool_b", "read_skill"}
 
@@ -112,33 +125,33 @@ class TestBuildToolsDynamicMode:
     """
 
     def test_no_state_returns_only_always_tools(self, tmp_path: Path) -> None:
-        """dynamic 模式，无 _active_skill_id：只暴露 always 工具（含自动注册的 read_skill）。"""
+        """dynamic 模式，session.active_skill_ids 为空：只暴露 always 工具。"""
         all_skills = [_make_skill("s1", required_tools=["business_tool"])]
         runner = _make_runner(
             tmp_path,
             [_Tool("business_tool")],
             all_skills=all_skills,
         )
-        schemas = runner._build_tools(state={})
+        schemas = runner._build_tools(state={}, session=_session_with_active([]))
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names  # auto-registered by runner
         assert "business_tool" not in names
 
-    def test_none_state_returns_only_always_tools(self, tmp_path: Path) -> None:
-        """state=None 等同于空 state。"""
+    def test_none_session_returns_only_always_tools(self, tmp_path: Path) -> None:
+        """session=None 时降级为只返回 always 工具。"""
         all_skills = [_make_skill("s1", required_tools=["business_tool"])]
         runner = _make_runner(
             tmp_path,
             [_Tool("business_tool")],
             all_skills=all_skills,
         )
-        schemas = runner._build_tools(state=None)
+        schemas = runner._build_tools(state=None, session=None)
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names
         assert "business_tool" not in names
 
     def test_active_skill_exposes_its_tools(self, tmp_path: Path) -> None:
-        """_active_skill_id 指向技能 s1，s1 的工具被暴露，s2 的工具不暴露。"""
+        """active_skill_ids[-1]=s1，s1 的工具被暴露，s2 的工具不暴露。"""
         all_skills = [
             _make_skill("s1", required_tools=["tool_a", "tool_b"]),
             _make_skill("s2", required_tools=["tool_c"]),
@@ -148,12 +161,29 @@ class TestBuildToolsDynamicMode:
             [_Tool("tool_a"), _Tool("tool_b"), _Tool("tool_c")],
             all_skills=all_skills,
         )
-        schemas = runner._build_tools(state={"_active_skill_id": "s1"})
+        schemas = runner._build_tools(state={}, session=_session_with_active(["s1"]))
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names
         assert "tool_a" in names
         assert "tool_b" in names
         assert "tool_c" not in names
+
+    def test_newest_wins_when_multiple_active(self, tmp_path: Path) -> None:
+        """active_skill_ids 多元素时取末元素（newest-wins）。"""
+        all_skills = [
+            _make_skill("s1", required_tools=["tool_a"]),
+            _make_skill("s2", required_tools=["tool_b"]),
+        ]
+        runner = _make_runner(
+            tmp_path,
+            [_Tool("tool_a"), _Tool("tool_b")],
+            all_skills=all_skills,
+        )
+        # 末元素 s2 → tool_b 暴露，tool_a 不暴露
+        schemas = runner._build_tools(state={}, session=_session_with_active(["s1", "s2"]))
+        names = {s["function"]["name"] for s in schemas}
+        assert "tool_b" in names
+        assert "tool_a" not in names
 
     def test_always_tools_never_excluded(self, tmp_path: Path) -> None:
         """always 工具无论技能状态都存在。"""
@@ -163,11 +193,12 @@ class TestBuildToolsDynamicMode:
             [_Tool("memory_write", always=True), _Tool("biz_tool")],
             all_skills=all_skills,
         )
-        for state in [{}, {"_active_skill_id": "s1"}, {"_active_skill_id": "unknown"}]:
-            schemas = runner._build_tools(state=state)
+        for active_ids in [[], ["s1"], ["unknown"]]:
+            session = _session_with_active(active_ids)
+            schemas = runner._build_tools(state={}, session=session)
             names = {s["function"]["name"] for s in schemas}
-            assert "read_skill" in names, f"read_skill missing for state={state}"
-            assert "memory_write" in names, f"memory_write missing for state={state}"
+            assert "read_skill" in names, f"read_skill missing for active={active_ids}"
+            assert "memory_write" in names, f"memory_write missing for active={active_ids}"
 
     def test_unknown_skill_id_returns_always_only(self, tmp_path: Path) -> None:
         """skill_id 在 loader 中不存在时，降级为只返回 always 工具。"""
@@ -177,7 +208,7 @@ class TestBuildToolsDynamicMode:
             [_Tool("biz_tool")],
             all_skills=all_skills,
         )
-        schemas = runner._build_tools(state={"_active_skill_id": "nonexistent"})
+        schemas = runner._build_tools(state={}, session=_session_with_active(["nonexistent"]))
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names
         assert "biz_tool" not in names
@@ -206,7 +237,9 @@ class TestInsuranceScenario:
     def test_withdraw_money_active(self, tmp_path: Path) -> None:
         """withdraw_money 加载后: render_a2ui 可见，submit_withdrawal 不可见。"""
         runner = self._make_insurance_runner(tmp_path)
-        schemas = runner._build_tools(state={"_active_skill_id": "insurance.withdraw_money"})
+        schemas = runner._build_tools(
+            state={}, session=_session_with_active(["insurance.withdraw_money"])
+        )
         names = {s["function"]["name"] for s in schemas}
 
         assert "render_a2ui" in names
@@ -219,7 +252,9 @@ class TestInsuranceScenario:
     def test_execute_withdrawal_active(self, tmp_path: Path) -> None:
         """execute_withdrawal 加载后: submit_withdrawal 可见，render_a2ui 不可见。"""
         runner = self._make_insurance_runner(tmp_path)
-        schemas = runner._build_tools(state={"_active_skill_id": "insurance.execute_withdrawal"})
+        schemas = runner._build_tools(
+            state={}, session=_session_with_active(["insurance.execute_withdrawal"])
+        )
         names = {s["function"]["name"] for s in schemas}
 
         assert "submit_withdrawal" in names
@@ -232,7 +267,7 @@ class TestInsuranceScenario:
     def test_no_skill_loaded_shows_only_framework_tools(self, tmp_path: Path) -> None:
         """未加载任何技能时 LLM 只能调框架工具。"""
         runner = self._make_insurance_runner(tmp_path)
-        schemas = runner._build_tools(state={})
+        schemas = runner._build_tools(state={}, session=_session_with_active([]))
         names = {s["function"]["name"] for s in schemas}
 
         assert "read_skill" in names

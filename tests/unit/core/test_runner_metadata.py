@@ -133,10 +133,10 @@ async def test_correlation_id_written_when_present(tmp_sessions_dir: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_assistant_message_carries_active_skills(tmp_sessions_dir: Path) -> None:
+async def test_assistant_message_carries_active_skill_ids(tmp_sessions_dir: Path) -> None:
     runner = _make_runner(tmp_sessions_dir)
     session = await runner.session_manager.create_session(user_id="u1")
-    runner.session_manager.set_active_skills(session.session_id, ["skill-a"])
+    runner.session_manager.set_active_skill_ids(session.session_id, ["skill-a"])
     await runner.run(
         session_id=session.session_id,
         user_input="hi",
@@ -146,11 +146,11 @@ async def test_assistant_message_carries_active_skills(tmp_sessions_dir: Path) -
     )
     asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
     assert asst_msgs
-    assert asst_msgs[-1].metadata["active_skills_at_turn"] == ["skill-a"]
+    assert asst_msgs[-1].metadata["active_skill_ids"] == ["skill-a"]
 
 
 @pytest.mark.asyncio
-async def test_assistant_skips_active_skills_when_empty(tmp_sessions_dir: Path) -> None:
+async def test_assistant_skips_active_skill_ids_when_empty(tmp_sessions_dir: Path) -> None:
     runner = _make_runner(tmp_sessions_dir)
     session = await runner.session_manager.create_session(user_id="u1")
     await runner.run(
@@ -161,4 +161,5 @@ async def test_assistant_skips_active_skills_when_empty(tmp_sessions_dir: Path) 
         stream=False,
     )
     asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
+    assert "active_skill_ids" not in asst_msgs[-1].metadata
     assert "active_skills_at_turn" not in asst_msgs[-1].metadata

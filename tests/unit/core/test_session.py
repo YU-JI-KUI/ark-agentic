@@ -1,11 +1,14 @@
 """Tests for session management."""
 
+import time
+
 import pytest
 from pathlib import Path
 
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.compaction import CompactionConfig
-from ark_agentic.core.types import AgentMessage, MessageRole
+from ark_agentic.core.persistence import SessionStoreEntry
+from ark_agentic.core.types import AgentMessage, MessageRole, SessionEntry
 
 
 class TestSessionManagerBasic:
@@ -151,6 +154,42 @@ class TestSessionManagerTokens:
         assert manager.estimate_current_tokens(session.session_id) > 0
 
 
+class TestSessionEntryActiveSkillIds:
+    """Tests for SessionEntry active_skill_ids SSOT field."""
+
+    def test_session_entry_active_skill_ids_roundtrip(self) -> None:
+        session = SessionEntry.create()
+        session.active_skill_ids = ["a", "b"]
+        # newest wins → [-1]
+        assert session.current_active_skill_id == "b"
+
+        original_updated_at = session.updated_at
+        time.sleep(0.001)
+        session.set_active_skill_ids(["c"])
+        assert session.active_skill_ids == ["c"]
+        assert session.current_active_skill_id == "c"
+        assert session.updated_at > original_updated_at
+
+    def test_session_entry_current_active_skill_id_empty(self) -> None:
+        session = SessionEntry.create()
+        assert session.active_skill_ids == []
+        assert session.current_active_skill_id is None
+
+    def test_session_store_entry_persists_active_skill_ids(self) -> None:
+        entry = SessionStoreEntry(
+            session_id="s1",
+            updated_at=0,
+            active_skill_ids=["a", "b"],
+        )
+        d = entry.to_dict()
+        assert d["activeSkillIds"] == ["a", "b"]
+        # legacy key not emitted
+        assert "activeSkills" not in d
+        # roundtrip
+        restored = SessionStoreEntry.from_dict(d)
+        assert restored.active_skill_ids == ["a", "b"]
+
+
 class TestSessionManagerSkills:
     """Tests for skill management."""
 
@@ -158,11 +197,13 @@ class TestSessionManagerSkills:
     def setup(self, tmp_sessions_dir: Path) -> None:
         self.sessions_dir = tmp_sessions_dir
 
-    def test_set_active_skills(self) -> None:
+    def test_set_active_skill_ids(self) -> None:
         manager = SessionManager(self.sessions_dir)
         session = manager.create_session_sync()
-        manager.set_active_skills(session.session_id, ["skill1", "skill2"])
-        assert manager.get_active_skills(session.session_id) == ["skill1", "skill2"]
+        manager.set_active_skill_ids(session.session_id, ["skill1", "skill2"])
+        assert manager.get_active_skill_ids(session.session_id) == ["skill1", "skill2"]
+        # SSOT lives only on session.active_skill_ids
+        assert session.active_skill_ids == ["skill1", "skill2"]
 
 
 class TestSessionManagerState:

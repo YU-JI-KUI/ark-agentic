@@ -1,8 +1,8 @@
 """Skill 路由器 — Protocol、数据契约与 NullSkillRouter。
 
 Dynamic 模式下，AgentRunner 在 ReAct 循环开始前会调用 SkillRouter.route()，
-将路由结果写入 session.state["_active_skill_id"]，与 read_skill 工具同槽位。
-模型在 ReAct 中仍可通过 read_skill 覆盖路由决定。
+将路由结果写入 session.active_skill_ids（SSOT，newest-wins）。模型在 ReAct
+中仍可通过 read_skill 工具（走 typed `session_effects` 通道）覆盖路由决定。
 
 Spec: docs/superpowers/specs/2026-04-27-dynamic-skill-router-design.md
 """

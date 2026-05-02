@@ -406,8 +406,8 @@ class SessionEntry:
     # 压缩状态
     compaction_stats: CompactionStats = field(default_factory=CompactionStats)
 
-    # 活跃技能快照
-    active_skills: list[str] = field(default_factory=list)
+    # 活跃技能 SSOT（有序激活列表，newest-wins）
+    active_skill_ids: list[str] = field(default_factory=list)
 
     # 会话状态（ADK-style session scratchpad）
     state: dict[str, Any] = field(default_factory=dict)
@@ -426,6 +426,25 @@ class SessionEntry:
     def add_message(self, message: AgentMessage) -> None:
         """添加消息到历史"""
         self.messages.append(message)
+        self.updated_at = datetime.now()
+
+    @property
+    def current_active_skill_id(self) -> str | None:
+        """SSOT 单值视图（newest-wins）。
+
+        返回最近激活的 skill id（即列表末元素），列表空时返回 None。
+        集中在此属性以避免 [-1] 规则散落在多个 reader。
+        """
+        return self.active_skill_ids[-1] if self.active_skill_ids else None
+
+    def set_active_skill_ids(self, skill_ids: list[str]) -> None:
+        """覆盖式写入 active_skill_ids 并推进 updated_at。
+
+        覆盖语义：调用方提供的 list 完全替代当前值。这是 SessionEntry 上 active-skill
+        状态的唯一变更入口；full 模式下 `_run_turn` 每轮都会以"全部已加载 skill"
+        重新覆盖此字段——外部 API 写入 full 模式 session 的此字段在下轮会被 clobber。
+        """
+        self.active_skill_ids = list(skill_ids)
         self.updated_at = datetime.now()
 
     def update_token_usage(
@@ -452,3 +471,25 @@ class SessionEntry:
     def strip_temp_state(self) -> None:
         """移除 temp: 前缀的临时状态键"""
         self.state = {k: v for k, v in self.state.items() if not k.startswith("temp:")}
+
+
+# ── Tool→Session typed effect channel ──────────────────────────────────────
+
+
+class SessionEffect(_PydanticBaseModel):
+    """工具→Session 的 typed 写入 effect。
+
+    工具在 `AgentToolResult.metadata["session_effects"]: list[dict]` 中提交，
+    runner 用 `_apply_session_effects` 校验后 dispatch 到 `SessionEntry` 的
+    具名变更方法（不经由 `state_delta` 通用通道，与 `session.state` 完全解耦）。
+
+    当前 op：
+    - `activate_skill` — 调用 `session.set_active_skill_ids(skill_ids)`，
+      覆盖式写入 SSOT。
+
+    新增 op 时：在此处扩展 `op` 的 Literal 类型，在 `_apply_session_effects`
+    中加分支即可。
+    """
+
+    op: Literal["activate_skill"]
+    skill_ids: list[str] = _Field(default_factory=list)

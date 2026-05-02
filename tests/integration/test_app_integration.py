@@ -34,7 +34,7 @@ def mock_agent_runner():
         runner = AsyncMock(spec=AgentRunner)
         # Mock session manager with proper SessionEntry
         runner.session_manager = MagicMock()
-        mock_session = SessionEntry(session_id="test-session", model="mock", provider="mock", state={}, active_skills=[], messages=[])
+        mock_session = SessionEntry(session_id="test-session", model="mock", provider="mock", state={}, active_skill_ids=[], messages=[])
         
         async def mock_create_session(user_id, *args, **kwargs):
             return mock_session

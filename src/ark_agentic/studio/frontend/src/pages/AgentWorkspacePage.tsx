@@ -387,7 +387,7 @@ function AssistantDetail({
   const sampling = (metadata['sampling'] ?? {}) as Record<string, unknown>
   const latencyMs = metadata['latency_ms'] as number | undefined
   const finishReason = metadata['finish_reason'] as string | undefined
-  const activeSkills = (metadata['active_skills_at_turn'] ?? []) as string[]
+  const activeSkills = (metadata['active_skill_ids'] ?? []) as string[]
 
   const runChips: string[] = []
   if (modelUsed) runChips.push(modelUsed)

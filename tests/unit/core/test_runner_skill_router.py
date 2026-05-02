@@ -139,7 +139,9 @@ async def test_route_skill_phase_writes_active_skill_id(
             metadata={},
         )
         await runner._route_skill_phase(session.session_id, cb_ctx)
-        assert session.state.get("_active_skill_id") == skill_id_full
+        assert session.current_active_skill_id == skill_id_full
+        # SSOT lives on session.active_skill_ids, NOT in session.state
+        assert "_active_skill_id" not in session.state
 
 
 @pytest.mark.asyncio
@@ -157,14 +159,14 @@ async def test_route_skill_phase_skips_when_no_router(
             session=session, metadata={},
         )
         await runner._route_skill_phase(session.session_id, cb_ctx)
-        assert "_active_skill_id" not in session.state
+        assert session.active_skill_ids == []
 
 
 @pytest.mark.asyncio
 async def test_route_skill_phase_does_not_overwrite_when_decision_none(
     tmp_sessions_dir: Path,
 ) -> None:
-    """Decision.skill_id == None → preserve existing _active_skill_id."""
+    """Decision.skill_id == None → preserve existing active_skill_ids."""
     with _make_runner(
         tmp_sessions_dir, load_mode=SkillLoadMode.dynamic,
     ) as runner:
@@ -172,7 +174,7 @@ async def test_route_skill_phase_does_not_overwrite_when_decision_none(
             RouteDecision(skill_id=None, reason="chitchat"),
         )
         session = runner.session_manager.create_session_sync()
-        session.state["_active_skill_id"] = "kept_skill"
+        session.set_active_skill_ids(["kept_skill"])
         runner.session_manager.add_message_sync(
             session.session_id, AgentMessage.user("hi"),
         )
@@ -181,7 +183,7 @@ async def test_route_skill_phase_does_not_overwrite_when_decision_none(
             session=session, metadata={},
         )
         await runner._route_skill_phase(session.session_id, cb_ctx)
-        assert session.state["_active_skill_id"] == "kept_skill"
+        assert session.current_active_skill_id == "kept_skill"
 
 
 @pytest.mark.asyncio
@@ -208,7 +210,7 @@ async def test_route_skill_phase_swallows_router_exceptions(
             session=session, metadata={},
         )
         await runner._route_skill_phase(session.session_id, cb_ctx)
-        assert "_active_skill_id" not in session.state
+        assert session.active_skill_ids == []
 
 
 # ============ run() lifecycle integration ============
@@ -318,7 +320,7 @@ async def test_route_skill_phase_passes_history_and_current_to_router(
         router = _RecordingRouter(RouteDecision(skill_id=None, reason=""))
         runner._skill_router = router
         session = runner.session_manager.create_session_sync()
-        session.state["_active_skill_id"] = "previous"
+        session.set_active_skill_ids(["previous"])
         runner.session_manager.add_message_sync(
             session.session_id, AgentMessage.user("first"),
         )
@@ -375,11 +377,11 @@ async def test_followup_keeps_active_skill_sticky(
         sid = await runner.create_session(user_id="u1")
         await runner.run(session_id=sid, user_input="帮我看看", user_id="u1", stream=False)
         session = runner.session_manager.get_session_required(sid)
-        assert session.state["_active_skill_id"] == skill_id
+        assert session.current_active_skill_id == skill_id
 
         await runner.run(session_id=sid, user_input="那再看看", user_id="u1", stream=False)
         session = runner.session_manager.get_session_required(sid)
-        assert session.state["_active_skill_id"] == skill_id
+        assert session.current_active_skill_id == skill_id
 
 
 @pytest.mark.asyncio
@@ -421,15 +423,16 @@ async def test_topic_switch_updates_active_skill(
         await runner.run(session_id=sid, user_input="A 主题", user_id="u1", stream=False)
         await runner.run(session_id=sid, user_input="切到 B", user_id="u1", stream=False)
         session = runner.session_manager.get_session_required(sid)
-        assert session.state["_active_skill_id"] == ids[1]
+        assert session.current_active_skill_id == ids[1]
 
 
 @pytest.mark.asyncio
 async def test_router_sees_model_override_as_current_active(
     tmp_sessions_dir: Path,
 ) -> None:
-    """If model wrote _active_skill_id via read_skill in turn N, router in turn
-    N+1 sees that value as current_active_skill_id."""
+    """If a prior turn wrote active_skill_ids (e.g. via read_skill→session_effects),
+    router in next turn sees the newest id (active_skill_ids[-1]) as
+    current_active_skill_id."""
     with _make_runner_with_llm_mock(tmp_sessions_dir) as runner:
         scripted = _ScriptedRouter([
             RouteDecision(skill_id=None, reason="first"),
@@ -439,9 +442,9 @@ async def test_router_sees_model_override_as_current_active(
 
         sid = await runner.create_session(user_id="u1")
         await runner.run(session_id=sid, user_input="t1", user_id="u1", stream=False)
-        # Simulate model's read_skill having written this value
+        # Simulate prior-turn activation of a skill on the SSOT
         session = runner.session_manager.get_session_required(sid)
-        session.state["_active_skill_id"] = "model_picked"
+        session.set_active_skill_ids(["model_picked"])
         await runner.run(session_id=sid, user_input="t2", user_id="u1", stream=False)
-        # Second router call must have observed model_picked as current
+        # Second router call must have observed model_picked as current (newest-wins)
         assert scripted.received_currents[-1] == "model_picked"

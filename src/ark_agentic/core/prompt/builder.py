@@ -299,8 +299,9 @@ class SystemPromptBuilder:
             user_profile_content: 全局用户画像 (USER.md) 内容
             skill_config: 技能渲染配置（group 阈值、预算控制等）
             enable_memory: 是否注入 memory 写入协议（仅当 memory 系统启用时为 True）
-            active_skill: dynamic 模式下当前 _active_skill_id 对应的 SkillEntry；
-                正文会注入 <active_skill> 段作为会话的当前权威规则。None 时跳过。
+            active_skill: dynamic 模式下当前 session.active_skill_ids[-1]
+                （newest-wins）对应的 SkillEntry；正文会注入 <active_skill> 段
+                作为会话的当前权威规则。None 时跳过。
         """
         effective_config = config or PromptConfig()
         builder = cls(effective_config)

@@ -111,7 +111,7 @@ class RunnerConfig:
     accept_external_history: bool = True
 
     # Skill 路由器（dynamic 模式专用）。
-    # 实例：在 ReAct 循环开始前确定性写入 _active_skill_id。
+    # 实例：在 ReAct 循环开始前确定性写入 session.active_skill_ids（SSOT）。
     # None：runner 不会 route；通常由 build_standard_agent 在 dynamic 模式下
     # 自动注入 LLMSkillRouter。直接构造 AgentRunner 时由调用方自负其责。
     skill_router: SkillRouter | None = None
@@ -363,7 +363,7 @@ class AgentRunner:
 
         cb_ctx = prepared
         # Phase: deterministic skill routing (dynamic mode only).
-        # Writes session.state["_active_skill_id"]; first ReAct turn picks it up
+        # Writes session.active_skill_ids (SSOT); first ReAct turn picks it up
         # via _build_system_prompt + _filter_tools. No-op in full mode.
         await self._route_skill_phase(session_id, cb_ctx)
 
@@ -639,6 +639,36 @@ class AgentRunner:
                 session.updated_at = __import__("datetime").datetime.now()
 
     @staticmethod
+    def _apply_session_effects(
+        session: SessionEntry,
+        tool_results: list[AgentToolResult],
+    ) -> None:
+        """Dispatch typed `session_effects` from tool results to SessionEntry mutations.
+
+        与 `_merge_tool_state_deltas` 并列：state_delta 通道只处理 `session.state`
+        通用 dict 变更，session_effects 通道处理 SessionEntry 上的 typed 字段
+        变更（如 active_skill_ids），两者完全解耦。
+
+        畸形 effect 记录 warning 并 skip，不抛异常（防御工具路径，避免一条坏
+        effect 阻断整轮）。
+        """
+        from pydantic import ValidationError
+        from .types import SessionEffect
+
+        for tr in tool_results:
+            effects = tr.metadata.get("session_effects")
+            if not isinstance(effects, list):
+                continue
+            for raw in effects:
+                try:
+                    effect = SessionEffect.model_validate(raw)
+                except ValidationError as exc:
+                    logger.warning("invalid session_effect %r: %s", raw, exc)
+                    continue
+                if effect.op == "activate_skill":
+                    session.set_active_skill_ids(effect.skill_ids)
+
+    @staticmethod
     def _apply_state_delta(state: dict[str, Any], delta: dict[str, Any]) -> None:
         """支持点路径（dot-path）的深度合并。
 
@@ -784,12 +814,20 @@ class AgentRunner:
         """One ReAct turn. Returns RunResult to terminate, or None to continue."""
         add_span_attributes({"ark.turn": ls.turns})
         session = self.session_manager.get_session_required(session_id)
+        # full 模式不变量：每轮以"全部已加载 skill"覆盖 active_skill_ids（SSOT）。
+        # 外部 API 写入 full 模式 session 的 active_skill_ids 在下轮被 clobber。
+        if (
+            skill_load_mode == SkillLoadMode.full.value
+            and self.skill_loader is not None
+        ):
+            session.set_active_skill_ids(self.skill_loader.list_skill_ids())
         state = session.state
         messages = self._build_messages(
             session_id, state,
             skill_load_mode=skill_load_mode,
+            session=session,
         )
-        tools = self._build_tools(state=state)
+        tools = self._build_tools(state=state, session=session)
         logger.info(
             "Turn %d | messages=%d tools=%d model=%s",
             ls.turns,
@@ -959,9 +997,9 @@ class AgentRunner:
         # Display-only assistant metadata (Studio session-detail UI). See spec §4.2.
         from .observability import current_trace_id_or_none
         session_for_meta = self.session_manager.get_session(session_id)
-        if session_for_meta is not None and session_for_meta.active_skills:
-            response.metadata["active_skills_at_turn"] = list(
-                session_for_meta.active_skills
+        if session_for_meta is not None and session_for_meta.active_skill_ids:
+            response.metadata["active_skill_ids"] = list(
+                session_for_meta.active_skill_ids
             )
         trace_id = current_trace_id_or_none()
         if trace_id:
@@ -1064,6 +1102,7 @@ class AgentRunner:
         ls.all_tool_results.extend(tool_results)
 
         self._merge_tool_state_deltas(session, tool_results)
+        self._apply_session_effects(session, tool_results)
 
         at = await self._run_hooks(
             self._callbacks.after_tool,
@@ -1076,6 +1115,7 @@ class AgentRunner:
         if at and at.tool_results is not None:
             tool_results = at.tool_results
             self._merge_tool_state_deltas(session, tool_results)
+            self._apply_session_effects(session, tool_results)
 
         tool_message = AgentMessage.tool(tool_results)
         self.session_manager.add_message_sync(session_id, tool_message)
@@ -1148,11 +1188,13 @@ class AgentRunner:
         state: dict[str, Any],
         *,
         skill_load_mode: str = "full",
+        session: SessionEntry | None = None,
     ) -> list[dict[str, Any]]:
         """构建 LLM 消息列表"""
         import json
 
-        session = self.session_manager.get_session_required(session_id)
+        if session is None:
+            session = self.session_manager.get_session_required(session_id)
         messages: list[dict[str, Any]] = []
 
         # 系统提示
@@ -1160,6 +1202,7 @@ class AgentRunner:
             state,
             session_id=session_id,
             skill_load_mode=skill_load_mode,
+            session=session,
         )
         messages.append({"role": "system", "content": system_prompt})
 
@@ -1213,7 +1256,7 @@ class AgentRunner:
     ) -> None:
         """Dynamic 模式下，在 ReAct 循环前确定性激活一个 skill。
 
-        写入 session.state["_active_skill_id"]（与 read_skill 工具同槽位）。
+        写入 session.active_skill_ids（SSOT），newest-wins 语义。
         Router 出错或决定为 None 时，保留原值不变。
         """
         if self._skill_router is None or self.skill_loader is None:
@@ -1234,7 +1277,7 @@ class AgentRunner:
         ctx = RouteContext(
             user_input=cb_ctx.user_input,
             history=history,
-            current_active_skill_id=session.state.get("_active_skill_id"),
+            current_active_skill_id=session.current_active_skill_id,
             candidate_skills=candidates,
         )
 
@@ -1246,9 +1289,11 @@ class AgentRunner:
             )
             return
 
-        current = session.state.get("_active_skill_id")
+        current = session.current_active_skill_id
         if decision.skill_id and decision.skill_id != current:
-            session.state["_active_skill_id"] = decision.skill_id
+            self.session_manager.set_active_skill_ids(
+                session.session_id, [decision.skill_id]
+            )
             logger.info(
                 "Skill routed: %s → %s (reason=%s)",
                 current or "<none>", decision.skill_id, decision.reason,
@@ -1295,16 +1340,16 @@ class AgentRunner:
         session_id: str | None = None,
         *,
         skill_load_mode: str = "full",
+        session: SessionEntry | None = None,
     ) -> str:
         """构建系统提示。
 
-        dynamic 模式下，若 state 含 `_active_skill_id` 则将该 skill 正文
-        注入 <active_skill> 段；此时传入 builder 的 tools 与
-        `_build_tools` 同源（经 `_filter_tools` 筛选），保证 system prompt
-        描述的工具集与 API tools schema 一致（避免 `include_tool_descriptions`
-        开启后出现"描述了 B 但 API 不给 B"的不一致）。
+        dynamic 模式下，若 session.active_skill_ids 非空，则将其末元素
+        （newest-wins）对应 skill 正文注入 <active_skill> 段；此时传入 builder
+        的 tools 与 `_build_tools` 同源（经 `_filter_tools` 筛选），保证 system
+        prompt 描述的工具集与 API tools schema 一致。
         """
-        tools = self._filter_tools(state)
+        tools = self._filter_tools(state, session=session)
 
         skills = self._match_skills(
             state, session_id, skill_load_mode=skill_load_mode,
@@ -1312,7 +1357,7 @@ class AgentRunner:
 
         active_skill: SkillEntry | None = None
         if skill_load_mode != SkillLoadMode.full.value and self.skill_loader:
-            active_id = state.get("_active_skill_id") if state else None
+            active_id = session.current_active_skill_id if session else None
             if active_id:
                 active_skill = self.skill_loader.get_skill(active_id)
 
@@ -1353,13 +1398,16 @@ class AgentRunner:
         )
 
     def _filter_tools(
-        self, state: dict[str, Any] | None = None,
+        self,
+        state: dict[str, Any] | None = None,
+        *,
+        session: SessionEntry | None = None,
     ) -> list[AgentTool]:
-        """按 skill_load_mode 与 _active_skill_id 筛选可见工具（单一事实源）。
+        """按 skill_load_mode 与 session.active_skill_ids 筛选可见工具（单一事实源）。
 
         full 模式: 全部返回。
-        dynamic 模式: always 工具始终可见；auto 工具仅在 state["_active_skill_id"]
-            对应的技能被 read_skill 激活后才暴露给 LLM。
+        dynamic 模式: always 工具始终可见；auto 工具仅在 session.active_skill_ids
+            末元素（newest-wins）对应的技能被激活后才暴露给 LLM。
 
         `_build_tools` 与 `_build_system_prompt` 都以此为准，保证 API tools
         schema 与 system prompt 中的工具描述（若开启）同源。
@@ -1374,7 +1422,7 @@ class AgentRunner:
 
         always = [t for t in all_tools if getattr(t, "visibility", "auto") == "always"]
 
-        active_skill_id = (state or {}).get("_active_skill_id")
+        active_skill_id = session.current_active_skill_id if session else None
         if not active_skill_id:
             return always
 
@@ -1385,10 +1433,13 @@ class AgentRunner:
         return always + skill_tools
 
     def _build_tools(
-        self, state: dict[str, Any] | None = None,
+        self,
+        state: dict[str, Any] | None = None,
+        *,
+        session: SessionEntry | None = None,
     ) -> list[dict[str, Any]]:
         """构建 API tools schema（`_filter_tools` 的薄包装）。"""
-        return [t.get_json_schema() for t in self._filter_tools(state)]
+        return [t.get_json_schema() for t in self._filter_tools(state, session=session)]
 
     @staticmethod
     def _enrich_skills_with_stage_reference(

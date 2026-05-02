@@ -331,7 +331,7 @@ def render_active_skill_section(skill: SkillEntry) -> str:
     用于 dynamic 模式：与 <available_skills>（仅元数据）并存，
     形成 "可选项列表 → 当前激活正文 → 切换指引" 的自然顺序。
 
-    切换 skill 时，此段跟随 session.state['_active_skill_id'] 每轮重建，
+    切换 skill 时，此段跟随 session.active_skill_ids[-1]（newest-wins）每轮重建，
     system prompt 成为 skill 的"配置载体"，tool_result 只需记录加载凭证。
     """
     body = _strip_leading_h1(skill.content)
