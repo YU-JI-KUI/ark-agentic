@@ -16,7 +16,7 @@ from ark_agentic.core.memory.manager import (
     MemoryManager,
     build_memory_manager,
 )
-from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
 
 
 @pytest.fixture

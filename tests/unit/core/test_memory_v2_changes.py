@@ -229,10 +229,10 @@ class TestDreamRetryCounter:
         """Build a MemoryDreamer wrapping a failing run() so the retry path runs."""
         from ark_agentic.core.memory.dream import MemoryDreamer
         from ark_agentic.core.memory.manager import build_memory_manager
-        from ark_agentic.core.storage.backends.file.agent_state import (
+        from ark_agentic.core.storage.repository.file.agent_state import (
             FileAgentStateRepository,
         )
-        from ark_agentic.core.storage.backends.file.session import (
+        from ark_agentic.core.storage.repository.file.session import (
             FileSessionRepository,
         )
 
@@ -277,10 +277,10 @@ class TestDreamRetryCounter:
     async def test_success_clears_counter(self, tmp_path: Path) -> None:
         from ark_agentic.core.memory.dream import DreamResult, MemoryDreamer
         from ark_agentic.core.memory.manager import build_memory_manager
-        from ark_agentic.core.storage.backends.file.agent_state import (
+        from ark_agentic.core.storage.repository.file.agent_state import (
             FileAgentStateRepository,
         )
-        from ark_agentic.core.storage.backends.file.session import (
+        from ark_agentic.core.storage.repository.file.session import (
             FileSessionRepository,
         )
 

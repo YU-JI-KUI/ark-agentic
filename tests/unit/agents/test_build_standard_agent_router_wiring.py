@@ -23,6 +23,11 @@ from ark_agentic.core.skills.router import (
 from ark_agentic.core.types import SkillLoadMode
 
 
+@pytest.fixture(autouse=True)
+def _force_file_db_type_router_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DB_TYPE", "file")
+
+
 class _FakeLLM:
     """Minimal langchain-compatible stub. We only need attribute access here;
     no .ainvoke is exercised in these tests (router never gets called)."""

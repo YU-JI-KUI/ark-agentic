@@ -12,7 +12,7 @@ from ark_agentic.core.db.engine import (
     init_schema,
     reset_engine_cache,
 )
-from ark_agentic.core.storage.backends.sqlite.memory import (
+from ark_agentic.core.storage.repository.sqlite.memory import (
     SqliteMemoryRepository,
 )
 from ark_agentic.core.storage.protocols import MemoryRepository

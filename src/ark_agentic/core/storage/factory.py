@@ -1,7 +1,7 @@
 """Repository factories — env-driven backend dispatch.
 
-Tier 0 (default ``DB_TYPE=file``) → file backends rooted at the supplied paths.
-Tier 1 (``DB_TYPE=sqlite``) → SQLite backends sharing a single AsyncEngine.
+Tier 0 (default ``DB_TYPE=file``) → file implementations under ``repository/file``.
+Tier 1 (``DB_TYPE=sqlite``) → SQLite implementations under ``repository/sqlite`` sharing one AsyncEngine.
 
 Backend-specific parameters are optional in the signature; the active backend
 validates that it received what it needs (``sessions_dir`` etc. for file,
@@ -19,16 +19,16 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from .backends.file.agent_state import FileAgentStateRepository
-from .backends.file.memory import FileMemoryRepository
+from .repository.file.agent_state import FileAgentStateRepository
+from .repository.file.memory import FileMemoryRepository
 from .inproc_cache import MemoryCache
-from .backends.file.notification import FileNotificationRepository
-from .backends.file.session import FileSessionRepository
-from .backends.sqlite.agent_state import SqliteAgentStateRepository
-from .backends.sqlite.memory import SqliteMemoryRepository
-from .backends.sqlite.notification import SqliteNotificationRepository
-from .backends.sqlite.session import SqliteSessionRepository
-from .backends.sqlite.studio_user import SqliteStudioUserRepository
+from .repository.file.notification import FileNotificationRepository
+from .repository.file.session import FileSessionRepository
+from .repository.sqlite.agent_state import SqliteAgentStateRepository
+from .repository.sqlite.memory import SqliteMemoryRepository
+from .repository.sqlite.notification import SqliteNotificationRepository
+from .repository.sqlite.session import SqliteSessionRepository
+from .repository.sqlite.studio_user import SqliteStudioUserRepository
 from .protocols import (
     AgentStateRepository,
     Cache,

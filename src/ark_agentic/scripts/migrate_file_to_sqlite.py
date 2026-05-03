@@ -35,14 +35,14 @@ from ..core.db.models import (
     SessionMeta,
     UserMemory,
 )
-from ..core.storage.backends.file.agent_state import FileAgentStateRepository
-from ..core.storage.backends.file.memory import FileMemoryRepository
-from ..core.storage.backends.file.notification import FileNotificationRepository
-from ..core.storage.backends.file.session import FileSessionRepository
-from ..core.storage.backends.sqlite.agent_state import SqliteAgentStateRepository
-from ..core.storage.backends.sqlite.memory import SqliteMemoryRepository
-from ..core.storage.backends.sqlite.notification import SqliteNotificationRepository
-from ..core.storage.backends.sqlite.session import SqliteSessionRepository
+from ..core.storage.repository.file.agent_state import FileAgentStateRepository
+from ..core.storage.repository.file.memory import FileMemoryRepository
+from ..core.storage.repository.file.notification import FileNotificationRepository
+from ..core.storage.repository.file.session import FileSessionRepository
+from ..core.storage.repository.sqlite.agent_state import SqliteAgentStateRepository
+from ..core.storage.repository.sqlite.memory import SqliteMemoryRepository
+from ..core.storage.repository.sqlite.notification import SqliteNotificationRepository
+from ..core.storage.repository.sqlite.session import SqliteSessionRepository
 
 logger = logging.getLogger(__name__)
 

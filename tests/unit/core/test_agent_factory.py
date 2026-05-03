@@ -47,6 +47,11 @@ class TestAgentDef:
 
 
 class TestBuildStandardAgent:
+    @pytest.fixture(autouse=True)
+    def _force_file_db_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """build_standard_agent defaults db_engine=None; sqlite mode requires an engine."""
+        monkeypatch.setenv("DB_TYPE", "file")
+
     def _make_def(self, agent_id: str = "test") -> AgentDef:
         return AgentDef(
             agent_id=agent_id,

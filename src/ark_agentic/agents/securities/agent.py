@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ark_agentic.core.agent_factory import AgentDef, build_standard_agent
 from ark_agentic.core.callbacks import (
@@ -74,6 +75,7 @@ def create_securities_agent(
     *,
     enable_memory: bool = False,
     enable_dream: bool = True,
+    db_engine: AsyncEngine | None = None,
 ) -> AgentRunner:
     """创建证券资产管理 Agent
 
@@ -96,4 +98,5 @@ def create_securities_agent(
         enable_memory=enable_memory,
         enable_dream=enable_dream,
         callbacks=callbacks,
+        db_engine=db_engine,
     )

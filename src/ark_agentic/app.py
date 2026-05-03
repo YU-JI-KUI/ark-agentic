@@ -125,13 +125,16 @@ async def lifespan(app: FastAPI):
     # ── Step 2: 创建并注册 Agents ────────────────────────────────────────
     _enable_memory = _env_flag("ENABLE_MEMORY")
     _enable_dream = _env_flag("ENABLE_DREAM") if os.getenv("ENABLE_DREAM") else True
+    _db_engine = app.state.db_engine
     _registry.register("insurance", create_insurance_agent(
         enable_memory=_enable_memory,
         enable_dream=_enable_dream,
+        db_engine=_db_engine,
     ))
     _registry.register("securities", create_securities_agent(
         enable_memory=_enable_memory,
         enable_dream=_enable_dream,
+        db_engine=_db_engine,
     ))
 
     # ── Step 2b: 组装 Proactive Jobs（临时驻留此处，待 JobRegistry 独立后迁移）──

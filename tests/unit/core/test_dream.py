@@ -20,9 +20,9 @@ from ark_agentic.core.memory.dream import (
 )
 from ark_agentic.core.memory.manager import MemoryManager
 from ark_agentic.core.memory.user_profile import parse_heading_sections
-from ark_agentic.core.storage.backends.file.agent_state import FileAgentStateRepository
-from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
-from ark_agentic.core.storage.backends.file.session import FileSessionRepository
+from ark_agentic.core.storage.repository.file.agent_state import FileAgentStateRepository
+from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 
 
 def _make_manager(workspace: Path) -> MemoryManager:

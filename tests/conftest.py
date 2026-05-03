@@ -68,7 +68,7 @@ def studio_auth_context(
     """
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    from ark_agentic.core.storage.backends.sqlite.studio_user import (
+    from ark_agentic.core.storage.repository.sqlite.studio_user import (
         SqliteStudioUserRepository,
     )
     from ark_agentic.studio.services.authz_service import (

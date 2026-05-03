@@ -2048,7 +2048,6 @@
       };
 
       const SESSION_STORAGE_KEY = 'ark_session_securities';
-      // #region agent log
       (function () {
         var navType = 'unknown', reloaded = false;
         try {
@@ -2056,19 +2055,12 @@
           if (n) navType = n.type;
           if (navType === 'reload' || (performance.navigation && performance.navigation.type === 1)) reloaded = true;
         } catch (e) {}
-        var had = !!sessionStorage.getItem(SESSION_STORAGE_KEY);
-        var hadLegacy = !!sessionStorage.getItem('ark_session_id');
         if (reloaded) sessionStorage.removeItem(SESSION_STORAGE_KEY);
         sessionStorage.removeItem('ark_session_id');
-        fetch('http://127.0.0.1:7417/ingest/da0531bb-7e44-4185-a534-162607333adc', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b5f868' }, body: JSON.stringify({ sessionId: 'b5f868', hypothesisId: 'H1', location: 'securities.html:session-init', message: 'nav vs storage', data: { navType: navType, reloaded: reloaded, hadBeforeClear: had, hadLegacy: hadLegacy, key: SESSION_STORAGE_KEY, timestamp: Date.now() } }) }).catch(function () {});
       })();
-      // #endregion
 
       // ---- State ----
       let sessionId = sessionStorage.getItem(SESSION_STORAGE_KEY) || null;
-      // #region agent log
-      fetch('http://127.0.0.1:7417/ingest/da0531bb-7e44-4185-a534-162607333adc', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b5f868' }, body: JSON.stringify({ sessionId: 'b5f868', hypothesisId: 'H2', location: 'securities.html:after-read', message: 'sessionId after init', data: { hasSession: !!sessionId, timestamp: Date.now() } }) }).catch(function () {});
-      // #endregion
       let isStreaming = true;
       let isSending = false;
       let userScrolled = false;
@@ -2306,6 +2298,13 @@
         } else {
           selectedUserId = $userSelect.value;
         }
+        sessionId = null;
+        sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        sessionStorage.removeItem('ark_session_id');
+        updateSessionIdLabel();
+        $chat.innerHTML = '';
+        $chat.classList.add('hidden');
+        $welcome.classList.remove('hidden');
         sessionStorage.setItem('ark_user_id', selectedUserId);
         connectNotifStream(selectedUserId);
       });
@@ -2673,9 +2672,6 @@
               sessionId = d.conversation_id;
               sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
               updateSessionIdLabel();
-              // #region agent log
-              fetch('http://127.0.0.1:7417/ingest/da0531bb-7e44-4185-a534-162607333adc', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b5f868' }, body: JSON.stringify({ sessionId: 'b5f868', hypothesisId: 'H3', location: 'securities.html:stream-session', message: 'conversation_id bound', data: { timestamp: Date.now() } }) }).catch(function () {});
-              // #endregion
             }
 
             switch (eventType) {

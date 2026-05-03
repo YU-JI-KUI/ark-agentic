@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.storage.backends.file.notification import (
+from ark_agentic.core.storage.repository.file.notification import (
     FileNotificationRepository,
 )
 from ark_agentic.core.storage.protocols import NotificationRepository

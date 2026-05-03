@@ -1,6 +1,6 @@
 """Studio authorization — token helpers + thin facade over StudioUserRepository.
 
-The storage logic has moved to ``core.storage.backends.sqlite.studio_user``
+The storage logic has moved to ``core.storage.repository.sqlite.studio_user``
 (``SqliteStudioUserRepository``) — this module now only owns:
 
 - HMAC-signed token issue / decode
@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from ...core.db.base import Base
 from ...core.db.models import StudioUser
-from ...core.storage.backends.sqlite.studio_user import (
+from ...core.storage.repository.sqlite.studio_user import (
     SqliteStudioUserRepository,
     seed_default_admin,
 )

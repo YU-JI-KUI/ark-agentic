@@ -1,6 +1,6 @@
 """Backend-neutral storage DTOs.
 
-Lives outside of any backend (``backends/file``, ``backends/sqlite``) so the
+Lives outside of any backend (``repository/file``, ``repository/sqlite``) so the
 data model carries no file-system semantics. The shape is what the protocols
 exchange with their callers; the file backend serialises it to JSON, the
 SQLite backend stores it across columns.

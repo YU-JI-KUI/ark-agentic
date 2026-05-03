@@ -1,7 +1,7 @@
 """MemoryCache — in-process Cache implementation.
 
 Single-process dict + monotonic clock TTL. Backend-agnostic: not under
-``backends/file`` because nothing about it touches the file system. The
+``repository/file`` because nothing about it touches the file system. The
 multi-worker safeguard lives in ``core.startup_guard``
 (``validate_deployment_config``).
 """

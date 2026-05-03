@@ -17,7 +17,7 @@ import pytest
 from ark_agentic.core.memory.manager import MemoryManager
 from ark_agentic.core.memory.user_profile import parse_heading_sections
 from ark_agentic.core.memory.extractor import FlushResult, MemoryFlusher
-from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
 from ark_agentic.core.tools.memory import MemoryWriteTool, MemoryProvider
 from ark_agentic.core.types import ToolCall
 

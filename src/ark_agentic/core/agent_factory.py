@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ark_agentic.core.callbacks import RunnerCallbacks
 from ark_agentic.core.compaction import CompactionConfig, LLMSummarizer
@@ -68,6 +69,7 @@ def build_standard_agent(
     sampling: SamplingConfig | None = None,
     compaction_config: CompactionConfig | None = None,
     skill_router: SkillRouter | None = None,
+    db_engine: AsyncEngine | None = None,
 ) -> AgentRunner:
     """Build an AgentRunner from an AgentDef with convention-derived defaults.
 
@@ -92,6 +94,9 @@ def build_standard_agent(
                 using the agent's main LLM.
             <SkillRouter instance> → use it verbatim (custom strategies).
             Passing a router in full mode raises ValueError.
+        db_engine: When ``DB_TYPE=sqlite``, pass the app's shared ``AsyncEngine``
+            (e.g. ``app.state.db_engine`` from lifespan) so ``SessionManager`` can
+            construct ``SqliteSessionRepository``. Ignored when ``DB_TYPE=file``.
     """
     if llm is None:
         llm = create_chat_model_from_env()
@@ -136,6 +141,7 @@ def build_standard_agent(
         sessions_dir=sessions_dir,
         compaction_config=compaction,
         summarizer=LLMSummarizer(llm),
+        db_engine=db_engine,
     )
 
     tool_registry = ToolRegistry()

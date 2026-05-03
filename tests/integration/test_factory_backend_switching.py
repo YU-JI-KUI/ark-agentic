@@ -20,8 +20,8 @@ from ark_agentic.core.db.engine import (
     reset_engine_cache,
 )
 from ark_agentic.core.session import SessionManager
-from ark_agentic.core.storage.backends.file.session import FileSessionRepository
-from ark_agentic.core.storage.backends.sqlite.session import (
+from ark_agentic.core.storage.repository.file.session import FileSessionRepository
+from ark_agentic.core.storage.repository.sqlite.session import (
     SqliteSessionRepository,
 )
 

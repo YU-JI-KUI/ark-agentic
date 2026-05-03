@@ -13,24 +13,24 @@ from ark_agentic.core.db.engine import (
     init_schema,
     reset_engine_cache,
 )
-from ark_agentic.core.storage.backends.file.agent_state import (
+from ark_agentic.core.storage.repository.file.agent_state import (
     FileAgentStateRepository,
 )
-from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
-from ark_agentic.core.storage.backends.file.notification import (
+from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.repository.file.notification import (
     FileNotificationRepository,
 )
-from ark_agentic.core.storage.backends.file.session import FileSessionRepository
-from ark_agentic.core.storage.backends.sqlite.agent_state import (
+from ark_agentic.core.storage.repository.file.session import FileSessionRepository
+from ark_agentic.core.storage.repository.sqlite.agent_state import (
     SqliteAgentStateRepository,
 )
-from ark_agentic.core.storage.backends.sqlite.memory import (
+from ark_agentic.core.storage.repository.sqlite.memory import (
     SqliteMemoryRepository,
 )
-from ark_agentic.core.storage.backends.sqlite.notification import (
+from ark_agentic.core.storage.repository.sqlite.notification import (
     SqliteNotificationRepository,
 )
-from ark_agentic.core.storage.backends.sqlite.session import (
+from ark_agentic.core.storage.repository.sqlite.session import (
     SqliteSessionRepository,
 )
 from ark_agentic.core.types import AgentMessage, MessageRole

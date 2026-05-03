@@ -478,7 +478,7 @@ class TestInjectMessages:
 
 class TestEnsureTrailingNewline:
     def test_adds_newline_when_missing(self, tmp_path: Path):
-        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
+        from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text('{"line":1}', encoding="utf-8")  # no trailing \n
@@ -487,7 +487,7 @@ class TestEnsureTrailingNewline:
         assert raw.endswith(b"\n")
 
     def test_noop_when_newline_exists(self, tmp_path: Path):
-        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
+        from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text('{"line":1}\n', encoding="utf-8")
@@ -496,7 +496,7 @@ class TestEnsureTrailingNewline:
         assert f.stat().st_size == size_before
 
     def test_noop_on_empty_file(self, tmp_path: Path):
-        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
+        from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text("", encoding="utf-8")
@@ -504,14 +504,14 @@ class TestEnsureTrailingNewline:
         assert f.stat().st_size == 0
 
     def test_noop_on_nonexistent_file(self, tmp_path: Path):
-        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
+        from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 
         f = tmp_path / "nonexistent.jsonl"
         FileSessionRepository._ensure_trailing_newline(f)  # should not raise
 
     def test_concatenated_lines_prevented(self, tmp_path: Path):
         """Simulate the bug: file without trailing \\n, then append."""
-        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
+        from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text('{"first":"msg"}', encoding="utf-8")

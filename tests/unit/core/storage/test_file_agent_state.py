@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.storage.backends.file.agent_state import FileAgentStateRepository
+from ark_agentic.core.storage.repository.file.agent_state import FileAgentStateRepository
 from ark_agentic.core.storage.protocols import AgentStateRepository
 
 
