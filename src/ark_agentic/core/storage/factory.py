@@ -119,7 +119,13 @@ def build_agent_state_repository(
 def build_notification_repository(
     base_dir: str | Path | None = None,
     engine: AsyncEngine | None = None,
+    agent_id: str = "",
 ) -> NotificationRepository:
+    """Build a notification repository scoped to one ``agent_id``.
+
+    File backend isolates by directory (``base_dir`` already includes the
+    agent path); SQLite backend isolates by ``agent_id`` column filtering.
+    """
     db_type = _resolve_db_type()
     if db_type == "file":
         return FileNotificationRepository(
@@ -127,7 +133,8 @@ def build_notification_repository(
         )
     if db_type == "sqlite":
         return SqliteNotificationRepository(
-            _require_engine(engine, "NotificationRepository")
+            _require_engine(engine, "NotificationRepository"),
+            agent_id=agent_id,
         )
     raise ValueError(
         f"Unsupported DB_TYPE for notification repository: {db_type!r}"

@@ -79,12 +79,15 @@ class NotificationRow(Base):
     __tablename__ = "notifications"
 
     notification_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    user_id: Mapped[str] = mapped_column(String(255), index=True)
+    agent_id: Mapped[str] = mapped_column(String(64), default="")
+    user_id: Mapped[str] = mapped_column(String(255))
     payload_json: Mapped[str] = mapped_column(Text)
     read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[float]
 
-    __table_args__ = (Index("ix_notif_user_read", "user_id", "read"),)
+    __table_args__ = (
+        Index("ix_notif_agent_user_read", "agent_id", "user_id", "read"),
+    )
 
 
 class StudioUser(Base):

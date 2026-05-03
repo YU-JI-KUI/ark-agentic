@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from ark_agentic.core.tools.registry import ToolRegistry
     from ark_agentic.core.memory.manager import MemoryManager
-    from ..notifications.store import NotificationStore
+    from ark_agentic.core.storage.protocols import NotificationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -100,16 +100,17 @@ class ProactiveServiceJob(BaseJob):
         llm_factory: Callable[[], "BaseChatModel"],
         tool_registry: "ToolRegistry",
         memory_manager: "MemoryManager",
+        notification_repo: "NotificationRepository",
         job_id: str = "proactive_service",
         cron: str = "0 9 * * *",
     ) -> None:
         from pathlib import Path
-        from ..notifications.store import NotificationStore
-        from ..notifications.paths import get_notifications_base_dir
 
         self._get_llm = llm_factory
         self._tool_registry = tool_registry
         self._memory_manager = memory_manager
+        self._notification_repo = notification_repo
+        self._agent_id = Path(memory_manager.config.workspace_dir).name
         self.meta = JobMeta(
             job_id=job_id,
             cron=cron,
@@ -118,20 +119,13 @@ class ProactiveServiceJob(BaseJob):
             user_timeout_secs=45.0,
         )
 
-        # 按 agent_id 隔离通知目录：ark_notifications/{agent_id}/
-        # agent_id 从 memory workspace_dir 最后一段推导（如 "insurance"、"securities"）
-        self._agent_id = Path(memory_manager.config.workspace_dir).name
-        self._notification_store = NotificationStore(
-            base_dir=get_notifications_base_dir() / self._agent_id
-        )
-
     @property
     def memory_manager(self) -> "MemoryManager":
         return self._memory_manager
 
     @property
-    def notification_store(self) -> "NotificationStore":
-        return self._notification_store
+    def notification_repo(self) -> "NotificationRepository":
+        return self._notification_repo
 
     # ── 框架流程（子类一般不需要覆盖）───────────────────────────────────────
 

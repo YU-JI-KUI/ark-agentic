@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -178,21 +179,7 @@ class SqliteSessionRepository:
                     SessionMeta.user_id == user_id,
                 )
             )).first()
-        if row is None:
-            return None
-        return SessionStoreEntry(
-            session_id=row.session_id,
-            updated_at=row.updated_at,
-            session_ref=row.session_ref,
-            model=row.model,
-            provider=row.provider,
-            prompt_tokens=row.prompt_tokens,
-            completion_tokens=row.completion_tokens,
-            total_tokens=row.total_tokens,
-            compaction_count=row.compaction_count,
-            active_skill_ids=json.loads(row.active_skill_ids_json or "[]"),
-            state=json.loads(row.state_json or "{}"),
-        )
+        return self._row_to_entry(row) if row is not None else None
 
     async def list_session_ids(
         self,
@@ -211,6 +198,23 @@ class SqliteSessionRepository:
             rows = (await conn.execute(stmt)).all()
         return [r[0] for r in rows]
 
+    async def list_session_metas(
+        self,
+        user_id: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[SessionStoreEntry]:
+        stmt = (
+            select(SessionMeta)
+            .where(SessionMeta.user_id == user_id)
+            .order_by(SessionMeta.updated_at.desc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit).offset(offset)
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(stmt)).all()
+        return [self._row_to_entry(r) for r in rows]
+
     async def list_all_sessions(
         self,
         limit: int | None = None,
@@ -225,6 +229,22 @@ class SqliteSessionRepository:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt)).all()
         return [(r[0], r[1]) for r in rows]
+
+    @staticmethod
+    def _row_to_entry(row: Any) -> SessionStoreEntry:
+        return SessionStoreEntry(
+            session_id=row.session_id,
+            updated_at=row.updated_at,
+            session_ref=row.session_ref,
+            model=row.model,
+            provider=row.provider,
+            prompt_tokens=row.prompt_tokens,
+            completion_tokens=row.completion_tokens,
+            total_tokens=row.total_tokens,
+            compaction_count=row.compaction_count,
+            active_skill_ids=json.loads(row.active_skill_ids_json or "[]"),
+            state=json.loads(row.state_json or "{}"),
+        )
 
     async def delete(
         self,

@@ -595,37 +595,38 @@ class AgentRunner:
 
         from .memory.dream import should_dream
 
-        sessions_dir = Path(self.session_manager.sessions_dir)
-
         try:
             if not await should_dream(
                 self._agent_state_repo,
+                self.session_manager.repository,
                 user_id,
-                sessions_dir,
                 min_sessions=self.config.dream_min_sessions,
             ):
                 return
         except Exception:
-            logger.debug("Dream gate check failed for user %s", user_id, exc_info=True)
+            logger.debug(
+                "Dream gate check failed for user %s", user_id, exc_info=True,
+            )
             return
 
         self._dream_tasks[user_id] = asyncio.create_task(
-            self._run_dream(user_id, sessions_dir)
+            self._run_dream(user_id)
         )
         logger.info("Dream triggered for user %s", user_id)
 
     _DREAM_FAILURE_THRESHOLD = 3
 
-    async def _run_dream(
-        self, user_id: str, sessions_dir: Path,
-    ) -> None:
+    async def _run_dream(self, user_id: str) -> None:
         """Background dream cycle with error handling and retry protection."""
         assert self._dreamer is not None
         assert self._memory_manager is not None
         assert self._agent_state_repo is not None
         try:
             result = await self._dreamer.run(
-                self._memory_manager, user_id, sessions_dir, self._agent_state_repo,
+                self._memory_manager,
+                user_id,
+                self.session_manager.repository,
+                self._agent_state_repo,
             )
             self._dream_failures.pop(user_id, None)
             logger.info("Dream completed for user %s: %s", user_id, result.changes)

@@ -76,6 +76,20 @@ class SessionRepository(Protocol):
         """
         ...
 
+    async def list_session_metas(
+        self,
+        user_id: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[SessionStoreEntry]:
+        """List sessions with their full metadata, ORDER BY updated_at DESC.
+
+        Cheaper than ``list_session_ids`` + N ``load_meta`` calls.
+        SQLite 实现支持 ``limit=None`` (返回全量)。
+        PR3 PG 实现下 limit=None 必须 raise ValueError。
+        """
+        ...
+
     async def list_all_sessions(
         self,
         limit: int | None = None,

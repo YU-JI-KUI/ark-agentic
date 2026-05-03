@@ -23,7 +23,7 @@ from .user_profile import format_heading_sections, parse_heading_sections
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
-    from ..storage.protocols import AgentStateRepository
+    from ..storage.protocols import AgentStateRepository, SessionRepository
     from ..types import AgentMessage
     from .manager import MemoryManager
 
@@ -98,36 +98,34 @@ def format_session_for_dream(messages: list["AgentMessage"]) -> str:
     return "\n".join(lines)
 
 
-def read_recent_sessions(
+async def read_recent_sessions(
     user_id: str,
-    sessions_dir: Path,
+    session_repo: "SessionRepository",
     since_ts: float,
     token_budget: int = 6000,
 ) -> str:
-    """Read recent session JSONL files and return user+assistant text.
+    """Return user+assistant text from sessions updated after ``since_ts``.
 
-    Uses existing SessionStore + TranscriptManager — no raw JSONL parsing.
+    Backend-agnostic: pulls session metadata + messages exclusively through
+    the SessionRepository protocol so the dream gate works under file or
+    SQLite without changes.
     """
     from ..compaction import estimate_tokens
-    from ..persistence import SessionStore, TranscriptManager
 
-    store = SessionStore(sessions_dir)
-    transcript = TranscriptManager(sessions_dir)
-
-    entries = store.load(user_id)
-    recent = sorted(
-        [e for e in entries.values() if e.updated_at / 1000 > since_ts],
-        key=lambda e: e.updated_at,
-        reverse=True,
-    )
+    metas = await session_repo.list_session_metas(user_id)
+    recent = [m for m in metas if m.updated_at / 1000 > since_ts]
 
     texts: list[str] = []
     total_tokens = 0
     for entry in recent:
         try:
-            messages = transcript.load_messages(entry.session_id, user_id)
+            messages = await session_repo.load_messages(
+                entry.session_id, user_id,
+            )
         except Exception:
-            logger.debug("Failed to load session %s, skipping", entry.session_id)
+            logger.debug(
+                "Failed to load session %s, skipping", entry.session_id,
+            )
             continue
         session_text = format_session_for_dream(messages)
         if not session_text:
@@ -148,14 +146,15 @@ def read_recent_sessions(
 
 async def should_dream(
     state_repo: "AgentStateRepository",
+    session_repo: "SessionRepository",
     user_id: str,
-    sessions_dir: Path,
     min_hours: float = 24.0,
     min_sessions: int = 3,
 ) -> bool:
     """Check if a dream cycle should run for this user.
 
-    Reads `.last_dream` marker via state_repo (PR2+ DB-friendly).
+    Reads ``.last_dream`` marker via state_repo and counts recently-updated
+    sessions via the SessionRepository.
     """
     raw = await state_repo.get(user_id, "last_dream")
     if raw is None:
@@ -172,11 +171,8 @@ async def should_dream(
     if hours_since >= min_hours:
         return True
 
-    from ..persistence import SessionStore
-
-    store = SessionStore(sessions_dir)
-    entries = store.load(user_id)
-    recent = [e for e in entries.values() if e.updated_at / 1000 > last_ts]
+    metas = await session_repo.list_session_metas(user_id)
+    recent = [m for m in metas if m.updated_at / 1000 > last_ts]
     return len(recent) >= min_sessions
 
 
@@ -285,14 +281,12 @@ class MemoryDreamer:
         self,
         memory_manager: "MemoryManager",
         user_id: str,
-        sessions_dir: Path,
+        session_repo: "SessionRepository",
         state_repo: "AgentStateRepository",
     ) -> DreamResult:
-        """Full dream cycle: read sessions + memory → distill → optimistic merge write.
+        """Full dream cycle: read sessions + memory → distill → merge write.
 
-        state_repo: AgentStateRepository for reading/writing the last_dream marker
-        (PR2+ DB-friendly; replaces direct ``.last_dream`` file IO).
-        memory_manager: MemoryManager (backend-agnostic memory R/W).
+        Pure repository-driven; no file paths in the signature.
         """
         memory_content = await memory_manager.read_memory(user_id)
         original_snapshot = memory_content
@@ -306,8 +300,8 @@ class MemoryDreamer:
             except (ValueError, AttributeError):
                 pass
 
-        session_summaries = read_recent_sessions(
-            user_id, sessions_dir, since_ts,
+        session_summaries = await read_recent_sessions(
+            user_id, session_repo, since_ts,
         )
 
         result = await self.dream(memory_content, session_summaries)

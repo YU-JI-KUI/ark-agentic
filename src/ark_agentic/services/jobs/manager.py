@@ -17,7 +17,6 @@ from apscheduler.triggers.cron import CronTrigger
 
 if TYPE_CHECKING:
     from ..notifications.delivery import NotificationDelivery
-    from ..notifications.store import NotificationStore
     from .base import BaseJob
     from .scanner import UserShardScanner
 
@@ -43,11 +42,12 @@ class JobManager:
 
     def __init__(
         self,
-        notification_store: "NotificationStore",
         delivery: "NotificationDelivery",
         scanner: "UserShardScanner",
     ) -> None:
-        self._store = notification_store
+        # Notifications are owned per-Job (each Job carries its own
+        # ``notification_repo`` scoped to its agent_id). The manager only
+        # needs the delivery dispatcher for live SSE pushes.
         self._delivery = delivery
         self._scanner = scanner
         self._jobs: dict[str, "BaseJob"] = {}

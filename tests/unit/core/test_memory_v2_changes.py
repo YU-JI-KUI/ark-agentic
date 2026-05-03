@@ -255,7 +255,7 @@ class TestDreamRetryCounter:
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
-        await AgentRunner._run_dream(runner, user_id, sessions_dir)
+        await AgentRunner._run_dream(runner, user_id)
 
         assert runner._dream_failures[user_id] == 1
         assert not (ws / user_id / ".last_dream").exists()
@@ -271,7 +271,7 @@ class TestDreamRetryCounter:
 
         runner._dream_failures[user_id] = 2
 
-        await AgentRunner._run_dream(runner, user_id, sessions_dir)
+        await AgentRunner._run_dream(runner, user_id)
 
         assert (ws / user_id / ".last_dream").exists()
         assert user_id not in runner._dream_failures
@@ -305,6 +305,6 @@ class TestDreamRetryCounter:
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
-        await AgentRunner._run_dream(runner, user_id, sessions_dir)
+        await AgentRunner._run_dream(runner, user_id)
 
         assert user_id not in runner._dream_failures

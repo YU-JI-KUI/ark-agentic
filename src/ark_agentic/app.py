@@ -86,7 +86,6 @@ async def lifespan(app: FastAPI):
             )
             from ark_agentic.services.notifications import (
                 NotificationDelivery,
-                NotificationStore,
                 get_notifications_base_dir,
             )
         except ImportError as e:
@@ -95,10 +94,13 @@ async def lifespan(app: FastAPI):
                 f"Install with: pip install 'ark-agentic[server]' (cause: {e})"
             ) from e
 
-        notification_store = NotificationStore(base_dir=get_notifications_base_dir())
         notification_delivery = NotificationDelivery()
-        app.state.notification_store = notification_store
         app.state.notification_delivery = notification_delivery
+        # Lifespan keeps the notifications base_dir handy so the API and
+        # job system can build per-agent NotificationRepository instances
+        # via the storage factory.
+        app.state.notifications_base_dir = get_notifications_base_dir()
+        app.state.db_engine_for_notifications = app.state.db_engine
 
         scanner = UserShardScanner(
             max_concurrent=int(os.getenv("JOB_MAX_CONCURRENT", "50")),
@@ -107,7 +109,6 @@ async def lifespan(app: FastAPI):
             total_shards=int(os.getenv("JOB_TOTAL_SHARDS", "1")),
         )
         job_manager = JobManager(
-            notification_store=notification_store,
             delivery=notification_delivery,
             scanner=scanner,
         )
@@ -131,13 +132,25 @@ async def lifespan(app: FastAPI):
     # ── Step 2b: 组装 Proactive Jobs（临时驻留此处，待 JobRegistry 独立后迁移）──
     # Job 不属于 Agent 的职责范围，未来会提取为独立的 JobRegistry 层。
     # 当前暂存在 app.py，以保留功能同时保持 agent 文件干净。
-    if _enable_memory:
+    if _enable_memory and _env_flag("ENABLE_JOB_MANAGER"):
+        from ark_agentic.core.storage.factory import (
+            build_notification_repository,
+        )
         from ark_agentic.services.jobs import (
             apply_proactive_job_bindings,
             build_proactive_job_bindings,
         )
         from ark_agentic.agents.insurance.proactive_job import InsuranceProactiveJob
         from ark_agentic.agents.securities.proactive_job import SecuritiesProactiveJob
+
+        notif_base = app.state.notifications_base_dir
+
+        def _notif_repo(agent_id: str):
+            return build_notification_repository(
+                base_dir=notif_base / agent_id,
+                engine=app.state.db_engine,
+                agent_id=agent_id,
+            )
 
         ins_runner = _registry.get("insurance")
         if ins_runner.memory_manager is not None:
@@ -148,6 +161,7 @@ async def lifespan(app: FastAPI):
                     llm_factory=lambda: ins_runner.llm,
                     tool_registry=ins_runner.tool_registry,
                     memory_manager=ins_runner.memory_manager,
+                    notification_repo=_notif_repo("insurance"),
                     cron=os.getenv("INSURANCE_PROACTIVE_CRON", "26 23 * * *"),
                 )),
             )
@@ -161,6 +175,7 @@ async def lifespan(app: FastAPI):
                     llm_factory=lambda: sec_runner.llm,
                     tool_registry=sec_runner.tool_registry,
                     memory_manager=sec_runner.memory_manager,
+                    notification_repo=_notif_repo("securities"),
                     cron=os.getenv("SECURITIES_PROACTIVE_CRON", "0 9 * * 1-5"),
                 )),
             )

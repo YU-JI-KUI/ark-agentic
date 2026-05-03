@@ -91,6 +91,18 @@ class FileSessionRepository:
         # File 实现忽略 limit/offset; PR2 DB 实现 must enforce limit != None
         return await asyncio.to_thread(self._transcript.list_sessions, user_id)
 
+    async def list_session_metas(
+        self,
+        user_id: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[SessionStoreEntry]:
+        entries = await asyncio.to_thread(self._store.load, user_id)
+        ordered = sorted(
+            entries.values(), key=lambda e: e.updated_at, reverse=True,
+        )
+        return ordered
+
     async def list_all_sessions(
         self,
         limit: int | None = None,

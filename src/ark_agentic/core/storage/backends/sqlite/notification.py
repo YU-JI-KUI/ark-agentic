@@ -1,9 +1,14 @@
 """SqliteNotificationRepository — atomic mark_read via row-level locks.
 
-DB row-level locking on UPDATE ... WHERE id IN (...) replaces the file lock +
-read-modify-write dance from the file backend.
+Per-agent isolation lives on the row (``notifications.agent_id``); each
+repository instance is bound to a single ``agent_id`` and scopes every
+query/insert by it. This matches the file backend's per-agent directory
+layout while letting all rows share one table.
 
-``list_recent`` pushes ORDER BY / WHERE / LIMIT / OFFSET down into SQL so that
+DB row-level locking on ``UPDATE ... WHERE id IN (...)`` replaces the file
+lock + read-modify-write dance from the file backend.
+
+``list_recent`` pushes ORDER BY / WHERE / LIMIT / OFFSET into SQL so that
 hot paths only materialise the page being returned, not the whole per-user
 notification history. Total / unread counts are two cheap COUNT(*) queries.
 """
@@ -24,17 +29,27 @@ from ....db.models import NotificationRow
 
 
 class SqliteNotificationRepository:
-    """NotificationRepository over a SQLAlchemy AsyncEngine."""
+    """NotificationRepository over a SQLAlchemy AsyncEngine, scoped to one agent."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: AsyncEngine, agent_id: str = "") -> None:
         self._engine = engine
+        self._agent_id = agent_id
 
     async def save(self, notification: Notification) -> None:
+        # Notification.agent_id is the source of truth — repos pin to one
+        # agent_id, so a misrouted notification (different agent_id) is a bug
+        # the caller should not silently absorb.
+        if notification.agent_id and notification.agent_id != self._agent_id:
+            raise ValueError(
+                f"Notification.agent_id={notification.agent_id!r} does not "
+                f"match repository agent_id={self._agent_id!r}"
+            )
         payload = notification.model_dump_json()
         # ON CONFLICT DO NOTHING keeps save() idempotent on retries without
         # the SELECT-then-INSERT race.
         stmt = sqlite_insert(NotificationRow).values(
             notification_id=notification.notification_id,
+            agent_id=self._agent_id,
             user_id=notification.user_id,
             payload_json=payload,
             read=notification.read,
@@ -50,10 +65,14 @@ class SqliteNotificationRepository:
         offset: int = 0,
         unread_only: bool = False,
     ) -> NotificationList:
-        # Page query — only the rows we'll actually return cross the wire.
+        scope = (
+            (NotificationRow.agent_id == self._agent_id)
+            & (NotificationRow.user_id == user_id)
+        )
+
         page_stmt = (
             select(NotificationRow.payload_json, NotificationRow.read)
-            .where(NotificationRow.user_id == user_id)
+            .where(scope)
         )
         if unread_only:
             page_stmt = page_stmt.where(NotificationRow.read.is_(False))
@@ -61,16 +80,14 @@ class SqliteNotificationRepository:
         if limit:
             page_stmt = page_stmt.limit(limit).offset(offset)
         elif offset:
-            # SQLAlchemy requires LIMIT for OFFSET; use -1 (no bound).
+            # SQLAlchemy requires LIMIT for OFFSET; -1 means "no upper bound".
             page_stmt = page_stmt.limit(-1).offset(offset)
 
-        # Count queries — independent of paging / unread_only filter so the
-        # response shape matches the file backend (total reflects the user's
-        # full visible set, unread_count is the live unread tally).
+        # Counts are independent of paging / unread_only filter so the
+        # response shape matches the file backend (total = full visible set,
+        # unread_count = live unread tally).
         total_stmt = (
-            select(func.count())
-            .select_from(NotificationRow)
-            .where(NotificationRow.user_id == user_id)
+            select(func.count()).select_from(NotificationRow).where(scope)
         )
         unread_stmt = total_stmt.where(NotificationRow.read.is_(False))
 
@@ -98,6 +115,7 @@ class SqliteNotificationRepository:
             await conn.execute(
                 update(NotificationRow)
                 .where(
+                    NotificationRow.agent_id == self._agent_id,
                     NotificationRow.user_id == user_id,
                     NotificationRow.notification_id.in_(notification_ids),
                 )
