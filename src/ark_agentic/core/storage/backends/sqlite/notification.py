@@ -2,13 +2,18 @@
 
 DB row-level locking on UPDATE ... WHERE id IN (...) replaces the file lock +
 read-modify-write dance from the file backend.
+
+``list_recent`` pushes ORDER BY / WHERE / LIMIT / OFFSET down into SQL so that
+hot paths only materialise the page being returned, not the whole per-user
+notification history. Total / unread counts are two cheap COUNT(*) queries.
 """
 
 from __future__ import annotations
 
 import json
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .....services.notifications.models import (
@@ -26,16 +31,17 @@ class SqliteNotificationRepository:
 
     async def save(self, notification: Notification) -> None:
         payload = notification.model_dump_json()
+        # ON CONFLICT DO NOTHING keeps save() idempotent on retries without
+        # the SELECT-then-INSERT race.
+        stmt = sqlite_insert(NotificationRow).values(
+            notification_id=notification.notification_id,
+            user_id=notification.user_id,
+            payload_json=payload,
+            read=notification.read,
+            created_at=notification.created_at,
+        ).on_conflict_do_nothing(index_elements=["notification_id"])
         async with self._engine.begin() as conn:
-            await conn.execute(
-                insert(NotificationRow).values(
-                    notification_id=notification.notification_id,
-                    user_id=notification.user_id,
-                    payload_json=payload,
-                    read=notification.read,
-                    created_at=notification.created_at,
-                )
-            )
+            await conn.execute(stmt)
 
     async def list_recent(
         self,
@@ -44,43 +50,45 @@ class SqliteNotificationRepository:
         offset: int = 0,
         unread_only: bool = False,
     ) -> NotificationList:
-        # total + unread_count baseline computed before unread_only filter so
-        # the response shape matches the file backend (NotificationList.total
-        # reflects the user's full visible set, not just the returned slice).
-        async with self._engine.connect() as conn:
-            base_rows = (await conn.execute(
-                select(
-                    NotificationRow.payload_json,
-                    NotificationRow.read,
-                )
-                .where(NotificationRow.user_id == user_id)
-            )).all()
+        # Page query — only the rows we'll actually return cross the wire.
+        page_stmt = (
+            select(NotificationRow.payload_json, NotificationRow.read)
+            .where(NotificationRow.user_id == user_id)
+        )
+        if unread_only:
+            page_stmt = page_stmt.where(NotificationRow.read.is_(False))
+        page_stmt = page_stmt.order_by(NotificationRow.created_at.desc())
+        if limit:
+            page_stmt = page_stmt.limit(limit).offset(offset)
+        elif offset:
+            # SQLAlchemy requires LIMIT for OFFSET; use -1 (no bound).
+            page_stmt = page_stmt.limit(-1).offset(offset)
 
-        all_notifications: list[Notification] = []
-        for payload_json, read_flag in base_rows:
+        # Count queries — independent of paging / unread_only filter so the
+        # response shape matches the file backend (total reflects the user's
+        # full visible set, unread_count is the live unread tally).
+        total_stmt = (
+            select(func.count())
+            .select_from(NotificationRow)
+            .where(NotificationRow.user_id == user_id)
+        )
+        unread_stmt = total_stmt.where(NotificationRow.read.is_(False))
+
+        async with self._engine.connect() as conn:
+            page_rows = (await conn.execute(page_stmt)).all()
+            total = (await conn.execute(total_stmt)).scalar_one()
+            unread_count = (await conn.execute(unread_stmt)).scalar_one()
+
+        notifications: list[Notification] = []
+        for payload_json, read_flag in page_rows:
             data = json.loads(payload_json)
             data["read"] = bool(read_flag)
-            all_notifications.append(Notification(**data))
-
-        total = len(all_notifications)
-        unread_count = sum(1 for n in all_notifications if not n.read)
-
-        # Apply ordering + filter + paging on the in-memory list. SQLite is
-        # cheap enough that sub-millisecond list builds matter less than
-        # behavioral parity with the file impl. PR3 PG version should push
-        # ORDER BY / LIMIT down into SQL.
-        all_notifications.sort(key=lambda n: n.created_at, reverse=True)
-        filtered = (
-            [n for n in all_notifications if not n.read]
-            if unread_only
-            else all_notifications
-        )
-        paged = filtered[offset:offset + limit] if limit else filtered[offset:]
+            notifications.append(Notification(**data))
 
         return NotificationList(
-            notifications=paged,
-            total=total,
-            unread_count=unread_count,
+            notifications=notifications,
+            total=int(total),
+            unread_count=int(unread_count),
         )
 
     async def mark_read(self, user_id: str, notification_ids: list[str]) -> None:

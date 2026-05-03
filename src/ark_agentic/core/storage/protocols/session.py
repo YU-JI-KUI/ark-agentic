@@ -43,7 +43,10 @@ class SessionRepository(Protocol):
         limit: int | None = None,
         offset: int = 0,
     ) -> list[AgentMessage]:
-        """File 实现忽略 limit/offset；DB 实现下 limit=None 必须 raise ValueError。"""
+        """File 实现忽略 limit/offset。
+        SQLite 实现支持 ``limit=None`` (返回全量，单进程嵌入式 DB 下成本可接受)。
+        PR3 PG 实现下 limit=None 必须 raise ValueError，强制热路径分页。
+        """
         ...
 
     async def update_meta(
@@ -67,7 +70,10 @@ class SessionRepository(Protocol):
         limit: int | None = None,
         offset: int = 0,
     ) -> list[str]:
-        """ORDER BY updated_at DESC. DB 实现下 limit=None 必须 raise ValueError。"""
+        """ORDER BY updated_at DESC.
+        SQLite 实现支持 ``limit=None`` (返回全量)。
+        PR3 PG 实现下 limit=None 必须 raise ValueError。
+        """
         ...
 
     async def delete(

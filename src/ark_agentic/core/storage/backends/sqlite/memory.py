@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import time
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ....db.models import UserMemory
@@ -41,7 +42,13 @@ class SqliteMemoryRepository:
         user_id: str,
         content: str,
     ) -> tuple[list[str], list[str]]:
-        """Heading-level upsert. Read-modify-write inside one transaction."""
+        """Heading-level upsert. Read-modify-write inside one transaction.
+
+        The merge runs in Python; persistence is a single
+        ``INSERT ... ON CONFLICT DO UPDATE`` so two concurrent callers can no
+        longer both observe "no row" and race two INSERTs (which would
+        otherwise raise IntegrityError on the second commit).
+        """
         async with self._engine.begin() as conn:
             row = (await conn.execute(
                 select(UserMemory.content).where(
@@ -60,20 +67,15 @@ class SqliteMemoryRepository:
             new_content = format_heading_sections(prev_preamble, merged)
             now_ms = int(time.time() * 1000)
 
-            if row is None:
-                await conn.execute(
-                    insert(UserMemory).values(
-                        user_id=user_id,
-                        content=new_content,
-                        updated_at=now_ms,
-                    )
-                )
-            else:
-                await conn.execute(
-                    update(UserMemory)
-                    .where(UserMemory.user_id == user_id)
-                    .values(content=new_content, updated_at=now_ms)
-                )
+            stmt = sqlite_insert(UserMemory).values(
+                user_id=user_id,
+                content=new_content,
+                updated_at=now_ms,
+            ).on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={"content": new_content, "updated_at": now_ms},
+            )
+            await conn.execute(stmt)
 
         current = [k for k, v in merged.items() if v]
         dropped = sorted(set(prev_sections) - set(current))
@@ -81,24 +83,16 @@ class SqliteMemoryRepository:
 
     async def overwrite(self, user_id: str, content: str) -> None:
         now_ms = int(time.time() * 1000)
+        stmt = sqlite_insert(UserMemory).values(
+            user_id=user_id,
+            content=content,
+            updated_at=now_ms,
+        ).on_conflict_do_update(
+            index_elements=["user_id"],
+            set_={"content": content, "updated_at": now_ms},
+        )
         async with self._engine.begin() as conn:
-            existing = (await conn.execute(
-                select(UserMemory.user_id).where(
-                    UserMemory.user_id == user_id,
-                )
-            )).first()
-            if existing:
-                await conn.execute(
-                    update(UserMemory)
-                    .where(UserMemory.user_id == user_id)
-                    .values(content=content, updated_at=now_ms)
-                )
-            else:
-                await conn.execute(
-                    insert(UserMemory).values(
-                        user_id=user_id, content=content, updated_at=now_ms,
-                    )
-                )
+            await conn.execute(stmt)
 
     async def list_users(
         self,

@@ -4,6 +4,11 @@ Schema:
 - ``session_meta``: per (session_id) row with model/provider/state/tokens
 - ``session_messages``: append-only JSONL payloads keyed by (session_id, seq)
 
+Authorisation note:
+- Every method that accepts ``user_id`` enforces it in the WHERE clause so
+  that the SQLite backend has the same ownership semantics as the file
+  backend (which scopes by ``{sessions_dir}/{user_id}/...``).
+
 PR3 PG TODO:
 - ``load_messages(limit=None)`` should raise on PG (forces pagination on hot path).
 - ``put_raw_transcript`` already runs DELETE+INSERT in one transaction; PG keeps
@@ -16,7 +21,8 @@ import json
 import os
 from datetime import datetime
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ....db.models import SessionMessage, SessionMeta
@@ -47,29 +53,24 @@ class SqliteSessionRepository:
         provider: str,
         state: dict,
     ) -> None:
+        # ON CONFLICT DO NOTHING gives "create if missing" in one round-trip
+        # without the SELECT-then-INSERT race window.
+        stmt = sqlite_insert(SessionMeta).values(
+            session_id=session_id,
+            user_id=user_id,
+            updated_at=0,
+            model=model,
+            provider=provider,
+            session_ref=None,
+            state_json=json.dumps(state, ensure_ascii=False),
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            compaction_count=0,
+            active_skill_ids_json="[]",
+        ).on_conflict_do_nothing(index_elements=["session_id"])
         async with self._engine.begin() as conn:
-            existing = (await conn.execute(
-                select(SessionMeta.session_id)
-                .where(SessionMeta.session_id == session_id)
-            )).first()
-            if existing:
-                return
-            await conn.execute(
-                insert(SessionMeta).values(
-                    session_id=session_id,
-                    user_id=user_id,
-                    updated_at=0,
-                    model=model,
-                    provider=provider,
-                    session_ref=None,
-                    state_json=json.dumps(state, ensure_ascii=False),
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    total_tokens=0,
-                    compaction_count=0,
-                    active_skill_ids_json="[]",
-                )
-            )
+            await conn.execute(stmt)
 
     async def append_message(
         self,
@@ -77,15 +78,28 @@ class SqliteSessionRepository:
         user_id: str,
         message: AgentMessage,
     ) -> None:
+        """Append a message with the next sequence number.
+
+        Caller contract: appends to the **same** session_id MUST be serialised
+        by the caller (the runner serialises per-session). Concurrent appends
+        to the same session can both observe the same MAX(seq) before either
+        commits, and the unique ``(session_id, seq)`` index will then reject
+        the second insert with ``IntegrityError``. The runner's per-session
+        ordering makes this latent today, but a future caller that drops
+        that invariant must add retry-on-IntegrityError here.
+        """
         payload = json.dumps(serialize_message(message), ensure_ascii=False)
         ts_ms = int(message.timestamp.timestamp() * 1000)
         async with self._engine.begin() as conn:
             next_seq = (await conn.execute(
                 select(func.coalesce(func.max(SessionMessage.seq), -1) + 1)
-                .where(SessionMessage.session_id == session_id)
+                .where(
+                    SessionMessage.session_id == session_id,
+                    SessionMessage.user_id == user_id,
+                )
             )).scalar_one()
             await conn.execute(
-                insert(SessionMessage).values(
+                sqlite_insert(SessionMessage).values(
                     session_id=session_id,
                     user_id=user_id,
                     seq=next_seq,
@@ -108,7 +122,10 @@ class SqliteSessionRepository:
         """
         stmt = (
             select(SessionMessage.payload_json)
-            .where(SessionMessage.session_id == session_id)
+            .where(
+                SessionMessage.session_id == session_id,
+                SessionMessage.user_id == user_id,
+            )
             .order_by(SessionMessage.seq.asc())
         )
         if limit is not None:
@@ -138,23 +155,16 @@ class SqliteSessionRepository:
                 entry.active_skill_ids, ensure_ascii=False,
             ),
         }
+        # Single-statement upsert. Concurrent callers can no longer both
+        # see "no row" and race two INSERTs.
+        stmt = sqlite_insert(SessionMeta).values(
+            session_id=session_id, **values,
+        ).on_conflict_do_update(
+            index_elements=["session_id"],
+            set_=values,
+        )
         async with self._engine.begin() as conn:
-            existing = (await conn.execute(
-                select(SessionMeta.session_id)
-                .where(SessionMeta.session_id == session_id)
-            )).first()
-            if existing:
-                await conn.execute(
-                    update(SessionMeta)
-                    .where(SessionMeta.session_id == session_id)
-                    .values(**values)
-                )
-            else:
-                await conn.execute(
-                    insert(SessionMeta).values(
-                        session_id=session_id, **values,
-                    )
-                )
+            await conn.execute(stmt)
 
     async def load_meta(
         self,
@@ -165,6 +175,7 @@ class SqliteSessionRepository:
             row = (await conn.execute(
                 select(SessionMeta).where(
                     SessionMeta.session_id == session_id,
+                    SessionMeta.user_id == user_id,
                 )
             )).first()
         if row is None:
@@ -209,19 +220,26 @@ class SqliteSessionRepository:
             existing = (await conn.execute(
                 select(SessionMeta.session_id).where(
                     SessionMeta.session_id == session_id,
+                    SessionMeta.user_id == user_id,
                 )
             )).first()
+            if existing is None:
+                # Nothing owned by this user — leave any other owner's
+                # rows alone.
+                return False
             await conn.execute(
                 delete(SessionMessage).where(
                     SessionMessage.session_id == session_id,
+                    SessionMessage.user_id == user_id,
                 )
             )
             await conn.execute(
                 delete(SessionMeta).where(
                     SessionMeta.session_id == session_id,
+                    SessionMeta.user_id == user_id,
                 )
             )
-        return existing is not None
+        return True
 
     async def get_raw_transcript(
         self,
@@ -232,6 +250,7 @@ class SqliteSessionRepository:
             meta_row = (await conn.execute(
                 select(SessionMeta.session_id).where(
                     SessionMeta.session_id == session_id,
+                    SessionMeta.user_id == user_id,
                 )
             )).first()
             if meta_row is None:
@@ -241,7 +260,10 @@ class SqliteSessionRepository:
                     SessionMessage.payload_json,
                     SessionMessage.timestamp,
                 )
-                .where(SessionMessage.session_id == session_id)
+                .where(
+                    SessionMessage.session_id == session_id,
+                    SessionMessage.user_id == user_id,
+                )
                 .order_by(SessionMessage.seq.asc())
             )).all()
 
@@ -282,7 +304,7 @@ class SqliteSessionRepository:
                 line_number=1,
             )
 
-        parsed: list[tuple[int, str, int]] = []  # (seq, payload_json, ts_ms)
+        rows: list[dict] = []
         for i, line in enumerate(lines[1:], start=2):
             try:
                 data = json.loads(line)
@@ -298,27 +320,36 @@ class SqliteSessionRepository:
                 raise RawJsonlValidationError(
                     f"第 {i} 行必须含 message 对象", line_number=i,
                 )
-            seq = i - 2
-            payload_json = json.dumps(data["message"], ensure_ascii=False)
-            ts_ms = int(data.get("timestamp", 0) or 0)
-            parsed.append((seq, payload_json, ts_ms))
+            rows.append({
+                "session_id": session_id,
+                "user_id": user_id,
+                "seq": i - 2,
+                "payload_json": json.dumps(data["message"], ensure_ascii=False),
+                "timestamp": int(data.get("timestamp", 0) or 0),
+            })
 
         async with self._engine.begin() as conn:
+            # Confirm ownership before any mutation so a misrouted call
+            # cannot wipe or replace another owner's transcript.
+            owner = (await conn.execute(
+                select(SessionMeta.session_id).where(
+                    SessionMeta.session_id == session_id,
+                    SessionMeta.user_id == user_id,
+                )
+            )).first()
+            if owner is None:
+                raise RawJsonlValidationError(
+                    f"session {session_id!r} not found for user {user_id!r}",
+                    line_number=1,
+                )
             await conn.execute(
                 delete(SessionMessage).where(
                     SessionMessage.session_id == session_id,
                 )
             )
-            for seq, payload_json, ts_ms in parsed:
-                await conn.execute(
-                    insert(SessionMessage).values(
-                        session_id=session_id,
-                        user_id=user_id,
-                        seq=seq,
-                        payload_json=payload_json,
-                        timestamp=ts_ms,
-                    )
-                )
+            if rows:
+                # Single executemany round-trip instead of N INSERTs.
+                await conn.execute(sqlite_insert(SessionMessage), rows)
 
     async def finalize(
         self,

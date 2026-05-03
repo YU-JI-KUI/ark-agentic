@@ -26,5 +26,8 @@ class AgentStateRepository(Protocol):
         offset: int = 0,
         order_by_updated_desc: bool = True,
     ) -> list[tuple[str, str]]:
-        """File 实现忽略 limit/offset；DB 实现下 limit=None 必须 raise ValueError。"""
+        """File 实现忽略 limit/offset。
+        SQLite 实现支持 ``limit=None`` (返回全量)。
+        PR3 PG 实现下 limit=None 必须 raise ValueError。
+        """
         ...

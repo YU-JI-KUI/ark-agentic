@@ -92,3 +92,17 @@ async def test_list_users_with_key_orders_by_updated_desc(
 
     names = [u for u, _ in users]
     assert names == ["newest", "middle", "oldest"]
+
+
+async def test_set_concurrent_inserts_no_integrity_error(
+    repo: SqliteAgentStateRepository,
+):
+    """Two parallel set() calls for a brand-new (user, key) must both succeed
+    via ON CONFLICT DO UPDATE — no IntegrityError."""
+    await asyncio.gather(
+        repo.set("u_race", "k", "v1"),
+        repo.set("u_race", "k", "v2"),
+    )
+
+    final = await repo.get("u_race", "k")
+    assert final in ("v1", "v2")

@@ -6,7 +6,9 @@ Note: ``studio_users`` is moved into this module by Task 11 so all tables share
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -33,7 +35,13 @@ class SessionMessage(Base):
     __tablename__ = "session_messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(String(128))
+    # ON DELETE CASCADE pairs with PRAGMA foreign_keys=ON in core.db.engine
+    # so that direct DELETEs of session_meta rows (migrations, admin tools)
+    # do not leave orphaned message rows behind.
+    session_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("session_meta.session_id", ondelete="CASCADE"),
+    )
     user_id: Mapped[str] = mapped_column(String(255))
     seq: Mapped[int] = mapped_column(Integer)
     payload_json: Mapped[str] = mapped_column(Text)
@@ -92,7 +100,7 @@ class StudioUser(Base):
 
     user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     role: Mapped[str] = mapped_column(String(32))
-    created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True))  # type: ignore[type-arg]
-    updated_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True))  # type: ignore[type-arg]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
