@@ -1,8 +1,10 @@
 """File backend - default storage implementations.
 
-直接落盘到 transcript JSONL、sessions.json、MEMORY.md、.last_* 标记文件。
-基于现有 TranscriptManager / SessionStore / NotificationStore 包装。
-``MemoryCache`` 已迁出到 ``core.storage.inproc_cache`` —— 它和文件后端无关。
+每个 ``FileXxxRepository`` 自己拥有所有文件 I/O；早期的中间类
+（TranscriptManager / SessionStore / NotificationStore）已被合并删除。
+JSONL 解析 / FileLock / 序列化等共享工具仍在 ``core.persistence`` 中，
+SQLite 后端的 raw transcript 路径也复用它们。
+``MemoryCache`` 在 ``core.storage.inproc_cache``（与文件后端无关）。
 """
 
 from .agent_state import FileAgentStateRepository

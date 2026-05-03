@@ -478,44 +478,44 @@ class TestInjectMessages:
 
 class TestEnsureTrailingNewline:
     def test_adds_newline_when_missing(self, tmp_path: Path):
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text('{"line":1}', encoding="utf-8")  # no trailing \n
-        TranscriptManager._ensure_trailing_newline(f)
+        FileSessionRepository._ensure_trailing_newline(f)
         raw = f.read_bytes()
         assert raw.endswith(b"\n")
 
     def test_noop_when_newline_exists(self, tmp_path: Path):
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text('{"line":1}\n', encoding="utf-8")
         size_before = f.stat().st_size
-        TranscriptManager._ensure_trailing_newline(f)
+        FileSessionRepository._ensure_trailing_newline(f)
         assert f.stat().st_size == size_before
 
     def test_noop_on_empty_file(self, tmp_path: Path):
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text("", encoding="utf-8")
-        TranscriptManager._ensure_trailing_newline(f)
+        FileSessionRepository._ensure_trailing_newline(f)
         assert f.stat().st_size == 0
 
     def test_noop_on_nonexistent_file(self, tmp_path: Path):
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
 
         f = tmp_path / "nonexistent.jsonl"
-        TranscriptManager._ensure_trailing_newline(f)  # should not raise
+        FileSessionRepository._ensure_trailing_newline(f)  # should not raise
 
     def test_concatenated_lines_prevented(self, tmp_path: Path):
         """Simulate the bug: file without trailing \\n, then append."""
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.backends.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text('{"first":"msg"}', encoding="utf-8")
-        TranscriptManager._ensure_trailing_newline(f)
+        FileSessionRepository._ensure_trailing_newline(f)
         with open(f, "a", encoding="utf-8") as fh:
             fh.write('{"second":"msg"}\n')
 
