@@ -1,7 +1,7 @@
-"""Unit tests for LLMCaller metadata enrichment (model_used, latency_ms).
+"""Unit tests for LLMCaller typed-field writes (finish_reason, usage).
 
-Sampling fields (temperature, top_p) are intentionally not stored — see
-caller.py:_attach_call_metadata for rationale.
+model_used and latency_ms were removed — they belong in monitoring dashboards,
+not per-session timelines. finish_reason and usage are now typed fields on AgentMessage.
 """
 
 from __future__ import annotations
@@ -33,14 +33,27 @@ def _make_llm(
 
 
 @pytest.mark.asyncio
-async def test_call_writes_model_used_and_latency() -> None:
+async def test_call_does_not_write_model_used_or_latency() -> None:
+    """model_used and latency_ms are deleted — not written to metadata."""
     llm = _make_llm(model="my-model")
     llm.ainvoke = AsyncMock(return_value=AIMessage(content="hi"))
     caller = LLMCaller(llm)
     msg = await caller.call([], [])
-    assert msg.metadata["model_used"] == "my-model"
-    assert isinstance(msg.metadata["latency_ms"], int)
-    assert msg.metadata["latency_ms"] >= 0
+    assert "model_used" not in msg.metadata
+    assert "latency_ms" not in msg.metadata
+
+
+@pytest.mark.asyncio
+async def test_call_writes_finish_reason_as_typed_field() -> None:
+    """finish_reason is a typed field, not stored in metadata."""
+    ai_msg = AIMessage(content="hi")
+    ai_msg.response_metadata = {"finish_reason": "stop"}
+    llm = _make_llm()
+    llm.ainvoke = AsyncMock(return_value=ai_msg)
+    caller = LLMCaller(llm)
+    msg = await caller.call([], [])
+    assert msg.finish_reason == "stop"
+    assert "finish_reason" not in msg.metadata
 
 
 @pytest.mark.asyncio
@@ -53,7 +66,8 @@ async def test_call_does_not_write_sampling() -> None:
 
 
 @pytest.mark.asyncio
-async def test_call_streaming_writes_metadata() -> None:
+async def test_call_streaming_does_not_write_model_used_or_latency() -> None:
+    """model_used and latency_ms are deleted from streaming path too."""
     llm = _make_llm(model="stream-model", temperature=0.3, top_p=1.0)
 
     async def _stream(*_a, **_k) -> AsyncIterator[AIMessageChunk]:
@@ -63,7 +77,23 @@ async def test_call_streaming_writes_metadata() -> None:
     llm.astream = _stream
     caller = LLMCaller(llm)
     msg = await caller.call_streaming([], [])
-    assert msg.metadata["model_used"] == "stream-model"
+    assert "model_used" not in msg.metadata
+    assert "latency_ms" not in msg.metadata
     assert "sampling" not in msg.metadata
-    assert msg.metadata["latency_ms"] >= 0
-    assert "finish_reason" in msg.metadata
+
+
+@pytest.mark.asyncio
+async def test_call_streaming_writes_finish_reason_as_typed_field() -> None:
+    """finish_reason from streaming path lands on the typed field."""
+    llm = _make_llm()
+
+    async def _stream(*_a, **_k) -> AsyncIterator[AIMessageChunk]:
+        chunk = AIMessageChunk(content="hi")
+        chunk.response_metadata = {"finish_reason": "stop"}
+        yield chunk
+
+    llm.astream = _stream
+    caller = LLMCaller(llm)
+    msg = await caller.call_streaming([], [])
+    assert msg.finish_reason is not None
+    assert "finish_reason" not in msg.metadata

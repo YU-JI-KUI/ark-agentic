@@ -176,6 +176,11 @@ export interface SessionItem {
     first_message: string | null
 }
 
+export interface TurnContext {
+    active_skill_id: string | null
+    tools_mounted: string[]
+}
+
 export interface MessageItem {
     role: string
     content: string | null
@@ -190,6 +195,8 @@ export interface MessageItem {
     }> | null
     thinking?: string | null
     metadata?: Record<string, unknown> | null
+    finish_reason?: string | null
+    turn_context?: TurnContext | null
 }
 
 export interface MemoryFileItem {

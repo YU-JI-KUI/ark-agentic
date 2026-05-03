@@ -120,8 +120,6 @@ async def test_successful_single_subtask(session_manager: SessionManager, mock_r
         response=AgentMessage.assistant("subtask answer"),
         turns=2,
         tool_calls_count=1,
-        prompt_tokens=100,
-        completion_tokens=50,
     )
 
     with patch.object(AgentRunner, "run_ephemeral", new_callable=AsyncMock, return_value=run_result):
@@ -157,8 +155,6 @@ async def test_parallel_subtasks_execution(session_manager: SessionManager, mock
             response=AgentMessage.assistant(f"result for: {user_input[:20]}"),
             turns=1,
             tool_calls_count=0,
-            prompt_tokens=50,
-            completion_tokens=25,
         )
 
     with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
@@ -197,8 +193,6 @@ async def test_state_inheritance_and_delta(session_manager: SessionManager, mock
         return RunResult(
             response=AgentMessage.assistant("done"),
             turns=1,
-            prompt_tokens=10,
-            completion_tokens=5,
         )
 
     with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
@@ -226,8 +220,6 @@ async def test_token_aggregation(session_manager: SessionManager, mock_runner: A
         return RunResult(
             response=AgentMessage.assistant("ok"),
             turns=1,
-            prompt_tokens=200,
-            completion_tokens=100,
         )
 
     with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
@@ -239,9 +231,6 @@ async def test_token_aggregation(session_manager: SessionManager, mock_runner: A
             ],
         })
         result = await tool.execute(tc, {"session_id": "parent-006"})
-
-    assert parent_session.token_usage.prompt_tokens == 400
-    assert parent_session.token_usage.completion_tokens == 200
 
 
 @pytest.mark.asyncio

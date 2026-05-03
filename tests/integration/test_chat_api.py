@@ -58,8 +58,6 @@ def mock_runner():
         runner.run.return_value = RunResult(
             response=AgentMessage(role=MessageRole.ASSISTANT, content="OK"),
             turns=1,
-            prompt_tokens=0,
-            completion_tokens=0,
         )
         mock_get.return_value = runner
         yield runner
