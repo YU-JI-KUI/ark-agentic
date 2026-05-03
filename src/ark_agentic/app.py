@@ -32,8 +32,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.core.startup_guard import validate_deployment_config
-from ark_agentic.core.db.config import load_db_config_from_env
-from ark_agentic.core.db.engine import get_async_engine, init_schema
+from ark_agentic.core.bootstrap import bootstrap_storage
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
 from ark_agentic.api import notifications as notifications_api
@@ -65,15 +64,9 @@ async def lifespan(app: FastAPI):
     # 阻止首次并发请求竞态创建多份 AsyncEngine.
     validate_deployment_config()
 
-    db_cfg = load_db_config_from_env()
-    if db_cfg.db_type == "sqlite":
-        engine = get_async_engine(db_cfg)
-        await init_schema(engine)
-        app.state.db_engine = engine
-        logger.info("DB engine initialized (DB_TYPE=sqlite)")
-    else:
-        app.state.db_engine = None
-        logger.info("DB engine skipped (DB_TYPE=file)")
+    storage = await bootstrap_storage()
+    app.state.db_engine = storage.db_engine
+    logger.info("Storage bootstrapped (db_engine=%s)", "sqlite" if storage.db_engine else "file")
 
     # Lazy schema bootstrap: creates studio_users table + seeds the
     # bootstrap admin row (idempotent). Eagerly invoked here so the
@@ -105,7 +98,6 @@ async def lifespan(app: FastAPI):
         # job system can build per-agent NotificationRepository instances
         # via the storage factory.
         app.state.notifications_base_dir = get_notifications_base_dir()
-        app.state.db_engine_for_notifications = app.state.db_engine
 
         scanner = UserShardScanner(
             max_concurrent=int(os.getenv("JOB_MAX_CONCURRENT", "50")),
@@ -137,56 +129,14 @@ async def lifespan(app: FastAPI):
         db_engine=_db_engine,
     ))
 
-    # ── Step 2b: 组装 Proactive Jobs（临时驻留此处，待 JobRegistry 独立后迁移）──
-    # Job 不属于 Agent 的职责范围，未来会提取为独立的 JobRegistry 层。
-    # 当前暂存在 app.py，以保留功能同时保持 agent 文件干净。
+    # ── Step 2b: 组装 Proactive Jobs ────────────────────────────────────────
     if _enable_memory and _env_flag("ENABLE_JOB_MANAGER"):
-        from ark_agentic.core.storage.factory import (
-            build_notification_repository,
+        from ark_agentic.services.jobs.proactive_setup import register_proactive_jobs
+        register_proactive_jobs(
+            _registry,
+            notifications_base_dir=app.state.notifications_base_dir,
+            db_engine=app.state.db_engine,
         )
-        from ark_agentic.services.jobs import (
-            apply_proactive_job_bindings,
-            build_proactive_job_bindings,
-        )
-        from ark_agentic.agents.insurance.proactive_job import InsuranceProactiveJob
-        from ark_agentic.agents.securities.proactive_job import SecuritiesProactiveJob
-
-        notif_base = app.state.notifications_base_dir
-
-        def _notif_repo(agent_id: str):
-            return build_notification_repository(
-                base_dir=notif_base / agent_id,
-                engine=app.state.db_engine,
-                agent_id=agent_id,
-            )
-
-        ins_runner = _registry.get("insurance")
-        if ins_runner.memory_manager is not None:
-            apply_proactive_job_bindings(
-                ins_runner,
-                build_proactive_job_bindings(job=InsuranceProactiveJob(
-                    job_id="proactive_service_insurance",
-                    llm_factory=lambda: ins_runner.llm,
-                    tool_registry=ins_runner.tool_registry,
-                    memory_manager=ins_runner.memory_manager,
-                    notification_repo=_notif_repo("insurance"),
-                    cron=os.getenv("INSURANCE_PROACTIVE_CRON", "26 23 * * *"),
-                )),
-            )
-
-        sec_runner = _registry.get("securities")
-        if sec_runner.memory_manager is not None:
-            apply_proactive_job_bindings(
-                sec_runner,
-                build_proactive_job_bindings(job=SecuritiesProactiveJob(
-                    job_id="proactive_service_securities",
-                    llm_factory=lambda: sec_runner.llm,
-                    tool_registry=sec_runner.tool_registry,
-                    memory_manager=sec_runner.memory_manager,
-                    notification_repo=_notif_repo("securities"),
-                    cron=os.getenv("SECURITIES_PROACTIVE_CRON", "0 9 * * 1-5"),
-                )),
-            )
 
     api_deps.init_registry(_registry)
 

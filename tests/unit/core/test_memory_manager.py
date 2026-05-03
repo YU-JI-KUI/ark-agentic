@@ -92,3 +92,27 @@ def test_memory_config_keeps_workspace_dir() -> None:
     cfg = MemoryConfig(workspace_dir="/tmp/x")
 
     assert cfg.workspace_dir == "/tmp/x"
+
+
+async def test_list_user_ids_delegates_to_repo() -> None:
+    mock_repo = AsyncMock()
+    mock_repo.list_users = AsyncMock(return_value=["alice", "bob"])
+    mm = MemoryManager(repository=mock_repo, config=MemoryConfig(workspace_dir="/tmp"))
+
+    result = await mm.list_user_ids()
+
+    assert result == ["alice", "bob"]
+    mock_repo.list_users.assert_called_once()
+
+
+def test_build_memory_manager_accepts_engine_injection(tmp_path: Path) -> None:
+    """build_memory_manager must accept an engine kwarg without re-parsing DB_TYPE."""
+    from unittest.mock import MagicMock, patch
+
+    mock_engine = MagicMock()
+    with patch("ark_agentic.core.storage.factory.build_memory_repository") as mock_factory:
+        mock_factory.return_value = AsyncMock()
+        build_memory_manager(memory_dir=tmp_path, engine=mock_engine)
+        mock_factory.assert_called_once()
+        _, kwargs = mock_factory.call_args
+        assert kwargs.get("engine") is mock_engine

@@ -21,14 +21,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ....persistence import (
-    FileLock,
+from ....session_format import (
     MessageEntry,
     RawJsonlValidationError,
     SessionHeader,
     deserialize_message,
     serialize_message,
 )
+from ._lock import FileLock
 from ....types import AgentMessage
 from ...entries import SessionStoreEntry
 

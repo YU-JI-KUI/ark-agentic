@@ -151,22 +151,14 @@ def build_standard_agent(
     dreamer = None
     if enable_memory:
         memory_dir = get_memory_base_dir() / defn.agent_id
-        memory_manager = build_memory_manager(memory_dir)
+        memory_manager = build_memory_manager(memory_dir, engine=db_engine)
 
         if enable_dream:
-            from .db.config import load_db_config_from_env
             from .memory.dream import MemoryDreamer
             from .storage.factory import build_agent_state_repository
 
-            db_cfg = load_db_config_from_env()
-            engine = None
-            if db_cfg.db_type == "sqlite":
-                from .db.engine import get_async_engine
-
-                engine = get_async_engine(db_cfg)
-
             state_repo = build_agent_state_repository(
-                workspace_dir=memory_dir, engine=engine,
+                workspace_dir=memory_dir, engine=db_engine,
             )
             # Dream calls use the agent's default sampling; previously the
             # runner-side LLMCaller applied a summarization override, but

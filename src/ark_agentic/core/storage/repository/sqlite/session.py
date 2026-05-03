@@ -27,14 +27,14 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ....db.models import SessionMessage, SessionMeta
-from ....persistence import (
+from ....session_format import (
     MessageEntry,
     RawJsonlValidationError,
     SessionHeader,
-    SessionStoreEntry,
     deserialize_message,
     serialize_message,
 )
+from ....storage.entries import SessionStoreEntry
 from ....types import AgentMessage
 
 

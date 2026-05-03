@@ -6,7 +6,6 @@ Provides listing (grouped by user), content retrieval, and content editing.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,14 +14,21 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from ark_agentic.api.deps import get_registry
+from ark_agentic.core.memory.manager import MemoryManager
 from ark_agentic.studio.services.authz_service import StudioPrincipal, require_studio_roles, require_studio_user
 
-logger = logging.getLogger(__name__)
 
-router = APIRouter(dependencies=[Depends(require_studio_user)])
+def _user_id_from_user_memory_rel_path(file_path: str) -> str | None:
+    """If ``file_path`` is ``{user_id}/MEMORY.md`` under workspace, return ``user_id``."""
+    norm = file_path.replace("\\", "/").strip("/")
+    parts = norm.split("/")
+    if len(parts) == 2 and parts[1] == "MEMORY.md" and parts[0] and not parts[0].startswith((".", "_")):
+        return parts[0]
+    return None
 
 
 # ── Models ──────────────────────────────────────────────────────────
+
 
 class MemoryFileItem(BaseModel):
     user_id: str
@@ -37,6 +43,7 @@ class MemoryFilesResponse(BaseModel):
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
+
 
 def _file_item(path: Path, user_id: str, file_type: str, rel_to: Path) -> MemoryFileItem | None:
     if not path.is_file():
@@ -79,7 +86,33 @@ def _scan_memory_files(workspace_dir: Path) -> list[MemoryFileItem]:
     return files
 
 
+async def _merge_db_memory_items(
+    mm: MemoryManager,
+    files: list[MemoryFileItem],
+) -> list[MemoryFileItem]:
+    """Append repository-backed user rows that have no on-disk MEMORY.md."""
+    seen = {f.file_path for f in files}
+    out = list(files)
+    for uid in await mm.list_user_ids():
+        rel = f"{uid}/MEMORY.md"
+        if rel in seen:
+            continue
+        seen.add(rel)
+        text = await mm.read_memory(uid)
+        out.append(
+            MemoryFileItem(
+                user_id=uid,
+                file_path=rel,
+                file_type="memory",
+                size_bytes=len(text.encode("utf-8")),
+                modified_at=None,
+            )
+        )
+    return out
+
+
 # ── Path resolution (shared by GET / PUT) ───────────────────────────
+
 
 def _resolve_memory_path(workspace: Path, file_path: str) -> Path:
     """Resolve a relative file_path to an absolute path with traversal guard."""
@@ -89,19 +122,28 @@ def _resolve_memory_path(workspace: Path, file_path: str) -> Path:
     return resolved
 
 
-def _get_workspace(agent_id: str) -> Path:
+def _get_workspace_and_manager(agent_id: str) -> tuple[Path, MemoryManager]:
     registry = get_registry()
     try:
         runner = registry.get(agent_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
-    mm = runner._memory_manager
+    mm = runner.memory_manager
     if mm is None:
         raise HTTPException(status_code=404, detail="Memory not enabled for this agent")
-    return Path(mm.config.workspace_dir)
+    return Path(mm.config.workspace_dir), mm
+
+
+def _get_workspace(agent_id: str) -> Path:
+    ws, _mm = _get_workspace_and_manager(agent_id)
+    return ws
+
+
+router = APIRouter(dependencies=[Depends(require_studio_user)])
 
 
 # ── Endpoints ───────────────────────────────────────────────────────
+
 
 @router.get("/agents/{agent_id}/memory/files", response_model=MemoryFilesResponse)
 async def list_memory_files(agent_id: str):
@@ -112,15 +154,15 @@ async def list_memory_files(agent_id: str):
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
 
-    mm = runner._memory_manager
+    mm = runner.memory_manager
     if mm is None:
         return MemoryFilesResponse(files=[])
 
     workspace = Path(mm.config.workspace_dir)
-    if not workspace.is_dir():
-        return MemoryFilesResponse(files=[])
-
-    return MemoryFilesResponse(files=_scan_memory_files(workspace))
+    files: list[MemoryFileItem] = _scan_memory_files(workspace) if workspace.is_dir() else []
+    files = await _merge_db_memory_items(mm, files)
+    files.sort(key=lambda x: x.file_path)
+    return MemoryFilesResponse(files=files)
 
 
 @router.get("/agents/{agent_id}/memory/content")
@@ -130,12 +172,14 @@ async def get_memory_content(
     user_id: str = Query("", description="User ID scope; empty for global files"),
 ):
     """Read raw content of a memory file."""
-    workspace = _get_workspace(agent_id)
+    workspace, mm = _get_workspace_and_manager(agent_id)
+    uid = _user_id_from_user_memory_rel_path(file_path)
+    if uid:
+        content = await mm.read_memory(uid)
+        return PlainTextResponse(content=content, media_type="text/plain; charset=utf-8")
     resolved = _resolve_memory_path(workspace, file_path)
-
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-
     content = resolved.read_text(encoding="utf-8")
     return PlainTextResponse(content=content, media_type="text/plain; charset=utf-8")
 
@@ -149,13 +193,15 @@ async def put_memory_content(
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """Write content to a memory file."""
-    workspace = _get_workspace(agent_id)
+    workspace, mm = _get_workspace_and_manager(agent_id)
+    uid = _user_id_from_user_memory_rel_path(file_path)
+    if uid:
+        body = await request.body()
+        await mm.overwrite(uid, body.decode("utf-8"))
+        return {"status": "saved"}
     resolved = _resolve_memory_path(workspace, file_path)
-
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-
     body = await request.body()
     resolved.write_text(body.decode("utf-8"), encoding="utf-8")
-
     return {"status": "saved"}

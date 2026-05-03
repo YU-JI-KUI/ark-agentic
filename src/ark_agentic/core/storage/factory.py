@@ -54,13 +54,13 @@ def _resolve_db_type() -> str:
 
 
 def _require_engine(engine: AsyncEngine | None, what: str) -> AsyncEngine:
-    if engine is None:
-        raise RuntimeError(
-            f"{what} requested SQLite backend but no AsyncEngine was provided. "
-            "Construct the engine in app.lifespan via get_async_engine() and "
-            "inject it into the factory call."
-        )
-    return engine
+    if engine is not None:
+        return engine
+    # Fall back to the process-wide cached engine. Callers that have no engine
+    # reference (e.g. Scanner) can omit the argument; callers that do (e.g.
+    # lifespan) should still pass it explicitly.
+    from ..db.engine import get_async_engine
+    return get_async_engine()
 
 
 def _require_path(path: str | Path | None, what: str, param: str) -> Path:

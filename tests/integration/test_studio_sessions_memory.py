@@ -110,6 +110,15 @@ class DummyMemoryManager:
         self.config = SimpleNamespace(workspace_dir=str(workspace_dir))
         self._dirty = False
 
+    async def list_user_ids(self) -> list[str]:
+        return []
+
+    async def read_memory(self, user_id: str) -> str:
+        return ""
+
+    async def overwrite(self, user_id: str, content: str) -> None:
+        pass
+
     def mark_dirty(self) -> None:
         self._dirty = True
 
@@ -118,6 +127,10 @@ class DummyAgentRunner:
     def __init__(self, sessions=None, transcript_files=None, memory_manager=None):
         self.session_manager = DummySessionManager(sessions, transcript_files)
         self._memory_manager = memory_manager
+
+    @property
+    def memory_manager(self):
+        return self._memory_manager
 
     def mark_memory_dirty(self) -> None:
         if self._memory_manager:
@@ -342,3 +355,49 @@ def test_resolve_memory_path_allows_workspace_file(tmp_path: Path):
     resolved = _resolve_memory_path(ws, "MEMORY.md")
     assert resolved == target.resolve()
     assert resolved.read_text(encoding="utf-8") == "content"
+
+
+async def test_list_memory_files_merges_sqlite_user_without_disk_md(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    studio_auth_context,
+):
+    """SQLite user_memory has rows but workspace has no U001/MEMORY.md — Studio still lists them."""
+    from ark_agentic.core.db.engine import get_async_engine, init_schema, reset_engine_cache
+    from ark_agentic.core.memory.manager import build_memory_manager
+
+    db_path = tmp_path / "central.db"
+    monkeypatch.setenv("DB_TYPE", "sqlite")
+    monkeypatch.setenv("DB_CONNECTION_STR", f"sqlite+aiosqlite:///{db_path.as_posix()}")
+    reset_engine_cache()
+    try:
+        engine = get_async_engine()
+        await init_schema(engine)
+
+        ws = tmp_path / "mem_workspace"
+        ws.mkdir()
+        mm = build_memory_manager(ws)
+        await mm.overwrite("U001", "## SqliteOnly\ncontent\n")
+
+        studio_auth_context(client=client)
+        registry = AgentRegistry()
+        sessions, transcript_files = _sessions_and_transcript()
+        registry.register(
+            "insurance",
+            DummyAgentRunner(sessions, transcript_files, memory_manager=mm),
+        )
+        init_registry(registry)
+
+        response = client.get("/api/studio/agents/insurance/memory/files")
+        assert response.status_code == 200
+        paths = {f["file_path"] for f in response.json()["files"]}
+        assert "U001/MEMORY.md" in paths
+
+        r2 = client.get(
+            "/api/studio/agents/insurance/memory/content",
+            params={"file_path": "U001/MEMORY.md", "user_id": "U001"},
+        )
+        assert r2.status_code == 200
+        assert "SqliteOnly" in r2.text
+    finally:
+        reset_engine_cache()

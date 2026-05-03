@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from ..storage.protocols import MemoryRepository
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +61,19 @@ class MemoryManager:
         """Full replace — for dream consolidation."""
         await self._repo.overwrite(user_id, content)
 
+    async def list_user_ids(self) -> list[str]:
+        return await self._repo.list_users()
 
-def build_memory_manager(memory_dir: str | Path | None = None) -> MemoryManager:
+
+def build_memory_manager(
+    memory_dir: str | Path | None = None,
+    *,
+    engine: "AsyncEngine | None" = None,
+) -> MemoryManager:
     """工厂：构建一个根据 ``DB_TYPE`` 自动选后端的 ``MemoryManager``。
 
-    Signature 与 PR2 前保持一致 —— ``agent_factory.py`` 调用面零改动。
-    SQLite 模式下使用全局 ``core.db`` engine；其他模式（默认 file）使用
-    ``memory_dir`` 作为文件 workspace。
+    When ``engine`` is provided it is forwarded to the repository factory,
+    skipping the internal DB_TYPE re-parse.
     """
     if memory_dir is None:
         memory_dir = Path(tempfile.gettempdir()) / "ark_memory"
@@ -75,15 +82,14 @@ def build_memory_manager(memory_dir: str | Path | None = None) -> MemoryManager:
 
     _warn_orphaned_index(memory_dir)
 
-    from ..db.config import load_db_config_from_env
     from ..storage.factory import build_memory_repository
 
-    db_cfg = load_db_config_from_env()
-    engine = None
-    if db_cfg.db_type == "sqlite":
+    if engine is None:
+        from ..db.config import load_db_config_from_env
         from ..db.engine import get_async_engine
-
-        engine = get_async_engine(db_cfg)
+        db_cfg = load_db_config_from_env()
+        if db_cfg.db_type == "sqlite":
+            engine = get_async_engine(db_cfg)
 
     repo = build_memory_repository(workspace_dir=memory_dir, engine=engine)
     return MemoryManager(

@@ -72,6 +72,10 @@ class SqliteStudioUserRepository:
             await _seed_default_admin(self._engine)
             self._initialized = True
 
+    async def ensure_schema(self) -> None:
+        """Public alias for the lazy schema bootstrap. Idempotent."""
+        await self._ensure_schema()
+
     # ── Read ────────────────────────────────────────────────────
 
     async def list_users_page(

@@ -33,10 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from ...core.db.base import Base
 from ...core.db.models import StudioUser
-from ...core.storage.repository.sqlite.studio_user import (
-    SqliteStudioUserRepository,
-    seed_default_admin,
-)
+from ...core.storage.repository.sqlite.studio_user import SqliteStudioUserRepository
 from ...core.storage.protocols import (  # re-exported below
     InvalidStudioRoleError,
     LastAdminError,
@@ -121,9 +118,14 @@ def _resolve_studio_engine() -> AsyncEngine:
     )
 
 
-_repo: StudioUserRepository | None = None
-_init_lock = asyncio.Lock()
-_initialized = False
+@dataclass
+class _StudioState:
+    repo: StudioUserRepository | None = None
+    initialized: bool = False
+
+
+_state = _StudioState()
+_init_lock = asyncio.Lock()  # asyncio.Lock cannot live inside the dataclass
 
 
 def get_studio_user_repo() -> StudioUserRepository:
@@ -132,19 +134,15 @@ def get_studio_user_repo() -> StudioUserRepository:
     Lifespan calls ``ensure_studio_schema()`` at startup so the schema +
     bootstrap admin row are present before the first request.
     """
-    global _repo
-    if _repo is None:
-        _repo = SqliteStudioUserRepository(_resolve_studio_engine())
-    return _repo
+    if _state.repo is None:
+        _state.repo = SqliteStudioUserRepository(_resolve_studio_engine())
+    return _state.repo
 
 
 def set_studio_user_repo_for_testing(repo: StudioUserRepository) -> None:
     """Inject a per-test repository (bypasses engine resolution)."""
-    global _repo, _initialized
-    _repo = repo
-    # Skip the eager schema init — tests build their own schema or use
-    # the repo's lazy bootstrap.
-    _initialized = True
+    global _state
+    _state = _StudioState(repo=repo, initialized=True)
 
 
 async def ensure_studio_schema() -> None:
@@ -153,25 +151,20 @@ async def ensure_studio_schema() -> None:
     Safe to call repeatedly; double-checked-locking guards the seed insert.
     Lifespan calls this exactly once at startup.
     """
-    global _initialized
-    if _initialized:
+    if _state.initialized:
         return
     async with _init_lock:
-        if _initialized:
+        if _state.initialized:
             return
         repo = get_studio_user_repo()
-        engine: AsyncEngine = repo._engine  # type: ignore[attr-defined]
-        async with engine.begin() as conn:
-            await conn.run_sync(metadata.create_all)
-        await seed_default_admin(repo)  # type: ignore[arg-type]
-        _initialized = True
+        await repo.ensure_schema()  # type: ignore[attr-defined]
+        _state.initialized = True
 
 
 def reset_studio_user_repo_cache() -> None:
     """Test helper — drop the singleton + initialization marker."""
-    global _repo, _initialized
-    _repo = None
-    _initialized = False
+    global _state
+    _state = _StudioState()
 
 
 # ── Token helpers (unchanged) ─────────────────────────────────────

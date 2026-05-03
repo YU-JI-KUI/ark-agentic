@@ -145,17 +145,16 @@ def _get_agent_store(request: Request, agent_id: str):
     depending on ``DB_TYPE``. The legacy attribute name is kept so any
     snapshot tooling that grepped ``_notif_store_*`` still finds it.
     """
-    from ark_agentic.core.storage.factory import (
-        build_notification_repository,
-    )
+    from ark_agentic.core.storage.factory import build_notification_repository
     from ark_agentic.services.notifications import get_notifications_base_dir
 
     cache_key = f"_notif_repo_{agent_id}"
     repo = getattr(request.app.state, cache_key, None)
     if repo is None:
+        # engine=omitted: factory uses the process-wide cached engine for SQLite,
+        # or skips it for file backend. No need to read app.state here.
         repo = build_notification_repository(
             base_dir=get_notifications_base_dir() / agent_id,
-            engine=getattr(request.app.state, "db_engine", None),
             agent_id=agent_id,
         )
         setattr(request.app.state, cache_key, repo)

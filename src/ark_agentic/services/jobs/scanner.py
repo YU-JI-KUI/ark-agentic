@@ -79,15 +79,9 @@ class UserShardScanner:
 
         # Repositories rooted at job's per-agent memory workspace.
         # Backend selected by ``DB_TYPE`` via the storage factory.
-        engine = getattr(job, "db_engine", None)
         workspace_dir = job.memory_manager.config.workspace_dir
-        memory_repo: MemoryRepository = build_memory_repository(
-            workspace_dir=workspace_dir, engine=engine,
-        )
-        state_repo: AgentStateRepository = build_agent_state_repository(
-            workspace_dir=workspace_dir,
-            engine=engine,
-        )
+        memory_repo: MemoryRepository = build_memory_repository(workspace_dir=workspace_dir)
+        state_repo: AgentStateRepository = build_agent_state_repository(workspace_dir=workspace_dir)
 
         # list_users via MemoryRepository (替代 iterdir + 逐用户 stat 风暴)
         all_users = await memory_repo.list_users(order_by_updated_desc=True)

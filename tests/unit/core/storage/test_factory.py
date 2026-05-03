@@ -158,13 +158,22 @@ def test_unknown_db_type_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
         build_session_repository(sessions_dir=tmp_path)
 
 
-def test_sqlite_without_engine_raises(
+async def test_sqlite_without_engine_falls_back_to_global(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ):
+    """When engine=None in sqlite mode the factory falls back to get_async_engine()
+    instead of raising, making call-sites that have no engine reference self-sufficient."""
     monkeypatch.setenv("DB_TYPE", "sqlite")
+    monkeypatch.setenv("DB_CONNECTION_STR", f"sqlite+aiosqlite:///{tmp_path}/fallback.db")
 
-    with pytest.raises(RuntimeError, match="engine"):
-        build_session_repository(sessions_dir=tmp_path, engine=None)
+    from ark_agentic.core.db.engine import get_async_engine, init_schema
+    engine = get_async_engine()
+    await init_schema(engine)
+
+    repo = build_session_repository(sessions_dir=tmp_path, engine=None)
+
+    from ark_agentic.core.storage.repository.sqlite.session import SqliteSessionRepository
+    assert isinstance(repo, SqliteSessionRepository)
 
 
 def test_file_without_dir_raises(monkeypatch: pytest.MonkeyPatch):
