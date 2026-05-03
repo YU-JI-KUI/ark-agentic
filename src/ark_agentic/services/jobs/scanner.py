@@ -17,9 +17,12 @@ import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ...core.storage.protocols import AgentStateRepository, MemoryRepository
+    from ...core.storage.protocols import (
+        AgentStateRepository,
+        MemoryRepository,
+        NotificationRepository,
+    )
     from ..notifications.delivery import NotificationDelivery
-    from ..notifications.store import NotificationStore
     from .base import BaseJob, JobRunStats
 
 logger = logging.getLogger(__name__)
@@ -58,9 +61,9 @@ class UserShardScanner:
         self,
         job: "BaseJob",
         delivery: "NotificationDelivery",
-        store: "NotificationStore | None" = None,
+        notification_repo: "NotificationRepository | None" = None,
     ) -> "JobRunStats":
-        """扫描所有用户，对有意图的用户调用 Job 处理逻辑。"""
+        """Scan all users; for users with intent, run the job's full pipeline."""
         from ...core.storage.factory import (
             build_agent_state_repository,
             build_memory_repository,
@@ -70,9 +73,9 @@ class UserShardScanner:
         stats = JobRunStats()
         semaphore = asyncio.Semaphore(self._max_concurrent)
 
-        # 优先使用 job 自己的 notification_store（按 agent 隔离），
-        # store 参数保留作后备（兼容测试场景直接传入）
-        effective_store = store if store is not None else job.notification_store
+        # Prefer the Job's per-agent NotificationRepository; the parameter
+        # is a test-time injection escape hatch.
+        effective_repo = notification_repo or job.notification_repo
 
         # Repositories rooted at job's per-agent memory workspace.
         # Backend selected by ``DB_TYPE`` via the storage factory.
@@ -100,7 +103,7 @@ class UserShardScanner:
         async def _process_one(user_id: str) -> None:
             async with semaphore:
                 await self._process_user_safe(
-                    user_id, job, effective_store, delivery, stats, state_repo,
+                    user_id, job, effective_repo, delivery, stats, state_repo,
                 )
 
         for batch in _chunks(all_users, self._batch_size):
@@ -116,41 +119,40 @@ class UserShardScanner:
         self,
         user_id: str,
         job: "BaseJob",
-        store: "NotificationStore",
+        repo: "NotificationRepository",
         delivery: "NotificationDelivery",
         stats: "JobRunStats",
         state_repo: "AgentStateRepository",
     ) -> None:
-        """带超时、异常隔离的单用户处理。"""
+        """Per-user pipeline with timeout + exception isolation."""
         try:
             memory = await job.memory_manager.read_memory(user_id)
             if not memory:
                 stats.skipped += 1
                 return
 
-            # 阶段1：轻量规则过滤（<1ms，无 LLM）
+            # Phase 1: cheap keyword filter (<1ms, no LLM)
             if not await job.should_process_user(user_id, memory):
                 stats.skipped += 1
                 return
 
-            # 幂等检查：本次 Job 运行已处理过此用户则跳过
+            # Idempotency: already processed today → skip.
             if await self._is_already_processed_today(user_id, job, state_repo):
                 stats.skipped += 1
                 return
 
-            # 阶段2：完整处理（LLM + 工具调用）
+            # Phase 2: full pipeline (LLM + tool calls)
             async with asyncio.timeout(self._user_timeout):
                 notifications = await job.process_user(user_id, memory)
 
             if notifications:
-                result = await delivery.broadcast(notifications, store)
+                result = await delivery.broadcast(notifications, repo)
                 stats.notified += 1
                 stats.pushed += result.get("pushed", 0)
                 stats.stored += result.get("stored", 0)
             else:
                 stats.skipped += 1
 
-            # 更新处理时间戳（幂等保护）
             await self._touch_last_job(user_id, job, state_repo)
 
         except asyncio.TimeoutError:

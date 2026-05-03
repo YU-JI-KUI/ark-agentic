@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..memory.manager import MemoryManager
+    from ...core.memory.manager import MemoryManager
+    from ...core.storage.protocols import NotificationRepository
     from ..notifications.models import Notification
-    from ..notifications.store import NotificationStore
 
 
 @dataclass
@@ -72,13 +72,12 @@ class BaseJob(ABC):
 
     @property
     @abstractmethod
-    def notification_store(self) -> "NotificationStore":
-        """返回本 Job 专属的 NotificationStore。
+    def notification_repo(self) -> "NotificationRepository":
+        """Per-agent notification repository.
 
-        与 memory 一样按 agent 隔离子目录：
-          insurance job → data/ark_notifications/insurance/{user_id}/
-          securities job → data/ark_notifications/securities/{user_id}/
-        Scanner 写通知时使用此 store，REST API 读取时也按 agent_id 路由。
+        Already scoped to this Job's agent_id (file backend: per-agent dir;
+        SQLite backend: agent_id-filtered queries). Scanner writes through it,
+        REST API reads through the same backing storage.
         """
         ...
 

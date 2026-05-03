@@ -139,19 +139,27 @@ async def dispatch_job(job_id: str, request: Request):
 # ── 依赖辅助 ──────────────────────────────────────────────────────────────
 
 def _get_agent_store(request: Request, agent_id: str):
-    """按 agent_id 返回隔离的 NotificationStore 实例（懒创建，带缓存）。"""
-    from ark_agentic.services.notifications import (
-        NotificationStore,
-        get_notifications_base_dir,
-    )
+    """Return a per-agent ``NotificationRepository`` (cached on app.state).
 
-    # 用 app.state 做简单的实例缓存，避免每次请求都创建新对象
-    cache_key = f"_notif_store_{agent_id}"
-    store = getattr(request.app.state, cache_key, None)
-    if store is None:
-        store = NotificationStore(base_dir=get_notifications_base_dir() / agent_id)
-        setattr(request.app.state, cache_key, store)
-    return store
+    The cached value is the Protocol-typed repository — file or SQLite
+    depending on ``DB_TYPE``. The legacy attribute name is kept so any
+    snapshot tooling that grepped ``_notif_store_*`` still finds it.
+    """
+    from ark_agentic.core.storage.factory import (
+        build_notification_repository,
+    )
+    from ark_agentic.services.notifications import get_notifications_base_dir
+
+    cache_key = f"_notif_repo_{agent_id}"
+    repo = getattr(request.app.state, cache_key, None)
+    if repo is None:
+        repo = build_notification_repository(
+            base_dir=get_notifications_base_dir() / agent_id,
+            engine=getattr(request.app.state, "db_engine", None),
+            agent_id=agent_id,
+        )
+        setattr(request.app.state, cache_key, repo)
+    return repo
 
 
 def _get_delivery(request: Request):

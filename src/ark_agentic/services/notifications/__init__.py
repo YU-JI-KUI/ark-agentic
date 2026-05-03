@@ -1,14 +1,17 @@
-"""通知系统 — 主动服务消息持久化与分发"""
+"""Notifications: domain models + delivery dispatcher.
 
-from .models import Notification, NotificationList
-from .store import NotificationStore
+Persistence is owned by ``core.storage`` repositories (file or SQLite).
+This package no longer exports a standalone ``NotificationStore`` class —
+build a backend via ``core.storage.factory.build_notification_repository``.
+"""
+
 from .delivery import NotificationDelivery
+from .models import Notification, NotificationList
 from .paths import get_notifications_base_dir
 
 __all__ = [
     "Notification",
     "NotificationList",
-    "NotificationStore",
     "NotificationDelivery",
     "get_notifications_base_dir",
 ]

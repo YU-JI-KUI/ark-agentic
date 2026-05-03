@@ -3,15 +3,21 @@
 策略：先落盘，再尝试推送。
   - 用户在线（有活跃 SSE 连接）：存储 + 实时推送到 asyncio.Queue
   - 用户离线：只存储，等用户下次上线时通过 REST 拉取
+
+The "store" parameter is typed as ``NotificationRepository`` (Protocol) so
+file / SQLite / future Redis backends all plug in without change.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from .models import Notification
-from .store import NotificationStore
+
+if TYPE_CHECKING:
+    from ...core.storage.protocols import NotificationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +49,11 @@ class NotificationDelivery:
 
     # ── 分发 ──────────────────────────────────────────────────
 
-    async def deliver(self, notification: Notification, store: NotificationStore) -> bool:
+    async def deliver(
+        self,
+        notification: Notification,
+        repo: "NotificationRepository",
+    ) -> bool:
         """存储通知，并尝试实时推送给在线用户。
 
         Returns:
@@ -51,7 +61,7 @@ class NotificationDelivery:
             False — 用户离线，仅存储
         """
         # 1. 先落盘（保证持久化，不因推送失败丢失）
-        await store.save(notification)
+        await repo.save(notification)
 
         # 2. 尝试实时推送
         # stream_key 格式："{agent_id}:{user_id}"（与 SSE 注册时保持一致）
@@ -68,19 +78,29 @@ class NotificationDelivery:
                     "type": "new_notification",
                     "data": notification.model_dump(),
                 })
-                logger.debug("Pushed notification %s to online user %s", notification.notification_id, stream_key)
+                logger.debug(
+                    "Pushed notification %s to online user %s",
+                    notification.notification_id, stream_key,
+                )
                 return True
             except asyncio.QueueFull:
-                logger.warning("Notification queue full for user %s, notification stored only", stream_key)
+                logger.warning(
+                    "Notification queue full for user %s, stored only",
+                    stream_key,
+                )
 
         return False
 
-    async def broadcast(self, notifications: list[Notification], store: NotificationStore) -> dict[str, int]:
+    async def broadcast(
+        self,
+        notifications: list[Notification],
+        repo: "NotificationRepository",
+    ) -> dict[str, int]:
         """批量分发，返回 {"pushed": N, "stored": N}。"""
         pushed = 0
         stored = 0
         for n in notifications:
-            if await self.deliver(n, store):
+            if await self.deliver(n, repo):
                 pushed += 1
             else:
                 stored += 1

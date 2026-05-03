@@ -13,7 +13,7 @@ from ark_agentic.studio.services.authz_service import (
     StudioPrincipal,
     StudioRole,
     StudioUserNotFoundError,
-    get_studio_user_store,
+    get_studio_user_repo,
     require_studio_roles,
 )
 
@@ -50,7 +50,7 @@ async def list_users(
     offset: int = Query(0, ge=0),
     _: StudioPrincipal = Depends(require_studio_roles("admin")),
 ):
-    page = await get_studio_user_store().list_users_page(
+    page = await get_studio_user_repo().list_users_page(
         query=query,
         role=role,
         limit=limit,
@@ -79,7 +79,7 @@ async def upsert_user(
             detail="Admins cannot edit their own user grant",
         )
     try:
-        record = await get_studio_user_store().upsert_user(
+        record = await get_studio_user_repo().upsert_user(
             user_id,
             req.role,
             actor_user_id=principal.user_id,
@@ -102,7 +102,7 @@ async def delete_user(
             detail="Admins cannot delete their own user grant",
         )
     try:
-        await get_studio_user_store().delete_user(user_id)
+        await get_studio_user_repo().delete_user(user_id)
     except StudioUserNotFoundError:
         raise HTTPException(status_code=404, detail=f"User grant not found: {user_id}")
     except LastAdminError as e:

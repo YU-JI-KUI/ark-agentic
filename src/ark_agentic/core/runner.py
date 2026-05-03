@@ -205,6 +205,7 @@ class AgentRunner:
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
         callbacks: RunnerCallbacks | None = None,
+        dreamer: Any | None = None,
     ) -> None:
         self.llm = llm
         self.tool_registry = tool_registry or ToolRegistry()
@@ -218,23 +219,9 @@ class AgentRunner:
 
         self._memory_manager = memory_manager
         self._flusher = None
-        self._dreamer = None
-        self._dream_tasks: dict[str, asyncio.Task[Any]] = {}
-        self._dream_failures: dict[str, int] = {}
-
-        # Agent state repository for last_dream / last_job_* markers.
-        # Backend selected by ``DB_TYPE`` via the storage factory; the runner
-        # accepts an optional ``AsyncEngine`` from outer wiring (PR2).
-        self._agent_state_repo: Any = None
-        workspace_dir = getattr(getattr(memory_manager, "config", None), "workspace_dir", None)
-        if workspace_dir:
-            from .storage.factory import build_agent_state_repository
-
-            session_repo = getattr(self.session_manager, "_repository", None)
-            engine_attr = getattr(session_repo, "_engine", None)
-            self._agent_state_repo = build_agent_state_repository(
-                workspace_dir=workspace_dir, engine=engine_attr,
-            )
+        # Dreamer is fully constructed by the factory and injected here.
+        # The runner never builds repositories itself.
+        self._dreamer = dreamer
 
         # LLMCaller / ToolExecutor (SRP)
         self._llm_caller = LLMCaller(
@@ -256,15 +243,9 @@ class AgentRunner:
                 lambda: self._llm_caller.get_llm(sampling_override=extraction_sampling)
             )
 
-            if self.config.enable_dream:
-                from .memory.dream import MemoryDreamer
-
-                summarization_sampling = SamplingConfig.for_summarization()
-                self._dreamer = MemoryDreamer(
-                    lambda: self._llm_caller.get_llm(
-                        sampling_override=summarization_sampling
-                    )
-                )
+            # Dreamer is injected by the agent factory (see ``core.agent_factory``).
+            # When None, dreaming is simply skipped — the runner does not
+            # know how to build storage repositories.
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
@@ -578,69 +559,14 @@ class AgentRunner:
             result.response = cb_result.response
         cb_ctx.session.strip_temp_state()
         await self.session_manager.sync_session_state(session_id, user_id)
-        # Repository finalize hook: file/SQLite/PG = no-op; S3 (future) flushes.
-        await self.session_manager.repository.finalize(session_id, user_id)
+        await self.session_manager.finalize_session(session_id, user_id)
 
         await self._maybe_trigger_dream(user_id)
 
     async def _maybe_trigger_dream(self, user_id: str) -> None:
-        """Check dream gate and launch background task if thresholds met."""
-        if not self._dreamer or not self._memory_manager:
-            return
-        assert self._agent_state_repo is not None
-
-        task = self._dream_tasks.get(user_id)
-        if task is not None and not task.done():
-            return
-
-        from .memory.dream import should_dream
-
-        sessions_dir = Path(self.session_manager._transcript_manager.sessions_dir)
-
-        try:
-            if not await should_dream(
-                self._agent_state_repo,
-                user_id,
-                sessions_dir,
-                min_sessions=self.config.dream_min_sessions,
-            ):
-                return
-        except Exception:
-            logger.debug("Dream gate check failed for user %s", user_id, exc_info=True)
-            return
-
-        self._dream_tasks[user_id] = asyncio.create_task(
-            self._run_dream(user_id, sessions_dir)
-        )
-        logger.info("Dream triggered for user %s", user_id)
-
-    _DREAM_FAILURE_THRESHOLD = 3
-
-    async def _run_dream(
-        self, user_id: str, sessions_dir: Path,
-    ) -> None:
-        """Background dream cycle with error handling and retry protection."""
-        assert self._dreamer is not None
-        assert self._memory_manager is not None
-        assert self._agent_state_repo is not None
-        try:
-            result = await self._dreamer.run(
-                self._memory_manager, user_id, sessions_dir, self._agent_state_repo,
-            )
-            self._dream_failures.pop(user_id, None)
-            logger.info("Dream completed for user %s: %s", user_id, result.changes)
-        except Exception:
-            logger.warning("Dream failed for user %s", user_id, exc_info=True)
-            failures = self._dream_failures.get(user_id, 0) + 1
-            self._dream_failures[user_id] = failures
-            if failures >= self._DREAM_FAILURE_THRESHOLD:
-                from .memory.dream import touch_last_dream
-                await touch_last_dream(self._agent_state_repo, user_id)
-                self._dream_failures.pop(user_id, None)
-                logger.warning(
-                    "Dream failed %d consecutive times for %s, advancing .last_dream",
-                    failures, user_id,
-                )
+        """Delegate to MemoryDreamer; the runner owns no dream state itself."""
+        if self._dreamer is not None:
+            await self._dreamer.maybe_run(user_id)
 
     @staticmethod
     def _merge_tool_state_deltas(

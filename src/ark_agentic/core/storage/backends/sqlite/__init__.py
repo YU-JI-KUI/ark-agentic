@@ -8,10 +8,13 @@ from .agent_state import SqliteAgentStateRepository
 from .memory import SqliteMemoryRepository
 from .notification import SqliteNotificationRepository
 from .session import SqliteSessionRepository
+from .studio_user import SqliteStudioUserRepository, seed_default_admin
 
 __all__ = [
     "SqliteAgentStateRepository",
     "SqliteMemoryRepository",
     "SqliteNotificationRepository",
     "SqliteSessionRepository",
+    "SqliteStudioUserRepository",
+    "seed_default_admin",
 ]

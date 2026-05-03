@@ -102,3 +102,50 @@ async def test_concurrent_mark_read_does_not_lose_ids(
     assert read_ids == set(set_a) | set(set_b), (
         f"missing={set(set_a + set_b) - read_ids}"
     )
+
+
+async def test_list_recent_paging_returns_only_page_slice(
+    repo: SqliteNotificationRepository,
+):
+    """``list_recent`` must page in SQL — not return all rows then slice.
+
+    Counts (total/unread) reflect the full visible set so the UI can show
+    'X of Y' even when the page is small.
+    """
+    for i in range(15):
+        await repo.save(_make_notification(f"n{i:02d}"))
+    await repo.mark_read("u1", ["n00", "n01", "n02"])
+
+    page = await repo.list_recent("u1", limit=5, offset=0)
+
+    assert len(page.notifications) == 5, "page must respect limit"
+    assert page.total == 15, "total must reflect full set, not page"
+    assert page.unread_count == 12, "unread_count must reflect full set"
+
+
+async def test_list_recent_unread_only_paging(
+    repo: SqliteNotificationRepository,
+):
+    """unread_only filters in SQL; counts remain on the full set."""
+    for i in range(10):
+        await repo.save(_make_notification(f"n{i:02d}"))
+    await repo.mark_read("u1", ["n00", "n01"])
+
+    page = await repo.list_recent("u1", limit=3, offset=0, unread_only=True)
+
+    assert len(page.notifications) == 3
+    assert all(not n.read for n in page.notifications)
+    assert page.total == 10
+    assert page.unread_count == 8
+
+
+async def test_save_is_idempotent_on_duplicate_id(
+    repo: SqliteNotificationRepository,
+):
+    """Re-saving the same notification_id must not raise IntegrityError."""
+    n = _make_notification("n1")
+    await repo.save(n)
+    await repo.save(n)
+
+    listing = await repo.list_recent("u1")
+    assert len(listing.notifications) == 1

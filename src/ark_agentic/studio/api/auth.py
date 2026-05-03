@@ -20,7 +20,7 @@ from ark_agentic.studio.services.auth import AuthCredentials
 from ark_agentic.studio.services.auth_service import authenticate_studio_user, logout_studio_user
 from ark_agentic.studio.services.authz_service import (
     StudioRole,
-    get_studio_user_store,
+    get_studio_user_repo,
     issue_studio_token,
     issue_studio_token_id,
 )
@@ -70,7 +70,7 @@ async def login(req: LoginRequest, request: Request):
     if studio_user is None:
         raise HTTPException(status_code=401, detail=INVALID_LOGIN_DETAIL)
 
-    record = await get_studio_user_store().ensure_user(
+    record = await get_studio_user_repo().ensure_user(
         studio_user.user_id,
         default_role=studio_user.default_role,
     )

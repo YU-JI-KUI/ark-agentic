@@ -70,8 +70,7 @@ class TestRunnerConfigurationPrecedence:
         runner.session_manager.auto_compact_if_needed = AsyncMock()
         runner.session_manager.sync_pending_messages = AsyncMock()
         runner.session_manager.sync_session_state = AsyncMock()
-        runner.session_manager.repository = Mock()
-        runner.session_manager.repository.finalize = AsyncMock()
+        runner.session_manager.finalize_session = AsyncMock()
         
         # Prevent lazy init from failing
         runner._memory_manager = None 

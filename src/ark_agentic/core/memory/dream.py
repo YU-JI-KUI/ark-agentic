@@ -1,17 +1,21 @@
 """Dream system — periodic memory distillation.
 
 Lifecycle role: bridge between Session JSONL (raw) and MEMORY.md (distilled).
-Reads recent sessions + current memory → single LLM call → optimistic merge rewrite.
+Reads recent sessions + current memory → single LLM call → optimistic merge.
+
+``MemoryDreamer`` is fully self-contained: callers only ever call
+``maybe_run(user_id)``. Gate logic, run, and retry resilience all live here
+so the runner does not depend on any storage protocol for dreaming.
 
 Conservative by default: when in doubt, keep the information.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from pydantic import BaseModel
@@ -23,7 +27,7 @@ from .user_profile import format_heading_sections, parse_heading_sections
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
-    from ..storage.protocols import AgentStateRepository
+    from ..storage.protocols import AgentStateRepository, SessionRepository
     from ..types import AgentMessage
     from .manager import MemoryManager
 
@@ -98,36 +102,34 @@ def format_session_for_dream(messages: list["AgentMessage"]) -> str:
     return "\n".join(lines)
 
 
-def read_recent_sessions(
+async def read_recent_sessions(
     user_id: str,
-    sessions_dir: Path,
+    session_repo: "SessionRepository",
     since_ts: float,
     token_budget: int = 6000,
 ) -> str:
-    """Read recent session JSONL files and return user+assistant text.
+    """Return user+assistant text from sessions updated after ``since_ts``.
 
-    Uses existing SessionStore + TranscriptManager — no raw JSONL parsing.
+    Backend-agnostic: pulls session metadata + messages exclusively through
+    the SessionRepository protocol so the dream gate works under file or
+    SQLite without changes.
     """
     from ..compaction import estimate_tokens
-    from ..persistence import SessionStore, TranscriptManager
 
-    store = SessionStore(sessions_dir)
-    transcript = TranscriptManager(sessions_dir)
-
-    entries = store.load(user_id)
-    recent = sorted(
-        [e for e in entries.values() if e.updated_at / 1000 > since_ts],
-        key=lambda e: e.updated_at,
-        reverse=True,
-    )
+    metas = await session_repo.list_session_metas(user_id)
+    recent = [m for m in metas if m.updated_at / 1000 > since_ts]
 
     texts: list[str] = []
     total_tokens = 0
     for entry in recent:
         try:
-            messages = transcript.load_messages(entry.session_id, user_id)
+            messages = await session_repo.load_messages(
+                entry.session_id, user_id,
+            )
         except Exception:
-            logger.debug("Failed to load session %s, skipping", entry.session_id)
+            logger.debug(
+                "Failed to load session %s, skipping", entry.session_id,
+            )
             continue
         session_text = format_session_for_dream(messages)
         if not session_text:
@@ -148,14 +150,15 @@ def read_recent_sessions(
 
 async def should_dream(
     state_repo: "AgentStateRepository",
+    session_repo: "SessionRepository",
     user_id: str,
-    sessions_dir: Path,
     min_hours: float = 24.0,
     min_sessions: int = 3,
 ) -> bool:
     """Check if a dream cycle should run for this user.
 
-    Reads `.last_dream` marker via state_repo (PR2+ DB-friendly).
+    Reads ``.last_dream`` marker via state_repo and counts recently-updated
+    sessions via the SessionRepository.
     """
     raw = await state_repo.get(user_id, "last_dream")
     if raw is None:
@@ -172,11 +175,8 @@ async def should_dream(
     if hours_since >= min_hours:
         return True
 
-    from ..persistence import SessionStore
-
-    store = SessionStore(sessions_dir)
-    entries = store.load(user_id)
-    recent = [e for e in entries.values() if e.updated_at / 1000 > last_ts]
+    metas = await session_repo.list_session_metas(user_id)
+    recent = [m for m in metas if m.updated_at / 1000 > last_ts]
     return len(recent) >= min_sessions
 
 
@@ -194,10 +194,49 @@ async def touch_last_dream(
 
 
 class MemoryDreamer:
-    """Periodic memory distillation via LLM."""
+    """Periodic memory distillation via LLM.
 
-    def __init__(self, llm_factory: Callable[[], "BaseChatModel"]) -> None:
+    Owns all of its dependencies; callers only need to call
+    ``maybe_run(user_id)``. The gate (``should_dream``), the run, and the
+    failure-counter resilience all live inside the class.
+    """
+
+    _FAILURE_THRESHOLD = 3
+
+    def __init__(
+        self,
+        llm_factory: Callable[[], "BaseChatModel"],
+        memory_manager: "MemoryManager | None" = None,
+        session_repo: "SessionRepository | None" = None,
+        state_repo: "AgentStateRepository | None" = None,
+        *,
+        min_sessions: int = 3,
+        min_hours: float = 24.0,
+    ) -> None:
+        """Storage deps are optional for tests that only exercise ``dream`` /
+        ``apply`` / ``_parse_response``; ``run`` and ``maybe_run`` require
+        all three and raise ``RuntimeError`` if missing."""
         self._get_llm = llm_factory
+        self._memory_manager = memory_manager
+        self._session_repo = session_repo
+        self._state_repo = state_repo
+        self._min_sessions = min_sessions
+        self._min_hours = min_hours
+
+        self._tasks: dict[str, asyncio.Task] = {}
+        self._failures: dict[str, int] = {}
+
+    def _require_storage(self) -> tuple["MemoryManager", "SessionRepository", "AgentStateRepository"]:
+        if (
+            self._memory_manager is None
+            or self._session_repo is None
+            or self._state_repo is None
+        ):
+            raise RuntimeError(
+                "MemoryDreamer.run / maybe_run require memory_manager, "
+                "session_repo, and state_repo to be supplied at construction."
+            )
+        return self._memory_manager, self._session_repo, self._state_repo
 
     async def dream(
         self,
@@ -281,23 +320,13 @@ class MemoryDreamer:
         )
         logger.info("Dream applied for user %s: %s", user_id, result.changes)
 
-    async def run(
-        self,
-        memory_manager: "MemoryManager",
-        user_id: str,
-        sessions_dir: Path,
-        state_repo: "AgentStateRepository",
-    ) -> DreamResult:
-        """Full dream cycle: read sessions + memory → distill → optimistic merge write.
+    async def run(self, user_id: str) -> DreamResult:
+        """Full dream cycle: read sessions + memory → distill → merge write."""
+        memory_manager, session_repo, state_repo = self._require_storage()
 
-        state_repo: AgentStateRepository for reading/writing the last_dream marker
-        (PR2+ DB-friendly; replaces direct ``.last_dream`` file IO).
-        memory_manager: MemoryManager (backend-agnostic memory R/W).
-        """
         memory_content = await memory_manager.read_memory(user_id)
         original_snapshot = memory_content
 
-        # Read last_dream timestamp via repository
         since_ts = 0.0
         raw = await state_repo.get(user_id, "last_dream")
         if raw is not None:
@@ -306,16 +335,74 @@ class MemoryDreamer:
             except (ValueError, AttributeError):
                 pass
 
-        session_summaries = read_recent_sessions(
-            user_id, sessions_dir, since_ts,
+        session_summaries = await read_recent_sessions(
+            user_id, session_repo, since_ts,
         )
 
         result = await self.dream(memory_content, session_summaries)
 
         if result.has_changes:
-            await self.apply(memory_manager, user_id, result, original_snapshot)
+            await self.apply(
+                memory_manager, user_id, result, original_snapshot,
+            )
 
-        # Update last dream timestamp via repository
         await touch_last_dream(state_repo, user_id)
 
         return result
+
+    async def maybe_run(self, user_id: str) -> None:
+        """Gate + spawn a background dream task if thresholds are met.
+
+        Returns immediately when:
+          - a task for ``user_id`` is already in flight
+          - the dream gate is closed (recent dream / not enough sessions)
+          - the gate check itself fails
+
+        Resilience: after ``_FAILURE_THRESHOLD`` consecutive failures the
+        ``last_dream`` marker is advanced anyway so a permanently-broken
+        user can't pin the gate open forever.
+        """
+        _, session_repo, state_repo = self._require_storage()
+        active = self._tasks.get(user_id)
+        if active is not None and not active.done():
+            return
+
+        try:
+            ok = await should_dream(
+                state_repo, session_repo, user_id,
+                min_hours=self._min_hours,
+                min_sessions=self._min_sessions,
+            )
+        except Exception:
+            logger.debug(
+                "Dream gate check failed for %s", user_id, exc_info=True,
+            )
+            return
+        if not ok:
+            return
+
+        self._tasks[user_id] = asyncio.create_task(
+            self._run_with_retry_protection(user_id)
+        )
+        logger.info("Dream triggered for user %s", user_id)
+
+    async def _run_with_retry_protection(self, user_id: str) -> None:
+        _, _, state_repo = self._require_storage()
+        try:
+            result = await self.run(user_id)
+            self._failures.pop(user_id, None)
+            logger.info(
+                "Dream completed for user %s: %s", user_id, result.changes,
+            )
+        except Exception:
+            logger.warning("Dream failed for user %s", user_id, exc_info=True)
+            failures = self._failures.get(user_id, 0) + 1
+            self._failures[user_id] = failures
+            if failures >= self._FAILURE_THRESHOLD:
+                await touch_last_dream(state_repo, user_id)
+                self._failures.pop(user_id, None)
+                logger.warning(
+                    "Dream failed %d consecutive times for %s, "
+                    "advancing .last_dream",
+                    failures, user_id,
+                )

@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from ark_agentic.core.storage.backends.file.memory_cache import MemoryCache
+from ark_agentic.core.storage.inproc_cache import MemoryCache
 from ark_agentic.core.storage.protocols import Cache
 
 

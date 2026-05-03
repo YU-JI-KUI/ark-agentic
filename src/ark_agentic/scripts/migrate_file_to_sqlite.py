@@ -1,15 +1,17 @@
 """One-shot migration: file backend → SQLite.
 
-Idempotent — re-runs skip rows whose primary key already exists. Reuses the
-SQLite Repository implementations so we don't duplicate write logic.
+Idempotent — re-runs skip rows whose primary key already exists. Reads
+through ``FileXxxRepository`` (the same code production runs against) and
+writes through ``SqliteXxxRepository`` so the migration speaks only the
+storage Protocols.
 
 Usage::
 
-    python -m ark_agentic.scripts.migrate_file_to_sqlite \
-        --sessions-dir data/sessions \
-        --memory-dir data/ark_memory \
-        --notifications-dir data/notifications \
-        --db-url sqlite+aiosqlite:///data/ark.db \
+    python -m ark_agentic.scripts.migrate_file_to_sqlite \\
+        --sessions-dir data/sessions \\
+        --memory-dir data/ark_memory \\
+        --notifications-dir data/notifications \\
+        --db-url sqlite+aiosqlite:///data/ark.db \\
         [--dry-run]
 """
 
@@ -33,12 +35,14 @@ from ..core.db.models import (
     SessionMeta,
     UserMemory,
 )
-from ..core.persistence import SessionStore, TranscriptManager
+from ..core.storage.backends.file.agent_state import FileAgentStateRepository
+from ..core.storage.backends.file.memory import FileMemoryRepository
+from ..core.storage.backends.file.notification import FileNotificationRepository
+from ..core.storage.backends.file.session import FileSessionRepository
 from ..core.storage.backends.sqlite.agent_state import SqliteAgentStateRepository
 from ..core.storage.backends.sqlite.memory import SqliteMemoryRepository
 from ..core.storage.backends.sqlite.notification import SqliteNotificationRepository
 from ..core.storage.backends.sqlite.session import SqliteSessionRepository
-from ..services.notifications.store import NotificationStore
 
 logger = logging.getLogger(__name__)
 
@@ -69,42 +73,40 @@ async def _migrate_sessions(
     if not sessions_dir.exists():
         return
 
-    repo = SqliteSessionRepository(engine)
-    transcript = TranscriptManager(sessions_dir)
-    store = SessionStore(sessions_dir)
+    src = FileSessionRepository(sessions_dir)
+    dst = SqliteSessionRepository(engine)
 
-    # Iterate per user dir.
     for user_dir in sessions_dir.iterdir():
         if not user_dir.is_dir():
             continue
         user_id = user_dir.name
-        store_entries = store.load(user_id, skip_cache=True)
-        for sid, entry in store_entries.items():
+        metas = await src.list_session_metas(user_id)
+        for entry in metas:
+            sid = entry.session_id
             async with engine.connect() as conn:
                 exists = (await conn.execute(
-                    select(SessionMeta.__table__.c.session_id).where(
-                        SessionMeta.__table__.c.session_id == sid,
+                    select(SessionMeta.session_id).where(
+                        SessionMeta.session_id == sid,
                     )
                 )).first()
             if exists:
                 stats.bump_skip("session_meta")
                 continue
-
             if dry_run:
                 stats.sessions += 1
                 continue
 
-            await repo.create(
+            await dst.create(
                 sid, user_id,
                 model=entry.model,
                 provider=entry.provider,
                 state=entry.state,
             )
-            await repo.update_meta(sid, user_id, entry)
+            await dst.update_meta(sid, user_id, entry)
             stats.sessions += 1
 
-            for msg in transcript.load_messages(sid, user_id):
-                await repo.append_message(sid, user_id, msg)
+            for msg in await src.load_messages(sid, user_id):
+                await dst.append_message(sid, user_id, msg)
                 stats.session_messages += 1
 
 
@@ -121,35 +123,34 @@ async def _migrate_memory(
     if not memory_dir.exists():
         return
 
-    repo = SqliteMemoryRepository(engine)
-    for user_dir in memory_dir.iterdir():
-        if not user_dir.is_dir():
-            continue
-        memory_file = user_dir / "MEMORY.md"
-        if not memory_file.exists():
-            continue
-        user_id = user_dir.name
+    src = FileMemoryRepository(memory_dir)
+    dst = SqliteMemoryRepository(engine)
 
+    for user_id in await src.list_users():
         async with engine.connect() as conn:
             exists = (await conn.execute(
-                select(UserMemory.__table__.c.user_id).where(
-                    UserMemory.__table__.c.user_id == user_id,
+                select(UserMemory.user_id).where(
+                    UserMemory.user_id == user_id,
                 )
             )).first()
         if exists:
             stats.bump_skip("user_memory")
             continue
-
         if dry_run:
             stats.memory_users += 1
             continue
 
-        content = memory_file.read_text(encoding="utf-8")
-        await repo.overwrite(user_id, content)
+        content = await src.read(user_id)
+        await dst.overwrite(user_id, content)
         stats.memory_users += 1
 
 
 # ── Agent state markers (.last_*) ──────────────────────────────────
+
+
+# Markers we knowingly migrate. Anything else under ``{user}/.<key>`` is
+# left in place — those are usually editor / VCS dotfiles, not state.
+_KNOWN_AGENT_STATE_PREFIXES = ("last_dream", "last_job_")
 
 
 async def _migrate_agent_state(
@@ -162,7 +163,12 @@ async def _migrate_agent_state(
     if not workspace_dir.exists():
         return
 
-    repo = SqliteAgentStateRepository(engine)
+    src = FileAgentStateRepository(workspace_dir)
+    dst = SqliteAgentStateRepository(engine)
+
+    # Discover all (user, key) pairs by walking dir + filtering known
+    # markers. Tries the known keys per user instead of scanning every
+    # dotfile so we don't ingest editor / VCS leftovers.
     for user_dir in workspace_dir.iterdir():
         if not user_dir.is_dir():
             continue
@@ -170,27 +176,29 @@ async def _migrate_agent_state(
         for marker in user_dir.iterdir():
             if not marker.is_file() or not marker.name.startswith("."):
                 continue
-            key = marker.name[1:]  # strip leading dot
-            # Skip non-state files like ``.last_dream.bak`` (ext != value)
-            # — convention: treat any leading-dot file as a state marker.
-            value = marker.read_text(encoding="utf-8").strip()
+            key = marker.name[1:]
+            if not any(key.startswith(p) for p in _KNOWN_AGENT_STATE_PREFIXES):
+                stats.bump_skip("agent_state_unknown_key")
+                continue
+            value = await src.get(user_id, key)
+            if value is None:
+                continue
 
             async with engine.connect() as conn:
                 existing = (await conn.execute(
-                    select(AgentState.__table__.c.user_id).where(
-                        AgentState.__table__.c.user_id == user_id,
-                        AgentState.__table__.c.key == key,
+                    select(AgentState.user_id).where(
+                        AgentState.user_id == user_id,
+                        AgentState.key == key,
                     )
                 )).first()
             if existing:
                 stats.bump_skip("agent_state")
                 continue
-
             if dry_run:
                 stats.agent_state_keys += 1
                 continue
 
-            await repo.set(user_id, key, value)
+            await dst.set(user_id, key, value)
             stats.agent_state_keys += 1
 
 
@@ -204,35 +212,74 @@ async def _migrate_notifications(
     *,
     dry_run: bool,
 ) -> None:
+    """Migrate notifications. Supports both layouts:
+
+    - Per-agent: ``{notifications_dir}/{agent_id}/{user_id}/notifications.jsonl``
+    - Flat:     ``{notifications_dir}/{user_id}/notifications.jsonl``
+
+    Detection: if a top-level dir already contains ``notifications.jsonl`` it
+    is a user dir (flat layout); otherwise it's an agent dir (per-agent layout).
+    """
     if not notifications_dir.exists():
         return
 
-    repo = SqliteNotificationRepository(engine)
-    file_store = NotificationStore(base_dir=notifications_dir)
+    # Detect layout from the first dir we encounter.
+    flat_layout = False
+    for top in notifications_dir.iterdir():
+        if top.is_dir():
+            if (top / "notifications.jsonl").is_file():
+                flat_layout = True
+            break
 
-    for user_dir in notifications_dir.iterdir():
+    if flat_layout:
+        await _migrate_notifications_for_agent(
+            engine, notifications_dir, agent_id="", stats=stats, dry_run=dry_run,
+        )
+    else:
+        for agent_dir in notifications_dir.iterdir():
+            if not agent_dir.is_dir():
+                continue
+            await _migrate_notifications_for_agent(
+                engine, agent_dir, agent_id=agent_dir.name,
+                stats=stats, dry_run=dry_run,
+            )
+
+
+async def _migrate_notifications_for_agent(
+    engine: AsyncEngine,
+    agent_dir: Path,
+    *,
+    agent_id: str,
+    stats: MigrationStats,
+    dry_run: bool,
+) -> None:
+    src = FileNotificationRepository(agent_dir)
+    dst = SqliteNotificationRepository(engine, agent_id=agent_id)
+
+    for user_dir in agent_dir.iterdir():
         if not user_dir.is_dir():
             continue
         user_id = user_dir.name
-        listing = await file_store.list_recent(user_id, limit=10_000)
+        listing = await src.list_recent(user_id, limit=10_000)
         for n in listing.notifications:
+            if not n.agent_id:
+                n.agent_id = agent_id
             async with engine.connect() as conn:
                 exists = (await conn.execute(
-                    select(NotificationRow.__table__.c.notification_id).where(
-                        NotificationRow.__table__.c.notification_id == n.notification_id,
+                    select(NotificationRow.notification_id).where(
+                        NotificationRow.notification_id == n.notification_id,
                     )
                 )).first()
             if exists:
                 stats.bump_skip("notification")
                 continue
-
             if dry_run:
                 stats.notifications += 1
                 continue
 
-            await repo.save(n)
+            await dst.save(n)
             if n.read:
-                await repo.mark_read(user_id, [n.notification_id])
+                await dst.mark_read(user_id, [n.notification_id])
             stats.notifications += 1
 
 

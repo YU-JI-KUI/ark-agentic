@@ -58,8 +58,6 @@ from .compaction import (
     estimate_message_tokens,
 )
 from .persistence import (
-    TranscriptManager,
-    SessionStore,
     SessionStoreEntry,
     FileLock,
     RawJsonlValidationError,
@@ -135,8 +133,6 @@ __all__ = [
     "estimate_tokens",
     "estimate_message_tokens",
     # Persistence
-    "TranscriptManager",
-    "SessionStore",
     "SessionStoreEntry",
     "FileLock",
     "RawJsonlValidationError",

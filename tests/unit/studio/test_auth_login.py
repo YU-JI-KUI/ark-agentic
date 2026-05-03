@@ -19,7 +19,7 @@ from ark_agentic.studio.services.auth import (
     InternalAuthProvider,
     StudioUser,
 )
-from ark_agentic.studio.services.authz_service import get_studio_user_store
+from ark_agentic.studio.services.authz_service import get_studio_user_repo
 
 
 @pytest.fixture
@@ -84,7 +84,7 @@ async def test_login_default_viewer_ok(monkeypatch: pytest.MonkeyPatch, auth_app
     r = await _post_login(auth_app, username="viewer", password="viewer123")
     assert r.status_code == 200
     assert r.json()["role"] == "viewer"
-    assert await get_studio_user_store().get_user("viewer") is not None
+    assert await get_studio_user_repo().get_user("viewer") is not None
 
 
 @pytest.mark.asyncio

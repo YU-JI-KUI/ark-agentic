@@ -103,3 +103,18 @@ async def test_upsert_drops_heading_when_body_empty(repo: SqliteMemoryRepository
     assert "A" not in current
     assert "B" in current  # untouched headings preserved
     assert "A" in dropped
+
+
+async def test_overwrite_concurrent_no_integrity_error(
+    repo: SqliteMemoryRepository,
+):
+    """Two parallel overwrite calls on a brand-new user must both succeed —
+    the upsert relies on ON CONFLICT DO UPDATE, not check-then-insert."""
+    await asyncio.gather(
+        repo.overwrite("racey", "first\n"),
+        repo.overwrite("racey", "second\n"),
+    )
+
+    final = await repo.read("racey")
+    # one of the two writes wins; both are valid — neither must raise
+    assert final in ("first\n", "second\n")

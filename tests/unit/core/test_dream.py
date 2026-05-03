@@ -22,6 +22,7 @@ from ark_agentic.core.memory.manager import MemoryManager
 from ark_agentic.core.memory.user_profile import parse_heading_sections
 from ark_agentic.core.storage.backends.file.agent_state import FileAgentStateRepository
 from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.backends.file.session import FileSessionRepository
 
 
 def _make_manager(workspace: Path) -> MemoryManager:
@@ -236,8 +237,9 @@ class TestShouldDream:
             sessions = workspace / "sessions"
             sessions.mkdir()
             state_repo = FileAgentStateRepository(workspace)
+            session_repo = FileSessionRepository(sessions)
 
-            result = await should_dream(state_repo, "U001", sessions)
+            result = await should_dream(state_repo, session_repo, "U001")
 
             assert result is False
             assert await state_repo.get("U001", "last_dream") is not None
@@ -248,10 +250,13 @@ class TestShouldDream:
             sessions = workspace / "sessions"
             sessions.mkdir()
             state_repo = FileAgentStateRepository(workspace)
+            session_repo = FileSessionRepository(sessions)
 
             await touch_last_dream(state_repo, "U001")
 
-            result = await should_dream(state_repo, "U001", sessions, min_hours=24.0)
+            result = await should_dream(
+                state_repo, session_repo, "U001", min_hours=24.0,
+            )
             assert result is False
 
     async def test_old_enough_triggers_even_without_sessions(self) -> None:
@@ -260,10 +265,14 @@ class TestShouldDream:
             sessions = workspace / "sessions"
             sessions.mkdir()
             state_repo = FileAgentStateRepository(workspace)
-            await state_repo.set("U001", "last_dream", str(time.time() - 86400 * 2))
+            session_repo = FileSessionRepository(sessions)
+            await state_repo.set(
+                "U001", "last_dream", str(time.time() - 86400 * 2),
+            )
 
             result = await should_dream(
-                state_repo, "U001", sessions, min_hours=24.0, min_sessions=3,
+                state_repo, session_repo, "U001",
+                min_hours=24.0, min_sessions=3,
             )
             assert result is True
 
@@ -273,22 +282,30 @@ class TestShouldDream:
             sessions = workspace / "sessions"
             sessions.mkdir()
             state_repo = FileAgentStateRepository(workspace)
+            session_repo = FileSessionRepository(sessions)
 
             last_ts = time.time() - 3600  # 1h ago
             await state_repo.set("U001", "last_dream", str(last_ts))
 
-            fake_entries = {
-                f"s{i}": type("E", (), {"updated_at": (last_ts + 60 + i) * 1000})()
-                for i in range(3)
-            }
-            with patch(
-                "ark_agentic.core.persistence.SessionStore"
-            ) as mock_cls:
-                mock_cls.return_value.load.return_value = fake_entries
-                result = await should_dream(
-                    state_repo, "U001", sessions, min_hours=24.0, min_sessions=3,
+            # Seed three real sessions whose updated_at lies after last_ts.
+            for i in range(3):
+                await session_repo.create(
+                    f"s{i}", "U001", model="m", provider="p", state={},
+                )
+                from ark_agentic.core.persistence import SessionStoreEntry
+                await session_repo.update_meta(
+                    f"s{i}", "U001",
+                    SessionStoreEntry(
+                        session_id=f"s{i}",
+                        updated_at=int((last_ts + 60 + i) * 1000),
+                        model="m", provider="p",
+                    ),
                 )
 
+            result = await should_dream(
+                state_repo, session_repo, "U001",
+                min_hours=24.0, min_sessions=3,
+            )
             assert result is True
 
     async def test_both_unsatisfied_returns_false(self) -> None:
@@ -297,12 +314,14 @@ class TestShouldDream:
             sessions = workspace / "sessions"
             sessions.mkdir()
             state_repo = FileAgentStateRepository(workspace)
+            session_repo = FileSessionRepository(sessions)
 
             last_ts = time.time() - 3600  # 1h ago
             await state_repo.set("U001", "last_dream", str(last_ts))
 
             result = await should_dream(
-                state_repo, "U001", sessions, min_hours=24.0, min_sessions=3,
+                state_repo, session_repo, "U001",
+                min_hours=24.0, min_sessions=3,
             )
             assert result is False
 
@@ -340,14 +359,20 @@ class TestDreamerRun:
             sessions_dir.mkdir()
 
             llm = _make_llm('{"distilled": "## 偏好\\n简洁回复", "changes": "merged A+B"}')
-            dreamer = MemoryDreamer(lambda: llm)
             state_repo = FileAgentStateRepository(ws)
+            session_repo = FileSessionRepository(sessions_dir)
+            dreamer = MemoryDreamer(
+                lambda: llm,
+                memory_manager=mgr,
+                session_repo=session_repo,
+                state_repo=state_repo,
+            )
 
             with patch(
                 "ark_agentic.core.memory.dream.read_recent_sessions",
-                return_value="user: 我喜欢简洁回复",
+                new=AsyncMock(return_value="user: 我喜欢简洁回复"),
             ):
-                result = await dreamer.run(mgr, "U001", sessions_dir, state_repo)
+                result = await dreamer.run("U001")
 
             assert result.has_changes
             content = await mgr.read_memory("U001")
@@ -371,14 +396,20 @@ class TestDreamerRun:
             sessions_dir.mkdir()
 
             llm = _make_llm('{"distilled": "", "changes": "无需修改"}')
-            dreamer = MemoryDreamer(lambda: llm)
             state_repo = FileAgentStateRepository(ws)
+            session_repo = FileSessionRepository(sessions_dir)
+            dreamer = MemoryDreamer(
+                lambda: llm,
+                memory_manager=mgr,
+                session_repo=session_repo,
+                state_repo=state_repo,
+            )
 
             with patch(
                 "ark_agentic.core.memory.dream.read_recent_sessions",
-                return_value="",
+                new=AsyncMock(return_value=""),
             ):
-                result = await dreamer.run(mgr, "U001", sessions_dir, state_repo)
+                result = await dreamer.run("U001")
 
             assert not result.has_changes
             assert await mgr.read_memory("U001") == original

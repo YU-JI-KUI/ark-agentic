@@ -16,7 +16,7 @@ from ark_agentic.core.storage.backends.file.agent_state import (
     FileAgentStateRepository,
 )
 from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
-from ark_agentic.core.storage.backends.file.memory_cache import MemoryCache
+from ark_agentic.core.storage.inproc_cache import MemoryCache
 from ark_agentic.core.storage.backends.file.notification import (
     FileNotificationRepository,
 )
@@ -165,3 +165,23 @@ def test_sqlite_without_engine_raises(
 
     with pytest.raises(RuntimeError, match="engine"):
         build_session_repository(sessions_dir=tmp_path, engine=None)
+
+
+def test_file_without_dir_raises(monkeypatch: pytest.MonkeyPatch):
+    """File backend must complain when its required directory is omitted,
+    instead of silently constructing a repository rooted at None."""
+    monkeypatch.delenv("DB_TYPE", raising=False)
+
+    with pytest.raises(ValueError, match="sessions_dir"):
+        build_session_repository(sessions_dir=None)
+
+
+async def test_sqlite_session_does_not_need_dir(
+    monkeypatch: pytest.MonkeyPatch, sqlite_engine,
+):
+    """SQLite path must not require sessions_dir (a file-backend concern)."""
+    monkeypatch.setenv("DB_TYPE", "sqlite")
+
+    repo = build_session_repository(engine=sqlite_engine)
+
+    assert isinstance(repo, SqliteSessionRepository)

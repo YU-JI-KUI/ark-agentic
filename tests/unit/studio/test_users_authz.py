@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from ark_agentic.studio.api import users as users_api
 from ark_agentic.studio.services.authz_service import (
-    get_studio_user_store,
+    get_studio_user_repo,
 )
 
 
@@ -43,7 +43,7 @@ def test_admin_can_upsert_list_and_delete_user_grant(client: TestClient, studio_
 
 
 async def test_viewer_cannot_manage_users(client: TestClient, studio_auth_headers) -> None:
-    await get_studio_user_store().ensure_user("viewer-user", default_role="viewer")
+    await get_studio_user_repo().ensure_user("viewer-user", default_role="viewer")
     response = client.get("/api/studio/users", headers=studio_auth_headers("viewer-user"))
     assert response.status_code == 403
 
@@ -51,7 +51,7 @@ async def test_viewer_cannot_manage_users(client: TestClient, studio_auth_header
 async def test_admin_cannot_edit_self_even_when_other_admin_exists(
     client: TestClient, studio_auth_headers,
 ) -> None:
-    await get_studio_user_store().upsert_user("backup-admin", "admin", actor_user_id="admin")
+    await get_studio_user_repo().upsert_user("backup-admin", "admin", actor_user_id="admin")
 
     response = client.post(
         "/api/studio/users",
@@ -61,7 +61,7 @@ async def test_admin_cannot_edit_self_even_when_other_admin_exists(
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Admins cannot edit their own user grant"
-    record = await get_studio_user_store().get_user("admin")
+    record = await get_studio_user_repo().get_user("admin")
     assert record is not None
     assert record.role == "admin"
 
@@ -69,17 +69,17 @@ async def test_admin_cannot_edit_self_even_when_other_admin_exists(
 async def test_admin_cannot_delete_self_even_when_other_admin_exists(
     client: TestClient, studio_auth_headers,
 ) -> None:
-    await get_studio_user_store().upsert_user("backup-admin", "admin", actor_user_id="admin")
+    await get_studio_user_repo().upsert_user("backup-admin", "admin", actor_user_id="admin")
 
     response = client.delete("/api/studio/users/admin", headers=studio_auth_headers())
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Admins cannot delete their own user grant"
-    assert await get_studio_user_store().get_user("admin") is not None
+    assert await get_studio_user_repo().get_user("admin") is not None
 
 
 async def test_users_list_supports_pagination_and_filters(client: TestClient, studio_auth_headers) -> None:
-    store = get_studio_user_store()
+    store = get_studio_user_repo()
     await store.upsert_user("alice", "viewer", actor_user_id="admin")
     await store.upsert_user("alina", "editor", actor_user_id="admin")
     await store.upsert_user("bob", "viewer", actor_user_id="admin")
@@ -111,7 +111,7 @@ async def test_studio_user_store_get_user_is_async(studio_auth_context, tmp_path
     """Ensure the store works under async path with aiosqlite URL."""
     studio_auth_context(database_dir=tmp_path)
 
-    record = await get_studio_user_store().get_user("admin")
+    record = await get_studio_user_repo().get_user("admin")
 
     assert record is not None
     assert record.role == "admin"

@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import time
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ....db.models import AgentState
@@ -30,32 +31,19 @@ class SqliteAgentStateRepository:
         return row[0] if row else None
 
     async def set(self, user_id: str, key: str, value: str) -> None:
+        """Single-statement upsert. Removes the SELECT-then-INSERT race."""
         now_ms = int(time.time() * 1000)
+        stmt = sqlite_insert(AgentState).values(
+            user_id=user_id,
+            key=key,
+            value=value,
+            updated_at=now_ms,
+        ).on_conflict_do_update(
+            index_elements=["user_id", "key"],
+            set_={"value": value, "updated_at": now_ms},
+        )
         async with self._engine.begin() as conn:
-            existing = (await conn.execute(
-                select(AgentState.user_id).where(
-                    AgentState.user_id == user_id,
-                    AgentState.key == key,
-                )
-            )).first()
-            if existing:
-                await conn.execute(
-                    update(AgentState)
-                    .where(
-                        AgentState.user_id == user_id,
-                        AgentState.key == key,
-                    )
-                    .values(value=value, updated_at=now_ms)
-                )
-            else:
-                await conn.execute(
-                    insert(AgentState).values(
-                        user_id=user_id,
-                        key=key,
-                        value=value,
-                        updated_at=now_ms,
-                    )
-                )
+            await conn.execute(stmt)
 
     async def list_users_with_key(
         self,

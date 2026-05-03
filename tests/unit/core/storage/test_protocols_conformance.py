@@ -31,6 +31,8 @@ def test_session_repository_method_set():
         "update_meta",
         "load_meta",
         "list_session_ids",
+        "list_session_metas",
+        "list_all_sessions",
         "delete",
         "get_raw_transcript",
         "put_raw_transcript",
