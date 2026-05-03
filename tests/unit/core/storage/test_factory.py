@@ -16,7 +16,7 @@ from ark_agentic.core.storage.backends.file.agent_state import (
     FileAgentStateRepository,
 )
 from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
-from ark_agentic.core.storage.backends.file.memory_cache import MemoryCache
+from ark_agentic.core.storage.inproc_cache import MemoryCache
 from ark_agentic.core.storage.backends.file.notification import (
     FileNotificationRepository,
 )

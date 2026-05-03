@@ -1,7 +1,9 @@
 """MemoryCache — in-process Cache implementation.
 
-PR1 默认 Cache 后端：单进程 dict + monotonic clock TTL 校验。
-警告：多 worker 部署不可用 —— validate_deployment_config() 拒绝该组合。
+Single-process dict + monotonic clock TTL. Backend-agnostic: not under
+``backends/file`` because nothing about it touches the file system. The
+multi-worker safeguard lives in ``core.startup_guard``
+(``validate_deployment_config``).
 """
 
 from __future__ import annotations

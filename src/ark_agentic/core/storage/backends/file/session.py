@@ -34,13 +34,10 @@ class FileSessionRepository:
         provider: str,
         state: dict,
     ) -> None:
-        # Two-step (PR2 SQLite must wrap in a transaction)
         await self._transcript.ensure_header(session_id, user_id)
-        session_file = self._transcript._get_session_file(session_id, user_id)
         entry = SessionStoreEntry(
             session_id=session_id,
             updated_at=0,
-            session_ref=str(session_file),
             model=model,
             provider=provider,
             state=state,

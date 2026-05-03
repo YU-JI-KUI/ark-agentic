@@ -21,19 +21,21 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .backends.file.agent_state import FileAgentStateRepository
 from .backends.file.memory import FileMemoryRepository
-from .backends.file.memory_cache import MemoryCache
+from .inproc_cache import MemoryCache
 from .backends.file.notification import FileNotificationRepository
 from .backends.file.session import FileSessionRepository
 from .backends.sqlite.agent_state import SqliteAgentStateRepository
 from .backends.sqlite.memory import SqliteMemoryRepository
 from .backends.sqlite.notification import SqliteNotificationRepository
 from .backends.sqlite.session import SqliteSessionRepository
+from .backends.sqlite.studio_user import SqliteStudioUserRepository
 from .protocols import (
     AgentStateRepository,
     Cache,
     MemoryRepository,
     NotificationRepository,
     SessionRepository,
+    StudioUserRepository,
 )
 
 
@@ -144,3 +146,15 @@ def build_notification_repository(
 def build_cache() -> Cache:
     """PR2: Cache is always in-process. PR3 introduces RedisCache via env."""
     return MemoryCache()
+
+
+def build_studio_user_repository(
+    engine: AsyncEngine,
+) -> StudioUserRepository:
+    """Studio is DB-only — no file backend exists.
+
+    Always returns the SQLite implementation. The caller decides which
+    engine to pass (the central ``core.db`` engine when DB_TYPE=sqlite,
+    or a dedicated Studio engine otherwise — see Studio's own bootstrap).
+    """
+    return SqliteStudioUserRepository(engine)

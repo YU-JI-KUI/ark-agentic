@@ -22,7 +22,6 @@ class SessionMeta(Base):
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
     model: Mapped[str] = mapped_column(String(64), default="")
     provider: Mapped[str] = mapped_column(String(32), default="")
-    session_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
     state_json: Mapped[str] = mapped_column(Text, default="{}")
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)

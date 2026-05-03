@@ -511,21 +511,25 @@ class TestSessionStoreEntry:
         assert entry.session_id == "session-123"
         assert entry.model == "test-model"
 
-    def test_session_ref_alias(self) -> None:
-        """session_file remains as a deprecated read-only alias of session_ref."""
-        # New canonical field name
+    def test_dto_lives_in_storage_entries_module(self) -> None:
+        """SessionStoreEntry is the backend-neutral DTO under
+        ``core.storage.entries``; ``core.persistence`` re-exports it for
+        legacy import paths but never owns the class."""
+        from ark_agentic.core.storage import entries as storage_entries
+
+        assert SessionStoreEntry is storage_entries.SessionStoreEntry
+
+    def test_dto_round_trip_does_not_carry_file_paths(self) -> None:
+        """Backend-neutral: the DTO no longer exposes ``session_ref`` /
+        ``sessionFile`` keys. ``to_dict`` -> ``from_dict`` round-trips
+        without any file-system reference."""
         entry = SessionStoreEntry(
-            session_id="s1", updated_at=1, session_ref="/p/s1.jsonl",
+            session_id="s1", updated_at=1, model="m", provider="p",
+            state={"k": "v"},
         )
-        assert entry.session_ref == "/p/s1.jsonl"
-        assert entry.session_file == "/p/s1.jsonl", "session_file alias must mirror session_ref"
-
-        # Round-trip via dict (JSON key sessionFile preserved for FE compatibility)
         as_dict = entry.to_dict()
-        assert as_dict["sessionFile"] == "/p/s1.jsonl"
+        assert "sessionFile" not in as_dict
+        assert "session_ref" not in as_dict
 
-        # Backward-compat: legacy JSON with sessionFile must populate session_ref
-        legacy = {"sessionId": "s2", "updatedAt": 2, "sessionFile": "/p/s2.jsonl"}
-        loaded = SessionStoreEntry.from_dict(legacy)
-        assert loaded.session_ref == "/p/s2.jsonl"
-        assert loaded.session_file == "/p/s2.jsonl"
+        loaded = SessionStoreEntry.from_dict(as_dict)
+        assert loaded == entry

@@ -19,7 +19,7 @@ from ark_agentic.api import deps
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.studio.api import agents as agents_api
 from ark_agentic.studio.api.agents import AgentMeta, _read_agent_meta, _write_agent_meta
-from ark_agentic.studio.services.authz_service import get_studio_user_store
+from ark_agentic.studio.services.authz_service import get_studio_user_repo
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────
@@ -214,7 +214,7 @@ class TestCreateAgentEndpoint:
         self, client: TestClient, temp_agents_dir: Path, studio_auth_headers,
     ):
         """Editor role may use Studio write endpoints."""
-        await get_studio_user_store().upsert_user("ed", "editor", actor_user_id="admin")
+        await get_studio_user_repo().upsert_user("ed", "editor", actor_user_id="admin")
         response = client.post(
             "/api/studio/agents",
             json={"id": "editor-agent", "name": "Editor Agent"},
@@ -226,7 +226,7 @@ class TestCreateAgentEndpoint:
         self, client: TestClient, temp_agents_dir: Path, studio_auth_headers,
     ):
         """Viewer role cannot use Studio write endpoints."""
-        await get_studio_user_store().ensure_user("view-only", default_role="viewer")
+        await get_studio_user_repo().ensure_user("view-only", default_role="viewer")
         response = client.post(
             "/api/studio/agents",
             json={"id": "viewer-agent", "name": "Viewer Agent"},

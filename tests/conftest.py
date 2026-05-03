@@ -57,7 +57,7 @@ def studio_auth_headers():
 @pytest.fixture
 def studio_auth_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, studio_auth_headers):
     """Configure isolated Studio auth state for tests."""
-    from ark_agentic.studio.services.authz_service import reset_studio_user_store_cache
+    from ark_agentic.studio.services.authz_service import reset_studio_user_repo_cache
 
     def _configure(
         *,
@@ -69,9 +69,9 @@ def studio_auth_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, studio_
         monkeypatch.setenv("STUDIO_DATABASE_URL", f"sqlite:///{db_dir}/ark_studio.db")
         monkeypatch.setenv("STUDIO_AUTH_TOKEN_SECRET", "test-secret")
         monkeypatch.delenv("STUDIO_AUTH_PROVIDERS", raising=False)
-        reset_studio_user_store_cache()
+        reset_studio_user_repo_cache()
         if client is not None:
             client.headers.update(studio_auth_headers(user_id))
 
     yield _configure
-    reset_studio_user_store_cache()
+    reset_studio_user_repo_cache()

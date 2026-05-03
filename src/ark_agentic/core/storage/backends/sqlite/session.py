@@ -62,7 +62,6 @@ class SqliteSessionRepository:
             updated_at=0,
             model=model,
             provider=provider,
-            session_ref=None,
             state_json=json.dumps(state, ensure_ascii=False),
             prompt_tokens=0,
             completion_tokens=0,
@@ -146,7 +145,6 @@ class SqliteSessionRepository:
             "updated_at": entry.updated_at,
             "model": entry.model,
             "provider": entry.provider,
-            "session_ref": entry.session_ref,
             "state_json": json.dumps(entry.state, ensure_ascii=False),
             "prompt_tokens": entry.prompt_tokens,
             "completion_tokens": entry.completion_tokens,
@@ -235,7 +233,6 @@ class SqliteSessionRepository:
         return SessionStoreEntry(
             session_id=row.session_id,
             updated_at=row.updated_at,
-            session_ref=row.session_ref,
             model=row.model,
             provider=row.provider,
             prompt_tokens=row.prompt_tokens,
