@@ -55,9 +55,26 @@ def studio_auth_headers():
 
 
 @pytest.fixture
-def studio_auth_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, studio_auth_headers):
-    """Configure isolated Studio auth state for tests."""
-    from ark_agentic.studio.services.authz_service import reset_studio_user_repo_cache
+def studio_auth_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    studio_auth_headers,
+):
+    """Configure isolated Studio auth state for tests.
+
+    Builds a per-test SqliteStudioUserRepository against a dedicated
+    file-backed engine and injects it into the authz module — no env
+    vars, no implicit central engine reuse.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from ark_agentic.core.storage.backends.sqlite.studio_user import (
+        SqliteStudioUserRepository,
+    )
+    from ark_agentic.studio.services.authz_service import (
+        reset_studio_user_repo_cache,
+        set_studio_user_repo_for_testing,
+    )
 
     def _configure(
         *,
@@ -66,10 +83,16 @@ def studio_auth_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, studio_
         user_id: str = "admin",
     ) -> None:
         db_dir = database_dir or tmp_path
-        monkeypatch.setenv("STUDIO_DATABASE_URL", f"sqlite:///{db_dir}/ark_studio.db")
+        db_dir.mkdir(parents=True, exist_ok=True)
+        engine = create_async_engine(
+            f"sqlite+aiosqlite:///{db_dir}/ark_studio.db",
+            future=True,
+            connect_args={"check_same_thread": False},
+        )
+        set_studio_user_repo_for_testing(SqliteStudioUserRepository(engine))
+
         monkeypatch.setenv("STUDIO_AUTH_TOKEN_SECRET", "test-secret")
         monkeypatch.delenv("STUDIO_AUTH_PROVIDERS", raising=False)
-        reset_studio_user_repo_cache()
         if client is not None:
             client.headers.update(studio_auth_headers(user_id))
 

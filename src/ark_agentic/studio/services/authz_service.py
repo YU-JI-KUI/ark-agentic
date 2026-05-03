@@ -99,45 +99,23 @@ __all__ = [
 def _resolve_studio_engine() -> AsyncEngine:
     """Pick the AsyncEngine for the Studio repository singleton.
 
-    Order:
-      1. ``STUDIO_DATABASE_URL`` set → dedicated engine (test override /
-         deployments that intentionally split Studio off the main DB).
-      2. ``DB_TYPE=sqlite`` → reuse the central engine so ``studio_users``
-         sits next to business tables in one DB file.
-      3. Otherwise → dedicated ``data/ark_studio.db`` engine.
-    """
-    explicit_url = os.environ.get("STUDIO_DATABASE_URL")
-    if explicit_url:
-        return _build_dedicated_engine(explicit_url)
+    - ``DB_TYPE=sqlite`` → reuse the central ``core.db`` engine so
+      ``studio_users`` sits next to business tables in one DB file.
+    - Otherwise → dedicated ``data/ark_studio.db`` engine.
 
+    Test isolation: tests do not poke at this resolver. Use
+    ``set_studio_user_repo_for_testing(repo)`` to inject a per-test
+    repository.
+    """
     db_type = os.environ.get("DB_TYPE", "file").strip().lower()
     if db_type == "sqlite":
         from ...core.db.engine import get_async_engine
 
         return get_async_engine()
 
-    return _build_dedicated_engine(
-        f"sqlite+aiosqlite:///{DEFAULT_STUDIO_DB_PATH.as_posix()}",
-    )
-
-
-def _build_dedicated_engine(database_url: str) -> AsyncEngine:
-    # Promote sync sqlite URLs to aiosqlite.
-    if database_url.startswith("sqlite:///") and not database_url.startswith(
-        "sqlite+aiosqlite:///"
-    ):
-        database_url = (
-            "sqlite+aiosqlite:///" + database_url[len("sqlite:///"):]
-        )
-    # Ensure the parent dir exists when pointing at a real file.
-    if database_url.startswith("sqlite+aiosqlite:///") and not database_url.endswith(
-        ":memory:"
-    ):
-        Path(
-            database_url[len("sqlite+aiosqlite:///"):]
-        ).parent.mkdir(parents=True, exist_ok=True)
+    DEFAULT_STUDIO_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     return create_async_engine(
-        database_url,
+        f"sqlite+aiosqlite:///{DEFAULT_STUDIO_DB_PATH.as_posix()}",
         future=True,
         connect_args={"check_same_thread": False},
     )
@@ -158,6 +136,15 @@ def get_studio_user_repo() -> StudioUserRepository:
     if _repo is None:
         _repo = SqliteStudioUserRepository(_resolve_studio_engine())
     return _repo
+
+
+def set_studio_user_repo_for_testing(repo: StudioUserRepository) -> None:
+    """Inject a per-test repository (bypasses engine resolution)."""
+    global _repo, _initialized
+    _repo = repo
+    # Skip the eager schema init — tests build their own schema or use
+    # the repo's lazy bootstrap.
+    _initialized = True
 
 
 async def ensure_studio_schema() -> None:

@@ -359,15 +359,20 @@ class TestDreamerRun:
             sessions_dir.mkdir()
 
             llm = _make_llm('{"distilled": "## 偏好\\n简洁回复", "changes": "merged A+B"}')
-            dreamer = MemoryDreamer(lambda: llm)
             state_repo = FileAgentStateRepository(ws)
             session_repo = FileSessionRepository(sessions_dir)
+            dreamer = MemoryDreamer(
+                lambda: llm,
+                memory_manager=mgr,
+                session_repo=session_repo,
+                state_repo=state_repo,
+            )
 
             with patch(
                 "ark_agentic.core.memory.dream.read_recent_sessions",
                 new=AsyncMock(return_value="user: 我喜欢简洁回复"),
             ):
-                result = await dreamer.run(mgr, "U001", session_repo, state_repo)
+                result = await dreamer.run("U001")
 
             assert result.has_changes
             content = await mgr.read_memory("U001")
@@ -391,15 +396,20 @@ class TestDreamerRun:
             sessions_dir.mkdir()
 
             llm = _make_llm('{"distilled": "", "changes": "无需修改"}')
-            dreamer = MemoryDreamer(lambda: llm)
             state_repo = FileAgentStateRepository(ws)
             session_repo = FileSessionRepository(sessions_dir)
+            dreamer = MemoryDreamer(
+                lambda: llm,
+                memory_manager=mgr,
+                session_repo=session_repo,
+                state_repo=state_repo,
+            )
 
             with patch(
                 "ark_agentic.core.memory.dream.read_recent_sessions",
                 new=AsyncMock(return_value=""),
             ):
-                result = await dreamer.run(mgr, "U001", session_repo, state_repo)
+                result = await dreamer.run("U001")
 
             assert not result.has_changes
             assert await mgr.read_memory("U001") == original

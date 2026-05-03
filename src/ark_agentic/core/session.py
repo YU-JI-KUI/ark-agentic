@@ -424,10 +424,18 @@ class SessionManager:
         )
 
         await self.sync_session_state(session_id, user_id)
-        # Repository finalize hook: file/SQLite/PG = no-op; S3 (future) flushes.
-        await self._repository.finalize(session_id, user_id)
+        await self.finalize_session(session_id, user_id)
 
         return result
+
+    async def finalize_session(self, session_id: str, user_id: str) -> None:
+        """Mark the session ready for archival.
+
+        File/SQLite/PG: no-op. S3 (future): flush in-memory buffer to object
+        storage. Callers should invoke this after a turn settles or after
+        ``compact_session`` so the future S3 backend can release its buffer.
+        """
+        await self._repository.finalize(session_id, user_id)
 
     async def auto_compact_if_needed(
         self,
