@@ -1,7 +1,19 @@
-"""Studio user authorization store and signed-token helpers."""
+"""Studio user authorization store and signed-token helpers.
+
+PR1: ``AsyncEngine`` + ``aiosqlite`` migration so it runs inside FastAPI's
+event loop. Schema creation + admin seeding fold into a single lazy
+``_ensure_schema()`` step guarded by ``asyncio.Lock``.
+
+PR2: ``studio_users`` now lives in ``core.db.models`` so it shares the
+project-wide ``Base.metadata`` with other ORM tables. When ``DB_TYPE=sqlite``
+this store reuses the central engine (single ``data/ark.db`` file). The
+legacy ``STUDIO_DATABASE_URL`` env path remains as a back-compat tier for
+deployments that haven't migrated yet.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -12,36 +24,29 @@ import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import lru_cache
 from pathlib import Path
-from threading import RLock
 from typing import Literal
 
 from fastapi import Depends, Header, HTTPException
-from sqlalchemy import Column, DateTime, MetaData, String, Table, and_, create_engine, func, insert, select, update
-from sqlalchemy.engine import Engine
+from sqlalchemy import and_, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+from ...core.db.base import Base
+from ...core.db.models import StudioUser
 
 logger = logging.getLogger(__name__)
 
 StudioRole = Literal["admin", "editor", "viewer"]
 VALID_STUDIO_ROLES: set[str] = {"admin", "editor", "viewer"}
-DEFAULT_DATABASE_URL = "sqlite:///data/ark_studio.db"
+DEFAULT_DATABASE_URL = "sqlite+aiosqlite:///data/ark_studio.db"
 DEFAULT_TOKEN_TTL_SECONDS = 43_200
 
 
-metadata = MetaData()
-
-studio_users = Table(
-    "studio_users",
-    metadata,
-    Column("user_id", String(255), primary_key=True),
-    Column("role", String(32), nullable=False),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    Column("updated_at", DateTime(timezone=True), nullable=False),
-    Column("created_by", String(255), nullable=True),
-    Column("updated_by", String(255), nullable=True),
-)
+# PR2: Table now declared in ``core.db.models``. Re-export the names that
+# downstream code / tests previously imported from this module.
+metadata = Base.metadata
+studio_users = StudioUser.__table__
 
 
 @dataclass(frozen=True)
@@ -95,36 +100,44 @@ def _validate_role(role: str) -> StudioRole:
     return role  # type: ignore[return-value]
 
 
+def _normalize_async_url(database_url: str) -> str:
+    """Promote sync SQLite URL to aiosqlite if necessary."""
+    if database_url.startswith("sqlite:///") and not database_url.startswith(
+        "sqlite+aiosqlite:///"
+    ):
+        return "sqlite+aiosqlite:///" + database_url[len("sqlite:///"):]
+    return database_url
+
+
 def _sqlite_path_from_url(database_url: str) -> Path | None:
-    if database_url == "sqlite:///:memory:":
+    if database_url in {"sqlite:///:memory:", "sqlite+aiosqlite:///:memory:"}:
         return None
-    prefix = "sqlite:///"
-    if not database_url.startswith(prefix):
-        return None
-    return Path(database_url[len(prefix):]).expanduser()
+    for prefix in ("sqlite+aiosqlite:///", "sqlite:///"):
+        if database_url.startswith(prefix):
+            return Path(database_url[len(prefix):]).expanduser()
+    return None
 
 
-def _create_engine(database_url: str) -> Engine:
-    sqlite_path = _sqlite_path_from_url(database_url)
+def _create_engine(database_url: str) -> AsyncEngine:
+    normalized = _normalize_async_url(database_url)
+    sqlite_path = _sqlite_path_from_url(normalized)
     if sqlite_path is not None:
         sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-        return create_engine(
-            database_url,
+        return create_async_engine(
+            normalized,
             future=True,
             connect_args={"check_same_thread": False},
         )
-    return create_engine(database_url, future=True)
+    return create_async_engine(normalized, future=True)
 
 
 class StudioUserStore:
-    """SQLAlchemy Core store for Studio role grants."""
+    """SQLAlchemy AsyncEngine store for Studio role grants."""
 
-    def __init__(self, database_url: str) -> None:
-        self.database_url = database_url
-        self.engine = _create_engine(database_url)
-        self._lock = RLock()
-        metadata.create_all(self.engine)
-        self._seed_admin()
+    def __init__(self, engine: AsyncEngine) -> None:
+        self.engine = engine
+        self._lock = asyncio.Lock()
+        self._initialized = False
 
     def _row_to_record(self, row) -> StudioUserRecord:
         mapping = row._mapping
@@ -138,31 +151,45 @@ class StudioUserStore:
             updated_by=mapping["updated_by"],
         )
 
-    def _seed_admin(self) -> None:
-        now = _utcnow()
-        with self._lock, self.engine.begin() as conn:
-            exists = conn.execute(
-                select(studio_users.c.user_id).where(studio_users.c.user_id == "admin")
-            ).first()
-            if exists:
-                return
-            conn.execute(insert(studio_users).values(
-                user_id="admin",
-                role="admin",
-                created_at=now,
-                updated_at=now,
-                created_by="system",
-                updated_by="system",
-            ))
+    async def _ensure_schema(self) -> None:
+        """Lazily create tables and seed the admin row.
 
-    def list_users(self) -> list[StudioUserRecord]:
-        with self.engine.connect() as conn:
-            rows = conn.execute(
+        Uses a double-checked ``asyncio.Lock`` so concurrent first-use
+        coroutines do not race the seed insert.
+        """
+        if self._initialized:
+            return
+        async with self._lock:
+            if self._initialized:
+                return
+            async with self.engine.begin() as conn:
+                await conn.run_sync(metadata.create_all)
+                exists = (await conn.execute(
+                    select(studio_users.c.user_id).where(
+                        studio_users.c.user_id == "admin"
+                    )
+                )).first()
+                if not exists:
+                    now = _utcnow()
+                    await conn.execute(insert(studio_users).values(
+                        user_id="admin",
+                        role="admin",
+                        created_at=now,
+                        updated_at=now,
+                        created_by="system",
+                        updated_by="system",
+                    ))
+            self._initialized = True
+
+    async def list_users(self) -> list[StudioUserRecord]:
+        await self._ensure_schema()
+        async with self.engine.connect() as conn:
+            rows = (await conn.execute(
                 select(studio_users).order_by(studio_users.c.user_id.asc())
-            ).all()
+            )).all()
         return [self._row_to_record(row) for row in rows]
 
-    def list_users_page(
+    async def list_users_page(
         self,
         *,
         query: str = "",
@@ -170,6 +197,7 @@ class StudioUserStore:
         limit: int = 50,
         offset: int = 0,
     ) -> StudioUserPage:
+        await self._ensure_schema()
         clean_query = query.strip()
         clean_role = _validate_role(role) if role else None
         clean_limit = min(max(limit, 1), 200)
@@ -188,12 +216,14 @@ class StudioUserStore:
             list_stmt = list_stmt.where(where_clause)
         list_stmt = list_stmt.limit(clean_limit).offset(clean_offset)
 
-        with self.engine.connect() as conn:
-            total = conn.execute(count_stmt).scalar_one()
-            admin_count = conn.execute(
-                select(func.count()).select_from(studio_users).where(studio_users.c.role == "admin")
-            ).scalar_one()
-            rows = conn.execute(list_stmt).all()
+        async with self.engine.connect() as conn:
+            total = (await conn.execute(count_stmt)).scalar_one()
+            admin_count = (await conn.execute(
+                select(func.count())
+                .select_from(studio_users)
+                .where(studio_users.c.role == "admin")
+            )).scalar_one()
+            rows = (await conn.execute(list_stmt)).all()
         return StudioUserPage(
             users=[self._row_to_record(row) for row in rows],
             total=total,
@@ -202,24 +232,28 @@ class StudioUserStore:
             offset=clean_offset,
         )
 
-    def get_user(self, user_id: str) -> StudioUserRecord | None:
-        with self.engine.connect() as conn:
-            row = conn.execute(
+    async def get_user(self, user_id: str) -> StudioUserRecord | None:
+        await self._ensure_schema()
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(
                 select(studio_users).where(studio_users.c.user_id == user_id)
-            ).first()
+            )).first()
         return self._row_to_record(row) if row else None
 
-    def ensure_user(self, user_id: str, *, default_role: StudioRole = "viewer") -> StudioUserRecord:
+    async def ensure_user(
+        self, user_id: str, *, default_role: StudioRole = "viewer",
+    ) -> StudioUserRecord:
+        await self._ensure_schema()
         role = _validate_role(default_role)
         now = _utcnow()
-        with self._lock, self.engine.begin() as conn:
-            row = conn.execute(
+        async with self.engine.begin() as conn:
+            row = (await conn.execute(
                 select(studio_users).where(studio_users.c.user_id == user_id)
-            ).first()
+            )).first()
             if row:
                 return self._row_to_record(row)
             try:
-                conn.execute(insert(studio_users).values(
+                await conn.execute(insert(studio_users).values(
                     user_id=user_id,
                     role=role,
                     created_at=now,
@@ -228,35 +262,42 @@ class StudioUserStore:
                     updated_by="login",
                 ))
             except IntegrityError:
-                row = conn.execute(
+                row = (await conn.execute(
                     select(studio_users).where(studio_users.c.user_id == user_id)
-                ).first()
+                )).first()
                 if row:
                     return self._row_to_record(row)
                 raise
-            row = conn.execute(
+            row = (await conn.execute(
                 select(studio_users).where(studio_users.c.user_id == user_id)
-            ).one()
+            )).one()
             return self._row_to_record(row)
 
-    def upsert_user(self, user_id: str, role: str, *, actor_user_id: str) -> StudioUserRecord:
+    async def upsert_user(
+        self, user_id: str, role: str, *, actor_user_id: str,
+    ) -> StudioUserRecord:
+        await self._ensure_schema()
         clean_role = _validate_role(role)
         now = _utcnow()
-        with self._lock, self.engine.begin() as conn:
-            row = conn.execute(
+        async with self.engine.begin() as conn:
+            row = (await conn.execute(
                 select(studio_users).where(studio_users.c.user_id == user_id)
-            ).first()
+            )).first()
             if row:
                 current = self._row_to_record(row)
                 if current.role == "admin" and clean_role != "admin":
-                    self._assert_not_last_admin(conn)
-                conn.execute(
+                    await self._assert_not_last_admin(conn)
+                await conn.execute(
                     update(studio_users)
                     .where(studio_users.c.user_id == user_id)
-                    .values(role=clean_role, updated_at=now, updated_by=actor_user_id)
+                    .values(
+                        role=clean_role,
+                        updated_at=now,
+                        updated_by=actor_user_id,
+                    )
                 )
             else:
-                conn.execute(insert(studio_users).values(
+                await conn.execute(insert(studio_users).values(
                     user_id=user_id,
                     role=clean_role,
                     created_at=now,
@@ -264,27 +305,32 @@ class StudioUserStore:
                     created_by=actor_user_id,
                     updated_by=actor_user_id,
                 ))
-            next_row = conn.execute(
+            next_row = (await conn.execute(
                 select(studio_users).where(studio_users.c.user_id == user_id)
-            ).one()
+            )).one()
             return self._row_to_record(next_row)
 
-    def delete_user(self, user_id: str) -> None:
-        with self._lock, self.engine.begin() as conn:
-            row = conn.execute(
+    async def delete_user(self, user_id: str) -> None:
+        await self._ensure_schema()
+        async with self.engine.begin() as conn:
+            row = (await conn.execute(
                 select(studio_users).where(studio_users.c.user_id == user_id)
-            ).first()
+            )).first()
             if not row:
                 raise StudioUserNotFoundError(f"User grant not found: {user_id}")
             current = self._row_to_record(row)
             if current.role == "admin":
-                self._assert_not_last_admin(conn)
-            conn.execute(studio_users.delete().where(studio_users.c.user_id == user_id))
+                await self._assert_not_last_admin(conn)
+            await conn.execute(
+                studio_users.delete().where(studio_users.c.user_id == user_id)
+            )
 
-    def _assert_not_last_admin(self, conn) -> None:
-        admin_count = conn.execute(
-            select(func.count()).select_from(studio_users).where(studio_users.c.role == "admin")
-        ).scalar_one()
+    async def _assert_not_last_admin(self, conn) -> None:
+        admin_count = (await conn.execute(
+            select(func.count())
+            .select_from(studio_users)
+            .where(studio_users.c.role == "admin")
+        )).scalar_one()
         if admin_count <= 1:
             raise LastAdminError("At least one admin is required")
 
@@ -293,13 +339,50 @@ def _database_url_from_env() -> str:
     return os.getenv("STUDIO_DATABASE_URL", DEFAULT_DATABASE_URL)
 
 
-@lru_cache(maxsize=1)
+def _resolve_engine_for_singleton() -> AsyncEngine:
+    """Pick the engine for the module-level singleton.
+
+    Priority:
+      1. ``STUDIO_DATABASE_URL`` set explicitly → legacy path, build a
+         dedicated engine pointed at that URL (back-compat for deployments
+         that already have ``data/ark_studio.db``).
+      2. ``DB_TYPE=sqlite`` → reuse the central ``core.db`` engine so
+         ``studio_users`` lives in the unified ``data/ark.db`` alongside
+         business tables.
+      3. Else → fall back to the default Studio URL (file mode legacy).
+    """
+    explicit_url = os.getenv("STUDIO_DATABASE_URL")
+    if explicit_url:
+        return _create_engine(explicit_url)
+
+    db_type = os.environ.get("DB_TYPE", "file").strip().lower()
+    if db_type == "sqlite":
+        from ...core.db.engine import get_async_engine
+
+        return get_async_engine()
+
+    return _create_engine(DEFAULT_DATABASE_URL)
+
+
+_store: StudioUserStore | None = None
+
+
 def get_studio_user_store() -> StudioUserStore:
-    return StudioUserStore(_database_url_from_env())
+    """Module-level singleton accessor.
+
+    Eagerly initialized in ``app.lifespan`` (Task 18) to prevent concurrent
+    first-request races that could otherwise create duplicate AsyncEngine
+    instances.
+    """
+    global _store
+    if _store is None:
+        _store = StudioUserStore(_resolve_engine_for_singleton())
+    return _store
 
 
 def reset_studio_user_store_cache() -> None:
-    get_studio_user_store.cache_clear()
+    global _store
+    _store = None
 
 
 _GENERATED_TOKEN_SECRET = secrets.token_urlsafe(32)
@@ -403,7 +486,7 @@ async def require_studio_user(
     authorization: str | None = Header(None, alias="Authorization"),
 ) -> StudioPrincipal:
     payload = _decode_studio_token(_extract_bearer(authorization))
-    record = get_studio_user_store().get_user(str(payload["sub"]))
+    record = await get_studio_user_store().get_user(str(payload["sub"]))
     if record is None:
         raise HTTPException(status_code=403, detail="Studio user is not authorized")
     return StudioPrincipal(user_id=record.user_id, role=record.role)

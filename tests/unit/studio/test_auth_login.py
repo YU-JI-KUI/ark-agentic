@@ -84,7 +84,7 @@ async def test_login_default_viewer_ok(monkeypatch: pytest.MonkeyPatch, auth_app
     r = await _post_login(auth_app, username="viewer", password="viewer123")
     assert r.status_code == 200
     assert r.json()["role"] == "viewer"
-    assert get_studio_user_store().get_user("viewer") is not None
+    assert await get_studio_user_store().get_user("viewer") is not None
 
 
 @pytest.mark.asyncio

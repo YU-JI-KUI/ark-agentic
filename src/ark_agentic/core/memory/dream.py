@@ -23,7 +23,9 @@ from .user_profile import format_heading_sections, parse_heading_sections
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
+    from ..storage.protocols import AgentStateRepository
     from ..types import AgentMessage
+    from .manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -144,23 +146,26 @@ def read_recent_sessions(
 # ---------------------------------------------------------------------------
 
 
-def should_dream(
+async def should_dream(
+    state_repo: "AgentStateRepository",
     user_id: str,
-    workspace_dir: Path,
     sessions_dir: Path,
     min_hours: float = 24.0,
     min_sessions: int = 3,
 ) -> bool:
-    """Check if a dream cycle should run for this user."""
-    last_dream_file = workspace_dir / user_id / ".last_dream"
-    if not last_dream_file.exists():
-        touch_last_dream(user_id, workspace_dir)
+    """Check if a dream cycle should run for this user.
+
+    Reads `.last_dream` marker via state_repo (PR2+ DB-friendly).
+    """
+    raw = await state_repo.get(user_id, "last_dream")
+    if raw is None:
+        await touch_last_dream(state_repo, user_id)
         return False
 
     try:
-        last_ts = float(last_dream_file.read_text(encoding="utf-8").strip())
-    except (ValueError, OSError):
-        touch_last_dream(user_id, workspace_dir)
+        last_ts = float(raw.strip())
+    except (ValueError, AttributeError):
+        await touch_last_dream(state_repo, user_id)
         return False
 
     hours_since = (time.time() - last_ts) / 3600
@@ -175,11 +180,12 @@ def should_dream(
     return len(recent) >= min_sessions
 
 
-def touch_last_dream(user_id: str, workspace_dir: Path) -> None:
-    """Write current timestamp to .last_dream file."""
-    p = workspace_dir / user_id / ".last_dream"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(str(time.time()), encoding="utf-8")
+async def touch_last_dream(
+    state_repo: "AgentStateRepository",
+    user_id: str,
+) -> None:
+    """Write current timestamp to last_dream marker."""
+    await state_repo.set(user_id, "last_dream", str(time.time()))
 
 
 # ---------------------------------------------------------------------------
@@ -235,33 +241,23 @@ class MemoryDreamer:
 
     async def apply(
         self,
-        memory_path: Path,
+        memory_manager: "MemoryManager",
+        user_id: str,
         result: DreamResult,
         original_snapshot: str,
     ) -> None:
         """Write distilled content with optimistic merge.
 
         Preserves any headings added by concurrent memory_write during
-        the dream window.
+        the dream window. Backend-agnostic — atomic write guaranteed by
+        ``MemoryManager.overwrite`` (file: tmp+rename; SQLite: txn).
         """
         if not result.has_changes:
-            logger.info("Dream: no changes to apply for %s", memory_path)
+            logger.info("Dream: no changes to apply for user %s", user_id)
             return
 
-        # 1. Backup (resilient to disk-full)
-        try:
-            if memory_path.exists():
-                bak = memory_path.with_suffix(".md.bak")
-                bak.write_text(
-                    memory_path.read_text(encoding="utf-8"), encoding="utf-8"
-                )
-        except OSError:
-            logger.warning("Failed to write .bak for %s, proceeding anyway", memory_path)
-
-        # 2. Re-read current state (may have changed during dream)
-        current = ""
-        if memory_path.exists():
-            current = memory_path.read_text(encoding="utf-8")
+        # Re-read current state (may have changed during dream)
+        current = await memory_manager.read_memory(user_id)
         current_preamble, current_sections = parse_heading_sections(current)
         _, original_sections = parse_heading_sections(original_snapshot)
         _, distilled_sections = parse_heading_sections(result.distilled)
@@ -270,41 +266,44 @@ class MemoryDreamer:
             logger.warning("Dream produced empty sections, skipping write")
             return
 
-        # 3. Detect headings added AFTER dream started (concurrent memory_write)
+        # Detect headings added AFTER dream started (concurrent memory_write)
         new_during_dream = {
             k: v
             for k, v in current_sections.items()
             if k not in original_sections
         }
 
-        # 4. Merge: distilled base + preserve concurrent writes
+        # Merge: distilled base + preserve concurrent writes
         final = {**distilled_sections, **new_during_dream}
 
-        memory_path.parent.mkdir(parents=True, exist_ok=True)
-        memory_path.write_text(
-            format_heading_sections(current_preamble, final), encoding="utf-8"
+        await memory_manager.overwrite(
+            user_id, format_heading_sections(current_preamble, final)
         )
-        logger.info("Dream applied to %s: %s", memory_path, result.changes)
+        logger.info("Dream applied for user %s: %s", user_id, result.changes)
 
     async def run(
         self,
-        memory_path: Path,
-        sessions_dir: Path,
+        memory_manager: "MemoryManager",
         user_id: str,
+        sessions_dir: Path,
+        state_repo: "AgentStateRepository",
     ) -> DreamResult:
-        """Full dream cycle: read sessions + memory → distill → optimistic merge write."""
-        memory_content = ""
-        if memory_path.exists():
-            memory_content = memory_path.read_text(encoding="utf-8")
+        """Full dream cycle: read sessions + memory → distill → optimistic merge write.
+
+        state_repo: AgentStateRepository for reading/writing the last_dream marker
+        (PR2+ DB-friendly; replaces direct ``.last_dream`` file IO).
+        memory_manager: MemoryManager (backend-agnostic memory R/W).
+        """
+        memory_content = await memory_manager.read_memory(user_id)
         original_snapshot = memory_content
 
-        # Read .last_dream timestamp to know how far back to look
-        last_dream_file = memory_path.parent / ".last_dream"
+        # Read last_dream timestamp via repository
         since_ts = 0.0
-        if last_dream_file.exists():
+        raw = await state_repo.get(user_id, "last_dream")
+        if raw is not None:
             try:
-                since_ts = float(last_dream_file.read_text(encoding="utf-8").strip())
-            except (ValueError, OSError):
+                since_ts = float(raw.strip())
+            except (ValueError, AttributeError):
                 pass
 
         session_summaries = read_recent_sessions(
@@ -314,9 +313,9 @@ class MemoryDreamer:
         result = await self.dream(memory_content, session_summaries)
 
         if result.has_changes:
-            await self.apply(memory_path, result, original_snapshot)
+            await self.apply(memory_manager, user_id, result, original_snapshot)
 
-        # Update last dream timestamp
-        touch_last_dream(user_id, memory_path.parent.parent)
+        # Update last dream timestamp via repository
+        await touch_last_dream(state_repo, user_id)
 
         return result

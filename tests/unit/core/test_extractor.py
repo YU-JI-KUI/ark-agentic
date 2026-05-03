@@ -1,7 +1,5 @@
 """Tests for MemoryFlusher — pre-compaction memory extraction."""
 
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -135,28 +133,28 @@ class TestMemoryFlusherFlush:
 
 class TestMemoryFlusherSave:
     @pytest.mark.asyncio
-    async def test_save_memory(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            memory_path = Path(tmpdir) / "user1" / "MEMORY.md"
+    async def test_save_delegates_to_memory_manager_write_memory(self) -> None:
+        manager = AsyncMock()
+        manager.write_memory = AsyncMock(return_value=(["偏好"], []))
 
-            flusher = MemoryFlusher(lambda: MagicMock())
-            result = FlushResult(memory="## 偏好\n只看第一个保单")
-            await flusher.save(result, memory_path)
+        flusher = MemoryFlusher(lambda: MagicMock())
+        result = FlushResult(memory="## 偏好\n只看第一个保单")
 
-            assert memory_path.exists()
-            content = memory_path.read_text(encoding="utf-8")
-            assert "只看第一个保单" in content
+        await flusher.save(result, manager, "user1")
+
+        manager.write_memory.assert_awaited_once_with(
+            "user1", "## 偏好\n只看第一个保单",
+        )
 
     @pytest.mark.asyncio
-    async def test_save_upserts_headings(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            memory_path = Path(tmpdir) / "MEMORY.md"
-            memory_path.write_text("## 已有\n旧记忆\n", encoding="utf-8")
+    async def test_save_skips_when_memory_empty(self) -> None:
+        """Empty FlushResult.memory must not touch the manager at all."""
+        manager = AsyncMock()
+        manager.write_memory = AsyncMock()
 
-            flusher = MemoryFlusher(lambda: MagicMock())
-            result = FlushResult(memory="## 新记忆\n内容")
-            await flusher.save(result, memory_path)
+        flusher = MemoryFlusher(lambda: MagicMock())
+        result = FlushResult(memory="")
 
-            content = memory_path.read_text(encoding="utf-8")
-            assert "旧记忆" in content
-            assert "新记忆" in content
+        await flusher.save(result, manager, "user1")
+
+        manager.write_memory.assert_not_awaited()

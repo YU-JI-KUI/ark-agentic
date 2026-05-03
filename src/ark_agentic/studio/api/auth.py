@@ -70,7 +70,7 @@ async def login(req: LoginRequest, request: Request):
     if studio_user is None:
         raise HTTPException(status_code=401, detail=INVALID_LOGIN_DETAIL)
 
-    record = get_studio_user_store().ensure_user(
+    record = await get_studio_user_store().ensure_user(
         studio_user.user_id,
         default_role=studio_user.default_role,
     )

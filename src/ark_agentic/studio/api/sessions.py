@@ -158,10 +158,8 @@ async def get_session_raw(
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
 
-    tm = runner.session_manager._transcript_manager
-    if tm is None:
-        raise HTTPException(status_code=404, detail="Persistence not enabled")
-    raw = tm.read_raw(session_id, user_id)
+    repo = runner.session_manager.repository
+    raw = await repo.get_raw_transcript(session_id, user_id)
     if raw is None:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
     return PlainTextResponse(content=raw, media_type="application/x-ndjson")
@@ -185,12 +183,10 @@ async def put_session_raw(
 
     body = (await request.body()).decode("utf-8")
 
-    tm = runner.session_manager._transcript_manager
-    if tm is None:
-        raise HTTPException(status_code=404, detail="Persistence not enabled")
+    repo = runner.session_manager.repository
 
     try:
-        await tm.write_raw(session_id, user_id, body)
+        await repo.put_raw_transcript(session_id, user_id, body)
     except RawJsonlValidationError as e:
         detail = {"message": str(e)}
         if e.line_number is not None:

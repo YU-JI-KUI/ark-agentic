@@ -1,0 +1,183 @@
+"""Integration test for the file → SQLite migration script."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+from ark_agentic.core.db.config import DBConfig
+from ark_agentic.core.db.engine import (
+    get_async_engine,
+    init_schema,
+    reset_engine_cache,
+)
+from ark_agentic.core.storage.backends.file.agent_state import (
+    FileAgentStateRepository,
+)
+from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.backends.file.notification import (
+    FileNotificationRepository,
+)
+from ark_agentic.core.storage.backends.file.session import FileSessionRepository
+from ark_agentic.core.storage.backends.sqlite.agent_state import (
+    SqliteAgentStateRepository,
+)
+from ark_agentic.core.storage.backends.sqlite.memory import (
+    SqliteMemoryRepository,
+)
+from ark_agentic.core.storage.backends.sqlite.notification import (
+    SqliteNotificationRepository,
+)
+from ark_agentic.core.storage.backends.sqlite.session import (
+    SqliteSessionRepository,
+)
+from ark_agentic.core.types import AgentMessage, MessageRole
+from ark_agentic.scripts.migrate_file_to_sqlite import migrate
+from ark_agentic.services.notifications.models import Notification
+
+
+@pytest.fixture(autouse=True)
+def _clean_engine_cache():
+    reset_engine_cache()
+    yield
+    reset_engine_cache()
+
+
+async def _seed_file_data(tmp_path: Path) -> tuple[Path, Path, Path]:
+    sessions_dir = tmp_path / "sessions"
+    memory_dir = tmp_path / "memory"
+    notifications_dir = tmp_path / "notifications"
+    sessions_dir.mkdir()
+    memory_dir.mkdir()
+    notifications_dir.mkdir()
+
+    # Session
+    session_repo = FileSessionRepository(sessions_dir)
+    await session_repo.create("s1", "u1", model="m", provider="p", state={"k": "v"})
+    await session_repo.append_message(
+        "s1", "u1",
+        AgentMessage(role=MessageRole.USER, content="hello", timestamp=datetime.now()),
+    )
+
+    # Memory
+    memory_repo = FileMemoryRepository(memory_dir)
+    await memory_repo.upsert_headings("u1", "## Profile\nname: A\n")
+
+    # Agent state
+    state_repo = FileAgentStateRepository(memory_dir)
+    await state_repo.set("u1", "last_dream", "1700000000.0")
+
+    # Notification
+    notif_repo = FileNotificationRepository(notifications_dir)
+    await notif_repo.save(Notification(
+        notification_id="n1", user_id="u1", job_id="job_x",
+        title="t", body="b",
+    ))
+
+    return sessions_dir, memory_dir, notifications_dir
+
+
+async def test_migrate_copies_all_entities(tmp_path: Path):
+    sessions_dir, memory_dir, notifications_dir = await _seed_file_data(tmp_path)
+
+    stats = await migrate(
+        sessions_dir=sessions_dir,
+        memory_dir=memory_dir,
+        notifications_dir=notifications_dir,
+        db_url="sqlite+aiosqlite:///:memory:",
+        dry_run=False,
+    )
+
+    assert stats.sessions == 1
+    assert stats.session_messages == 1
+    assert stats.memory_users == 1
+    assert stats.agent_state_keys == 1
+    assert stats.notifications == 1
+
+
+async def test_migrate_round_trips_data_into_sqlite_repos(tmp_path: Path):
+    sessions_dir, memory_dir, notifications_dir = await _seed_file_data(tmp_path)
+
+    db_path = tmp_path / "ark.db"
+    db_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+    await migrate(
+        sessions_dir=sessions_dir,
+        memory_dir=memory_dir,
+        notifications_dir=notifications_dir,
+        db_url=db_url,
+        dry_run=False,
+    )
+
+    # Open the same engine and verify each Repository sees the migrated data.
+    cfg = DBConfig(db_type="sqlite", connection_str=db_url)
+    engine = get_async_engine(cfg)
+    await init_schema(engine)
+
+    session_repo = SqliteSessionRepository(engine)
+    msgs = await session_repo.load_messages("s1", "u1")
+    assert [m.content for m in msgs] == ["hello"]
+
+    memory_repo = SqliteMemoryRepository(engine)
+    assert "Profile" in await memory_repo.read("u1")
+
+    state_repo = SqliteAgentStateRepository(engine)
+    assert await state_repo.get("u1", "last_dream") == "1700000000.0"
+
+    notif_repo = SqliteNotificationRepository(engine)
+    listing = await notif_repo.list_recent("u1")
+    assert [n.notification_id for n in listing.notifications] == ["n1"]
+
+
+async def test_migrate_is_idempotent(tmp_path: Path):
+    sessions_dir, memory_dir, notifications_dir = await _seed_file_data(tmp_path)
+
+    db_path = tmp_path / "ark.db"
+    db_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+
+    first = await migrate(
+        sessions_dir=sessions_dir,
+        memory_dir=memory_dir,
+        notifications_dir=notifications_dir,
+        db_url=db_url,
+        dry_run=False,
+    )
+    assert first.sessions == 1
+
+    reset_engine_cache()
+    second = await migrate(
+        sessions_dir=sessions_dir,
+        memory_dir=memory_dir,
+        notifications_dir=notifications_dir,
+        db_url=db_url,
+        dry_run=False,
+    )
+    # Second pass writes nothing new — every PK already present.
+    assert second.sessions == 0
+    assert second.skipped.get("session_meta") == 1
+    assert second.skipped.get("user_memory") == 1
+    assert second.skipped.get("agent_state") == 1
+    assert second.skipped.get("notification") == 1
+
+
+async def test_migrate_dry_run_does_not_write(tmp_path: Path):
+    sessions_dir, memory_dir, notifications_dir = await _seed_file_data(tmp_path)
+
+    db_path = tmp_path / "ark.db"
+    db_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+    stats = await migrate(
+        sessions_dir=sessions_dir,
+        memory_dir=memory_dir,
+        notifications_dir=notifications_dir,
+        db_url=db_url,
+        dry_run=True,
+    )
+
+    # Counts reflect what *would* be migrated, but the DB is untouched.
+    assert stats.sessions >= 1
+    cfg = DBConfig(db_type="sqlite", connection_str=db_url)
+    engine = get_async_engine(cfg)
+    await init_schema(engine)
+    session_repo = SqliteSessionRepository(engine)
+    assert await session_repo.list_session_ids("u1") == []

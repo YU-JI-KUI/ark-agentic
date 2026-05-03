@@ -14,10 +14,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ...core.storage.protocols import AgentStateRepository, MemoryRepository
     from ..notifications.delivery import NotificationDelivery
     from ..notifications.store import NotificationStore
     from .base import BaseJob, JobRunStats
@@ -61,6 +61,10 @@ class UserShardScanner:
         store: "NotificationStore | None" = None,
     ) -> "JobRunStats":
         """扫描所有用户，对有意图的用户调用 Job 处理逻辑。"""
+        from ...core.storage.factory import (
+            build_agent_state_repository,
+            build_memory_repository,
+        )
         from .base import JobRunStats
 
         stats = JobRunStats()
@@ -70,17 +74,34 @@ class UserShardScanner:
         # store 参数保留作后备（兼容测试场景直接传入）
         effective_store = store if store is not None else job.notification_store
 
-        # 从 job 自身取 memory 根目录（每个 Agent 子目录不同）
-        memory_base = Path(job.memory_manager.config.workspace_dir)
+        # Repositories rooted at job's per-agent memory workspace.
+        # Backend selected by ``DB_TYPE`` via the storage factory.
+        engine = getattr(job, "db_engine", None)
+        workspace_dir = job.memory_manager.config.workspace_dir
+        memory_repo: MemoryRepository = build_memory_repository(
+            workspace_dir=workspace_dir, engine=engine,
+        )
+        state_repo: AgentStateRepository = build_agent_state_repository(
+            workspace_dir=workspace_dir,
+            engine=engine,
+        )
 
-        # 目录列举放线程池，避免阻塞事件循环
-        all_users = await asyncio.to_thread(self._list_and_sort_users, memory_base)
+        # list_users via MemoryRepository (替代 iterdir + 逐用户 stat 风暴)
+        all_users = await memory_repo.list_users(order_by_updated_desc=True)
+        # 分片过滤（水平扩展时每个实例只处理自己的分片）
+        if self._total_shards > 1:
+            all_users = [
+                u for u in all_users
+                if hash(u) % self._total_shards == self._shard_index
+            ]
         stats.scanned = len(all_users)
         logger.info("Job %s: scanning %d users (shard %d/%d)", job.meta.job_id, len(all_users), self._shard_index + 1, self._total_shards)
 
         async def _process_one(user_id: str) -> None:
             async with semaphore:
-                await self._process_user_safe(user_id, job, effective_store, delivery, stats)
+                await self._process_user_safe(
+                    user_id, job, effective_store, delivery, stats, state_repo,
+                )
 
         for batch in _chunks(all_users, self._batch_size):
             tasks = [_process_one(uid) for uid in batch]
@@ -91,34 +112,6 @@ class UserShardScanner:
         logger.info("Job %s done: %s", job.meta.job_id, stats.summary())
         return stats
 
-    def _list_and_sort_users(self, base: Path) -> list[str]:
-        """列举所有有 MEMORY.md 的用户目录，按 mtime 倒序（活跃用户优先）。
-
-        若启用了分片，只返回属于本 shard 的用户。
-        """
-        if not base.exists():
-            return []
-
-        try:
-            entries = [
-                d for d in base.iterdir()
-                if d.is_dir() and (d / "MEMORY.md").exists()
-            ]
-        except OSError as e:
-            logger.error("Failed to list user directories: %s", e)
-            return []
-
-        # 分片过滤（水平扩展时每个实例只处理自己的分片）
-        if self._total_shards > 1:
-            entries = [d for d in entries if hash(d.name) % self._total_shards == self._shard_index]
-
-        # 按 MEMORY.md 最后修改时间倒序（近期活跃用户优先）
-        entries.sort(
-            key=lambda d: (d / "MEMORY.md").stat().st_mtime,
-            reverse=True,
-        )
-        return [d.name for d in entries]
-
     async def _process_user_safe(
         self,
         user_id: str,
@@ -126,10 +119,11 @@ class UserShardScanner:
         store: "NotificationStore",
         delivery: "NotificationDelivery",
         stats: "JobRunStats",
+        state_repo: "AgentStateRepository",
     ) -> None:
         """带超时、异常隔离的单用户处理。"""
         try:
-            memory = job.memory_manager.read_memory(user_id)
+            memory = await job.memory_manager.read_memory(user_id)
             if not memory:
                 stats.skipped += 1
                 return
@@ -140,7 +134,7 @@ class UserShardScanner:
                 return
 
             # 幂等检查：本次 Job 运行已处理过此用户则跳过
-            if self._is_already_processed_today(user_id, job):
+            if await self._is_already_processed_today(user_id, job, state_repo):
                 stats.skipped += 1
                 return
 
@@ -157,7 +151,7 @@ class UserShardScanner:
                 stats.skipped += 1
 
             # 更新处理时间戳（幂等保护）
-            self._touch_last_job(user_id, job)
+            await self._touch_last_job(user_id, job, state_repo)
 
         except asyncio.TimeoutError:
             stats.timed_out += 1
@@ -166,28 +160,37 @@ class UserShardScanner:
             stats.errors += 1
             logger.error("Job %s error for user %s: %s", job.meta.job_id, user_id, e, exc_info=True)
 
-    def _last_job_path(self, user_id: str, job: "BaseJob") -> Path:
-        # 幂等文件存在 job 自己的 memory 子目录下，与 Agent 隔离
-        base = Path(job.memory_manager.config.workspace_dir)
-        return base / user_id / f".last_job_{job.meta.job_id}"
+    @staticmethod
+    def _job_state_key(job: "BaseJob") -> str:
+        return f"last_job_{job.meta.job_id}"
 
-    def _is_already_processed_today(self, user_id: str, job: "BaseJob") -> bool:
+    async def _is_already_processed_today(
+        self,
+        user_id: str,
+        job: "BaseJob",
+        state_repo: "AgentStateRepository",
+    ) -> bool:
         """检查今天是否已经处理过（防止 Job 重启后重复处理）。"""
-        p = self._last_job_path(user_id, job)
-        if not p.exists():
+        raw = await state_repo.get(user_id, self._job_state_key(job))
+        if raw is None:
             return False
         try:
-            last_ts = float(p.read_text(encoding="utf-8").strip())
+            last_ts = float(raw.strip())
             # 24 小时内已处理视为重复
             return (time.time() - last_ts) < 86400
-        except (ValueError, OSError):
+        except (ValueError, AttributeError):
             return False
 
-    def _touch_last_job(self, user_id: str, job: "BaseJob") -> None:
+    async def _touch_last_job(
+        self,
+        user_id: str,
+        job: "BaseJob",
+        state_repo: "AgentStateRepository",
+    ) -> None:
         """写入当前时间戳作为最后处理时间。"""
-        p = self._last_job_path(user_id, job)
         try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(str(time.time()), encoding="utf-8")
+            await state_repo.set(
+                user_id, self._job_state_key(job), str(time.time())
+            )
         except OSError as e:
-            logger.warning("Failed to touch last_job file for %s: %s", user_id, e)
+            logger.warning("Failed to touch last_job for %s: %s", user_id, e)

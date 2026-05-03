@@ -83,10 +83,10 @@ def runner_with_one_skill_dynamic(tmp_sessions_dir: Path):
 # ============ full mode ============
 
 
-def test_full_mode_contains_skill_body(runner_with_one_skill) -> None:
+async def test_full_mode_contains_skill_body(runner_with_one_skill) -> None:
     """skill_load_mode=full: prompt contains full skill content."""
     runner, session_id = runner_with_one_skill
-    prompt = runner._build_system_prompt(
+    prompt = await runner._build_system_prompt(
         {}, session_id=session_id, skill_load_mode="full"
     )
     assert "Full skill body here." in prompt
@@ -105,7 +105,7 @@ def test_full_mode_does_not_register_read_skill_tool(runner_with_one_skill) -> N
 # ============ dynamic mode ============
 
 
-def test_dynamic_renders_available_skills_menu_only(
+async def test_dynamic_renders_available_skills_menu_only(
     runner_with_one_skill_dynamic,
 ) -> None:
     """dynamic mode: <available_skills> menu shown, full body hidden, no
@@ -113,7 +113,7 @@ def test_dynamic_renders_available_skills_menu_only(
     pre-loop activation; this prompt path stays uniform across all dynamic
     sub-flows)."""
     runner, session_id = runner_with_one_skill_dynamic
-    prompt = runner._build_system_prompt(
+    prompt = await runner._build_system_prompt(
         {}, session_id=session_id, skill_load_mode="dynamic"
     )
     assert "<available_skills>" in prompt
@@ -342,7 +342,7 @@ def _make_runner_with_two_skills(tmp_sessions_dir: Path):
     return _ctx()
 
 
-def test_dynamic_active_skill_injects_body_and_gates_tools(
+async def test_dynamic_active_skill_injects_body_and_gates_tools(
     tmp_sessions_dir: Path,
 ) -> None:
     """激活 skill_a 后: prompt 含 <active_skill id="skill_a"> + ALPHA 正文;
@@ -351,7 +351,7 @@ def test_dynamic_active_skill_injects_body_and_gates_tools(
     with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
         session = runner.session_manager.get_session_required(session_id)
         # 未激活: 正文不进 prompt, echo_auto 不可见
-        prompt_none = runner._build_system_prompt(
+        prompt_none = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "ALPHA_BODY_MARKER" not in prompt_none
@@ -362,7 +362,7 @@ def test_dynamic_active_skill_injects_body_and_gates_tools(
 
         # 激活 skill_a: 正文注入 + auto 工具解锁
         session.set_active_skill_ids(["skill_a"])
-        prompt_a = runner._build_system_prompt(
+        prompt_a = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "<active_skill" in prompt_a
@@ -374,16 +374,16 @@ def test_dynamic_active_skill_injects_body_and_gates_tools(
         assert "read_skill" in tools_a
 
 
-def test_dynamic_active_skill_switch_replaces_body(tmp_sessions_dir: Path) -> None:
+async def test_dynamic_active_skill_switch_replaces_body(tmp_sessions_dir: Path) -> None:
     """切换 active_skill_ids: 旧 skill 正文退出上下文，新 skill 正文就位。"""
     with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
         session = runner.session_manager.get_session_required(session_id)
         session.set_active_skill_ids(["skill_a"])
-        prompt_a = runner._build_system_prompt(
+        prompt_a = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         session.set_active_skill_ids(["skill_b"])
-        prompt_b = runner._build_system_prompt(
+        prompt_b = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "ALPHA_BODY_MARKER" in prompt_a
@@ -409,12 +409,12 @@ def test_filter_tools_and_build_tools_are_consistent(
             assert filtered == schema_names, f"mismatch at active={active_ids}"
 
 
-def test_dynamic_unknown_active_skill_id_is_safe(tmp_sessions_dir: Path) -> None:
+async def test_dynamic_unknown_active_skill_id_is_safe(tmp_sessions_dir: Path) -> None:
     """active_skill_ids 末元素未知时: 不抛错, 无 <active_skill> 段。"""
     with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
         session = runner.session_manager.get_session_required(session_id)
         session.set_active_skill_ids(["ghost_skill"])
-        prompt = runner._build_system_prompt(
+        prompt = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "<active_skill" not in prompt
@@ -422,21 +422,21 @@ def test_dynamic_unknown_active_skill_id_is_safe(tmp_sessions_dir: Path) -> None
         assert "echo_auto" not in tools  # 未知 id => allowed=空 => auto 工具不放行
 
 
-def test_dynamic_active_skill_cleared_unloads_body_and_tools(
+async def test_dynamic_active_skill_cleared_unloads_body_and_tools(
     tmp_sessions_dir: Path,
 ) -> None:
     """卸载: 从已激活回到 active_skill_ids=[] — <active_skill> 与 skill 专属 auto 工具一并消失。"""
     with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
         session = runner.session_manager.get_session_required(session_id)
         session.set_active_skill_ids(["skill_a"])
-        prompt_on = runner._build_system_prompt(
+        prompt_on = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "ALPHA_BODY_MARKER" in prompt_on
         assert "echo_auto" in {t.name for t in runner._filter_tools({}, session=session)}
 
         session.set_active_skill_ids([])
-        prompt_off = runner._build_system_prompt(
+        prompt_off = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "<active_skill" not in prompt_off
@@ -444,7 +444,7 @@ def test_dynamic_active_skill_cleared_unloads_body_and_tools(
         assert "echo_auto" not in {t.name for t in runner._filter_tools({}, session=session)}
 
 
-def test_multi_turn_active_skill_evolution_then_prompt_and_tools(
+async def test_multi_turn_active_skill_evolution_then_prompt_and_tools(
     tmp_sessions_dir: Path,
 ) -> None:
     """多轮: 通过 set_active_skill_ids 演进 SSOT 后，下一轮 _build_system_prompt /
@@ -454,7 +454,7 @@ def test_multi_turn_active_skill_evolution_then_prompt_and_tools(
         session = runner.session_manager.get_session_required(session_id)
 
         # Turn 0 — 无激活
-        p0 = runner._build_system_prompt(
+        p0 = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "<active_skill" not in p0
@@ -462,7 +462,7 @@ def test_multi_turn_active_skill_evolution_then_prompt_and_tools(
 
         # Turn 1 — 激活 skill_a（等同 read_skill 调用后 SSOT 写入）
         session.set_active_skill_ids(["skill_a"])
-        p1 = runner._build_system_prompt(
+        p1 = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "ALPHA_BODY_MARKER" in p1
@@ -470,7 +470,7 @@ def test_multi_turn_active_skill_evolution_then_prompt_and_tools(
 
         # Turn 2 — 切换 skill_b（无 required_tools => echo_auto 重新门控掉）
         session.set_active_skill_ids(["skill_b"])
-        p2 = runner._build_system_prompt(
+        p2 = await runner._build_system_prompt(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "BETA_BODY_MARKER" in p2

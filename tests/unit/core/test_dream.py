@@ -18,7 +18,15 @@ from ark_agentic.core.memory.dream import (
     should_dream,
     touch_last_dream,
 )
+from ark_agentic.core.memory.manager import MemoryManager
 from ark_agentic.core.memory.user_profile import parse_heading_sections
+from ark_agentic.core.storage.backends.file.agent_state import FileAgentStateRepository
+from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
+
+
+def _make_manager(workspace: Path) -> MemoryManager:
+    """Build a real MemoryManager backed by FileMemoryRepository for tests."""
+    return MemoryManager(repository=FileMemoryRepository(workspace_dir=workspace))
 
 
 def _make_llm(response_text: str):
@@ -131,52 +139,37 @@ class TestDreamerApply:
     @pytest.mark.asyncio
     async def test_writes_distilled_with_preamble(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            mem = Path(tmpdir) / "MEMORY.md"
+            mgr = _make_manager(Path(tmpdir))
             original = "# Agent Memory\n\n## 旧\n旧内容\n"
-            mem.write_text(original, encoding="utf-8")
+            await mgr.overwrite("U001", original)
 
             dreamer = MemoryDreamer(lambda: MagicMock())
             result = DreamResult(distilled="## 新\n新内容", changes="replaced")
-            await dreamer.apply(mem, result, original_snapshot=original)
+            await dreamer.apply(mgr, "U001", result, original_snapshot=original)
 
-            content = mem.read_text(encoding="utf-8")
+            content = await mgr.read_memory("U001")
             preamble, sections = parse_heading_sections(content)
             assert preamble == "# Agent Memory"
             assert "新内容" in sections["新"]
 
     @pytest.mark.asyncio
-    async def test_backup_created(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mem = Path(tmpdir) / "MEMORY.md"
-            original = "## 原始\n内容\n"
-            mem.write_text(original, encoding="utf-8")
-
-            dreamer = MemoryDreamer(lambda: MagicMock())
-            result = DreamResult(distilled="## 新\n新内容", changes="replaced")
-            await dreamer.apply(mem, result, original_snapshot=original)
-
-            bak = mem.with_suffix(".md.bak")
-            assert bak.exists()
-            assert "原始" in bak.read_text(encoding="utf-8")
-
-    @pytest.mark.asyncio
     async def test_optimistic_merge_preserves_concurrent_write(self) -> None:
         """Headings added by memory_write during dream are preserved."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            mem = Path(tmpdir) / "MEMORY.md"
+            mgr = _make_manager(Path(tmpdir))
             original = "## 偏好\n简洁\n"
-            mem.write_text(original, encoding="utf-8")
+            await mgr.overwrite("U001", original)
 
-            # Simulate concurrent write
-            mem.write_text(
-                "## 偏好\n简洁\n\n## 新偏好\n风险保守\n", encoding="utf-8"
+            # Simulate concurrent write that adds a new heading after the dream snapshot
+            await mgr.overwrite(
+                "U001", "## 偏好\n简洁\n\n## 新偏好\n风险保守\n"
             )
 
             dreamer = MemoryDreamer(lambda: MagicMock())
             result = DreamResult(distilled="## 偏好\n简洁专业", changes="refined")
-            await dreamer.apply(mem, result, original_snapshot=original)
+            await dreamer.apply(mgr, "U001", result, original_snapshot=original)
 
-            content = mem.read_text(encoding="utf-8")
+            content = await mgr.read_memory("U001")
             _, sections = parse_heading_sections(content)
             assert "简洁专业" in sections["偏好"]
             assert "风险保守" in sections["新偏好"]
@@ -184,28 +177,28 @@ class TestDreamerApply:
     @pytest.mark.asyncio
     async def test_no_write_when_empty_distilled(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            mem = Path(tmpdir) / "MEMORY.md"
+            mgr = _make_manager(Path(tmpdir))
             original = "## 原始\n内容\n"
-            mem.write_text(original, encoding="utf-8")
+            await mgr.overwrite("U001", original)
 
             dreamer = MemoryDreamer(lambda: MagicMock())
             result = DreamResult(distilled="", changes="无需修改")
-            await dreamer.apply(mem, result, original_snapshot=original)
+            await dreamer.apply(mgr, "U001", result, original_snapshot=original)
 
-            assert "原始" in mem.read_text(encoding="utf-8")
+            assert "原始" in await mgr.read_memory("U001")
 
     @pytest.mark.asyncio
     async def test_empty_distilled_sections_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            mem = Path(tmpdir) / "MEMORY.md"
+            mgr = _make_manager(Path(tmpdir))
             original = "## 原始\n内容\n"
-            mem.write_text(original, encoding="utf-8")
+            await mgr.overwrite("U001", original)
 
             dreamer = MemoryDreamer(lambda: MagicMock())
             result = DreamResult(distilled="no headings here", changes="bad output")
-            await dreamer.apply(mem, result, original_snapshot=original)
+            await dreamer.apply(mgr, "U001", result, original_snapshot=original)
 
-            assert "原始" in mem.read_text(encoding="utf-8")
+            assert "原始" in await mgr.read_memory("U001")
 
 
 # ---------------------------------------------------------------------------
@@ -237,53 +230,52 @@ class TestFormatSessionForDream:
 
 
 class TestShouldDream:
-    def test_first_use_returns_false_and_creates_file(self) -> None:
+    async def test_first_use_returns_false_and_creates_marker(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
-            user_dir = workspace / "U001"
-            user_dir.mkdir()
+            state_repo = FileAgentStateRepository(workspace)
 
-            result = should_dream("U001", workspace, sessions)
+            result = await should_dream(state_repo, "U001", sessions)
 
             assert result is False
-            assert (user_dir / ".last_dream").exists()
+            assert await state_repo.get("U001", "last_dream") is not None
 
-    def test_too_recent_returns_false(self) -> None:
+    async def test_too_recent_returns_false(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
+            state_repo = FileAgentStateRepository(workspace)
 
-            touch_last_dream("U001", workspace)
+            await touch_last_dream(state_repo, "U001")
 
-            result = should_dream("U001", workspace, sessions, min_hours=24.0)
+            result = await should_dream(state_repo, "U001", sessions, min_hours=24.0)
             assert result is False
 
-    def test_old_enough_triggers_even_without_sessions(self) -> None:
+    async def test_old_enough_triggers_even_without_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
+            state_repo = FileAgentStateRepository(workspace)
+            await state_repo.set("U001", "last_dream", str(time.time() - 86400 * 2))
 
-            last_dream = workspace / "U001" / ".last_dream"
-            last_dream.parent.mkdir(parents=True)
-            last_dream.write_text(str(time.time() - 86400 * 2), encoding="utf-8")
-
-            result = should_dream("U001", workspace, sessions, min_hours=24.0, min_sessions=3)
+            result = await should_dream(
+                state_repo, "U001", sessions, min_hours=24.0, min_sessions=3,
+            )
             assert result is True
 
-    def test_recent_but_enough_sessions_triggers(self) -> None:
+    async def test_recent_but_enough_sessions_triggers(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
+            state_repo = FileAgentStateRepository(workspace)
 
             last_ts = time.time() - 3600  # 1h ago
-            last_dream = workspace / "U001" / ".last_dream"
-            last_dream.parent.mkdir(parents=True)
-            last_dream.write_text(str(last_ts), encoding="utf-8")
+            await state_repo.set("U001", "last_dream", str(last_ts))
 
             fake_entries = {
                 f"s{i}": type("E", (), {"updated_at": (last_ts + 60 + i) * 1000})()
@@ -293,32 +285,38 @@ class TestShouldDream:
                 "ark_agentic.core.persistence.SessionStore"
             ) as mock_cls:
                 mock_cls.return_value.load.return_value = fake_entries
-                result = should_dream("U001", workspace, sessions, min_hours=24.0, min_sessions=3)
+                result = await should_dream(
+                    state_repo, "U001", sessions, min_hours=24.0, min_sessions=3,
+                )
 
             assert result is True
 
-    def test_both_unsatisfied_returns_false(self) -> None:
+    async def test_both_unsatisfied_returns_false(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
+            state_repo = FileAgentStateRepository(workspace)
 
             last_ts = time.time() - 3600  # 1h ago
-            last_dream = workspace / "U001" / ".last_dream"
-            last_dream.parent.mkdir(parents=True)
-            last_dream.write_text(str(last_ts), encoding="utf-8")
+            await state_repo.set("U001", "last_dream", str(last_ts))
 
-            result = should_dream("U001", workspace, sessions, min_hours=24.0, min_sessions=3)
+            result = await should_dream(
+                state_repo, "U001", sessions, min_hours=24.0, min_sessions=3,
+            )
             assert result is False
 
 
 class TestTouchLastDream:
-    def test_creates_file(self) -> None:
+    async def test_creates_marker(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
-            touch_last_dream("U001", Path(ws))
-            p = Path(ws) / "U001" / ".last_dream"
-            assert p.exists()
-            ts = float(p.read_text(encoding="utf-8").strip())
+            state_repo = FileAgentStateRepository(Path(ws))
+
+            await touch_last_dream(state_repo, "U001")
+
+            raw = await state_repo.get("U001", "last_dream")
+            assert raw is not None
+            ts = float(raw.strip())
             assert time.time() - ts < 5
 
 
@@ -332,53 +330,55 @@ class TestDreamerRun:
     async def test_full_cycle(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             ws = Path(tmpdir) / "ws"
-            user_dir = ws / "U001"
-            user_dir.mkdir(parents=True)
-            mem = user_dir / "MEMORY.md"
-            mem.write_text("## 偏好A\n简洁\n\n## 偏好B\n要简洁\n", encoding="utf-8")
+            ws.mkdir(parents=True)
+            mgr = _make_manager(ws)
+            await mgr.overwrite(
+                "U001", "## 偏好A\n简洁\n\n## 偏好B\n要简洁\n"
+            )
 
             sessions_dir = Path(tmpdir) / "sessions"
             sessions_dir.mkdir()
 
             llm = _make_llm('{"distilled": "## 偏好\\n简洁回复", "changes": "merged A+B"}')
             dreamer = MemoryDreamer(lambda: llm)
+            state_repo = FileAgentStateRepository(ws)
 
             with patch(
                 "ark_agentic.core.memory.dream.read_recent_sessions",
                 return_value="user: 我喜欢简洁回复",
             ):
-                result = await dreamer.run(mem, sessions_dir, "U001")
+                result = await dreamer.run(mgr, "U001", sessions_dir, state_repo)
 
             assert result.has_changes
-            content = mem.read_text(encoding="utf-8")
+            content = await mgr.read_memory("U001")
             _, sections = parse_heading_sections(content)
             assert len(sections) == 1
             assert "简洁" in sections["偏好"]
 
-            # Last dream timestamp updated
-            assert (user_dir / ".last_dream").exists()
+            # Last dream marker updated via state_repo
+            assert await state_repo.get("U001", "last_dream") is not None
 
     @pytest.mark.asyncio
     async def test_conservative_no_delete(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             ws = Path(tmpdir) / "ws"
-            user_dir = ws / "U001"
-            user_dir.mkdir(parents=True)
-            mem = user_dir / "MEMORY.md"
+            ws.mkdir(parents=True)
+            mgr = _make_manager(ws)
             original = "## 姓名\n张三\n\n## 偏好\n简洁\n"
-            mem.write_text(original, encoding="utf-8")
+            await mgr.overwrite("U001", original)
 
             sessions_dir = Path(tmpdir) / "sessions"
             sessions_dir.mkdir()
 
             llm = _make_llm('{"distilled": "", "changes": "无需修改"}')
             dreamer = MemoryDreamer(lambda: llm)
+            state_repo = FileAgentStateRepository(ws)
 
             with patch(
                 "ark_agentic.core.memory.dream.read_recent_sessions",
                 return_value="",
             ):
-                result = await dreamer.run(mem, sessions_dir, "U001")
+                result = await dreamer.run(mgr, "U001", sessions_dir, state_repo)
 
             assert not result.has_changes
-            assert mem.read_text(encoding="utf-8") == original
+            assert await mgr.read_memory("U001") == original

@@ -14,7 +14,7 @@ from ark_agentic.core.callbacks import (
     HookAction,
     RunnerCallbacks,
 )
-from ark_agentic.core.memory.manager import MemoryConfig, MemoryManager
+from ark_agentic.core.memory.manager import MemoryManager, build_memory_manager
 from ark_agentic.core.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.router import RouteDecision
@@ -238,8 +238,8 @@ async def test_assistant_carries_memory_used_when_present(
 ) -> None:
     """Memory line count from MEMORY.md lands on the assistant message."""
     workspace = tmp_path / "memory_workspace"
-    mm = MemoryManager(MemoryConfig(workspace_dir=str(workspace)))
-    mm.write_memory("u1", "## prefs\nlikes coffee\nlikes cats")
+    mm = build_memory_manager(workspace)
+    await mm.write_memory("u1", "## prefs\nlikes coffee\nlikes cats")
     runner = _make_runner(tmp_sessions_dir, memory_manager=mm)
     session = await runner.session_manager.create_session(user_id="u1")
     await runner.run(
@@ -262,7 +262,7 @@ async def test_assistant_carries_memory_used_zero_when_profile_empty(
 ) -> None:
     """When memory is configured but profile is empty, assistant records 0 lines."""
     workspace = tmp_path / "memory_workspace"
-    mm = MemoryManager(MemoryConfig(workspace_dir=str(workspace)))
+    mm = build_memory_manager(workspace)
     runner = _make_runner(tmp_sessions_dir, memory_manager=mm)
     session = await runner.session_manager.create_session(user_id="u1")
     await runner.run(

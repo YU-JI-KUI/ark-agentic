@@ -222,6 +222,20 @@ class AgentRunner:
         self._dream_tasks: dict[str, asyncio.Task[Any]] = {}
         self._dream_failures: dict[str, int] = {}
 
+        # Agent state repository for last_dream / last_job_* markers.
+        # Backend selected by ``DB_TYPE`` via the storage factory; the runner
+        # accepts an optional ``AsyncEngine`` from outer wiring (PR2).
+        self._agent_state_repo: Any = None
+        workspace_dir = getattr(getattr(memory_manager, "config", None), "workspace_dir", None)
+        if workspace_dir:
+            from .storage.factory import build_agent_state_repository
+
+            session_repo = getattr(self.session_manager, "_repository", None)
+            engine_attr = getattr(session_repo, "_engine", None)
+            self._agent_state_repo = build_agent_state_repository(
+                workspace_dir=workspace_dir, engine=engine_attr,
+            )
+
         # LLMCaller / ToolExecutor (SRP)
         self._llm_caller = LLMCaller(
             llm,
@@ -383,7 +397,8 @@ class AgentRunner:
                 cb_ctx=cb_ctx,
             )
         finally:
-            await self.session_manager.sync_pending_messages(session_id, user_id)
+            # Messages are now persisted at append-time; no batch flush needed.
+            pass
 
         await self._finalize_run(session_id, user_id, result, cb_ctx, handler)
         add_span_attributes({
@@ -406,7 +421,8 @@ class AgentRunner:
         的持久化、hooks、compaction 生命周期。
         """
         user_message = AgentMessage.user(user_input)
-        self.session_manager.add_message_sync(session_id, user_message)
+        # Ephemeral path: in-memory only, never persists.
+        self.session_manager.add_message_in_memory_only(session_id, user_message)
         params = self._resolve_run_params(None)
         return await self._run_loop(
             session_id,
@@ -474,10 +490,9 @@ class AgentRunner:
             self._merge_input_context(session, input_context)
             user_message = AgentMessage.user(user_input, metadata=input_context)
             self._augment_user_metadata(user_message, chat_request_meta)
-            self.session_manager.add_message_sync(session_id, user_message)
+            await self.session_manager.add_message(session_id, user_id, user_message)
             resp = r.response or AgentMessage.assistant("")
-            self.session_manager.add_message_sync(session_id, resp)
-            await self.session_manager.sync_pending_messages(session_id, user_id)
+            await self.session_manager.add_message(session_id, user_id, resp)
             result = RunResult(response=resp)
             cb_result = await self._run_hooks(
                 self._callbacks.after_agent,
@@ -499,12 +514,12 @@ class AgentRunner:
 
             ops = merge_external_history(session.messages, history)
             if ops:
-                self.session_manager.inject_messages(session_id, ops)
+                await self.session_manager.inject_messages(session_id, user_id, ops)
                 logger.info("Merged %d external history message(s)", len(ops))
 
         user_message = AgentMessage.user(user_input, metadata=input_context)
         self._augment_user_metadata(user_message, chat_request_meta)
-        self.session_manager.add_message_sync(session_id, user_message)
+        await self.session_manager.add_message(session_id, user_id, user_message)
 
         if self.config.auto_compact:
             flush_cb = (
@@ -563,13 +578,16 @@ class AgentRunner:
             result.response = cb_result.response
         cb_ctx.session.strip_temp_state()
         await self.session_manager.sync_session_state(session_id, user_id)
+        # Repository finalize hook: file/SQLite/PG = no-op; S3 (future) flushes.
+        await self.session_manager.repository.finalize(session_id, user_id)
 
-        self._maybe_trigger_dream(user_id)
+        await self._maybe_trigger_dream(user_id)
 
-    def _maybe_trigger_dream(self, user_id: str) -> None:
+    async def _maybe_trigger_dream(self, user_id: str) -> None:
         """Check dream gate and launch background task if thresholds met."""
         if not self._dreamer or not self._memory_manager:
             return
+        assert self._agent_state_repo is not None
 
         task = self._dream_tasks.get(user_id)
         if task is not None and not task.done():
@@ -577,33 +595,38 @@ class AgentRunner:
 
         from .memory.dream import should_dream
 
-        workspace = Path(self._memory_manager.config.workspace_dir)
         sessions_dir = Path(self.session_manager._transcript_manager.sessions_dir)
 
         try:
-            if not should_dream(user_id, workspace, sessions_dir,
-                               min_sessions=self.config.dream_min_sessions):
+            if not await should_dream(
+                self._agent_state_repo,
+                user_id,
+                sessions_dir,
+                min_sessions=self.config.dream_min_sessions,
+            ):
                 return
         except Exception:
             logger.debug("Dream gate check failed for user %s", user_id, exc_info=True)
             return
 
-        memory_path = self._memory_manager.memory_path(user_id)
         self._dream_tasks[user_id] = asyncio.create_task(
-            self._run_dream(user_id, memory_path, sessions_dir)
+            self._run_dream(user_id, sessions_dir)
         )
         logger.info("Dream triggered for user %s", user_id)
 
     _DREAM_FAILURE_THRESHOLD = 3
 
     async def _run_dream(
-        self, user_id: str, memory_path: Path, sessions_dir: Path,
+        self, user_id: str, sessions_dir: Path,
     ) -> None:
         """Background dream cycle with error handling and retry protection."""
         assert self._dreamer is not None
         assert self._memory_manager is not None
+        assert self._agent_state_repo is not None
         try:
-            result = await self._dreamer.run(memory_path, sessions_dir, user_id)
+            result = await self._dreamer.run(
+                self._memory_manager, user_id, sessions_dir, self._agent_state_repo,
+            )
             self._dream_failures.pop(user_id, None)
             logger.info("Dream completed for user %s: %s", user_id, result.changes)
         except Exception:
@@ -612,8 +635,7 @@ class AgentRunner:
             self._dream_failures[user_id] = failures
             if failures >= self._DREAM_FAILURE_THRESHOLD:
                 from .memory.dream import touch_last_dream
-                workspace = Path(self._memory_manager.config.workspace_dir)
-                touch_last_dream(user_id, workspace)
+                await touch_last_dream(self._agent_state_repo, user_id)
                 self._dream_failures.pop(user_id, None)
                 logger.warning(
                     "Dream failed %d consecutive times for %s, advancing .last_dream",
@@ -815,7 +837,7 @@ class AgentRunner:
         ):
             session.set_active_skill_ids(self.skill_loader.list_skill_ids())
         state = session.state
-        messages = self._build_messages(
+        messages = await self._build_messages(
             session_id, state,
             skill_load_mode=skill_load_mode,
             session=session,
@@ -895,7 +917,10 @@ class AgentRunner:
         if bc and bc.action == HookAction.RETRY:
             logger.info("[before_loop_end] retry turns=%s", ls.turns)
             if bc.response:
-                self.session_manager.add_message_sync(session_id, bc.response)
+                session = self.session_manager.get_session_required(session_id)
+                await self.session_manager.add_message(
+                    session_id, session.user_id or "", bc.response,
+                )
             return None
         return await self._finalize_response(
             ls, response, session_id=session_id, handler=handler,
@@ -982,7 +1007,10 @@ class AgentRunner:
                     "message": str(e),
                     "retryable": e.retryable,
                 }
-                self.session_manager.add_message_sync(session_id, error_response)
+                session_for_persist = self.session_manager.get_session_required(session_id)
+                await self.session_manager.add_message(
+                    session_id, session_for_persist.user_id or "", error_response,
+                )
                 if handler:
                     handler.on_content_delta(user_message, ls.turns)
                 return ls.make_result(error_response, stopped_by_limit=False)
@@ -1040,7 +1068,10 @@ class AgentRunner:
             prompt_tokens=turn_prompt,
             completion_tokens=turn_completion,
         )
-        self.session_manager.add_message_sync(session_id, response)
+        session_for_persist = self.session_manager.get_session_required(session_id)
+        await self.session_manager.add_message(
+            session_id, session_for_persist.user_id or "", response,
+        )
 
         add_span_attributes({
             "ark.finish_reason": finish_reason,
@@ -1136,7 +1167,9 @@ class AgentRunner:
             self._apply_session_effects(session, tool_results)
 
         tool_message = AgentMessage.tool(tool_results)
-        self.session_manager.add_message_sync(session_id, tool_message)
+        await self.session_manager.add_message(
+            session_id, session.user_id or "", tool_message,
+        )
 
         add_span_attributes({
             "ark.result_count": len(tool_results),
@@ -1170,7 +1203,9 @@ class AgentRunner:
                     "[TOOL_STOP] tool signaled STOP but both content and events are empty"
                 )
             stop_response = AgentMessage.assistant(content=stop_content or "")
-            self.session_manager.add_message_sync(session_id, stop_response)
+            await self.session_manager.add_message(
+                session_id, session.user_id or "", stop_response,
+            )
             return ls.make_result(stop_response)
 
         if all(tr.is_error for tr in tool_results):
@@ -1200,7 +1235,7 @@ class AgentRunner:
         )
         return ls.make_result(response)
 
-    def _build_messages(
+    async def _build_messages(
         self,
         session_id: str,
         state: dict[str, Any],
@@ -1216,7 +1251,7 @@ class AgentRunner:
         messages: list[dict[str, Any]] = []
 
         # 系统提示
-        system_prompt = self._build_system_prompt(
+        system_prompt = await self._build_system_prompt(
             state,
             session_id=session_id,
             skill_load_mode=skill_load_mode,
@@ -1359,7 +1394,7 @@ class AgentRunner:
         )
         return match_result.matched_skills
 
-    def _build_system_prompt(
+    async def _build_system_prompt(
         self,
         state: dict[str, Any],
         session_id: str | None = None,
@@ -1403,7 +1438,7 @@ class AgentRunner:
                 from .memory.user_profile import truncate_profile
                 try:
                     profile_content = truncate_profile(
-                        self._memory_manager.read_memory(str(user_id))
+                        await self._memory_manager.read_memory(str(user_id))
                     )
                 except Exception:
                     pass

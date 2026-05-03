@@ -1,11 +1,11 @@
 """Regression tests for unified memory model.
 
-Validates the single-file per-user memory model:
-- All writes go to {workspace}/{user_id}/MEMORY.md
+Validates the single-store-per-user memory model with PR2.5 abstraction:
+- All writes go through MemoryRepository (file backend by default)
 - Heading-based upsert semantics
 - Preamble preserved
-- Flush writes to workspace user dir
-- System prompt reads from workspace
+- Flush writes to user's memory store
+- System prompt reads via MemoryManager (no direct profile loaders)
 """
 
 import tempfile
@@ -14,15 +14,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ark_agentic.core.memory.manager import MemoryManager, MemoryConfig
+from ark_agentic.core.memory.manager import MemoryManager
 from ark_agentic.core.memory.user_profile import parse_heading_sections
 from ark_agentic.core.memory.extractor import FlushResult, MemoryFlusher
+from ark_agentic.core.storage.backends.file.memory import FileMemoryRepository
 from ark_agentic.core.tools.memory import MemoryWriteTool, MemoryProvider
 from ark_agentic.core.types import ToolCall
 
 
 def _make_manager(ws: str) -> MemoryManager:
-    return MemoryManager(MemoryConfig(workspace_dir=ws))
+    return MemoryManager(repository=FileMemoryRepository(workspace_dir=ws))
 
 
 def _provider(mgr: MemoryManager) -> MemoryProvider:
@@ -33,32 +34,27 @@ CTX = {"user:id": "U001"}
 
 
 class TestMemoryManagerMinimal:
-    def test_memory_path(self) -> None:
-        mgr = _make_manager("/tmp/ws")
-        assert mgr.memory_path("U001") == Path("/tmp/ws/U001/MEMORY.md")
-
-    def test_read_memory_empty(self) -> None:
+    async def test_read_memory_empty(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             mgr = _make_manager(ws)
-            assert mgr.read_memory("U001") == ""
+            assert await mgr.read_memory("U001") == ""
 
-    def test_write_and_read(self) -> None:
+    async def test_write_and_read(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             mgr = _make_manager(ws)
-            mgr.write_memory("U001", "## 姓名\n张三")
-            content = mgr.read_memory("U001")
+            await mgr.write_memory("U001", "## 姓名\n张三")
+            content = await mgr.read_memory("U001")
             assert "张三" in content
 
-    def test_write_returns_empty_no_heading(self) -> None:
+    async def test_write_returns_empty_no_heading(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             mgr = _make_manager(ws)
-            current, dropped = mgr.write_memory("U001", "no heading")
+            current, dropped = await mgr.write_memory("U001", "no heading")
             assert current == []
             assert dropped == []
 
 
 class TestWriteToolUnified:
-    @pytest.mark.asyncio
     async def test_writes_to_user_subdir(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             mgr = _make_manager(ws)
@@ -69,13 +65,11 @@ class TestWriteToolUnified:
             )
             result = await tool.execute(call, CTX)
             assert result.content["saved"] is True
-            expected = Path(ws) / "U001" / "MEMORY.md"
-            assert expected.exists()
-            assert "简洁" in expected.read_text(encoding="utf-8")
+            content = await mgr.read_memory("U001")
+            assert "简洁" in content
 
 
 class TestWriteDeduplicatesHeadings:
-    @pytest.mark.asyncio
     async def test_same_heading_twice(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             mgr = _make_manager(ws)
@@ -85,27 +79,24 @@ class TestWriteDeduplicatesHeadings:
                 call = ToolCall(id="c1", name="memory_write", arguments={"content": content})
                 await tool.execute(call, CTX)
 
-            text = (Path(ws) / "U001" / "MEMORY.md").read_text(encoding="utf-8")
+            text = await mgr.read_memory("U001")
             _, sections = parse_heading_sections(text)
             assert len(sections) == 1
             assert "policy_loan" in sections["渠道偏好"]
 
 
 class TestWritePreservesPreamble:
-    @pytest.mark.asyncio
     async def test_preamble_survives_upsert(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
-            user_dir = Path(ws) / "U001"
-            user_dir.mkdir()
-            mem = user_dir / "MEMORY.md"
-            mem.write_text("# Agent Memory\n\n## 姓名\n张三\n", encoding="utf-8")
-
             mgr = _make_manager(ws)
+            # Seed with preamble + heading via overwrite
+            await mgr.overwrite("U001", "# Agent Memory\n\n## 姓名\n张三\n")
+
             tool = MemoryWriteTool(_provider(mgr))
             call = ToolCall(id="c1", name="memory_write", arguments={"content": "## 偏好\n简洁"})
             await tool.execute(call, CTX)
 
-            content = mem.read_text(encoding="utf-8")
+            content = await mgr.read_memory("U001")
             assert "# Agent Memory" in content
             _, sections = parse_heading_sections(content)
             assert sections["姓名"] == "张三"
@@ -113,18 +104,16 @@ class TestWritePreservesPreamble:
 
 
 class TestFlushWritesSinglePath:
-    @pytest.mark.asyncio
-    async def test_flush_writes_to_workspace_user_dir(self) -> None:
+    async def test_flush_writes_via_manager(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
-            memory_path = Path(ws) / "U001" / "MEMORY.md"
+            mgr = _make_manager(ws)
             flusher = MemoryFlusher(lambda: MagicMock())
             result = FlushResult(memory="## 新偏好\n详细")
-            await flusher.save(result, memory_path)
+            await flusher.save(result, mgr, "U001")
 
-            assert memory_path.exists()
-            assert "新偏好" in memory_path.read_text(encoding="utf-8")
+            content = await mgr.read_memory("U001")
+            assert "新偏好" in content
 
-    @pytest.mark.asyncio
     async def test_flush_callback_uses_manager_api(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             llm_response = MagicMock()
@@ -145,9 +134,8 @@ class TestFlushWritesSinglePath:
             msg.content = "我喜欢简洁"
             await callback("sess1", [msg])
 
-            user_mem = Path(ws) / "U001" / "MEMORY.md"
-            assert user_mem.exists()
-            assert "简洁" in user_mem.read_text(encoding="utf-8")
+            content = await mgr.read_memory("U001")
+            assert "简洁" in content
 
 
 class TestSystemPromptReadsWorkspace:

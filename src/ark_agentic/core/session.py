@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Awaitable
+from typing import TYPE_CHECKING, Any, Callable, Awaitable
 
 from .compaction import (
     CompactionConfig,
@@ -18,6 +18,11 @@ from .history_merge import InsertOp
 from .persistence import SessionStore, SessionStoreEntry, TranscriptManager
 from .types import AgentMessage, CompactionStats, SessionEntry, TokenUsage
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from .storage.protocols import SessionRepository
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,12 +33,25 @@ class SessionManager:
         sessions_dir: str | Path,
         compaction_config: CompactionConfig | None = None,
         summarizer: SummarizerProtocol | None = None,
+        repository: "SessionRepository | None" = None,
+        db_engine: "AsyncEngine | None" = None,
     ) -> None:
         self._sessions: dict[str, SessionEntry] = {}
         self._compaction_config = compaction_config or CompactionConfig()
         self._compactor = ContextCompactor(self._compaction_config, summarizer=summarizer)
         self._transcript_manager = TranscriptManager(sessions_dir)
         self._session_store = SessionStore(sessions_dir)
+        if repository is None:
+            from .storage.factory import build_session_repository
+
+            repository = build_session_repository(
+                sessions_dir=sessions_dir, engine=db_engine,
+            )
+        self._repository = repository
+
+    @property
+    def repository(self) -> "SessionRepository":
+        return self._repository
 
     # ============ 会话生命周期 ============
 
@@ -54,7 +72,7 @@ class SessionManager:
         store_entry = SessionStoreEntry(
             session_id=session.session_id,
             updated_at=int(session.updated_at.timestamp() * 1000),
-            session_file=str(
+            session_ref=str(
                 self._transcript_manager._get_session_file(session.session_id, user_id)
             ),
             model=model,
@@ -227,19 +245,14 @@ class SessionManager:
         return session
 
     async def sync_pending_messages(self, session_id: str, user_id: str) -> None:
-        session = self.get_session(session_id)
-        if not session:
-            return
+        """Deprecated no-op. add_message now persists synchronously via the repository.
 
-        pending = getattr(session, "_pending_messages", [])
-        if pending:
-            await self._transcript_manager.append_messages(session_id, user_id, pending)
-            session._pending_messages = []
-            logger.debug(f"Synced {len(pending)} pending messages for session {session_id}")
+        Kept temporarily so legacy call sites still compile; will be removed
+        in a follow-up PR after callers migrate.
+        """
+        return None
 
     async def sync_session_state(self, session_id: str, user_id: str) -> None:
-        await self.sync_pending_messages(session_id, user_id)
-
         session = self.get_session(session_id)
         if not session:
             return
@@ -247,7 +260,7 @@ class SessionManager:
         store_entry = SessionStoreEntry(
             session_id=session.session_id,
             updated_at=int(session.updated_at.timestamp() * 1000),
-            session_file=str(self._transcript_manager._get_session_file(session_id, user_id)),
+            session_ref=str(self._transcript_manager._get_session_file(session_id, user_id)),
             model=session.model,
             provider=session.provider,
             prompt_tokens=session.token_usage.prompt_tokens,
@@ -266,7 +279,7 @@ class SessionManager:
         session = self.get_session_required(session_id)
         session.add_message(message)
 
-        await self._transcript_manager.append_message(session_id, user_id, message)
+        await self._repository.append_message(session_id, user_id, message)
         logger.debug(f"Added {message.role.value} message to session {session_id}")
 
     async def add_messages(self, session_id: str, user_id: str, messages: list[AgentMessage]) -> None:
@@ -274,32 +287,41 @@ class SessionManager:
         for msg in messages:
             session.add_message(msg)
 
-        await self._transcript_manager.append_messages(session_id, user_id, messages)
+        for msg in messages:
+            await self._repository.append_message(session_id, user_id, msg)
 
-    def add_message_sync(self, session_id: str, message: AgentMessage) -> None:
-        """同步添加消息（标记为待持久化）
+    def add_message_in_memory_only(self, session_id: str, message: AgentMessage) -> None:
+        """Ephemeral path. Writes only to the in-memory session; never persists.
 
-        消息会立即加入内存，但持久化会延迟到 sync_pending_messages() 调用时。
+        Used by ``run_ephemeral`` to preserve the previous "ephemeral does not
+        touch disk" contract under the new repository-backed pipeline.
         """
         session = self.get_session_required(session_id)
         session.add_message(message)
-        if not hasattr(session, "_pending_messages"):
-            session._pending_messages = []
-        session._pending_messages.append(message)
-        logger.debug(f"Added {message.role.value} message to session {session_id} (pending sync)")
+        logger.debug(
+            f"Added {message.role.value} message to session {session_id} (in-memory only)"
+        )
 
-    def inject_messages(self, session_id: str, ops: list[InsertOp]) -> None:
+    def add_message_sync(self, session_id: str, message: AgentMessage) -> None:
+        """Deprecated alias for ``add_message_in_memory_only``.
+
+        Pre-PR1 this method also queued the message into a ``_pending_messages``
+        buffer for later batch flush; that queue is gone now (messages persist
+        synchronously through ``add_message``). Existing callers that still
+        expected the in-memory side-effect keep working via this alias.
+        """
+        self.add_message_in_memory_only(session_id, message)
+
+    async def inject_messages(self, session_id: str, user_id: str, ops: list[InsertOp]) -> None:
         """Insert external-history messages at anchor-resolved positions.
 
         Each :class:`InsertOp` carries a semantic anchor (timestamp ISO key).
         This method resolves it to an actual index in ``session.messages``,
-        performs the insertion, and marks the message as pending for persistence.
+        performs the insertion, and persists each new message via the repository.
         """
         if not ops:
             return
         session = self.get_session_required(session_id)
-        if not hasattr(session, "_pending_messages"):
-            session._pending_messages = []
 
         resolved: list[tuple[int, AgentMessage]] = []
         for op in ops:
@@ -325,7 +347,7 @@ class SessionManager:
 
         # Append in forward order so JSONL persistence is chronological
         for _, msg in resolved:
-            session._pending_messages.append(msg)
+            await self._repository.append_message(session_id, user_id, msg)
 
         session.updated_at = datetime.now()
         logger.info(
@@ -409,6 +431,8 @@ class SessionManager:
         )
 
         await self.sync_session_state(session_id, user_id)
+        # Repository finalize hook: file/SQLite/PG = no-op; S3 (future) flushes.
+        await self._repository.finalize(session_id, user_id)
 
         return result
 

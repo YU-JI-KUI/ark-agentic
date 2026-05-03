@@ -226,11 +226,14 @@ class TestDreamRetryCounter:
     def _make_runner_with_memory(self, tmp_path: Path):
         """Build a minimal AgentRunner with memory enabled for retry testing."""
         from ark_agentic.core.memory.dream import MemoryDreamer
-        from ark_agentic.core.memory.manager import MemoryConfig, MemoryManager
+        from ark_agentic.core.memory.manager import build_memory_manager
+        from ark_agentic.core.storage.backends.file.agent_state import (
+            FileAgentStateRepository,
+        )
 
         ws = tmp_path / "ws"
         ws.mkdir(parents=True)
-        mm = MemoryManager(MemoryConfig(workspace_dir=str(ws)))
+        mm = build_memory_manager(ws)
 
         dreamer_mock = MagicMock(spec=MemoryDreamer)
         dreamer_mock.run = AsyncMock(side_effect=RuntimeError("LLM timeout"))
@@ -238,6 +241,7 @@ class TestDreamRetryCounter:
         runner = MagicMock()
         runner._dreamer = dreamer_mock
         runner._memory_manager = mm
+        runner._agent_state_repo = FileAgentStateRepository(ws)
         runner._dream_failures = {}
         runner._DREAM_FAILURE_THRESHOLD = 3
         return runner, ws
@@ -248,12 +252,10 @@ class TestDreamRetryCounter:
 
         runner, ws = self._make_runner_with_memory(tmp_path)
         user_id = "U001"
-        mem_path = ws / user_id / "MEMORY.md"
-        mem_path.parent.mkdir(parents=True, exist_ok=True)
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
-        await AgentRunner._run_dream(runner, user_id, mem_path, sessions_dir)
+        await AgentRunner._run_dream(runner, user_id, sessions_dir)
 
         assert runner._dream_failures[user_id] == 1
         assert not (ws / user_id / ".last_dream").exists()
@@ -264,14 +266,12 @@ class TestDreamRetryCounter:
 
         runner, ws = self._make_runner_with_memory(tmp_path)
         user_id = "U001"
-        mem_path = ws / user_id / "MEMORY.md"
-        mem_path.parent.mkdir(parents=True, exist_ok=True)
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
         runner._dream_failures[user_id] = 2
 
-        await AgentRunner._run_dream(runner, user_id, mem_path, sessions_dir)
+        await AgentRunner._run_dream(runner, user_id, sessions_dir)
 
         assert (ws / user_id / ".last_dream").exists()
         assert user_id not in runner._dream_failures
@@ -279,12 +279,15 @@ class TestDreamRetryCounter:
     @pytest.mark.asyncio
     async def test_success_clears_counter(self, tmp_path: Path) -> None:
         from ark_agentic.core.memory.dream import DreamResult, MemoryDreamer
-        from ark_agentic.core.memory.manager import MemoryConfig, MemoryManager
+        from ark_agentic.core.memory.manager import build_memory_manager
         from ark_agentic.core.runner import AgentRunner
+        from ark_agentic.core.storage.backends.file.agent_state import (
+            FileAgentStateRepository,
+        )
 
         ws = tmp_path / "ws"
         ws.mkdir(parents=True)
-        mm = MemoryManager(MemoryConfig(workspace_dir=str(ws)))
+        mm = build_memory_manager(ws)
 
         dreamer_mock = MagicMock(spec=MemoryDreamer)
         dreamer_mock.run = AsyncMock(
@@ -294,15 +297,14 @@ class TestDreamRetryCounter:
         runner = MagicMock()
         runner._dreamer = dreamer_mock
         runner._memory_manager = mm
+        runner._agent_state_repo = FileAgentStateRepository(ws)
         runner._dream_failures = {"U001": 2}
         runner._DREAM_FAILURE_THRESHOLD = 3
 
         user_id = "U001"
-        mem_path = ws / user_id / "MEMORY.md"
-        mem_path.parent.mkdir(parents=True, exist_ok=True)
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
-        await AgentRunner._run_dream(runner, user_id, mem_path, sessions_dir)
+        await AgentRunner._run_dream(runner, user_id, sessions_dir)
 
         assert user_id not in runner._dream_failures

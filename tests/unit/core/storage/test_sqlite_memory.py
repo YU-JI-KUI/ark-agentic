@@ -1,0 +1,105 @@
+"""SqliteMemoryRepository behavior tests (blob strategy)."""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from ark_agentic.core.db.config import DBConfig
+from ark_agentic.core.db.engine import (
+    get_async_engine,
+    init_schema,
+    reset_engine_cache,
+)
+from ark_agentic.core.storage.backends.sqlite.memory import (
+    SqliteMemoryRepository,
+)
+from ark_agentic.core.storage.protocols import MemoryRepository
+
+
+@pytest.fixture(autouse=True)
+def _clean_engine_cache():
+    reset_engine_cache()
+    yield
+    reset_engine_cache()
+
+
+@pytest.fixture
+async def repo() -> SqliteMemoryRepository:
+    cfg = DBConfig(
+        db_type="sqlite", connection_str="sqlite+aiosqlite:///:memory:",
+    )
+    engine = get_async_engine(cfg)
+    await init_schema(engine)
+    return SqliteMemoryRepository(engine)
+
+
+async def test_implements_memory_repository_protocol(repo: SqliteMemoryRepository):
+    assert isinstance(repo, MemoryRepository)
+
+
+async def test_read_returns_empty_when_user_missing(repo: SqliteMemoryRepository):
+    result = await repo.read("nobody")
+
+    assert result == ""
+
+
+async def test_upsert_creates_row(repo: SqliteMemoryRepository):
+    current, dropped = await repo.upsert_headings("alice", "## Profile\nname: Alice\n")
+
+    assert "Profile" in current
+    assert dropped == []
+    assert "Profile" in await repo.read("alice")
+
+
+async def test_upsert_merges_across_calls(repo: SqliteMemoryRepository):
+    await repo.upsert_headings("bob", "## A\nfirst\n")
+
+    await repo.upsert_headings("bob", "## B\nsecond\n")
+
+    final = await repo.read("bob")
+    assert "## A" in final
+    assert "## B" in final
+
+
+async def test_overwrite_replaces_content(repo: SqliteMemoryRepository):
+    await repo.upsert_headings("carol", "## Old\nstale\n")
+
+    await repo.overwrite("carol", "fresh\n")
+
+    assert await repo.read("carol") == "fresh\n"
+
+
+async def test_list_users_returns_only_users_with_memory(
+    repo: SqliteMemoryRepository,
+):
+    await repo.upsert_headings("u1", "## H\nx\n")
+    await repo.upsert_headings("u2", "## H\ny\n")
+
+    users = await repo.list_users()
+
+    assert set(users) == {"u1", "u2"}
+
+
+async def test_list_users_orders_by_updated_desc(repo: SqliteMemoryRepository):
+    await repo.upsert_headings("oldest", "## H\nx\n")
+    await asyncio.sleep(0.01)
+    await repo.upsert_headings("middle", "## H\ny\n")
+    await asyncio.sleep(0.01)
+    await repo.upsert_headings("newest", "## H\nz\n")
+
+    users = await repo.list_users(order_by_updated_desc=True)
+
+    assert users == ["newest", "middle", "oldest"]
+
+
+async def test_upsert_drops_heading_when_body_empty(repo: SqliteMemoryRepository):
+    """Empty body for an existing heading triggers deletion (regression)."""
+    await repo.upsert_headings("u1", "## A\ncontent\n## B\nother\n")
+
+    current, dropped = await repo.upsert_headings("u1", "## A\n")
+
+    assert "A" not in current
+    assert "B" in current  # untouched headings preserved
+    assert "A" in dropped

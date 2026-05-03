@@ -388,26 +388,26 @@ class TestInjectMessages:
     def setup(self, tmp_sessions_dir: Path) -> None:
         self.sessions_dir = tmp_sessions_dir
 
-    def _make_sm(self) -> tuple[SessionManager, str]:
+    def _make_sm(self) -> tuple[SessionManager, str, str]:
         sm = SessionManager(self.sessions_dir)
-        session = sm.create_session_sync()
-        return sm, session.session_id
+        session = sm.create_session_sync(user_id="u1")
+        return sm, session.session_id, "u1"
 
-    def test_inject_appends_at_end(self):
-        sm, sid = self._make_sm()
+    async def test_inject_appends_at_end(self):
+        sm, sid, uid = self._make_sm()
         existing = _user("existing", 0)
         sm.add_message_sync(sid, existing)
 
         new_msg = _user("new", 10)
         new_msg.metadata["source"] = "external"
-        sm.inject_messages(sid, [InsertOp(message=new_msg, anchor_message_id=None, insert_before=True)])
+        await sm.inject_messages(sid, uid, [InsertOp(message=new_msg, anchor_message_id=None, insert_before=True)])
 
         messages = sm.get_messages(sid, include_system=False)
         assert len(messages) == 2
         assert messages[-1].content == "new"
 
-    def test_inject_before_anchor(self):
-        sm, sid = self._make_sm()
+    async def test_inject_before_anchor(self):
+        sm, sid, uid = self._make_sm()
         anchor = _user("anchor", 5)
         sm.add_message_sync(sid, anchor)
 
@@ -418,14 +418,14 @@ class TestInjectMessages:
             anchor_message_id=anchor.timestamp.isoformat(),
             insert_before=True,
         )
-        sm.inject_messages(sid, [op])
+        await sm.inject_messages(sid, uid, [op])
 
         messages = sm.get_messages(sid, include_system=False)
         assert messages[0].content == "before anchor"
         assert messages[1].content == "anchor"
 
-    def test_inject_after_anchor(self):
-        sm, sid = self._make_sm()
+    async def test_inject_after_anchor(self):
+        sm, sid, uid = self._make_sm()
         anchor = _user("anchor", 5)
         sm.add_message_sync(sid, anchor)
 
@@ -436,24 +436,24 @@ class TestInjectMessages:
             anchor_message_id=anchor.timestamp.isoformat(),
             insert_before=False,
         )
-        sm.inject_messages(sid, [op])
+        await sm.inject_messages(sid, uid, [op])
 
         messages = sm.get_messages(sid, include_system=False)
         assert messages[0].content == "anchor"
         assert messages[1].content == "after anchor"
 
-    def test_inject_marks_pending(self):
-        sm, sid = self._make_sm()
-        new_msg = _user("pending", 10)
+    async def test_inject_persists_immediately(self):
+        sm, sid, uid = self._make_sm()
+        new_msg = _user("persisted", 10)
         new_msg.metadata["source"] = "external"
-        sm.inject_messages(sid, [InsertOp(message=new_msg, anchor_message_id=None, insert_before=True)])
+        await sm.inject_messages(sid, uid, [InsertOp(message=new_msg, anchor_message_id=None, insert_before=True)])
 
-        session = sm.get_session_required(sid)
-        assert hasattr(session, "_pending_messages")
-        assert any(m.content == "pending" for m in session._pending_messages)
+        # Repository must have the message on disk now (no pending buffer).
+        loaded = await sm.repository.load_messages(sid, uid)
+        assert any(m.content == "persisted" for m in loaded)
 
-    def test_inject_preserves_order_multiple_ops(self):
-        sm, sid = self._make_sm()
+    async def test_inject_preserves_order_multiple_ops(self):
+        sm, sid, uid = self._make_sm()
         anchor = _user("anchor", 5)
         sm.add_message_sync(sid, anchor)
 
@@ -466,7 +466,7 @@ class TestInjectMessages:
             InsertOp(message=msg_a, anchor_message_id=anchor.timestamp.isoformat(), insert_before=True),
             InsertOp(message=msg_b, anchor_message_id=anchor.timestamp.isoformat(), insert_before=False),
         ]
-        sm.inject_messages(sid, ops)
+        await sm.inject_messages(sid, uid, ops)
 
         messages = sm.get_messages(sid, include_system=False)
         contents = [m.content for m in messages]

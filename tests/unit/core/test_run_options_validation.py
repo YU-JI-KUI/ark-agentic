@@ -66,9 +66,12 @@ class TestRunnerConfigurationPrecedence:
         
         # Mock session manager sync methods used in run()
         runner.session_manager.add_message_sync = Mock()
+        runner.session_manager.add_message = AsyncMock()
         runner.session_manager.auto_compact_if_needed = AsyncMock()
         runner.session_manager.sync_pending_messages = AsyncMock()
         runner.session_manager.sync_session_state = AsyncMock()
+        runner.session_manager.repository = Mock()
+        runner.session_manager.repository.finalize = AsyncMock()
         
         # Prevent lazy init from failing
         runner._memory_manager = None 

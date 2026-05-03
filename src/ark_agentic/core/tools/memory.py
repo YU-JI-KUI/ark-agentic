@@ -79,7 +79,7 @@ class MemoryWriteTool(AgentTool):
         try:
             user_id = _get_user_id(context)
             memory = _resolve_memory(self._provider, context)
-            current_headings, dropped = memory.write_memory(user_id, content)
+            current_headings, dropped = await memory.write_memory(user_id, content)
 
             if not current_headings and not dropped:
                 return AgentToolResult.json_result(

@@ -66,12 +66,26 @@ class DummyTranscriptManager:
         self.files[session_id] = content
 
 
+class DummySessionRepository:
+    """Repository facade over DummyTranscriptManager for the Studio raw endpoints."""
+
+    def __init__(self, tm: "DummyTranscriptManager"):
+        self._tm = tm
+
+    async def get_raw_transcript(self, session_id: str, user_id: str) -> str | None:
+        return self._tm.read_raw(session_id, user_id)
+
+    async def put_raw_transcript(self, session_id: str, user_id: str, content: str) -> None:
+        await self._tm.write_raw(session_id, user_id, content)
+
+
 class DummySessionManager:
     def __init__(self, sessions=None, transcript_files=None):
         self._sessions = {s.session_id: s for s in (sessions or [])}
         self._transcript_manager = DummyTranscriptManager()
         if transcript_files:
             self._transcript_manager.files.update(transcript_files)
+        self.repository = DummySessionRepository(self._transcript_manager)
 
     def list_sessions(self):
         return list(self._sessions.values())

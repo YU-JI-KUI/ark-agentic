@@ -529,7 +529,7 @@ async def test_a2ui_history_marker_is_neutral(tmp_sessions_dir: Path) -> None:
 
     # Inspect what _build_messages produces for the A2UI tool result
     state = session.state
-    messages = runner._build_messages(session.session_id, state)
+    messages = await runner._build_messages(session.session_id, state)
     tool_messages = [
         m
         for m in messages
@@ -653,7 +653,7 @@ async def test_a2ui_tool_call_args_preserved_in_history(tmp_sessions_dir: Path) 
     )
     session.add_message(AgentMessage.assistant(content="需要办理吗？"))
 
-    messages = runner._build_messages(session.session_id, session.state)
+    messages = await runner._build_messages(session.session_id, session.state)
     assistant_msgs = [
         m for m in messages if m["role"] == "assistant" and m.get("tool_calls")
     ]
@@ -698,7 +698,7 @@ async def test_non_a2ui_tool_call_args_not_redacted(tmp_sessions_dir: Path) -> N
     )
     session.add_message(AgentMessage.assistant(content="Result."))
 
-    messages = runner._build_messages(session.session_id, session.state)
+    messages = await runner._build_messages(session.session_id, session.state)
     assistant_msgs = [
         m for m in messages if m["role"] == "assistant" and m.get("tool_calls")
     ]

@@ -31,6 +31,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ark_agentic.core.registry import AgentRegistry
+from ark_agentic.core.startup_guard import validate_deployment_config
+from ark_agentic.core.db.config import load_db_config_from_env
+from ark_agentic.core.db.engine import get_async_engine, init_schema
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
 from ark_agentic.api import notifications as notifications_api
@@ -38,6 +41,7 @@ from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
 from ark_agentic.core.observability import setup_tracing_from_env, shutdown_tracing
 from ark_agentic.studio import setup_studio_from_env
+from ark_agentic.studio.services.authz_service import get_studio_user_store
 from ark_agentic.agents.securities.tools.service.mock_mode import get_mock_mode
 
 logger = logging.getLogger(__name__)
@@ -51,6 +55,26 @@ def _env_flag(name: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── Step 0: 部署配置检查 + DB 引擎装配 + Studio authz 预初始化 ──
+    # validate_deployment_config: 多 worker + 进程内 cache 错配立刻 raise.
+    # DB_TYPE=sqlite 时初始化 AsyncEngine 并建表（含 studio_users）。
+    # get_studio_user_store(): 提前实例化模块级单例并跑一次 _ensure_schema,
+    # 阻止首次并发请求竞态创建多份 AsyncEngine.
+    validate_deployment_config()
+
+    db_cfg = load_db_config_from_env()
+    if db_cfg.db_type == "sqlite":
+        engine = get_async_engine(db_cfg)
+        await init_schema(engine)
+        app.state.db_engine = engine
+        logger.info("DB engine initialized (DB_TYPE=sqlite)")
+    else:
+        app.state.db_engine = None
+        logger.info("DB engine skipped (DB_TYPE=file)")
+
+    studio_store = get_studio_user_store()
+    await studio_store._ensure_schema()
+
     # ── Step 1: 先初始化 JobManager 全局单例（如果启用）────────────────────
     # 必须在 agent warmup 之前设置，因为 warmup 时会自动向 JobManager 注册 Job
     if _env_flag("ENABLE_JOB_MANAGER"):

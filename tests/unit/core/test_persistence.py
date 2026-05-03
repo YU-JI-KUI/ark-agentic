@@ -510,3 +510,22 @@ class TestSessionStoreEntry:
         entry = SessionStoreEntry.from_dict(data)
         assert entry.session_id == "session-123"
         assert entry.model == "test-model"
+
+    def test_session_ref_alias(self) -> None:
+        """session_file remains as a deprecated read-only alias of session_ref."""
+        # New canonical field name
+        entry = SessionStoreEntry(
+            session_id="s1", updated_at=1, session_ref="/p/s1.jsonl",
+        )
+        assert entry.session_ref == "/p/s1.jsonl"
+        assert entry.session_file == "/p/s1.jsonl", "session_file alias must mirror session_ref"
+
+        # Round-trip via dict (JSON key sessionFile preserved for FE compatibility)
+        as_dict = entry.to_dict()
+        assert as_dict["sessionFile"] == "/p/s1.jsonl"
+
+        # Backward-compat: legacy JSON with sessionFile must populate session_ref
+        legacy = {"sessionId": "s2", "updatedAt": 2, "sessionFile": "/p/s2.jsonl"}
+        loaded = SessionStoreEntry.from_dict(legacy)
+        assert loaded.session_ref == "/p/s2.jsonl"
+        assert loaded.session_file == "/p/s2.jsonl"

@@ -210,11 +210,11 @@ class TestCreateAgentEndpoint:
             })
         assert response.status_code == 422
 
-    def test_create_agent_editor_allowed(
+    async def test_create_agent_editor_allowed(
         self, client: TestClient, temp_agents_dir: Path, studio_auth_headers,
     ):
         """Editor role may use Studio write endpoints."""
-        get_studio_user_store().upsert_user("ed", "editor", actor_user_id="admin")
+        await get_studio_user_store().upsert_user("ed", "editor", actor_user_id="admin")
         response = client.post(
             "/api/studio/agents",
             json={"id": "editor-agent", "name": "Editor Agent"},
@@ -222,11 +222,11 @@ class TestCreateAgentEndpoint:
         )
         assert response.status_code == 201
 
-    def test_create_agent_viewer_forbidden(
+    async def test_create_agent_viewer_forbidden(
         self, client: TestClient, temp_agents_dir: Path, studio_auth_headers,
     ):
         """Viewer role cannot use Studio write endpoints."""
-        get_studio_user_store().ensure_user("view-only", default_role="viewer")
+        await get_studio_user_store().ensure_user("view-only", default_role="viewer")
         response = client.post(
             "/api/studio/agents",
             json={"id": "viewer-agent", "name": "Viewer Agent"},
