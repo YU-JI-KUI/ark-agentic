@@ -76,6 +76,21 @@ class SessionRepository(Protocol):
         """
         ...
 
+    async def list_all_sessions(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[tuple[str, str]]:
+        """Admin-only: list ``(user_id, session_id)`` across every user.
+
+        ORDER BY updated_at DESC. Used by Studio "all users" admin view.
+        File 实现忽略 limit/offset。
+        SQLite 实现支持 ``limit=None`` (返回全量)。
+        PR3 PG 实现下 limit=None 必须 raise ValueError —— admin 全量扫描
+        在 PG 下必须翻页。
+        """
+        ...
+
     async def delete(
         self,
         session_id: str,

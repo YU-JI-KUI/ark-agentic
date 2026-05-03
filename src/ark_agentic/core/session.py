@@ -1,11 +1,11 @@
-"""会话管理器: 消息追踪、压缩、持久化"""
+"""SessionManager — message tracking, compaction, persistence (via repo)."""
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Awaitable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from .compaction import (
     CompactionConfig,
@@ -15,7 +15,7 @@ from .compaction import (
     estimate_message_tokens,
 )
 from .history_merge import InsertOp
-from .persistence import SessionStore, SessionStoreEntry, TranscriptManager
+from .persistence import SessionStoreEntry
 from .types import AgentMessage, CompactionStats, SessionEntry, TokenUsage
 
 if TYPE_CHECKING:
@@ -27,6 +27,13 @@ logger = logging.getLogger(__name__)
 
 
 class SessionManager:
+    """Per-agent session orchestrator backed by a single ``SessionRepository``.
+
+    Storage details (file vs. SQLite) live entirely behind the repository; this
+    class never imports backend-specific types or paths. ``sessions_dir`` is
+    surfaced as a public attribute for non-storage callers (proactive job
+    scanner) that still need a workspace root under file mode.
+    """
 
     def __init__(
         self,
@@ -38,9 +45,10 @@ class SessionManager:
     ) -> None:
         self._sessions: dict[str, SessionEntry] = {}
         self._compaction_config = compaction_config or CompactionConfig()
-        self._compactor = ContextCompactor(self._compaction_config, summarizer=summarizer)
-        self._transcript_manager = TranscriptManager(sessions_dir)
-        self._session_store = SessionStore(sessions_dir)
+        self._compactor = ContextCompactor(
+            self._compaction_config, summarizer=summarizer
+        )
+        self.sessions_dir = Path(sessions_dir)
         if repository is None:
             from .storage.factory import build_session_repository
 
@@ -68,20 +76,30 @@ class SessionManager:
         session.user_id = user_id
         self._sessions[session.session_id] = session
 
-        await self._transcript_manager.ensure_header(session.session_id, user_id)
-        store_entry = SessionStoreEntry(
-            session_id=session.session_id,
-            updated_at=int(session.updated_at.timestamp() * 1000),
-            session_ref=str(
-                self._transcript_manager._get_session_file(session.session_id, user_id)
-            ),
-            model=model,
-            provider=provider,
-            state=state or {},
+        # repository.create() owns whatever "create" means for the active
+        # backend (file: write JSONL header + sessions.json; SQLite: INSERT
+        # session_meta with ON CONFLICT DO NOTHING).
+        await self._repository.create(
+            session.session_id, user_id, model, provider, state or {},
         )
-        await self._session_store.update(user_id, session.session_id, store_entry)
+        # Stamp updated_at to "now" so list ordering reflects creation order
+        # before the first message lands.
+        await self._repository.update_meta(
+            session.session_id,
+            user_id,
+            SessionStoreEntry(
+                session_id=session.session_id,
+                updated_at=int(session.updated_at.timestamp() * 1000),
+                model=model,
+                provider=provider,
+                state=state or {},
+            ),
+        )
 
-        logger.info(f"[SESSION_CREATE] id={session.session_id[:8]} user={user_id} model={model}")
+        logger.info(
+            "[SESSION_CREATE] id=%s user=%s model=%s",
+            session.session_id[:8], user_id, model,
+        )
         return session
 
     def create_session_sync(
@@ -92,12 +110,7 @@ class SessionManager:
         session_id: str | None = None,
         user_id: str | None = None,
     ) -> SessionEntry:
-        """同步创建新会话（仅写入内存，不落盘；需持久化请用 create_session）
-
-        Args:
-            session_id: 自定义 session ID（子任务格式 parent:sub:hex），None 则自动生成
-            user_id: 设置 user_id（子任务继承父会话用户）
-        """
+        """同步创建（仅写入内存，不落盘；需持久化请用 create_session）"""
         session = SessionEntry.create(
             model=model, provider=provider, state=state or {}
         )
@@ -119,14 +132,15 @@ class SessionManager:
         return session
 
     async def delete_session(self, session_id: str, user_id: str) -> bool:
-        deleted = False
-        if session_id in self._sessions:
+        in_memory = session_id in self._sessions
+        if in_memory:
             del self._sessions[session_id]
-            deleted = True
 
-        self._transcript_manager.delete_session(session_id, user_id)
-        await self._session_store.delete(user_id, session_id)
+        # Repository delete is idempotent across backends and returns whether
+        # any persisted row was actually removed.
+        persisted_deleted = await self._repository.delete(session_id, user_id)
 
+        deleted = in_memory or persisted_deleted
         if deleted:
             logger.info(f"Deleted session: {session_id}")
         return deleted
@@ -139,116 +153,92 @@ class SessionManager:
         return False
 
     def list_sessions(self) -> list[SessionEntry]:
-        """列出所有会话（仅内存）。"""
+        """List in-memory sessions only."""
         return list(self._sessions.values())
 
-    async def list_sessions_from_disk(self, user_id: str | None = None) -> list[SessionEntry]:
-        """以磁盘为准列出会话。user_id=None 时列出所有用户的会话（admin）。"""
-        if user_id is not None:
-            ids = self._transcript_manager.list_sessions(user_id)
-            result: list[SessionEntry] = []
-            for sid in ids:
-                entry = await self.load_session(sid, user_id)
-                if entry is not None:
-                    result.append(entry)
-            return result
+    async def list_sessions_from_disk(
+        self, user_id: str | None = None,
+    ) -> list[SessionEntry]:
+        """List sessions from persistent storage.
 
-        pairs = self._transcript_manager.list_all_sessions()
-        result = []
+        ``user_id=None`` lists every user's sessions (admin view).
+        """
+        if user_id is not None:
+            ids = await self._repository.list_session_ids(user_id)
+            return await self._collect_sessions(
+                [(user_id, sid) for sid in ids]
+            )
+
+        pairs = await self._repository.list_all_sessions()
+        return await self._collect_sessions(pairs)
+
+    async def _collect_sessions(
+        self, pairs: list[tuple[str, str]],
+    ) -> list[SessionEntry]:
+        result: list[SessionEntry] = []
         for uid, sid in pairs:
             entry = await self.load_session(sid, uid)
             if entry is not None:
                 result.append(entry)
         return result
 
-    async def reload_session_from_disk(self, session_id: str, user_id: str) -> SessionEntry | None:
+    async def reload_session_from_disk(
+        self, session_id: str, user_id: str,
+    ) -> SessionEntry | None:
+        """Reload an already-tracked session from storage. No-op if untracked."""
         if session_id not in self._sessions:
             return None
-        if not self._transcript_manager.session_exists(session_id, user_id):
-            return None
-        messages = self._transcript_manager.load_messages(session_id, user_id)
-        header = self._transcript_manager.load_header(session_id, user_id)
-        store_entry = self._session_store.get(user_id, session_id)
-        session = SessionEntry(
-            session_id=session_id,
-            user_id=user_id,
-            created_at=(
-                datetime.fromisoformat(header.timestamp)
-                if header and header.timestamp
-                else datetime.now()
-            ),
-            updated_at=(
-                datetime.fromtimestamp(store_entry.updated_at / 1000)
-                if store_entry and store_entry.updated_at
-                else (
-                    datetime.fromisoformat(header.timestamp)
-                    if header and header.timestamp
-                    else datetime.now()
-                )
-            ),
-            model=store_entry.model if store_entry else "Qwen3-80B-Instruct",
-            provider=store_entry.provider if store_entry else "ark",
-            messages=messages,
-            active_skill_ids=store_entry.active_skill_ids if store_entry else [],
-            state=store_entry.state if store_entry else {},
-        )
-        if store_entry:
-            session.token_usage.prompt_tokens = store_entry.prompt_tokens
-            session.token_usage.completion_tokens = store_entry.completion_tokens
-        self._sessions[session_id] = session
-        logger.debug(f"Reloaded session from disk: {session_id}")
-        return session
+        return await self._build_session_from_storage(session_id, user_id)
 
-    async def load_session(self, session_id: str, user_id: str) -> SessionEntry | None:
+    async def load_session(
+        self, session_id: str, user_id: str,
+    ) -> SessionEntry | None:
+        """Return the in-memory session if cached; otherwise hydrate from storage."""
         if session_id in self._sessions:
             entry = self._sessions[session_id]
             entry.user_id = user_id
             return entry
+        return await self._build_session_from_storage(session_id, user_id)
 
-        if not self._transcript_manager.session_exists(session_id, user_id):
+    async def _build_session_from_storage(
+        self, session_id: str, user_id: str,
+    ) -> SessionEntry | None:
+        store_entry = await self._repository.load_meta(session_id, user_id)
+        if store_entry is None:
             return None
+        messages = await self._repository.load_messages(session_id, user_id)
 
-        messages = self._transcript_manager.load_messages(session_id, user_id)
-        header = self._transcript_manager.load_header(session_id, user_id)
-        store_entry = self._session_store.get(user_id, session_id)
+        # ``created_at`` is not currently persisted as a distinct column —
+        # we approximate it from ``updated_at`` (or "now" for fresh rows
+        # whose updated_at is still 0).
+        ts = (
+            datetime.fromtimestamp(store_entry.updated_at / 1000)
+            if store_entry.updated_at
+            else datetime.now()
+        )
 
         session = SessionEntry(
             session_id=session_id,
             user_id=user_id,
-            created_at=(
-                datetime.fromisoformat(header.timestamp)
-                if header and header.timestamp
-                else datetime.now()
-            ),
-            updated_at=(
-                datetime.fromtimestamp(store_entry.updated_at / 1000)
-                if store_entry and store_entry.updated_at
-                else (
-                    datetime.fromisoformat(header.timestamp)
-                    if header and header.timestamp
-                    else datetime.now()
-                )
-            ),
-            model=store_entry.model if store_entry else "Qwen3-80B-Instruct",
-            provider=store_entry.provider if store_entry else "ark",
+            created_at=ts,
+            updated_at=ts,
+            model=store_entry.model,
+            provider=store_entry.provider,
             messages=messages,
-            active_skill_ids=store_entry.active_skill_ids if store_entry else [],
-            state=store_entry.state if store_entry else {},
+            active_skill_ids=store_entry.active_skill_ids,
+            state=store_entry.state,
         )
-
-        if store_entry:
-            session.token_usage.prompt_tokens = store_entry.prompt_tokens
-            session.token_usage.completion_tokens = store_entry.completion_tokens
+        session.token_usage.prompt_tokens = store_entry.prompt_tokens
+        session.token_usage.completion_tokens = store_entry.completion_tokens
 
         self._sessions[session_id] = session
-        logger.info(f"Loaded session from disk: {session_id}")
+        logger.debug(f"Loaded session from storage: {session_id}")
         return session
 
     async def sync_pending_messages(self, session_id: str, user_id: str) -> None:
-        """Deprecated no-op. add_message now persists synchronously via the repository.
+        """Deprecated no-op. ``add_message`` persists synchronously now.
 
-        Kept temporarily so legacy call sites still compile; will be removed
-        in a follow-up PR after callers migrate.
+        Kept so legacy call sites still compile; remove in a follow-up PR.
         """
         return None
 
@@ -260,7 +250,6 @@ class SessionManager:
         store_entry = SessionStoreEntry(
             session_id=session.session_id,
             updated_at=int(session.updated_at.timestamp() * 1000),
-            session_ref=str(self._transcript_manager._get_session_file(session_id, user_id)),
             model=session.model,
             provider=session.provider,
             prompt_tokens=session.token_usage.prompt_tokens,
@@ -270,19 +259,24 @@ class SessionManager:
             active_skill_ids=session.active_skill_ids,
             state=session.state,
         )
-
-        await self._session_store.update(user_id, session_id, store_entry)
+        await self._repository.update_meta(session_id, user_id, store_entry)
 
     # ============ 消息管理 ============
 
-    async def add_message(self, session_id: str, user_id: str, message: AgentMessage) -> None:
+    async def add_message(
+        self, session_id: str, user_id: str, message: AgentMessage,
+    ) -> None:
         session = self.get_session_required(session_id)
         session.add_message(message)
 
         await self._repository.append_message(session_id, user_id, message)
-        logger.debug(f"Added {message.role.value} message to session {session_id}")
+        logger.debug(
+            f"Added {message.role.value} message to session {session_id}"
+        )
 
-    async def add_messages(self, session_id: str, user_id: str, messages: list[AgentMessage]) -> None:
+    async def add_messages(
+        self, session_id: str, user_id: str, messages: list[AgentMessage],
+    ) -> None:
         session = self.get_session_required(session_id)
         for msg in messages:
             session.add_message(msg)
@@ -290,7 +284,9 @@ class SessionManager:
         for msg in messages:
             await self._repository.append_message(session_id, user_id, msg)
 
-    def add_message_in_memory_only(self, session_id: str, message: AgentMessage) -> None:
+    def add_message_in_memory_only(
+        self, session_id: str, message: AgentMessage,
+    ) -> None:
         """Ephemeral path. Writes only to the in-memory session; never persists.
 
         Used by ``run_ephemeral`` to preserve the previous "ephemeral does not
@@ -299,26 +295,18 @@ class SessionManager:
         session = self.get_session_required(session_id)
         session.add_message(message)
         logger.debug(
-            f"Added {message.role.value} message to session {session_id} (in-memory only)"
+            f"Added {message.role.value} message to session "
+            f"{session_id} (in-memory only)"
         )
 
     def add_message_sync(self, session_id: str, message: AgentMessage) -> None:
-        """Deprecated alias for ``add_message_in_memory_only``.
-
-        Pre-PR1 this method also queued the message into a ``_pending_messages``
-        buffer for later batch flush; that queue is gone now (messages persist
-        synchronously through ``add_message``). Existing callers that still
-        expected the in-memory side-effect keep working via this alias.
-        """
+        """Deprecated alias for ``add_message_in_memory_only``."""
         self.add_message_in_memory_only(session_id, message)
 
-    async def inject_messages(self, session_id: str, user_id: str, ops: list[InsertOp]) -> None:
-        """Insert external-history messages at anchor-resolved positions.
-
-        Each :class:`InsertOp` carries a semantic anchor (timestamp ISO key).
-        This method resolves it to an actual index in ``session.messages``,
-        performs the insertion, and persists each new message via the repository.
-        """
+    async def inject_messages(
+        self, session_id: str, user_id: str, ops: list[InsertOp],
+    ) -> None:
+        """Insert external-history messages at anchor-resolved positions."""
         if not ops:
             return
         session = self.get_session_required(session_id)
@@ -345,13 +333,14 @@ class SessionManager:
         for idx, msg in reversed(resolved):
             session.messages.insert(idx, msg)
 
-        # Append in forward order so JSONL persistence is chronological
+        # Append in forward order so persistence is chronological
         for _, msg in resolved:
             await self._repository.append_message(session_id, user_id, msg)
 
         session.updated_at = datetime.now()
         logger.info(
-            f"Injected {len(ops)} external message(s) into session {session_id[:8]}"
+            f"Injected {len(ops)} external message(s) into session "
+            f"{session_id[:8]}"
         )
 
     def get_messages(
@@ -374,7 +363,9 @@ class SessionManager:
     def clear_messages(self, session_id: str, keep_system: bool = True) -> None:
         session = self.get_session_required(session_id)
         if keep_system:
-            session.messages = [m for m in session.messages if m.role.value == "system"]
+            session.messages = [
+                m for m in session.messages if m.role.value == "system"
+            ]
         else:
             session.messages = []
         session.updated_at = datetime.now()
@@ -390,7 +381,9 @@ class SessionManager:
         cache_creation: int = 0,
     ) -> None:
         session = self.get_session_required(session_id)
-        session.update_token_usage(prompt_tokens, completion_tokens, cache_read, cache_creation)
+        session.update_token_usage(
+            prompt_tokens, completion_tokens, cache_read, cache_creation,
+        )
 
     def get_token_usage(self, session_id: str) -> TokenUsage:
         session = self.get_session_required(session_id)
@@ -407,7 +400,7 @@ class SessionManager:
         return self._compactor.needs_compaction(session.messages)
 
     async def compact_session(
-        self, session_id: str, user_id: str, force: bool = False
+        self, session_id: str, user_id: str, force: bool = False,
     ) -> CompactionResult:
         session = self.get_session_required(session_id)
 
@@ -440,7 +433,9 @@ class SessionManager:
         self,
         session_id: str,
         user_id: str,
-        pre_compact_callback: Callable[[str, list[AgentMessage]], Awaitable[None]] | None = None,
+        pre_compact_callback: (
+            Callable[[str, list[AgentMessage]], Awaitable[None]] | None
+        ) = None,
     ) -> CompactionResult | None:
         if self.needs_compaction(session_id):
             if pre_compact_callback is not None:
@@ -455,7 +450,9 @@ class SessionManager:
 
     # ============ 技能管理 ============
 
-    def set_active_skill_ids(self, session_id: str, skill_ids: list[str]) -> None:
+    def set_active_skill_ids(
+        self, session_id: str, skill_ids: list[str],
+    ) -> None:
         """覆盖式写入 session.active_skill_ids（SSOT）。
 
         full 模式 session 的此字段会在 `_run_turn` 顶部每轮被 clobber 为

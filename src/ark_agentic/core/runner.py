@@ -595,7 +595,7 @@ class AgentRunner:
 
         from .memory.dream import should_dream
 
-        sessions_dir = Path(self.session_manager._transcript_manager.sessions_dir)
+        sessions_dir = Path(self.session_manager.sessions_dir)
 
         try:
             if not await should_dream(

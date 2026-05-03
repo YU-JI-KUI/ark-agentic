@@ -211,6 +211,21 @@ class SqliteSessionRepository:
             rows = (await conn.execute(stmt)).all()
         return [r[0] for r in rows]
 
+    async def list_all_sessions(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[tuple[str, str]]:
+        stmt = (
+            select(SessionMeta.user_id, SessionMeta.session_id)
+            .order_by(SessionMeta.updated_at.desc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit).offset(offset)
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(stmt)).all()
+        return [(r[0], r[1]) for r in rows]
+
     async def delete(
         self,
         session_id: str,

@@ -38,13 +38,27 @@ def _sqlite_path_from_url(url: str) -> Path | None:
     return None
 
 
-def _enable_sqlite_wal(dbapi_connection, connection_record) -> None:
-    """SQLite connect hook — enable WAL + foreign keys for production durability."""
+def _enable_sqlite_pragmas_file(dbapi_connection, connection_record) -> None:
+    """SQLite connect hook for file-backed DBs — WAL + FK + relaxed sync."""
     cursor = dbapi_connection.cursor()
     try:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA synchronous=NORMAL")
+    finally:
+        cursor.close()
+
+
+def _enable_sqlite_pragmas_memory(dbapi_connection, connection_record) -> None:
+    """SQLite connect hook for ``:memory:`` — FK only (WAL is a no-op there).
+
+    Without this the ``foreign_keys`` pragma defaults to OFF on every new
+    connection and ``:memory:`` test runs silently bypass FK constraints —
+    bugs that would crash production go undetected in CI.
+    """
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
     finally:
         cursor.close()
 
@@ -72,11 +86,15 @@ def _build_engine(connection_str: str, pool_size: int) -> AsyncEngine:
             normalized, future=True, pool_size=pool_size,
         )
 
-    # Enable WAL for file-backed SQLite only (not :memory: — pragma is no-op
-    # there and can confuse aiosqlite during teardown).
-    if normalized.startswith("sqlite") and not is_memory_sqlite:
+    # FK enforcement must be set per-connection (PRAGMA foreign_keys is not
+    # persisted in the DB file). Apply it for every SQLite engine — including
+    # ``:memory:`` so tests catch FK violations the same way prod does.
+    if normalized.startswith("sqlite"):
         sync_engine: Engine = engine.sync_engine  # type: ignore[attr-defined]
-        event.listen(sync_engine, "connect", _enable_sqlite_wal)
+        if is_memory_sqlite:
+            event.listen(sync_engine, "connect", _enable_sqlite_pragmas_memory)
+        else:
+            event.listen(sync_engine, "connect", _enable_sqlite_pragmas_file)
 
     return engine
 

@@ -91,6 +91,14 @@ class FileSessionRepository:
         # File 实现忽略 limit/offset; PR2 DB 实现 must enforce limit != None
         return await asyncio.to_thread(self._transcript.list_sessions, user_id)
 
+    async def list_all_sessions(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[tuple[str, str]]:
+        # File 实现忽略 limit/offset.
+        return await asyncio.to_thread(self._transcript.list_all_sessions)
+
     async def delete(
         self,
         session_id: str,
