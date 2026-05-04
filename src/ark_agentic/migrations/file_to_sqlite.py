@@ -5,9 +5,9 @@ through ``FileXxxRepository`` (the same code production runs against) and
 writes through ``SqliteXxxRepository`` so the migration speaks only the
 storage Protocols.
 
-Usage::
+The CLI runner lives at ``scripts/migrate_file_to_sqlite.py``::
 
-    python -m ark_agentic.scripts.migrate_file_to_sqlite \\
+    uv run python scripts/migrate_file_to_sqlite.py \\
         --sessions-dir data/sessions \\
         --memory-dir data/ark_memory \\
         --notifications-dir data/notifications \\

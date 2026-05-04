@@ -21,7 +21,7 @@ from ark_agentic.core.storage.repository.sqlite.session import (
     SqliteSessionRepository,
 )
 from ark_agentic.core.types import AgentMessage, MessageRole
-from ark_agentic.scripts.migrate_file_to_sqlite import migrate
+from ark_agentic.migrations.file_to_sqlite import migrate
 from ark_agentic.plugins.jobs.storage.sqlite import SqliteJobRunRepository
 from ark_agentic.plugins.notifications.models import Notification
 from ark_agentic.plugins.notifications.storage.file import (

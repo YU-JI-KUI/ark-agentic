@@ -4,7 +4,8 @@
 # Published wheel contains ONLY:
 #   ark_agentic/__init__.py, core/**, cli/**
 # Excluded from wheel (internal test code):
-#   ark_agentic/agents/**, ark_agentic/app.py, ark_agentic/static/**
+#   ark_agentic/agents/insurance, ark_agentic/agents/securities,
+#   ark_agentic/app.py, ark_agentic/plugins/playground/static/**
 #
 # Usage:
 #   ./scripts/publish.sh              # build + upload
@@ -40,7 +41,7 @@ print(d['project']['version'])
 echo "==> Version: $VERSION"
 
 # 1) Build Studio frontend (dist/ force-included in wheel via pyproject.toml)
-FRONTEND_DIR="$REPO_ROOT/src/ark_agentic/studio/frontend"
+FRONTEND_DIR="$REPO_ROOT/src/ark_agentic/plugins/studio/frontend"
 if [ -f "$FRONTEND_DIR/package.json" ]; then
   echo "==> Building Studio frontend..."
   cd "$FRONTEND_DIR"

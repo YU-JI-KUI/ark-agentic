@@ -13,10 +13,10 @@ reads them at the same path.
 Idempotent: source files that no longer exist (or whose target already
 exists) are skipped silently.
 
-Usage::
+The CLI runner lives at ``scripts/migrate_agent_state_dotfiles.py``::
 
-    python -m ark_agentic.scripts.migrate_agent_state_dotfiles \\
-        --memory-dir data/ark_memory \\
+    uv run python scripts/migrate_agent_state_dotfiles.py \\
+        --memory-root data/ark_memory \\
         --job-runs-dir data/ark_job_runs
 """
 
