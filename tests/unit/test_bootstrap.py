@@ -1,4 +1,4 @@
-"""Unit tests for core.bootstrap."""
+"""Unit tests for the top-level bootstrap module."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from ark_agentic.core.db.engine import reset_engine_cache
 async def test_bootstrap_storage_file_backend(monkeypatch):
     """File mode: bootstrap is a no-op for core / notifications, but still
     runs the studio init (uses its own engine)."""
-    from ark_agentic.core.bootstrap import bootstrap_storage
+    from ark_agentic.bootstrap import bootstrap_storage
     monkeypatch.setenv("DB_TYPE", "file")
     # No exception is the success criterion; the function returns None.
     assert await bootstrap_storage() is None
 
 
 async def test_bootstrap_storage_sqlite_backend(monkeypatch, tmp_path):
-    from ark_agentic.core.bootstrap import bootstrap_storage
+    from ark_agentic.bootstrap import bootstrap_storage
     reset_engine_cache()
     try:
         monkeypatch.setenv("DB_TYPE", "sqlite")

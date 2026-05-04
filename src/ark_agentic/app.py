@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.api.context import AppContext
-from ark_agentic.core.bootstrap import bootstrap_storage
+from ark_agentic.bootstrap import bootstrap_storage
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
 from ark_agentic.agents.insurance import create_insurance_agent
