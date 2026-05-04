@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ark_agentic.core.callbacks import RunnerCallbacks
 from ark_agentic.core.compaction import CompactionConfig, LLMSummarizer
@@ -69,7 +68,6 @@ def build_standard_agent(
     sampling: SamplingConfig | None = None,
     compaction_config: CompactionConfig | None = None,
     skill_router: SkillRouter | None = None,
-    db_engine: AsyncEngine | None = None,
 ) -> AgentRunner:
     """Build an AgentRunner from an AgentDef with convention-derived defaults.
 
@@ -94,9 +92,6 @@ def build_standard_agent(
                 using the agent's main LLM.
             <SkillRouter instance> → use it verbatim (custom strategies).
             Passing a router in full mode raises ValueError.
-        db_engine: When ``DB_TYPE=sqlite``, pass the app's shared ``AsyncEngine``
-            (e.g. ``app.state.db_engine`` from lifespan) so ``SessionManager`` can
-            construct ``SqliteSessionRepository``. Ignored when ``DB_TYPE=file``.
     """
     if llm is None:
         llm = create_chat_model_from_env()
@@ -142,9 +137,7 @@ def build_standard_agent(
     # internals.
     from .storage.factory import build_session_repository
 
-    session_repo = build_session_repository(
-        sessions_dir=sessions_dir, engine=db_engine,
-    )
+    session_repo = build_session_repository(sessions_dir=sessions_dir)
     session_manager = SessionManager(
         sessions_dir=sessions_dir,
         compaction_config=compaction,
@@ -159,14 +152,14 @@ def build_standard_agent(
     dreamer = None
     if enable_memory:
         memory_dir = get_memory_base_dir() / defn.agent_id
-        memory_manager = build_memory_manager(memory_dir, engine=db_engine)
+        memory_manager = build_memory_manager(memory_dir)
 
         if enable_dream:
             from .memory.dream import MemoryDreamer
             from .storage.factory import build_agent_state_repository
 
             state_repo = build_agent_state_repository(
-                workspace_dir=memory_dir, engine=db_engine,
+                workspace_dir=memory_dir,
             )
             # Dream calls use the agent's default sampling; previously the
             # runner-side LLMCaller applied a summarization override, but

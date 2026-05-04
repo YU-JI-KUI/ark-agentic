@@ -16,7 +16,6 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from ..storage.protocols import MemoryRepository
-    from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +66,6 @@ class MemoryManager:
 
 def build_memory_manager(
     memory_dir: str | Path | None = None,
-    *,
-    engine: "AsyncEngine | None" = None,
 ) -> MemoryManager:
     """Factory: builds a ``MemoryManager`` whose backend is picked by
     ``DB_TYPE``.
@@ -84,14 +81,7 @@ def build_memory_manager(
 
     from ..storage.factory import build_memory_repository
 
-    if engine is None:
-        from ..db.config import load_db_config_from_env
-        from ..db.engine import get_async_engine
-        db_cfg = load_db_config_from_env()
-        if db_cfg.db_type == "sqlite":
-            engine = get_async_engine(db_cfg)
-
-    repo = build_memory_repository(workspace_dir=memory_dir, engine=engine)
+    repo = build_memory_repository(workspace_dir=memory_dir)
     return MemoryManager(
         repository=repo,
         config=MemoryConfig(workspace_dir=str(memory_dir)),

@@ -1,16 +1,21 @@
-"""Storage factory dispatch tests — env-driven backend selection."""
+"""Storage factory dispatch tests — env-driven backend selection.
+
+The factories no longer accept ``engine=`` parameters; the active engine
+comes from each domain's ``engine.py`` accessor. Tests inject a process-
+wide engine via ``set_engine_for_testing``.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from ark_agentic.core.db.config import DBConfig
 from ark_agentic.core.db.engine import (
-    get_async_engine,
     init_schema,
-    reset_engine_cache,
+    reset_engine_for_testing,
+    set_engine_for_testing,
 )
 from ark_agentic.core.storage.repository.file.agent_state import (
     FileAgentStateRepository,
@@ -46,18 +51,20 @@ from ark_agentic.services.notifications.storage.sqlite import (
 
 @pytest.fixture(autouse=True)
 def _clean_engine_cache():
-    reset_engine_cache()
+    reset_engine_for_testing()
     yield
-    reset_engine_cache()
+    reset_engine_for_testing()
 
 
 @pytest.fixture
 async def sqlite_engine():
-    cfg = DBConfig(
-        db_type="sqlite", connection_str="sqlite+aiosqlite:///:memory:",
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
     )
-    engine = get_async_engine(cfg)
-    await init_schema(engine)
+    set_engine_for_testing(engine)
+    await init_schema()
     return engine
 
 
@@ -76,7 +83,7 @@ async def test_build_session_returns_sqlite_when_db_type_sqlite(
 ):
     monkeypatch.setenv("DB_TYPE", "sqlite")
 
-    repo = build_session_repository(sessions_dir=tmp_path, engine=sqlite_engine)
+    repo = build_session_repository(sessions_dir=tmp_path)
 
     assert isinstance(repo, SqliteSessionRepository)
 
@@ -96,7 +103,7 @@ async def test_build_memory_returns_sqlite_when_sqlite(
 ):
     monkeypatch.setenv("DB_TYPE", "sqlite")
 
-    repo = build_memory_repository(workspace_dir=tmp_path, engine=sqlite_engine)
+    repo = build_memory_repository(workspace_dir=tmp_path)
 
     assert isinstance(repo, SqliteMemoryRepository)
 
@@ -116,9 +123,7 @@ async def test_build_agent_state_returns_sqlite_when_sqlite(
 ):
     monkeypatch.setenv("DB_TYPE", "sqlite")
 
-    repo = build_agent_state_repository(
-        workspace_dir=tmp_path, engine=sqlite_engine,
-    )
+    repo = build_agent_state_repository(workspace_dir=tmp_path)
 
     assert isinstance(repo, SqliteAgentStateRepository)
 
@@ -138,9 +143,7 @@ async def test_build_notification_returns_sqlite_when_sqlite(
 ):
     monkeypatch.setenv("DB_TYPE", "sqlite")
 
-    repo = build_notification_repository(
-        base_dir=tmp_path, engine=sqlite_engine,
-    )
+    repo = build_notification_repository(base_dir=tmp_path)
 
     assert isinstance(repo, SqliteNotificationRepository)
 
@@ -160,24 +163,6 @@ def test_unknown_db_type_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
         build_session_repository(sessions_dir=tmp_path)
 
 
-async def test_sqlite_without_engine_falls_back_to_global(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-):
-    """When engine=None in sqlite mode the factory falls back to get_async_engine()
-    instead of raising, making call-sites that have no engine reference self-sufficient."""
-    monkeypatch.setenv("DB_TYPE", "sqlite")
-    monkeypatch.setenv("DB_CONNECTION_STR", f"sqlite+aiosqlite:///{tmp_path}/fallback.db")
-
-    from ark_agentic.core.db.engine import get_async_engine, init_schema
-    engine = get_async_engine()
-    await init_schema(engine)
-
-    repo = build_session_repository(sessions_dir=tmp_path, engine=None)
-
-    from ark_agentic.core.storage.repository.sqlite.session import SqliteSessionRepository
-    assert isinstance(repo, SqliteSessionRepository)
-
-
 def test_file_without_dir_raises(monkeypatch: pytest.MonkeyPatch):
     """File backend must complain when its required directory is omitted,
     instead of silently constructing a repository rooted at None."""
@@ -193,6 +178,6 @@ async def test_sqlite_session_does_not_need_dir(
     """SQLite path must not require sessions_dir (a file-backend concern)."""
     monkeypatch.setenv("DB_TYPE", "sqlite")
 
-    repo = build_session_repository(engine=sqlite_engine)
+    repo = build_session_repository()
 
     assert isinstance(repo, SqliteSessionRepository)

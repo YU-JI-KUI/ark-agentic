@@ -1,43 +1,16 @@
 """Studio user-repository singleton accessor + lifespan helpers.
 
-When ``DB_TYPE=sqlite`` Studio rides on the central ``core.db`` engine so
-``studio_users`` lives in the same DB file as business tables. Otherwise
-a dedicated SQLite engine is created against ``data/ark_studio.db``.
-
-Phase 4 will replace ``_resolve_studio_engine()`` with a per-domain
-``engine.py`` module — the singleton accessor will then go through
-``build_studio_user_repository()`` without engine plumbing visible here.
+The factory + ``engine.py`` own backend selection; this module only
+caches the repo and bootstraps schema once at startup.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 from dataclasses import dataclass
-from pathlib import Path
-
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from .factory import build_studio_user_repository
 from .protocol import StudioUserRepository
-
-DEFAULT_STUDIO_DB_PATH = Path("data/ark_studio.db")
-
-
-def _resolve_studio_engine() -> AsyncEngine:
-    """Pick the AsyncEngine for the Studio repository singleton."""
-    db_type = os.environ.get("DB_TYPE", "file").strip().lower()
-    if db_type == "sqlite":
-        from ....core.db.engine import get_async_engine
-
-        return get_async_engine()
-
-    DEFAULT_STUDIO_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return create_async_engine(
-        f"sqlite+aiosqlite:///{DEFAULT_STUDIO_DB_PATH.as_posix()}",
-        future=True,
-        connect_args={"check_same_thread": False},
-    )
 
 
 @dataclass
@@ -57,7 +30,7 @@ def get_studio_user_repo() -> StudioUserRepository:
     bootstrap admin row are present before the first request.
     """
     if _state.repo is None:
-        _state.repo = build_studio_user_repository(_resolve_studio_engine())
+        _state.repo = build_studio_user_repository()
     return _state.repo
 
 

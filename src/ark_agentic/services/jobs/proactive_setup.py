@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncEngine
-
     from ark_agentic.core.registry import AgentRegistry
 
 
@@ -21,7 +19,6 @@ def register_proactive_jobs(
     registry: "AgentRegistry",
     *,
     notifications_base_dir: Path,
-    db_engine: "AsyncEngine | None",
 ) -> None:
     """Bind proactive jobs for all agents that have a memory manager."""
     from ark_agentic.services.jobs import (
@@ -35,7 +32,6 @@ def register_proactive_jobs(
     def _notif_repo(agent_id: str):
         return build_notification_repository(
             base_dir=notifications_base_dir / agent_id,
-            engine=db_engine,
             agent_id=agent_id,
         )
 

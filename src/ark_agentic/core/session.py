@@ -19,8 +19,6 @@ from .persistence import SessionStoreEntry
 from .types import AgentMessage, CompactionStats, SessionEntry, TokenUsage
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncEngine
-
     from .storage.protocols import SessionRepository
 
 logger = logging.getLogger(__name__)
@@ -41,7 +39,6 @@ class SessionManager:
         compaction_config: CompactionConfig | None = None,
         summarizer: SummarizerProtocol | None = None,
         repository: "SessionRepository | None" = None,
-        db_engine: "AsyncEngine | None" = None,
     ) -> None:
         self._sessions: dict[str, SessionEntry] = {}
         self._compaction_config = compaction_config or CompactionConfig()
@@ -52,9 +49,7 @@ class SessionManager:
         if repository is None:
             from .storage.factory import build_session_repository
 
-            repository = build_session_repository(
-                sessions_dir=sessions_dir, engine=db_engine,
-            )
+            repository = build_session_repository(sessions_dir=sessions_dir)
         self._repository = repository
 
     # ── Raw transcript I/O (Studio raw editor) ────────────

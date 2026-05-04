@@ -1,8 +1,12 @@
-"""AsyncEngine factory + schema bootstrap.
+"""AsyncEngine factory + schema bootstrap for the core domain.
 
-PR2: 单进程内对每个 (URL, pool_size) 缓存一个 ``AsyncEngine``。SQLite 默认
-启用 WAL pragma 提升并发读写。``init_schema(engine)`` 调用一次性建好所有
-注册到 ``Base.metadata`` 的表。
+The engine is owned by this module — business code never sees it. Each
+storage domain (core / notifications / studio) has its own ``engine.py``
+that exposes ``get_engine()`` and ``init_schema()``; factories internally
+ask their domain accessor and never accept ``engine=`` in public APIs.
+
+PR2: process-wide ``AsyncEngine`` cached per (URL, pool_size) via
+``@lru_cache``. SQLite enables WAL pragma for file-backed DBs.
 """
 
 from __future__ import annotations
@@ -17,8 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from .base import Base
 from .config import DBConfig, load_db_config_from_env
 
-# Make sure all ORM models are imported so they register on Base.metadata
-# before init_schema() runs. Import side-effect is intentional.
+# Make sure all core ORM models are imported so they register on
+# Base.metadata before init_schema() runs. Feature packages register
+# their own tables when their factory module is imported.
 from . import models  # noqa: F401
 
 
@@ -86,9 +91,6 @@ def _build_engine(connection_str: str, pool_size: int) -> AsyncEngine:
             normalized, future=True, pool_size=pool_size,
         )
 
-    # FK enforcement must be set per-connection (PRAGMA foreign_keys is not
-    # persisted in the DB file). Apply it for every SQLite engine — including
-    # ``:memory:`` so tests catch FK violations the same way prod does.
     if normalized.startswith("sqlite"):
         sync_engine: Engine = engine.sync_engine  # type: ignore[attr-defined]
         if is_memory_sqlite:
@@ -99,27 +101,65 @@ def _build_engine(connection_str: str, pool_size: int) -> AsyncEngine:
     return engine
 
 
-def get_async_engine(config: DBConfig | None = None) -> AsyncEngine:
-    """Return a process-wide cached AsyncEngine for the given DB config.
+# Test-injected override; takes precedence over the cache when set.
+_test_engine: AsyncEngine | None = None
 
-    Raises ``RuntimeError`` if called with ``db_type='file'`` — file backend
-    has no engine.
+
+def get_engine() -> AsyncEngine:
+    """Return the process-wide AsyncEngine resolved from the environment.
+
+    Raises ``RuntimeError`` if ``DB_TYPE=file`` — the file backend has no
+    engine. Tests can swap the singleton via ``set_engine_for_testing``.
     """
-    cfg = config or load_db_config_from_env()
+    if _test_engine is not None:
+        return _test_engine
+    cfg = load_db_config_from_env()
     if cfg.db_type == "file":
         raise RuntimeError(
-            "get_async_engine() called with DB_TYPE=file; the file backend "
+            "get_engine() called with DB_TYPE=file; the file backend "
             "does not use a SQLAlchemy engine."
         )
     return _build_engine(cfg.connection_str, cfg.pool_size)
 
 
-async def init_schema(engine: AsyncEngine) -> None:
-    """Create all tables registered on Base.metadata. Idempotent."""
-    async with engine.begin() as conn:
+def get_async_engine(config: DBConfig | None = None) -> AsyncEngine:
+    """Backward-compat shim; prefer ``get_engine()``."""
+    if config is None:
+        return get_engine()
+    if _test_engine is not None:
+        return _test_engine
+    if config.db_type == "file":
+        raise RuntimeError(
+            "get_async_engine() called with DB_TYPE=file; the file backend "
+            "does not use a SQLAlchemy engine."
+        )
+    return _build_engine(config.connection_str, config.pool_size)
+
+
+async def init_schema(engine: AsyncEngine | None = None) -> None:
+    """Create all tables registered on ``Base.metadata``. Idempotent.
+
+    Without arguments, uses the domain engine via ``get_engine()``.
+    Passing an explicit engine is supported for tests / migration tools.
+    """
+    target = engine if engine is not None else get_engine()
+    async with target.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
-def reset_engine_cache() -> None:
-    """Clear the engine cache (test helper)."""
+def set_engine_for_testing(engine: AsyncEngine) -> None:
+    """Inject a per-test engine; ``get_engine()`` returns it until reset."""
+    global _test_engine
+    _test_engine = engine
+
+
+def reset_engine_for_testing() -> None:
+    """Drop the per-test engine + clear the cache. Test cleanup helper."""
+    global _test_engine
+    _test_engine = None
     _build_engine.cache_clear()
+
+
+def reset_engine_cache() -> None:
+    """Backward-compat alias of ``reset_engine_for_testing``."""
+    reset_engine_for_testing()

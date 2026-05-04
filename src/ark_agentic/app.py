@@ -39,7 +39,6 @@ from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
 from ark_agentic.core.observability import setup_tracing_from_env, shutdown_tracing
 from ark_agentic.studio import setup_studio_from_env
-from ark_agentic.studio.services.auth import ensure_studio_schema
 from ark_agentic.agents.securities.tools.service.mock_mode import get_mock_mode
 
 logger = logging.getLogger(__name__)
@@ -53,21 +52,16 @@ def _env_flag(name: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Step 0: 部署配置检查 + DB 引擎装配 + Studio authz 预初始化 ──
+    # ── Step 0: 部署配置检查 + 各域 schema 初始化 ──
     # validate_deployment_config: 多 worker + 进程内 cache 错配立刻 raise.
-    # DB_TYPE=sqlite 时初始化 AsyncEngine 并建表（含 studio_users）。
-    # get_studio_user_repo(): 提前实例化模块级单例并跑一次 _ensure_schema,
-    # 阻止首次并发请求竞态创建多份 AsyncEngine.
+    # bootstrap_storage 调用 core / notifications / studio 三域的
+    # init_schema()，每个域的 engine 完全封装在自己的 engine.py 内。
     validate_deployment_config()
 
-    storage = await bootstrap_storage()
-    app.state.db_engine = storage.db_engine
-    logger.info("Storage bootstrapped (db_engine=%s)", "sqlite" if storage.db_engine else "file")
-
-    # Lazy schema bootstrap: creates studio_users table + seeds the
-    # bootstrap admin row (idempotent). Eagerly invoked here so the
-    # first concurrent request doesn't race the seed insert.
-    await ensure_studio_schema()
+    # bootstrap_storage triggers each domain's init_schema; engine
+    # ownership is fully encapsulated in per-domain engine.py modules.
+    await bootstrap_storage()
+    logger.info("Storage bootstrapped (DB_TYPE=%s)", os.getenv("DB_TYPE", "file"))
 
     # ── Step 1: 先初始化 JobManager 全局单例（如果启用）────────────────────
     # 必须在 agent warmup 之前设置，因为 warmup 时会自动向 JobManager 注册 Job
@@ -113,16 +107,13 @@ async def lifespan(app: FastAPI):
     # ── Step 2: 创建并注册 Agents ────────────────────────────────────────
     _enable_memory = _env_flag("ENABLE_MEMORY")
     _enable_dream = _env_flag("ENABLE_DREAM") if os.getenv("ENABLE_DREAM") else True
-    _db_engine = app.state.db_engine
     _registry.register("insurance", create_insurance_agent(
         enable_memory=_enable_memory,
         enable_dream=_enable_dream,
-        db_engine=_db_engine,
     ))
     _registry.register("securities", create_securities_agent(
         enable_memory=_enable_memory,
         enable_dream=_enable_dream,
-        db_engine=_db_engine,
     ))
 
     # ── Step 2b: 组装 Proactive Jobs ────────────────────────────────────────
@@ -131,7 +122,6 @@ async def lifespan(app: FastAPI):
         register_proactive_jobs(
             _registry,
             notifications_base_dir=app.state.notifications_base_dir,
-            db_engine=app.state.db_engine,
         )
 
     api_deps.init_registry(_registry)

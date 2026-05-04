@@ -105,14 +105,11 @@ async def test_list_user_ids_delegates_to_repo() -> None:
     mock_repo.list_users.assert_called_once()
 
 
-def test_build_memory_manager_accepts_engine_injection(tmp_path: Path) -> None:
-    """build_memory_manager must accept an engine kwarg without re-parsing DB_TYPE."""
-    from unittest.mock import MagicMock, patch
+def test_build_memory_manager_no_longer_takes_engine(tmp_path: Path) -> None:
+    """``engine`` kwarg removed — engine ownership is encapsulated by
+    ``core.db.engine``, not plumbed through public signatures."""
+    import inspect
 
-    mock_engine = MagicMock()
-    with patch("ark_agentic.core.storage.factory.build_memory_repository") as mock_factory:
-        mock_factory.return_value = AsyncMock()
-        build_memory_manager(memory_dir=tmp_path, engine=mock_engine)
-        mock_factory.assert_called_once()
-        _, kwargs = mock_factory.call_args
-        assert kwargs.get("engine") is mock_engine
+    sig = inspect.signature(build_memory_manager)
+    assert "engine" not in sig.parameters
+    assert "db_engine" not in sig.parameters

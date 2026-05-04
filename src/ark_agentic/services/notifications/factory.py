@@ -1,9 +1,8 @@
 """Notifications repository factory — env-driven backend dispatch.
 
-Self-contained: the notifications feature owns its own backend selection so
-core no longer knows the storage layout. The phase-4 cleanup will hide
-``engine`` behind a per-domain ``engine.py`` module; for now the signature
-matches the prior ``core.storage.factory.build_notification_repository``.
+Self-contained: the notifications feature owns its backend selection so
+core does not know the storage layout. ``AsyncEngine`` lives in
+``services/notifications/engine.py``; this factory never sees it.
 """
 
 from __future__ import annotations
@@ -11,10 +10,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from sqlalchemy.ext.asyncio import AsyncEngine
-
-# Importing the storage package as a side-effect registers ``NotificationRow``
-# on ``core.db.base.Base.metadata`` so ``init_schema()`` can create the table.
 from .protocol import NotificationRepository
 from .storage.file import FileNotificationRepository
 from .storage.sqlite import SqliteNotificationRepository
@@ -29,16 +24,9 @@ def _resolve_db_type() -> str:
     return raw
 
 
-def _require_engine(engine: AsyncEngine | None) -> AsyncEngine:
-    if engine is not None:
-        return engine
-    from ...core.db.engine import get_async_engine
-    return get_async_engine()
-
-
 def build_notification_repository(
     base_dir: str | Path | None = None,
-    engine: AsyncEngine | None = None,
+    *,
     agent_id: str = "",
 ) -> NotificationRepository:
     """Build a notification repository scoped to one ``agent_id``.
@@ -54,9 +42,8 @@ def build_notification_repository(
             )
         return FileNotificationRepository(Path(base_dir))
     if db_type == "sqlite":
-        return SqliteNotificationRepository(
-            _require_engine(engine), agent_id=agent_id,
-        )
+        from .engine import get_engine
+        return SqliteNotificationRepository(get_engine(), agent_id=agent_id)
     raise ValueError(
         f"Unsupported DB_TYPE for notification repository: {db_type!r}"
     )
