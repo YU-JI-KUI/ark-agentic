@@ -94,6 +94,33 @@ class SqliteMemoryRepository:
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
 
+    async def get_last_dream_at(self, user_id: str) -> float | None:
+        async with self._engine.connect() as conn:
+            row = (await conn.execute(
+                select(UserMemory.last_dream_at).where(
+                    UserMemory.user_id == user_id,
+                )
+            )).first()
+        return row[0] if row else None
+
+    async def set_last_dream_at(
+        self, user_id: str, timestamp: float,
+    ) -> None:
+        """Upsert the last_dream_at column. When the user has no row yet,
+        insert one with empty content so the marker can be persisted."""
+        now_ms = int(time.time() * 1000)
+        stmt = sqlite_insert(UserMemory).values(
+            user_id=user_id,
+            content="",
+            last_dream_at=timestamp,
+            updated_at=now_ms,
+        ).on_conflict_do_update(
+            index_elements=["user_id"],
+            set_={"last_dream_at": timestamp, "updated_at": now_ms},
+        )
+        async with self._engine.begin() as conn:
+            await conn.execute(stmt)
+
     async def list_users(
         self,
         limit: int | None = None,

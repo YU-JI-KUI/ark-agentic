@@ -149,34 +149,23 @@ def build_standard_agent(
     tool_registry.register_all(tools)
 
     memory_manager = None
-    dreamer = None
     if enable_memory:
         memory_dir = get_memory_base_dir() / defn.agent_id
-        memory_manager = build_memory_manager(memory_dir)
-
-        if enable_dream:
-            from .memory.dream import MemoryDreamer
-            from .storage.factory import build_agent_state_repository
-
-            state_repo = build_agent_state_repository(
-                workspace_dir=memory_dir,
-            )
-            # Dream calls use the agent's default sampling; previously the
-            # runner-side LLMCaller applied a summarization override, but
-            # putting that wiring here would re-leak runner internals.
-            # Dream output quality is fine with the chat sampling.
-            dreamer = MemoryDreamer(
-                lambda: llm,
-                memory_manager=memory_manager,
-                session_repo=session_repo,
-                state_repo=state_repo,
-            )
+        # Dreaming is part of the memory subsystem; the manager builds and
+        # owns the dreamer internally when enable_dream=True. The factory
+        # supplies the ingredients (session_repo, llm) but never sees the
+        # dreamer itself.
+        memory_manager = build_memory_manager(
+            memory_dir,
+            enable_dream=enable_dream,
+            session_repo=session_repo,
+            llm_factory=(lambda: llm) if enable_dream else None,
+        )
 
     runner_config = RunnerConfig(
         sampling=sampling or SamplingConfig.for_chat(),
         max_turns=defn.max_turns,
         enable_subtasks=defn.enable_subtasks,
-        enable_dream=enable_dream,
         prompt_config=PromptConfig(
             agent_name=defn.agent_name,
             agent_description=defn.agent_description,
@@ -195,5 +184,4 @@ def build_standard_agent(
         config=runner_config,
         memory_manager=memory_manager,
         callbacks=callbacks,
-        dreamer=dreamer,
     )

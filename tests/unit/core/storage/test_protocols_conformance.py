@@ -44,7 +44,14 @@ def test_session_repository_method_set():
 
 
 def test_memory_repository_method_set():
-    expected = {"read", "upsert_headings", "overwrite", "list_users"}
+    expected = {
+        "read",
+        "upsert_headings",
+        "overwrite",
+        "list_users",
+        "get_last_dream_at",
+        "set_last_dream_at",
+    }
 
     actual = _public_methods(MemoryRepository)
 

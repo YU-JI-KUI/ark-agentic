@@ -16,11 +16,9 @@ from ark_agentic.core.memory.dream import (
     MemoryDreamer,
     format_session_for_dream,
     should_dream,
-    touch_last_dream,
 )
 from ark_agentic.core.memory.manager import MemoryManager
 from ark_agentic.core.memory.user_profile import parse_heading_sections
-from ark_agentic.core.storage.repository.file.agent_state import FileAgentStateRepository
 from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
 from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 
@@ -236,26 +234,26 @@ class TestShouldDream:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
-            state_repo = FileAgentStateRepository(workspace)
+            memory_repo = FileMemoryRepository(workspace)
             session_repo = FileSessionRepository(sessions)
 
-            result = await should_dream(state_repo, session_repo, "U001")
+            result = await should_dream(memory_repo, session_repo, "U001")
 
             assert result is False
-            assert await state_repo.get("U001", "last_dream") is not None
+            assert await memory_repo.get_last_dream_at("U001") is not None
 
     async def test_too_recent_returns_false(self) -> None:
         with tempfile.TemporaryDirectory() as ws:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
-            state_repo = FileAgentStateRepository(workspace)
+            memory_repo = FileMemoryRepository(workspace)
             session_repo = FileSessionRepository(sessions)
 
-            await touch_last_dream(state_repo, "U001")
+            await memory_repo.set_last_dream_at("U001", time.time())
 
             result = await should_dream(
-                state_repo, session_repo, "U001", min_hours=24.0,
+                memory_repo, session_repo, "U001", min_hours=24.0,
             )
             assert result is False
 
@@ -264,14 +262,12 @@ class TestShouldDream:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
-            state_repo = FileAgentStateRepository(workspace)
+            memory_repo = FileMemoryRepository(workspace)
             session_repo = FileSessionRepository(sessions)
-            await state_repo.set(
-                "U001", "last_dream", str(time.time() - 86400 * 2),
-            )
+            await memory_repo.set_last_dream_at("U001", time.time() - 86400 * 2)
 
             result = await should_dream(
-                state_repo, session_repo, "U001",
+                memory_repo, session_repo, "U001",
                 min_hours=24.0, min_sessions=3,
             )
             assert result is True
@@ -281,11 +277,11 @@ class TestShouldDream:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
-            state_repo = FileAgentStateRepository(workspace)
+            memory_repo = FileMemoryRepository(workspace)
             session_repo = FileSessionRepository(sessions)
 
             last_ts = time.time() - 3600  # 1h ago
-            await state_repo.set("U001", "last_dream", str(last_ts))
+            await memory_repo.set_last_dream_at("U001", last_ts)
 
             # Seed three real sessions whose updated_at lies after last_ts.
             for i in range(3):
@@ -303,7 +299,7 @@ class TestShouldDream:
                 )
 
             result = await should_dream(
-                state_repo, session_repo, "U001",
+                memory_repo, session_repo, "U001",
                 min_hours=24.0, min_sessions=3,
             )
             assert result is True
@@ -313,30 +309,17 @@ class TestShouldDream:
             workspace = Path(ws)
             sessions = workspace / "sessions"
             sessions.mkdir()
-            state_repo = FileAgentStateRepository(workspace)
+            memory_repo = FileMemoryRepository(workspace)
             session_repo = FileSessionRepository(sessions)
 
             last_ts = time.time() - 3600  # 1h ago
-            await state_repo.set("U001", "last_dream", str(last_ts))
+            await memory_repo.set_last_dream_at("U001", last_ts)
 
             result = await should_dream(
-                state_repo, session_repo, "U001",
+                memory_repo, session_repo, "U001",
                 min_hours=24.0, min_sessions=3,
             )
             assert result is False
-
-
-class TestTouchLastDream:
-    async def test_creates_marker(self) -> None:
-        with tempfile.TemporaryDirectory() as ws:
-            state_repo = FileAgentStateRepository(Path(ws))
-
-            await touch_last_dream(state_repo, "U001")
-
-            raw = await state_repo.get("U001", "last_dream")
-            assert raw is not None
-            ts = float(raw.strip())
-            assert time.time() - ts < 5
 
 
 # ---------------------------------------------------------------------------
@@ -359,13 +342,13 @@ class TestDreamerRun:
             sessions_dir.mkdir()
 
             llm = _make_llm('{"distilled": "## 偏好\\n简洁回复", "changes": "merged A+B"}')
-            state_repo = FileAgentStateRepository(ws)
+            memory_repo = FileMemoryRepository(ws)
             session_repo = FileSessionRepository(sessions_dir)
             dreamer = MemoryDreamer(
                 lambda: llm,
                 memory_manager=mgr,
                 session_repo=session_repo,
-                state_repo=state_repo,
+                memory_repo=memory_repo,
             )
 
             with patch(
@@ -380,8 +363,8 @@ class TestDreamerRun:
             assert len(sections) == 1
             assert "简洁" in sections["偏好"]
 
-            # Last dream marker updated via state_repo
-            assert await state_repo.get("U001", "last_dream") is not None
+            # Last dream marker persisted via memory_repo
+            assert await memory_repo.get_last_dream_at("U001") is not None
 
     @pytest.mark.asyncio
     async def test_conservative_no_delete(self) -> None:
@@ -396,13 +379,13 @@ class TestDreamerRun:
             sessions_dir.mkdir()
 
             llm = _make_llm('{"distilled": "", "changes": "无需修改"}')
-            state_repo = FileAgentStateRepository(ws)
+            memory_repo = FileMemoryRepository(ws)
             session_repo = FileSessionRepository(sessions_dir)
             dreamer = MemoryDreamer(
                 lambda: llm,
                 memory_manager=mgr,
                 session_repo=session_repo,
-                state_repo=state_repo,
+                memory_repo=memory_repo,
             )
 
             with patch(

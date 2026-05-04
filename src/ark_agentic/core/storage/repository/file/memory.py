@@ -20,6 +20,7 @@ from ....memory.user_profile import (
 logger = logging.getLogger(__name__)
 
 _PROFILE_FILENAME = "MEMORY.md"
+_LAST_DREAM_FILENAME = ".last_dream"
 
 
 class FileMemoryRepository:
@@ -95,6 +96,45 @@ class FileMemoryRepository:
             delete=False,
         ) as tmp:
             tmp.write(content)
+            tmp_path = tmp.name
+        os.replace(tmp_path, target)
+
+    def _last_dream_path(self, user_id: str) -> Path:
+        return self._workspace / user_id / _LAST_DREAM_FILENAME
+
+    async def get_last_dream_at(self, user_id: str) -> float | None:
+        return await asyncio.to_thread(self._get_last_dream_at_sync, user_id)
+
+    def _get_last_dream_at_sync(self, user_id: str) -> float | None:
+        path = self._last_dream_path(user_id)
+        if not path.exists():
+            return None
+        try:
+            return float(path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return None
+
+    async def set_last_dream_at(
+        self, user_id: str, timestamp: float,
+    ) -> None:
+        await asyncio.to_thread(
+            self._set_last_dream_at_sync, user_id, timestamp,
+        )
+
+    def _set_last_dream_at_sync(
+        self, user_id: str, timestamp: float,
+    ) -> None:
+        target = self._last_dream_path(user_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=str(target.parent),
+            prefix=".last_dream_",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp.write(str(timestamp))
             tmp_path = tmp.name
         os.replace(tmp_path, target)
 

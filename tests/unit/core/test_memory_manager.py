@@ -186,3 +186,57 @@ def test_build_memory_manager_no_longer_takes_engine(tmp_path: Path) -> None:
     sig = inspect.signature(build_memory_manager)
     assert "engine" not in sig.parameters
     assert "db_engine" not in sig.parameters
+
+
+# ---------------------------------------------------------------------------
+# Dreaming control: enable_dream config + maybe_consolidate behaviour
+# ---------------------------------------------------------------------------
+
+
+async def test_maybe_consolidate_is_noop_when_dreaming_disabled(
+    tmp_path: Path,
+) -> None:
+    """Default config has enable_dream=False; manager must not construct a
+    dreamer and maybe_consolidate is a silent no-op."""
+    mgr = build_memory_manager(tmp_path)
+
+    assert mgr._dreamer is None
+    await mgr.maybe_consolidate("anyone")  # must not raise
+
+
+def test_enable_dream_requires_session_repo_and_llm_factory(
+    tmp_path: Path,
+) -> None:
+    """Memory subsystem is the SSOT for dreamer wiring — building it without
+    the inputs it needs must fail loudly, not silently disable dreaming."""
+    with pytest.raises(ValueError, match="enable_dream"):
+        build_memory_manager(tmp_path, enable_dream=True)
+
+
+async def test_maybe_consolidate_delegates_to_internal_dreamer(
+    tmp_path: Path,
+) -> None:
+    """When enabled, maybe_consolidate forwards to the internal dreamer's
+    maybe_run; the dreamer itself stays internal to the memory subsystem."""
+    from unittest.mock import MagicMock
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    from ark_agentic.core.storage.repository.file.session import (
+        FileSessionRepository,
+    )
+
+    session_repo = FileSessionRepository(sessions_dir)
+    mgr = build_memory_manager(
+        tmp_path / "ws",
+        enable_dream=True,
+        session_repo=session_repo,
+        llm_factory=lambda: MagicMock(),
+    )
+
+    assert mgr._dreamer is not None
+    mgr._dreamer.maybe_run = AsyncMock()  # type: ignore[method-assign]
+
+    await mgr.maybe_consolidate("u1")
+
+    mgr._dreamer.maybe_run.assert_called_once_with("u1")

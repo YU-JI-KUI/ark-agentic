@@ -7,7 +7,7 @@ own feature packages and import ``Base`` from here so all tables share one
 
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -61,6 +61,9 @@ class UserMemory(Base):
 
     user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     content: Mapped[str] = mapped_column(Text, default="")
+    # Timestamp (epoch seconds) of the user's last memory consolidation pass.
+    # NULL until the dreamer first marks the user.
+    last_dream_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
 
 
