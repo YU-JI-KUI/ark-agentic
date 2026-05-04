@@ -21,8 +21,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ark_agentic.api.context import AppContext, get_ctx
-from ark_agentic.plugins.notifications.service import NotificationsService
+from ark_agentic.plugins.api.context import AppContext, get_ctx
+from .service import NotificationsService
 
 router = APIRouter(prefix="/api", tags=["notifications"])
 logger = logging.getLogger(__name__)

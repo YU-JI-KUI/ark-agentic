@@ -19,7 +19,7 @@ def client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def init_agent_registry():
-    from ark_agentic.api import deps
+    from ark_agentic.plugins.api import deps
     from ark_agentic.core.registry import AgentRegistry
     # 初始化一个临时的空的 registry
     deps.init_registry(AgentRegistry())
@@ -30,7 +30,7 @@ def init_agent_registry():
 def mock_agent_runner():
     """Mock the insurance agent runner."""
     from ark_agentic.core.types import SessionEntry
-    with patch("ark_agentic.api.chat.get_agent") as mock_get:
+    with patch("ark_agentic.plugins.api.chat.get_agent") as mock_get:
         runner = AsyncMock(spec=AgentRunner)
         # Mock session manager with proper SessionEntry
         runner.session_manager = MagicMock()

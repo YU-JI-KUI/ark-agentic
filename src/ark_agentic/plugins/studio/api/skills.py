@@ -11,7 +11,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from ark_agentic.api.deps import get_registry
+from ark_agentic.plugins.api.deps import get_registry
 from ark_agentic.core.utils.env import get_agents_root
 from ark_agentic.plugins.studio.services.auth import StudioPrincipal, require_studio_roles, require_studio_user
 from ..services import skill_service

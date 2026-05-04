@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from ark_agentic.api.models import (
+from ark_agentic.plugins.api.models import (
     ChatRequest,
     ChatResponse,
     HistoryMessage,

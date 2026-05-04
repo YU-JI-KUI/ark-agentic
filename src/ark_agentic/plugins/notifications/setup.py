@@ -43,7 +43,7 @@ class NotificationsContext:
 
 def setup_notifications(app: "FastAPI") -> None:
     """Mount the notifications + jobs HTTP routes on ``app``."""
-    from ...api import notifications as notifications_api
+    from . import api as notifications_api
 
     app.include_router(notifications_api.router)
 

@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from ark_agentic.api.deps import init_registry
+from ark_agentic.plugins.api.deps import init_registry
 from ark_agentic.plugins.studio.api.sessions import router as sessions_router
 from ark_agentic.plugins.studio.api.memory import _resolve_memory_path, router as memory_router
 from ark_agentic.core.registry import AgentRegistry
