@@ -19,7 +19,7 @@ class StudioPlugin(BasePlugin):
     def is_enabled(self) -> bool:
         return os.getenv("ENABLE_STUDIO", "").lower() == "true"
 
-    async def init_schema(self) -> None:
+    async def init(self) -> None:
         from .services.auth.engine import init_schema
         await init_schema()
 

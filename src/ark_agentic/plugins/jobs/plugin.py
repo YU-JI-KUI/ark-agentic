@@ -1,17 +1,16 @@
 """JobsPlugin — built-in proactive job manager + scanner.
 
-Requires the notifications plugin to be loaded first (jobs broadcast
-through the notifications delivery channel). Reads JOB_* env vars for
-scanner sizing.
+Requires the notifications plugin to be enabled and registered before
+it (jobs broadcast through the notifications delivery channel). Reads
+JOB_* env vars for scanner sizing.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from ...core.plugin import BasePlugin
 
@@ -43,21 +42,23 @@ class JobsPlugin(BasePlugin):
 
     name = "jobs"
 
+    def __init__(self) -> None:
+        self._manager: "JobManager | None" = None
+
     def is_enabled(self) -> bool:
         return _env_flag("ENABLE_JOB_MANAGER")
 
-    async def init_schema(self) -> None:
+    async def init(self) -> None:
         if not _db_is_sqlite():
             return
         from .engine import init_schema
         await init_schema()
 
-    @asynccontextmanager
-    async def lifespan(self, app_ctx: Any) -> AsyncIterator[JobsContext]:
-        if getattr(app_ctx, "notifications", None) is None:
+    async def start(self, ctx: Any) -> JobsContext:
+        if getattr(ctx, "notifications", None) is None:
             raise RuntimeError(
                 "JobsPlugin requires NotificationsPlugin to be enabled "
-                "and registered before it in the PLUGINS list."
+                "and registered before it in the components list."
             )
 
         try:
@@ -76,26 +77,29 @@ class JobsPlugin(BasePlugin):
             total_shards=int(os.getenv("JOB_TOTAL_SHARDS", "1")),
         )
         manager = JobManager(
-            delivery=app_ctx.notifications.service.delivery,
+            delivery=ctx.notifications.service.delivery,
             scanner=scanner,
         )
         set_job_manager(manager)
 
-        # Per-agent proactive job bindings live alongside agents; we wire
-        # them once the agent registry is populated. The plugin lifespan
-        # runs after register_all in the host, so the registry is ready.
-        if getattr(app_ctx, "registry", None) is not None:
+        # Per-agent proactive job bindings: wired once the registry is
+        # populated. AgentsRuntime starts before JobsPlugin in the
+        # default component list so ctx.registry is ready here.
+        if getattr(ctx, "registry", None) is not None:
             from ..notifications.paths import get_notifications_base_dir
             from .proactive_setup import register_proactive_jobs
             register_proactive_jobs(
-                app_ctx.registry,
+                ctx.registry,
                 notifications_base_dir=get_notifications_base_dir(),
             )
 
         await manager.start()
         logger.info("JobManager started")
-        try:
-            yield JobsContext(manager=manager, scanner=scanner)
-        finally:
-            await manager.stop()
+        self._manager = manager
+        return JobsContext(manager=manager, scanner=scanner)
+
+    async def stop(self) -> None:
+        if self._manager is not None:
+            await self._manager.stop()
             logger.info("JobManager stopped")
+            self._manager = None

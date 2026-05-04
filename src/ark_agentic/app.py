@@ -26,14 +26,12 @@ logging.basicConfig(
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from contextlib import AsyncExitStack
-
+from ark_agentic.core.bootstrap import Bootstrap
+from ark_agentic.core.lifecycle import Lifecycle
 from ark_agentic.core.registry import AgentRegistry
-from ark_agentic.core.plugin import Plugin
 from ark_agentic.plugins.api.context import AppContext
 from ark_agentic.plugins.api.plugin import APIPlugin
 from ark_agentic.plugins.api import deps as api_deps
-from ark_agentic.bootstrap import bootstrap_storage
 from ark_agentic.agents import register_all as register_all_agents
 from ark_agentic.core.observability import setup_tracing_from_env, shutdown_tracing
 from ark_agentic.plugins.jobs.plugin import JobsPlugin
@@ -47,14 +45,16 @@ _registry = AgentRegistry()
 
 # Built-in plugins. Order matters: APIPlugin first so other plugins can
 # mount routes onto a configured FastAPI app; NotificationsPlugin must
-# precede JobsPlugin since the latter reads ``app_ctx.notifications``.
-PLUGINS: list[Plugin] = [
+# precede JobsPlugin since the latter reads ``ctx.notifications``.
+PLUGINS: list[Lifecycle] = [
     APIPlugin(),
     PlaygroundPlugin(),
     NotificationsPlugin(),
     JobsPlugin(),
     StudioPlugin(),
 ]
+
+_bootstrap = Bootstrap(PLUGINS)
 
 
 def _env_flag(name: str) -> bool:
@@ -63,53 +63,27 @@ def _env_flag(name: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Step 0: schema bootstrap ──
-    await bootstrap_storage()
-    logger.info("Storage bootstrapped (DB_TYPE=%s)", os.getenv("DB_TYPE", "file"))
-
-    # Plugin-owned schema. ``bootstrap_storage`` already covers domains
-    # known to it; plugins added later (or written by users via CLI)
-    # can opt in via their own ``init_schema``.
-    for p in PLUGINS:
-        if p.is_enabled():
-            await p.init_schema()
-
-    tracer_provider = setup_tracing_from_env(service_name="ark-agentic-api")
-
-    # ── Step 1: 注册 Agents（独立于 plugin 加载）────────────────────────
+    # Agents + tracing are still inline here; the next commit moves them
+    # into core/runtime/{agents,tracing}.py as Lifecycle components so
+    # this whole function collapses to a single ``_bootstrap.lifespan``.
     register_all_agents(
         _registry,
         enable_memory=_env_flag("ENABLE_MEMORY"),
         enable_dream=_env_flag("ENABLE_DREAM") if os.getenv("ENABLE_DREAM") else True,
     )
     api_deps.init_registry(_registry)
+    tracer_provider = setup_tracing_from_env(service_name="ark-agentic-api")
 
-    # ── Step 2: enter every enabled plugin's lifespan ──────────────────
-    async with AsyncExitStack() as stack:
-        ctx = AppContext(registry=_registry)
-        for p in PLUGINS:
-            if not p.is_enabled():
-                continue
-            value = await stack.enter_async_context(p.lifespan(ctx))
-            setattr(ctx, p.name, value)
-            logger.info("Plugin %r started", p.name)
-
-        app.state.ctx = ctx
-
-        # ── Step 3: warmup agents ──
+    ctx = AppContext(registry=_registry)
+    async with _bootstrap.lifespan(app, ctx):
         for agent_id in _registry.list_ids():
-            runner = _registry.get(agent_id)
-            await runner.warmup()
+            await _registry.get(agent_id).warmup()
             logger.info("Agent '%s' warmed up", agent_id)
-
-        logger.info("Unified API started with agents: %s", _registry.list_ids())
         yield
 
     for agent_id in _registry.list_ids():
-        runner = _registry.get(agent_id)
-        await runner.close_memory()
+        await _registry.get(agent_id).close_memory()
     shutdown_tracing(tracer_provider)
-    logger.info("Unified API shutting down")
 
 
 app = FastAPI(
@@ -136,11 +110,9 @@ async def _drop_windows_update_probes(request, call_next):
         return Response(status_code=204)
     return await call_next(request)
 
-# ---- 挂载路由（每个 plugin 自己负责 install_routes）─────────────────
-for _plugin in PLUGINS:
-    if _plugin.is_enabled():
-        _plugin.install_routes(app)
-        logger.info("Plugin %r routes mounted", _plugin.name)
+# Plugin route mounting is delegated to Bootstrap so disabled plugins
+# (and the route-mount log line) are handled in one place.
+_bootstrap.install_routes(app)
 
 
 def main() -> None:

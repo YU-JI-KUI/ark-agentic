@@ -1,21 +1,28 @@
-"""Plugin Protocol contract tests."""
+"""Plugin / Lifecycle Protocol contract tests."""
 
 from __future__ import annotations
 
+from ark_agentic.core.lifecycle import BaseLifecycle, Lifecycle
 from ark_agentic.core.plugin import BasePlugin, Plugin
 
 
-def test_base_plugin_satisfies_protocol() -> None:
-    """A naked BasePlugin (with name) must satisfy the runtime-checkable
-    Protocol — no overrides required."""
-
+def test_base_plugin_satisfies_plugin_protocol() -> None:
     class P(BasePlugin):
         name = "x"
 
     assert isinstance(P(), Plugin)
+    # Plugin extends Lifecycle, so it must also satisfy that.
+    assert isinstance(P(), Lifecycle)
 
 
-def test_base_plugin_defaults_are_no_ops() -> None:
+def test_base_lifecycle_satisfies_lifecycle_protocol() -> None:
+    class L(BaseLifecycle):
+        name = "x"
+
+    assert isinstance(L(), Lifecycle)
+
+
+def test_defaults_are_no_ops() -> None:
     class P(BasePlugin):
         name = "x"
 
@@ -23,25 +30,36 @@ def test_base_plugin_defaults_are_no_ops() -> None:
     assert p.is_enabled() is True
 
 
-async def test_base_plugin_init_schema_is_no_op() -> None:
+async def test_init_default_is_no_op() -> None:
     class P(BasePlugin):
         name = "x"
 
-    assert await P().init_schema() is None
+    assert await P().init() is None
 
 
-async def test_base_plugin_lifespan_yields_none() -> None:
+async def test_start_default_returns_none() -> None:
     class P(BasePlugin):
         name = "x"
 
-    async with P().lifespan(app_ctx=object()) as value:
-        assert value is None
+    assert await P().start(ctx=object()) is None
+
+
+async def test_stop_default_is_no_op() -> None:
+    class P(BasePlugin):
+        name = "x"
+
+    assert await P().stop() is None
+
+
+def test_install_routes_default_is_no_op() -> None:
+    class P(BasePlugin):
+        name = "x"
+
+    # Doesn't matter what we pass — default ignores it.
+    assert P().install_routes(app=object()) is None
 
 
 def test_subclass_can_override_only_what_it_needs() -> None:
-    """A plugin overriding only ``install_routes`` should still satisfy
-    the Protocol via the base class' default for the rest."""
-
     routes_calls: list = []
 
     class WithRoutes(BasePlugin):
@@ -66,25 +84,25 @@ def test_disabled_plugin_reports_false() -> None:
     assert Disabled().is_enabled() is False
 
 
-async def test_lifespan_can_yield_a_value_and_run_cleanup() -> None:
-    """Plugins that produce a runtime context yield it from ``lifespan``;
-    teardown after the ``yield`` runs on shutdown."""
-    teardown_ran: list = []
+async def test_start_stop_pair_runs_in_sequence() -> None:
+    """Plugins that produce a runtime context return it from ``start``;
+    ``stop`` is called by the host on shutdown — symmetric with start."""
+    events: list[str] = []
 
     class Stateful(BasePlugin):
         name = "s"
 
-        from contextlib import asynccontextmanager
+        async def start(self, ctx):
+            events.append("start")
+            return {"started": True}
 
-        @asynccontextmanager
-        async def lifespan(self, app_ctx):
-            try:
-                yield {"started": True}
-            finally:
-                teardown_ran.append(True)
+        async def stop(self):
+            events.append("stop")
 
     p = Stateful()
-    async with p.lifespan(app_ctx=None) as ctx:
-        assert ctx == {"started": True}
+    value = await p.start(ctx=None)
+    assert value == {"started": True}
+    assert events == ["start"]
 
-    assert teardown_ran == [True]
+    await p.stop()
+    assert events == ["start", "stop"]
