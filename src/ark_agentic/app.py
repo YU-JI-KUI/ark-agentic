@@ -107,8 +107,9 @@ async def lifespan(app: FastAPI):
 
     if _enable_memory and notif_ctx is not None:
         from ark_agentic.services.jobs.proactive_setup import register_proactive_jobs
+        from ark_agentic.services.notifications import get_notifications_base_dir
         register_proactive_jobs(
-            _registry, notifications_base_dir=notif_ctx.base_dir,
+            _registry, notifications_base_dir=get_notifications_base_dir(),
         )
 
     api_deps.init_registry(_registry)

@@ -22,8 +22,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ark_agentic.api.context import AppContext, get_ctx
-from ark_agentic.services.notifications.protocol import NotificationRepository
-from ark_agentic.services.notifications.setup import NotificationsContext
+from ark_agentic.services.notifications.service import NotificationsService
 
 router = APIRouter(prefix="/api", tags=["notifications"])
 logger = logging.getLogger(__name__)
@@ -34,21 +33,14 @@ _KEEPALIVE_INTERVAL = 30.0
 # ── Typed dependencies ──────────────────────────────────────────────
 
 
-def get_notifications_ctx(
+def get_notifications_service(
     ctx: AppContext = Depends(get_ctx),
-) -> NotificationsContext:
+) -> NotificationsService:
     if ctx.notifications is None:
         raise HTTPException(
             status_code=503, detail="Notifications feature not enabled",
         )
-    return ctx.notifications
-
-
-def get_agent_repo(
-    agent_id: str,
-    notif_ctx: NotificationsContext = Depends(get_notifications_ctx),
-) -> NotificationRepository:
-    return notif_ctx.get_or_build_repo(agent_id)
+    return ctx.notifications.service
 
 
 def get_job_manager(ctx: AppContext = Depends(get_ctx)):
@@ -76,10 +68,12 @@ async def get_notifications(
     user_id: str,
     limit: int = 50,
     unread: bool = False,
-    repo: NotificationRepository = Depends(get_agent_repo),
+    service: NotificationsService = Depends(get_notifications_service),
 ):
     """拉取用户通知列表（按 agent 隔离）。"""
-    result = await repo.list_recent(user_id, limit=limit, unread_only=unread)
+    result = await service.list_for_user(
+        agent_id, user_id, limit=limit, unread_only=unread,
+    )
     return result.model_dump()
 
 
@@ -88,10 +82,10 @@ async def mark_read(
     agent_id: str,
     user_id: str,
     body: MarkReadRequest,
-    repo: NotificationRepository = Depends(get_agent_repo),
+    service: NotificationsService = Depends(get_notifications_service),
 ):
     """标记通知为已读。"""
-    await repo.mark_read(user_id, body.ids)
+    await service.mark_read(agent_id, user_id, body.ids)
     return {"ok": True, "marked": len(body.ids)}
 
 
@@ -102,23 +96,20 @@ async def notification_stream(
     agent_id: str,
     user_id: str,
     request: Request,
-    notif_ctx: NotificationsContext = Depends(get_notifications_ctx),
+    service: NotificationsService = Depends(get_notifications_service),
 ):
     """SSE 实时通知流（按 agent 隔离）。
 
     用户在线时建立此连接，Job 产生通知时可实时推送。
     断开时自动注销，无内存泄漏。
     """
-    delivery = notif_ctx.delivery
-    repo = notif_ctx.get_or_build_repo(agent_id)
     queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-    stream_key = f"{agent_id}:{user_id}"
-    delivery.register_user_online(stream_key, queue)
+    service.register_stream(agent_id, user_id, queue)
 
-    result = await repo.list_recent(user_id, limit=1, unread_only=True)
+    unread = await service.unread_count(agent_id, user_id)
     initial_event = {
         "type": "connected",
-        "unread_count": result.unread_count,
+        "unread_count": unread,
     }
 
     async def event_gen():
@@ -134,7 +125,7 @@ async def notification_stream(
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
         finally:
-            delivery.unregister_user(stream_key)
+            service.unregister_stream(agent_id, user_id)
             logger.debug("User %s (agent=%s) disconnected from notification stream", user_id, agent_id)
 
     return StreamingResponse(

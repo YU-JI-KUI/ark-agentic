@@ -4,21 +4,20 @@ Two seams between core and the notifications feature:
 - ``setup_notifications(app)`` — module-load time: mount HTTP routes.
 - ``build_notifications_context()`` — lifespan: build runtime state.
 
-This split mirrors FastAPI's lifecycle: routes register before lifespan
-startup; the context (delivery + per-agent repo cache) is built inside
-lifespan so it can use freshly-bootstrapped storage.
+The split mirrors FastAPI's lifecycle: routes register before lifespan
+startup; the context (a ``NotificationsService`` that wraps delivery +
+per-agent repos) is built inside lifespan so it can use freshly-bootstrapped
+storage.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .delivery import NotificationDelivery
-from .factory import build_notification_repository
 from .paths import get_notifications_base_dir
-from .protocol import NotificationRepository
+from .service import NotificationsService
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -28,24 +27,18 @@ if TYPE_CHECKING:
 class NotificationsContext:
     """Runtime state for the notifications feature.
 
-    ``per_agent_repos`` is a typed cache of per-agent repositories,
-    populated lazily by route handlers via ``get_or_build_repo``.
+    Single field — ``service`` — exposes the entire feature to the rest
+    of the application. Storage repositories and the SSE delivery channel
+    live behind it.
     """
 
-    delivery: NotificationDelivery
-    base_dir: Path
-    per_agent_repos: dict[str, NotificationRepository] = field(default_factory=dict)
+    service: NotificationsService
 
-    def get_or_build_repo(self, agent_id: str) -> NotificationRepository:
-        """Fetch the agent's repository, building (and caching) on miss."""
-        repo = self.per_agent_repos.get(agent_id)
-        if repo is None:
-            repo = build_notification_repository(
-                base_dir=self.base_dir / agent_id,
-                agent_id=agent_id,
-            )
-            self.per_agent_repos[agent_id] = repo
-        return repo
+    @property
+    def delivery(self) -> NotificationDelivery:
+        """Convenience accessor for legacy callers (jobs scanner, tests).
+        Production handlers should call typed methods on ``service`` instead."""
+        return self.service.delivery
 
 
 def setup_notifications(app: "FastAPI") -> None:
@@ -58,6 +51,7 @@ def setup_notifications(app: "FastAPI") -> None:
 def build_notifications_context() -> NotificationsContext:
     """Build the runtime context. Called once per lifespan startup."""
     return NotificationsContext(
-        delivery=NotificationDelivery(),
-        base_dir=get_notifications_base_dir(),
+        service=NotificationsService(
+            base_dir=get_notifications_base_dir(),
+        ),
     )
