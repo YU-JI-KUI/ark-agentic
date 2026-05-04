@@ -1,8 +1,8 @@
-"""Playground HTTP routes — landing page, demo agent UIs, README, wiki.
+"""Showcase HTTP routes — landing page, agent demo pages, README, wiki,
+securities mock-mode admin probe.
 
-These endpoints exist for the bundled demo experience; production agent
-deployments without the playground simply omit ``PlaygroundPlugin`` from
-their PLUGINS list.
+Framework-internal endpoints exposed via ``setup_showcase(app)``. Not
+shipped in the published wheel.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["playground"])
+router = APIRouter(tags=["showcase"])
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -129,5 +129,5 @@ async def get_wiki_page(lang: str, path: str):
 @router.get("/api/admin/securities-mock", include_in_schema=False)
 async def get_securities_mock_mode():
     """返回服务级默认 mock 状态（来自 SECURITIES_SERVICE_MOCK 环境变量，只读）。"""
-    from ...agents.securities.tools.service.mock_mode import get_mock_mode
+    from ..agents.securities.tools.service.mock_mode import get_mock_mode
     return {"mock": get_mock_mode()}

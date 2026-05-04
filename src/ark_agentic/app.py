@@ -53,6 +53,15 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Framework-only showcase site (landing / agent demos / README+wiki).
+# Mounted **before** plugin routes so this repo's home page wins over
+# the APIPlugin's default ``/`` chat demo. The showcase package is
+# excluded from the published wheel — third-party deployments install
+# this code path don't have it and fall through to the plugin default.
+from ark_agentic.showcase import setup_showcase
+setup_showcase(app)
+
 _bootstrap.install_routes(app)
 
 

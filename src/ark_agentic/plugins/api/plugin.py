@@ -1,17 +1,23 @@
 """APIPlugin — built-in HTTP transport.
 
 Owns the always-on chat router, /health, the AppContext infrastructure,
-and the global HTTP middleware (CORS + a windows-probe drop). Headless
-(CLI / worker) deployments simply omit this plugin and get no FastAPI
-plumbing.
+the global HTTP middleware (CORS + a windows-probe drop), and a default
+``/`` chat-demo page so end-users get something usable as soon as they
+enable the plugin.
+
+Headless (CLI / worker) deployments simply omit this plugin and get no
+FastAPI plumbing.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from ...core.plugin import BasePlugin
+
+_STATIC_DIR = Path(__file__).parent / "static"
 
 
 def _env_flag(name: str, default: str = "true") -> bool:
@@ -28,7 +34,8 @@ class APIPlugin(BasePlugin):
 
     def install_routes(self, app: Any) -> None:
         from fastapi.middleware.cors import CORSMiddleware
-        from fastapi.responses import Response
+        from fastapi.responses import FileResponse, Response
+        from fastapi.staticfiles import StaticFiles
 
         app.add_middleware(
             CORSMiddleware,
@@ -52,3 +59,21 @@ class APIPlugin(BasePlugin):
         @app.get("/health")
         async def health_check():
             return {"status": "ok"}
+
+        # Default chat-demo page. The framework's own deployment may
+        # register a different ``/`` handler before this plugin's
+        # install_routes runs (registration order wins in Starlette);
+        # third-party deployments without that override see this page.
+        if _STATIC_DIR.is_dir():
+            app.mount(
+                "/api/static",
+                StaticFiles(directory=str(_STATIC_DIR)),
+                name="api-static",
+            )
+
+            @app.get("/", include_in_schema=False)
+            async def _index():
+                return FileResponse(
+                    str(_STATIC_DIR / "index.html"),
+                    media_type="text/html",
+                )

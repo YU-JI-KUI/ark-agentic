@@ -10,7 +10,7 @@ from pathlib import Path
 
 INDEX_HTML = (
     Path(__file__).resolve().parents[2]
-    / "src" / "ark_agentic" / "plugins" / "playground" / "static" / "index.html"
+    / "src" / "ark_agentic" / "showcase" / "static" / "index.html"
 )
 
 
