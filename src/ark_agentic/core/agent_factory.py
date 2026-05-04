@@ -132,17 +132,12 @@ def build_standard_agent(
     compaction = compaction_config or CompactionConfig(
         context_window=128_000, preserve_recent=4
     )
-    # Build the session repository once and share it with both the manager
-    # and the dreamer — keeps the dreamer independent of SessionManager
-    # internals.
-    from .storage.factory import build_session_repository
-
-    session_repo = build_session_repository(sessions_dir=sessions_dir)
+    # SessionManager constructs its own backend repository internally based
+    # on DB_TYPE. Composition root only knows about the high-level manager.
     session_manager = SessionManager(
         sessions_dir=sessions_dir,
         compaction_config=compaction,
         summarizer=LLMSummarizer(llm),
-        repository=session_repo,
     )
 
     tool_registry = ToolRegistry()
@@ -153,12 +148,12 @@ def build_standard_agent(
         memory_dir = get_memory_base_dir() / defn.agent_id
         # Dreaming is part of the memory subsystem; the manager builds and
         # owns the dreamer internally when enable_dream=True. The factory
-        # supplies the ingredients (session_repo, llm) but never sees the
-        # dreamer itself.
+        # supplies the ingredients (session_manager, llm) but never sees
+        # the dreamer or any storage repositories.
         memory_manager = build_memory_manager(
             memory_dir,
             enable_dream=enable_dream,
-            session_repo=session_repo,
+            session_manager=session_manager,
             llm_factory=(lambda: llm) if enable_dream else None,
         )
 

@@ -27,7 +27,8 @@ from .user_profile import format_heading_sections, parse_heading_sections
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
-    from ..storage.protocols import MemoryRepository, SessionRepository
+    from ..session import SessionManager
+    from ..storage.protocols import MemoryRepository
     from ..types import AgentMessage
     from .manager import MemoryManager
 
@@ -104,26 +105,26 @@ def format_session_for_dream(messages: list["AgentMessage"]) -> str:
 
 async def read_recent_sessions(
     user_id: str,
-    session_repo: "SessionRepository",
+    session_manager: "SessionManager",
     since_ts: float,
     token_budget: int = 6000,
 ) -> str:
     """Return user+assistant text from sessions updated after ``since_ts``.
 
-    Backend-agnostic: pulls session metadata + messages exclusively through
-    the SessionRepository protocol so the dream gate works under file or
-    SQLite without changes.
+    Reads through ``SessionManager``'s narrow public methods so dreaming
+    stays one layer above storage — memory subsystem doesn't know whether
+    sessions live in files or SQLite.
     """
     from ..compaction import estimate_tokens
 
-    metas = await session_repo.list_session_metas(user_id)
+    metas = await session_manager.list_user_session_metas(user_id)
     recent = [m for m in metas if m.updated_at / 1000 > since_ts]
 
     texts: list[str] = []
     total_tokens = 0
     for entry in recent:
         try:
-            messages = await session_repo.load_messages(
+            messages = await session_manager.load_session_messages(
                 entry.session_id, user_id,
             )
         except Exception:
@@ -150,7 +151,7 @@ async def read_recent_sessions(
 
 async def should_dream(
     memory_repo: "MemoryRepository",
-    session_repo: "SessionRepository",
+    session_manager: "SessionManager",
     user_id: str,
     min_hours: float = 24.0,
     min_sessions: int = 3,
@@ -158,7 +159,7 @@ async def should_dream(
     """Check if a dream cycle should run for this user.
 
     Reads ``last_dream_at`` from the memory repository and counts
-    recently-updated sessions via the SessionRepository.
+    recently-updated sessions via the SessionManager.
     """
     last_ts = await memory_repo.get_last_dream_at(user_id)
     if last_ts is None:
@@ -170,7 +171,7 @@ async def should_dream(
     if hours_since >= min_hours:
         return True
 
-    metas = await session_repo.list_session_metas(user_id)
+    metas = await session_manager.list_user_session_metas(user_id)
     recent = [m for m in metas if m.updated_at / 1000 > last_ts]
     return len(recent) >= min_sessions
 
@@ -194,7 +195,7 @@ class MemoryDreamer:
         self,
         llm_factory: Callable[[], "BaseChatModel"],
         memory_manager: "MemoryManager | None" = None,
-        session_repo: "SessionRepository | None" = None,
+        session_manager: "SessionManager | None" = None,
         memory_repo: "MemoryRepository | None" = None,
         *,
         min_sessions: int = 3,
@@ -205,7 +206,7 @@ class MemoryDreamer:
         all three and raise ``RuntimeError`` if missing."""
         self._get_llm = llm_factory
         self._memory_manager = memory_manager
-        self._session_repo = session_repo
+        self._session_manager = session_manager
         self._memory_repo = memory_repo
         self._min_sessions = min_sessions
         self._min_hours = min_hours
@@ -213,17 +214,17 @@ class MemoryDreamer:
         self._tasks: dict[str, asyncio.Task] = {}
         self._failures: dict[str, int] = {}
 
-    def _require_storage(self) -> tuple["MemoryManager", "SessionRepository", "MemoryRepository"]:
+    def _require_storage(self) -> tuple["MemoryManager", "SessionManager", "MemoryRepository"]:
         if (
             self._memory_manager is None
-            or self._session_repo is None
+            or self._session_manager is None
             or self._memory_repo is None
         ):
             raise RuntimeError(
                 "MemoryDreamer.run / maybe_run require memory_manager, "
-                "session_repo, and memory_repo to be supplied at construction."
+                "session_manager, and memory_repo to be supplied at construction."
             )
-        return self._memory_manager, self._session_repo, self._memory_repo
+        return self._memory_manager, self._session_manager, self._memory_repo
 
     async def dream(
         self,
@@ -309,7 +310,7 @@ class MemoryDreamer:
 
     async def run(self, user_id: str) -> DreamResult:
         """Full dream cycle: read sessions + memory → distill → merge write."""
-        memory_manager, session_repo, memory_repo = self._require_storage()
+        memory_manager, session_manager, memory_repo = self._require_storage()
 
         memory_content = await memory_manager.read_memory(user_id)
         original_snapshot = memory_content
@@ -317,7 +318,7 @@ class MemoryDreamer:
         since_ts = await memory_repo.get_last_dream_at(user_id) or 0.0
 
         session_summaries = await read_recent_sessions(
-            user_id, session_repo, since_ts,
+            user_id, session_manager, since_ts,
         )
 
         result = await self.dream(memory_content, session_summaries)
@@ -343,14 +344,14 @@ class MemoryDreamer:
         ``last_dream_at`` marker is advanced anyway so a permanently-broken
         user can't pin the gate open forever.
         """
-        _, session_repo, memory_repo = self._require_storage()
+        _, session_manager, memory_repo = self._require_storage()
         active = self._tasks.get(user_id)
         if active is not None and not active.done():
             return
 
         try:
             ok = await should_dream(
-                memory_repo, session_repo, user_id,
+                memory_repo, session_manager, user_id,
                 min_hours=self._min_hours,
                 min_sessions=self._min_sessions,
             )

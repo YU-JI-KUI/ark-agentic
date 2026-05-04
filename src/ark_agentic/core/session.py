@@ -52,6 +52,24 @@ class SessionManager:
             repository = build_session_repository(sessions_dir=sessions_dir)
         self._repository = repository
 
+    # ── Narrow read API for in-process consumers ─────────────────────
+    # MemoryDreamer needs (user → recent session metas) + (sid → messages)
+    # to consolidate. Exposing these two pass-throughs lets the memory
+    # subsystem depend on SessionManager (high-level), not SessionRepository
+    # (storage layer) — restoring one-way layering.
+
+    async def list_user_session_metas(
+        self, user_id: str,
+    ) -> list[SessionStoreEntry]:
+        """Return the user's session metadata, newest first by ``updated_at``."""
+        return await self._repository.list_session_metas(user_id)
+
+    async def load_session_messages(
+        self, session_id: str, user_id: str,
+    ) -> list[AgentMessage]:
+        """Return the verbatim message list for a single session."""
+        return await self._repository.load_messages(session_id, user_id)
+
     # ── Raw transcript I/O (Studio raw editor) ────────────
 
     async def get_raw_transcript(

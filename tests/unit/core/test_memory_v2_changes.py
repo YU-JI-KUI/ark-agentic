@@ -229,6 +229,7 @@ class TestDreamRetryCounter:
         """Build a MemoryDreamer wrapping a failing run() so the retry path runs."""
         from ark_agentic.core.memory.dream import MemoryDreamer
         from ark_agentic.core.memory.manager import build_memory_manager
+        from ark_agentic.core.session import SessionManager
         from ark_agentic.core.storage.repository.file.memory import (
             FileMemoryRepository,
         )
@@ -245,7 +246,10 @@ class TestDreamRetryCounter:
         dreamer = MemoryDreamer(
             lambda: MagicMock(),
             memory_manager=mm,
-            session_repo=FileSessionRepository(sessions_dir),
+            session_manager=SessionManager(
+                sessions_dir=sessions_dir,
+                repository=FileSessionRepository(sessions_dir),
+            ),
             memory_repo=FileMemoryRepository(ws),
         )
         # Force run() to fail so we exercise the retry-counter path.
@@ -277,6 +281,7 @@ class TestDreamRetryCounter:
     async def test_success_clears_counter(self, tmp_path: Path) -> None:
         from ark_agentic.core.memory.dream import DreamResult, MemoryDreamer
         from ark_agentic.core.memory.manager import build_memory_manager
+        from ark_agentic.core.session import SessionManager
         from ark_agentic.core.storage.repository.file.memory import (
             FileMemoryRepository,
         )
@@ -291,7 +296,10 @@ class TestDreamRetryCounter:
         dreamer = MemoryDreamer(
             lambda: MagicMock(),
             memory_manager=build_memory_manager(ws),
-            session_repo=FileSessionRepository(sessions_dir),
+            session_manager=SessionManager(
+                sessions_dir=sessions_dir,
+                repository=FileSessionRepository(sessions_dir),
+            ),
             memory_repo=FileMemoryRepository(ws),
         )
         dreamer.run = AsyncMock(

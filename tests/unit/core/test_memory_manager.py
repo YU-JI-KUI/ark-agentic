@@ -204,7 +204,7 @@ async def test_maybe_consolidate_is_noop_when_dreaming_disabled(
     await mgr.maybe_consolidate("anyone")  # must not raise
 
 
-def test_enable_dream_requires_session_repo_and_llm_factory(
+def test_enable_dream_requires_session_manager_and_llm_factory(
     tmp_path: Path,
 ) -> None:
     """Memory subsystem is the SSOT for dreamer wiring — building it without
@@ -222,15 +222,19 @@ async def test_maybe_consolidate_delegates_to_internal_dreamer(
 
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
+    from ark_agentic.core.session import SessionManager
     from ark_agentic.core.storage.repository.file.session import (
         FileSessionRepository,
     )
 
-    session_repo = FileSessionRepository(sessions_dir)
+    session_manager = SessionManager(
+        sessions_dir=sessions_dir,
+        repository=FileSessionRepository(sessions_dir),
+    )
     mgr = build_memory_manager(
         tmp_path / "ws",
         enable_dream=True,
-        session_repo=session_repo,
+        session_manager=session_manager,
         llm_factory=lambda: MagicMock(),
     )
 

@@ -19,8 +19,16 @@ from ark_agentic.core.memory.dream import (
 )
 from ark_agentic.core.memory.manager import MemoryManager
 from ark_agentic.core.memory.user_profile import parse_heading_sections
+from ark_agentic.core.session import SessionManager
 from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
 from ark_agentic.core.storage.repository.file.session import FileSessionRepository
+
+
+def _make_session_manager(sessions_dir: Path) -> SessionManager:
+    return SessionManager(
+        sessions_dir=sessions_dir,
+        repository=FileSessionRepository(sessions_dir),
+    )
 
 
 def _make_manager(workspace: Path) -> MemoryManager:
@@ -235,9 +243,9 @@ class TestShouldDream:
             sessions = workspace / "sessions"
             sessions.mkdir()
             memory_repo = FileMemoryRepository(workspace)
-            session_repo = FileSessionRepository(sessions)
+            session_manager = _make_session_manager(sessions)
 
-            result = await should_dream(memory_repo, session_repo, "U001")
+            result = await should_dream(memory_repo, session_manager, "U001")
 
             assert result is False
             assert await memory_repo.get_last_dream_at("U001") is not None
@@ -248,12 +256,12 @@ class TestShouldDream:
             sessions = workspace / "sessions"
             sessions.mkdir()
             memory_repo = FileMemoryRepository(workspace)
-            session_repo = FileSessionRepository(sessions)
+            session_manager = _make_session_manager(sessions)
 
             await memory_repo.set_last_dream_at("U001", time.time())
 
             result = await should_dream(
-                memory_repo, session_repo, "U001", min_hours=24.0,
+                memory_repo, session_manager, "U001", min_hours=24.0,
             )
             assert result is False
 
@@ -263,11 +271,11 @@ class TestShouldDream:
             sessions = workspace / "sessions"
             sessions.mkdir()
             memory_repo = FileMemoryRepository(workspace)
-            session_repo = FileSessionRepository(sessions)
+            session_manager = _make_session_manager(sessions)
             await memory_repo.set_last_dream_at("U001", time.time() - 86400 * 2)
 
             result = await should_dream(
-                memory_repo, session_repo, "U001",
+                memory_repo, session_manager, "U001",
                 min_hours=24.0, min_sessions=3,
             )
             assert result is True
@@ -279,6 +287,9 @@ class TestShouldDream:
             sessions.mkdir()
             memory_repo = FileMemoryRepository(workspace)
             session_repo = FileSessionRepository(sessions)
+            session_manager = SessionManager(
+                sessions_dir=sessions, repository=session_repo,
+            )
 
             last_ts = time.time() - 3600  # 1h ago
             await memory_repo.set_last_dream_at("U001", last_ts)
@@ -299,7 +310,7 @@ class TestShouldDream:
                 )
 
             result = await should_dream(
-                memory_repo, session_repo, "U001",
+                memory_repo, session_manager, "U001",
                 min_hours=24.0, min_sessions=3,
             )
             assert result is True
@@ -310,13 +321,13 @@ class TestShouldDream:
             sessions = workspace / "sessions"
             sessions.mkdir()
             memory_repo = FileMemoryRepository(workspace)
-            session_repo = FileSessionRepository(sessions)
+            session_manager = _make_session_manager(sessions)
 
             last_ts = time.time() - 3600  # 1h ago
             await memory_repo.set_last_dream_at("U001", last_ts)
 
             result = await should_dream(
-                memory_repo, session_repo, "U001",
+                memory_repo, session_manager, "U001",
                 min_hours=24.0, min_sessions=3,
             )
             assert result is False
@@ -343,11 +354,11 @@ class TestDreamerRun:
 
             llm = _make_llm('{"distilled": "## 偏好\\n简洁回复", "changes": "merged A+B"}')
             memory_repo = FileMemoryRepository(ws)
-            session_repo = FileSessionRepository(sessions_dir)
+            session_manager = _make_session_manager(sessions_dir)
             dreamer = MemoryDreamer(
                 lambda: llm,
                 memory_manager=mgr,
-                session_repo=session_repo,
+                session_manager=session_manager,
                 memory_repo=memory_repo,
             )
 
@@ -380,11 +391,11 @@ class TestDreamerRun:
 
             llm = _make_llm('{"distilled": "", "changes": "无需修改"}')
             memory_repo = FileMemoryRepository(ws)
-            session_repo = FileSessionRepository(sessions_dir)
+            session_manager = _make_session_manager(sessions_dir)
             dreamer = MemoryDreamer(
                 lambda: llm,
                 memory_manager=mgr,
-                session_repo=session_repo,
+                session_manager=session_manager,
                 memory_repo=memory_repo,
             )
 

@@ -25,7 +25,8 @@ from pydantic import BaseModel
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
-    from ..storage.protocols import MemoryRepository, SessionRepository
+    from ..session import SessionManager
+    from ..storage.protocols import MemoryRepository
     from .dream import MemoryDreamer
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class MemoryManager:
         repository: "MemoryRepository",
         config: MemoryConfig | None = None,
         *,
-        session_repo: "SessionRepository | None" = None,
+        session_manager: "SessionManager | None" = None,
         llm_factory: "Callable[[], BaseChatModel] | None" = None,
     ) -> None:
         self._repo = repository
@@ -74,12 +75,12 @@ class MemoryManager:
         # Process-local; restart clears.
         self._memory: dict[str, str] = {}
 
-        self._session_repo = session_repo
+        self._session_manager = session_manager
         self._dreamer: "MemoryDreamer | None" = None
         if self.config.enable_dream:
-            if session_repo is None or llm_factory is None:
+            if session_manager is None or llm_factory is None:
                 raise ValueError(
-                    "MemoryConfig.enable_dream=True requires session_repo "
+                    "MemoryConfig.enable_dream=True requires session_manager "
                     "and llm_factory at MemoryManager construction."
                 )
             from .dream import MemoryDreamer
@@ -87,7 +88,7 @@ class MemoryManager:
             self._dreamer = MemoryDreamer(
                 llm_factory,
                 memory_manager=self,
-                session_repo=session_repo,
+                session_manager=session_manager,
                 memory_repo=repository,
                 min_hours=self.config.dream_min_hours,
                 min_sessions=self.config.dream_min_sessions,
@@ -145,7 +146,7 @@ def build_memory_manager(
     memory_dir: str | Path | None = None,
     *,
     enable_dream: bool = False,
-    session_repo: "SessionRepository | None" = None,
+    session_manager: "SessionManager | None" = None,
     llm_factory: "Callable[[], BaseChatModel] | None" = None,
     dream_min_hours: float = 24.0,
     dream_min_sessions: int = 3,
@@ -158,7 +159,7 @@ def build_memory_manager(
     like the proactive scanner). The directory itself is created lazily
     by ``FileMemoryRepository`` only when file mode is active.
 
-    When ``enable_dream=True``, ``session_repo`` and ``llm_factory`` are
+    When ``enable_dream=True``, ``session_manager`` and ``llm_factory`` are
     required so the manager can construct an internal ``MemoryDreamer``.
     """
     if memory_dir is None:
@@ -176,6 +177,6 @@ def build_memory_manager(
             dream_min_hours=dream_min_hours,
             dream_min_sessions=dream_min_sessions,
         ),
-        session_repo=session_repo,
+        session_manager=session_manager,
         llm_factory=llm_factory,
     )
