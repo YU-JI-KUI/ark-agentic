@@ -32,6 +32,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.core.startup_guard import validate_deployment_config
+from ark_agentic.api.context import AppContext
 from ark_agentic.core.bootstrap import bootstrap_storage
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
@@ -57,14 +58,12 @@ async def lifespan(app: FastAPI):
     # bootstrap_storage 调用 core / notifications / studio 三域的
     # init_schema()，每个域的 engine 完全封装在自己的 engine.py 内。
     validate_deployment_config()
-
-    # bootstrap_storage triggers each domain's init_schema; engine
-    # ownership is fully encapsulated in per-domain engine.py modules.
     await bootstrap_storage()
     logger.info("Storage bootstrapped (DB_TYPE=%s)", os.getenv("DB_TYPE", "file"))
 
-    # ── Step 1: 先初始化 JobManager 全局单例（如果启用）────────────────────
-    # 必须在 agent warmup 之前设置，因为 warmup 时会自动向 JobManager 注册 Job
+    # ── Step 1: 装配 notifications + jobs（如果启用）────────────────────
+    notif_ctx = None
+    job_manager = None
     if _env_flag("ENABLE_JOB_MANAGER"):
         try:
             from ark_agentic.services.jobs import (
@@ -73,8 +72,7 @@ async def lifespan(app: FastAPI):
                 set_job_manager,
             )
             from ark_agentic.services.notifications import (
-                NotificationDelivery,
-                get_notifications_base_dir,
+                build_notifications_context,
             )
         except ImportError as e:
             raise RuntimeError(
@@ -82,12 +80,7 @@ async def lifespan(app: FastAPI):
                 f"Install with: pip install 'ark-agentic[server]' (cause: {e})"
             ) from e
 
-        notification_delivery = NotificationDelivery()
-        app.state.notification_delivery = notification_delivery
-        # Lifespan keeps the notifications base_dir handy so the API and
-        # job system can build per-agent NotificationRepository instances
-        # via the storage factory.
-        app.state.notifications_base_dir = get_notifications_base_dir()
+        notif_ctx = build_notifications_context()
 
         scanner = UserShardScanner(
             max_concurrent=int(os.getenv("JOB_MAX_CONCURRENT", "50")),
@@ -96,11 +89,10 @@ async def lifespan(app: FastAPI):
             total_shards=int(os.getenv("JOB_TOTAL_SHARDS", "1")),
         )
         job_manager = JobManager(
-            delivery=notification_delivery,
+            delivery=notif_ctx.delivery,
             scanner=scanner,
         )
-        set_job_manager(job_manager)  # 设置全局单例
-        app.state.job_manager = job_manager
+        set_job_manager(job_manager)
 
     tracer_provider = setup_tracing_from_env(service_name="ark-agentic-api")
 
@@ -116,32 +108,32 @@ async def lifespan(app: FastAPI):
         enable_dream=_enable_dream,
     ))
 
-    # ── Step 2b: 组装 Proactive Jobs ────────────────────────────────────────
-    if _enable_memory and _env_flag("ENABLE_JOB_MANAGER"):
+    if _enable_memory and notif_ctx is not None:
         from ark_agentic.services.jobs.proactive_setup import register_proactive_jobs
         register_proactive_jobs(
-            _registry,
-            notifications_base_dir=app.state.notifications_base_dir,
+            _registry, notifications_base_dir=notif_ctx.base_dir,
         )
 
     api_deps.init_registry(_registry)
 
-    # ── Step 3: warmup 各 Agent（proactive jobs 已注册，此处触发 warmup）────
+    # Publish the typed context — the only state surface routes touch.
+    app.state.ctx = AppContext(notifications=notif_ctx)
+
+    # ── Step 3: warmup 各 Agent ────────────────────────────────────────
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
         await runner.warmup()
         logger.info("Agent '%s' warmed up", agent_id)
 
-    # ── Step 4: 所有 Job 注册完毕，启动调度器 ─────────────────────────────
-    if hasattr(app.state, "job_manager"):
-        await app.state.job_manager.start()
+    if job_manager is not None:
+        await job_manager.start()
         logger.info("JobManager started")
 
     logger.info("Unified API started with agents: %s", _registry.list_ids())
     yield
 
-    if hasattr(app.state, "job_manager"):
-        await app.state.job_manager.stop()
+    if job_manager is not None:
+        await job_manager.stop()
         logger.info("JobManager stopped")
 
     for agent_id in _registry.list_ids():

@@ -10,14 +10,20 @@ from .factory import build_notification_repository
 from .models import Notification, NotificationList
 from .paths import get_notifications_base_dir
 from .protocol import NotificationRepository
-from .setup import setup_notifications
+from .setup import (
+    NotificationsContext,
+    build_notifications_context,
+    setup_notifications,
+)
 
 __all__ = [
     "Notification",
     "NotificationList",
     "NotificationDelivery",
     "NotificationRepository",
+    "NotificationsContext",
     "build_notification_repository",
+    "build_notifications_context",
     "get_notifications_base_dir",
     "setup_notifications",
 ]
