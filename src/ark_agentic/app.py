@@ -38,8 +38,13 @@ _bootstrap = Bootstrap(DEFAULT_PLUGINS)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with _bootstrap.lifespan(app, AppContext()):
+    ctx = AppContext()
+    await _bootstrap.start(ctx)
+    app.state.ctx = ctx
+    try:
         yield
+    finally:
+        await _bootstrap.stop()
 
 
 app = FastAPI(

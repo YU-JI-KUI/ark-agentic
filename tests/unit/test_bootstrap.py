@@ -1,9 +1,8 @@
 """Bootstrap orchestrator tests.
 
-Validates the lifecycle phases (``init_all`` / ``start_all`` /
-``stop_all``) and that the ``lifespan`` context manager runs them in the
-right order. Exercised directly against the canonical PLUGINS list to
-confirm schema init succeeds in both DB modes.
+Validates the lifecycle phases (``init`` / ``start`` / ``stop``) and
+their ordering / idempotency. Exercised against the canonical
+``DEFAULT_PLUGINS`` list to confirm schema init succeeds in both DB modes.
 """
 
 from __future__ import annotations
@@ -19,8 +18,8 @@ async def test_bootstrap_runs_default_plugins_in_file_mode(monkeypatch):
     from ark_agentic.bootstrap import DEFAULT_PLUGINS as PLUGINS
     monkeypatch.setenv("DB_TYPE", "file")
     bootstrap = Bootstrap(list(PLUGINS))
-    # init_all must succeed without exceptions in file mode.
-    await bootstrap.init_all()
+    # init() must succeed without exceptions in file mode.
+    await bootstrap.init()
 
 
 async def test_bootstrap_runs_default_plugins_in_sqlite_mode(monkeypatch, tmp_path):
@@ -33,7 +32,7 @@ async def test_bootstrap_runs_default_plugins_in_sqlite_mode(monkeypatch, tmp_pa
             f"sqlite+aiosqlite:///{tmp_path}/boot.db",
         )
         bootstrap = Bootstrap(list(PLUGINS))
-        await bootstrap.init_all()
+        await bootstrap.init()
     finally:
         reset_engine_cache()
         monkeypatch.delenv("DB_TYPE", raising=False)
@@ -70,11 +69,25 @@ async def test_start_attaches_return_value_to_ctx_by_name():
         pass
 
     ctx = Ctx()
-    await bootstrap.init_all()
-    await bootstrap.start_all(ctx)
+    await bootstrap.start(ctx)
 
     assert ctx.alpha == "alpha-value"
     assert ctx.beta == "beta-value"
+
+
+async def test_start_runs_init_first_then_start_in_order():
+    log: list[str] = []
+    bootstrap = Bootstrap([_Recorder("a", log), _Recorder("b", log), _Recorder("c", log)])
+
+    class Ctx:
+        pass
+
+    await bootstrap.start(Ctx())
+
+    assert log == [
+        "a.init", "b.init", "c.init",
+        "a.start", "b.start", "c.start",
+    ]
 
 
 async def test_stop_runs_in_reverse_start_order():
@@ -84,15 +97,35 @@ async def test_stop_runs_in_reverse_start_order():
     class Ctx:
         pass
 
-    await bootstrap.init_all()
-    await bootstrap.start_all(Ctx())
-    await bootstrap.stop_all()
+    await bootstrap.start(Ctx())
+    await bootstrap.stop()
 
-    assert log == [
-        "a.init", "b.init", "c.init",
-        "a.start", "b.start", "c.start",
-        "c.stop", "b.stop", "a.stop",
-    ]
+    assert log[-3:] == ["c.stop", "b.stop", "a.stop"]
+
+
+async def test_init_is_idempotent():
+    log: list[str] = []
+    bootstrap = Bootstrap([_Recorder("only", log)])
+
+    await bootstrap.init()
+    await bootstrap.init()  # second call is no-op
+
+    assert log == ["only.init"]
+
+
+async def test_start_does_not_double_init_when_init_was_called_first():
+    log: list[str] = []
+    bootstrap = Bootstrap([_Recorder("only", log)])
+
+    class Ctx:
+        pass
+
+    await bootstrap.init()
+    await bootstrap.start(Ctx())
+
+    # init runs once even though start would otherwise also call it.
+    assert log.count("only.init") == 1
+    assert "only.start" in log
 
 
 async def test_stop_failure_does_not_block_others():
@@ -106,9 +139,8 @@ async def test_stop_failure_does_not_block_others():
     class Ctx:
         pass
 
-    await bootstrap.init_all()
-    await bootstrap.start_all(Ctx())
-    await bootstrap.stop_all()
+    await bootstrap.start(Ctx())
+    await bootstrap.stop()
 
     # b.stop raised; a.stop and c.stop must still run.
     assert "a.stop" in log
@@ -128,29 +160,6 @@ async def test_disabled_components_are_skipped():
             log.append("disabled.init")
 
     bootstrap = Bootstrap([Disabled(), _Recorder("kept", log)])
-    await bootstrap.init_all()
+    await bootstrap.init()
 
     assert log == ["kept.init"]
-
-
-async def test_lifespan_yields_after_start_and_stops_on_exit():
-    log: list[str] = []
-    bootstrap = Bootstrap([_Recorder("only", log)])
-
-    class _App:
-        class state: pass
-        state = state()
-
-    class Ctx:
-        pass
-
-    app = _App()
-    ctx = Ctx()
-    async with bootstrap.lifespan(app, ctx):
-        # By yield-time start has run, ctx is published, stop has not run.
-        assert log == ["only.init", "only.start"]
-        assert app.state.ctx is ctx
-        assert ctx.only == "only-value"
-
-    # On exit stop ran.
-    assert log[-1] == "only.stop"

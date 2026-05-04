@@ -142,7 +142,9 @@ class TestChatRunOptionsIntegration:
 @pytest.mark.asyncio
 async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> None:
     """``AgentsRuntime.start`` walks the registry warming up every runner;
-    ``stop`` closes every runner's memory backend. Driven via Bootstrap."""
+    ``stop`` closes every runner's memory backend."""
+    from types import SimpleNamespace
+
     from ark_agentic.core.bootstrap import Bootstrap
     from ark_agentic.core.runtime.agents import AgentsRuntime
 
@@ -151,20 +153,13 @@ async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> No
     registry.list_ids.return_value = ["insurance", "securities"]
     registry.get.return_value = runner
 
-    class _AppStub:
-        class state:
-            pass
-        state = state()
-
     with (
         patch("ark_agentic.agents.register_all"),
         patch("ark_agentic.plugins.api.deps.init_registry"),
     ):
-        from types import SimpleNamespace
-
         bootstrap = Bootstrap([AgentsRuntime(registry=registry)])
-        async with bootstrap.lifespan(_AppStub(), ctx=SimpleNamespace()):
-            pass
+        await bootstrap.start(SimpleNamespace())
+        await bootstrap.stop()
 
     assert runner.warmup.await_count == 2
     assert runner.close_memory.await_count == 2
