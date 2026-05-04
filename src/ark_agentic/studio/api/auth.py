@@ -86,8 +86,13 @@ async def login(req: LoginRequest, request: Request):
 
 @router.post("/auth/logout", response_model=LogoutResponse)
 async def logout(request: Request):
+    headers = _headers_from_request(request)
     logout_result = await logout_studio_user(
         client_ip=_client_ip_from_request(request),
-        headers=_headers_from_request(request),
+        headers=headers,
+        # Surface the token id (set by the frontend on logout) as a
+        # first-class kwarg so providers can invalidate it without
+        # having to grep the headers dict.
+        token_id=headers.get("x-token-id"),
     )
     return LogoutResponse(result=logout_result)

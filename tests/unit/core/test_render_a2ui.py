@@ -552,7 +552,9 @@ def test_plan_card_schema_uses_channel_enum(insurance_tool):
     channels_schema = data_schema["properties"]["channels"]
     assert channels_schema["type"] == "array"
     assert channels_schema["items"]["enum"] == list(CHANNEL_TYPES)
-    assert data_schema["required"] == ["title"]
+    # ``title`` is derived internally from ``channels`` via _derive_title_tag;
+    # only ``channels`` is required input.
+    assert data_schema["required"] == ["channels"]
 
 
 def test_card_children_injected_by_framework(insurance_tool):
