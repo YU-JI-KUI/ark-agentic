@@ -138,6 +138,7 @@ def create_insurance_agent(
         ),
         RunnerCallbacks(
             before_model=[flow_callbacks.before_model_flow_eval],
+            before_tool=[flow_callbacks.before_tool_stage_guard],
             after_agent=[flow_callbacks.persist_flow_context],
         ),
     )

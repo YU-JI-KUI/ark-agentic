@@ -41,20 +41,25 @@ Evaluator 不是 LLM 工具，而是由 `FlowCallbacks` 的两个 Hook 自动驱
 │  │ 2. 检测 pending task（每轮直检 TaskRegistry）               │  │
 │  │ 3. 初始化 flow_id（首次调用，无活跃流程且无 pending）       │  │
 │  │ 4. 调用 evaluator.evaluate() 统一评估（含自动提交）         │  │
-│  │    → 抽取字段 → Pydantic 校验 → 自动提交 / 阻断判断         │  │
-│  │ 5. state_delta 写入 session.state                          │  │
+│  │    → 抽取字段 → Pydantic 校验 → 自动提交                    │  │
+│  │ 5. state_delta 写入 session.state（含                      │  │
+│  │    _flow_context.current_stage）                           │  │
 │  │ 6. 注入评估结果（role="system" 结构化 JSON）                │  │
 │  │    + 当前阶段 reference 到 system message                   │  │
-│  │ 7. is_blocked=True → CallbackResult(block_model=True)       │  │
-│  │    阻断 LLM 调用，返回 block_message 固定话术               │  │
 │  └────────────────────────────────────────────────────────────┘  │
-│                          ↓  (未阻断时)                           │
+│                          ↓                                       │
 │                    LLM 调用                                      │
+│                          ↓                                       │
+│  ┌─ before_tool_stage_guard（before_tool）─────────────────┐  │
+│  │ 当前 stage 未完成 + tool_call.name 命中下游 stage.tools →   │  │
+│  │ 合成 ToolLoopAction.STOP 工具结果，复用 _tool_phase 的     │  │
+│  │ STOP 收尾路径，向用户输出固定话术。                         │  │
+│  └────────────────────────────────────────────────────────────┘  │
 │                          ↓                                       │
 │                     ... 下一轮 ...                                │
 │                                                                  │
 │  ┌─ persist_flow_context（after_agent，整个 run 结束后）──────┐  │
-│  │ 1. evaluator.get_restorable_state() 序列化                │  │
+│  │ 1. evaluator.get_persistable_context() 输出扁平 snapshot  │  │
 │  │ 2. checkpoint 检查：仅最后完成阶段标记了 checkpoint=True   │  │
 │  │    时写盘；__completed__ 时始终写盘（触发清理）             │  │
 │  │ 3. render_task_name() → TaskRegistry.upsert()             │  │
@@ -71,11 +76,12 @@ before_model_flow_eval（每轮自动运行）
     → 抽取所有字段（state 自动抽取 + _user_input_ 暂存区）
     → 全部就绪 → Pydantic 校验 → 自动提交 → 写入 _flow_context.stage_<id>
     → checkpoint 阶段 → 追加到 _flow_context.checkpoints
-    → 有缺失字段 → 当前阶段 in_progress，注入 user_required_fields
-    → 校验失败 → is_blocked=True，返回固定话术
-    → 全部完成 → is_done=True，_flow_stage="__completed__"
+    → 有缺失字段 / 校验失败 → 当前阶段 in_progress（fields[*].status=missing|error），
+                              flow_ctx.current_stage 同步指向该阶段
+    → 全部完成 → is_done=True，flow_ctx.current_stage="__completed__"
     → 评估结果作为 role="system" 结构化 JSON message 注入
-  → 未阻断时：Agent 按 SOP 执行业务工具 / 收集用户输入
+  → before_tool_stage_guard: 越级调用下游 stage 工具 → ToolLoopAction.STOP + 固定话术
+  → Agent 按 SOP 执行业务工具 / 收集用户输入
     → collect_user_fields → 写入 _user_input_{stage_id} 暂存区
     → 下一轮 before_model_flow_eval 再评估
   → after_agent: persist_flow_context（仅 checkpoint 阶段写盘）
@@ -116,8 +122,11 @@ class BaseFlowEvaluator(ABC):
     def render_task_name(self, flow_ctx) -> str:
         """按 task_name_template 渲染任务名。"""
 
-    def get_restorable_state(self, flow_ctx) -> dict:
-        """序列化为可持久化格式（写入 active_tasks.json）。"""
+    def get_persistable_context(self, flow_ctx) -> dict:
+        """返回扁平 flow_ctx 浅拷贝（运行时 = 持久化同形状），剔除 _user_input_*。"""
+
+    def iter_delta_state(self, flow_ctx) -> Iterator[tuple[str, Any]]:
+        """遍历所有 stage_*_delta，产出 (state_key, raw_value)，供 resume 还原 session.state。"""
 ```
 
 **关键方法说明**：
@@ -128,7 +137,8 @@ class BaseFlowEvaluator(ABC):
 | `_extract_all_fields()` | `evaluate()` 内部 | 统一从 `session.state` + `_user_input_{stage_id}` 暂存区抽取所有字段 |
 | `_commit_stage()` | `evaluate()` 内部 | 唯一提交路径：写入 stage 数据、清理暂存区、处理 checkpoint、快照 delta |
 | `render_task_name()` | `persist_flow_context` | 模板渲染，缺失变量返回 "{待定}" |
-| `get_restorable_state()` | `persist_flow_context` | 转换为 active_tasks.json 快照格式 |
+| `get_persistable_context()` | `persist_flow_context` | 输出扁平 snapshot（与运行时 `_flow_context` 同形状） |
+| `iter_delta_state()` | `ResumeTaskTool._extract_delta_state` | 遍历 `stage_*_delta`，重建 session.state 中工具输出 |
 
 ### 3.2 FieldDefinition — 字段定义（替代 FieldSource）
 
@@ -162,10 +172,9 @@ class StageDefinition:
     id: str
     name: str
     description: str
-    required: bool = True               # False 时无数据视为 skipped
     output_schema: type[BaseModel] | None = None
     reference_file: str | None = None   # references/ 下的文件名
-    tools: list[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)  # 该阶段期望使用的工具；before_tool_stage_guard 据此识别越级调用
     fields: dict[str, FieldDefinition] = field(default_factory=dict)
     checkpoint: bool = False            # 完成后触发持久化
     delta_state_keys: list[str] = field(default_factory=list)  # 额外快照的 state key
@@ -181,8 +190,6 @@ class FlowEvalResult:
     flow_id: str
     skill_name: str
     is_done: bool
-    is_blocked: bool = False               # True 时阻断 model 调用
-    block_message: str = ""                # 阻断时的固定话术
     current_stage: StageDefinition | None = None
     stage_evaluations: list[StageEvaluation] = field(default_factory=list)
     state_delta: dict[str, Any] = field(default_factory=dict)
@@ -241,7 +248,7 @@ class FlowEvaluatorRegistry:
 
 ---
 
-## 4. FlowCallbacks — 两个生命周期 Hook
+## 4. FlowCallbacks — 三个生命周期 Hook
 
 ```python
 class FlowCallbacks:
@@ -251,7 +258,10 @@ class FlowCallbacks:
     # Hook 1: before_model — 每轮 LLM 调用前
     async def before_model_flow_eval(self, ctx, *, turn, messages, **_): ...
 
-    # Hook 2: after_agent — 整个 run 结束后
+    # Hook 2: before_tool — 工具执行前
+    async def before_tool_stage_guard(self, ctx, *, turn, tool_calls, **_): ...
+
+    # Hook 3: after_agent — 整个 run 结束后
     async def persist_flow_context(self, ctx, *, response): ...
 ```
 
@@ -264,21 +274,28 @@ class FlowCallbacks:
 3. **初始化 flow_id**：首次调用且无 pending 时，通过 `TaskRegistry.generate_flow_id()` 生成短 ID
 4. **运行评估**：调用 `evaluator.evaluate(flow_ctx, state)`
    - 内部完成字段抽取、Pydantic 校验、自动提交
-   - 校验失败时 `is_blocked=True`，`block_message` 返回固定话术
-5. **写入 state**：`state_delta` 通过 `apply_delta()` 点路径合并
+   - 校验失败时把 `FieldStatus.error` 写进当前 stage 的 `fields_status`，由提示词暴露
+5. **写入 state**：`state_delta`（含 `_flow_context.current_stage`）通过 `apply_delta()` 点路径合并
 6. **注入评估消息**：评估结果（`FlowEvalResult`）作为独立 `role="system"` message 注入，结构化 JSON 格式
 7. **注入提示词**：当前阶段 reference
-8. **阻断判断**：`is_blocked=True` 时返回 `CallbackResult(block_model=True)`，直接返回 `block_message` 给用户，跳过 LLM 调用
 
-### 4.2 persist_flow_context
+### 4.2 before_tool_stage_guard
+
+工具执行前检查越级调用：
+
+1. 仅在 `_flow_context.current_stage` 存在且非 `__completed__` 时生效。
+2. 计算下游 stage 的 `tools` 并集（`future_tools`）。
+3. 任一 `tool_call.name ∈ future_tools` → 合成 `ToolLoopAction.STOP` 工具结果（含固定话术），通过 `HookAction.OVERRIDE` 替换 runner 的工具执行批次，复用 `_tool_phase` 的 STOP 收尾路径直接返回用户。
+4. 不在任何 stage `tools` 中的工具视为通用工具（`collect_user_fields` / `resume_task` / `rollback_flow_stage` / `read_skill` / memory 等），始终放行。
+
+### 4.3 persist_flow_context
 
 整个 run 结束后持久化：
 
-1. 序列化 `evaluator.get_restorable_state(flow_ctx)`
-2. **Checkpoint 检查**：仅最后完成阶段标记了 `checkpoint=True` 时写盘
-3. `__completed__` 时始终写盘（触发 TaskRegistry 自动删除记录）
-4. `_needs_persist=True`（rollback 设置）时强制写盘
-5. 每次写盘重渲染 `task_name`
+1. 调用 `evaluator.get_persistable_context(flow_ctx)` 输出扁平 snapshot。
+2. **Checkpoint 检查**：仅最后完成阶段标记了 `checkpoint=True` 时写盘。
+3. `__completed__` 时始终写盘（触发 TaskRegistry 自动删除记录）。
+4. 每次写盘重渲染 `task_name`。
 
 ---
 
@@ -646,10 +663,11 @@ flow-managed skill 的 reference 统一由 `FlowCallbacks._build_stage_reference
 
 `TaskRegistry.generate_flow_id()` 生成 `YYMMDD-HHHH` 格式（日期前缀 + 4位hex），per-user 查重，碰撞时重试最多 8 次后扩至 8 位 hex。比纯 UUID 更利于日志排查和人工检索。
 
-### D8: 阻断机制（Pydantic 校验失败即阻断）
+### D8: 阻断机制（仅拦截越级调用）
 
-`evaluate()` 内部 Pydantic 校验失败时，`FlowEvalResult.is_blocked=True`，`before_model_flow_eval` 返回 `CallbackResult(block_model=True)` 直接返回固定话术给用户，跳过 LLM 调用。理由：
-- 数据异常时继续让 LLM 处理只会产生更多不可预期的行为
-- 固定话术（如"信息获取失败，是否需要重试？"）给用户明确的下一步指引
-- 阻断机制防止脏数据流入后续阶段，保证流程数据质量
-- 评估结果作为独立 `role="system"` message 注入，结构化 JSON 便于 LLM 理解和调试
+阻断不再发生在 `before_model`，也不再依赖 `block_model`。`FlowCallbacks.before_tool_stage_guard`（`before_tool` hook）只在「当前 stage 未完成 + LLM 调用了某个下游 stage 的 `tools` 工具」时合成 `ToolLoopAction.STOP` 工具结果，复用 runner `_tool_phase` 已有的 STOP 收尾路径，向用户输出固定话术「当前流程阶段「XX」尚未完成，请先按提示完成本阶段后再继续。」。
+
+字段缺失 / Pydantic 校验失败由 `FieldStatus.missing|error` 在 Flow Evaluation 提示词里暴露，模型自然继续推进收集，不再触发"刹车"。理由：
+- 数据缺失/校验失败属于业务正常分支，给模型上下文比硬阻断更利于自我修复。
+- "越级调用下游工具" 才是真正会造成不可逆事故的越界，必须立即截断。
+- 复用 `ToolLoopAction.STOP` 一套 loop 终结机制，不引入第二套 `block_model` 路径，保留设计一致性。

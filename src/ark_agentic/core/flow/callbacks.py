@@ -1,12 +1,16 @@
 """Flow 框架级回调实现。
 
-两个 Hook 构成完整的 Flow 生命周期管理：
+三个 Hook 构成完整的 Flow 生命周期管理：
 
   before_model_flow_eval — before_model hook:
     每轮 LLM 调用前自动运行评估器，将当前阶段状态注入到系统提示词中。
     evaluate() 内部统一完成字段抽取、校验、自动提交。
     处理 pending task 检测（替代原 evaluator.execute() 中的逻辑）。
-    当 is_blocked=True 时通过 CallbackResult.block_model 阻断 LLM 调用。
+
+  before_tool_stage_guard — before_tool hook:
+    在工具执行前检查 LLM 是否「越级调用下游 stage 的工具」。命中时合成
+    ToolLoopAction.STOP 的 tool_results，复用 _tool_phase 的 STOP 收尾路径，
+    向用户输出固定话术。
 
   persist_flow_context — after_agent hook:
     持久化 _flow_context 到 active_tasks.json。
@@ -18,6 +22,7 @@
     fc = FlowCallbacks(sessions_dir=sessions_dir)
     callbacks = RunnerCallbacks(
         before_model=[fc.before_model_flow_eval],
+        before_tool=[fc.before_tool_stage_guard],
         after_agent=[fc.persist_flow_context],
     )
 """
@@ -31,9 +36,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..callbacks import CallbackContext, CallbackResult
+from ..callbacks import CallbackContext, CallbackResult, HookAction
 from ..state_utils import apply_delta
-from ..types import AgentMessage
+from ..types import (
+    AgentMessage,
+    AgentToolResult,
+    ToolCall,
+    ToolLoopAction,
+    ToolResultType,
+)
 from .base_evaluator import BaseFlowEvaluator, FlowEvalResult, FlowEvaluatorRegistry
 from .task_registry import TaskRegistry
 
@@ -96,59 +107,59 @@ def _format_pending_tasks_json(tasks: list[dict[str, Any]]) -> str:
     )
 
 
-def _summarize_value(value: Any, max_len: int = 200) -> Any:
-    """对 collected 值做轻量摘要。"""
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    s = str(value)
-    return s if len(s) <= max_len else s[:max_len] + "..."
+def _build_evaluation_message(result: FlowEvalResult) -> str:
+    """构造一条 role=system 的消息，content 为**纯 JSON 字符串**（无 Markdown 包裹）。
 
-
-def _build_evaluation_message(result: FlowEvalResult) -> dict[str, Any]:
-    """构造评估结果独立消息，包含结构化 JSON。"""
+    负载：`process_name` + 当前阶段待处理项（``current_stage`` / ``outstanding_fields``）；
+    已完成则仅 ``flow_status: completed``。无 ``state_key`` 的缺失项在 ``hint`` 中并入
+    ``collect_user_fields`` 说明。（``flow_id`` / ``skill_name`` 以 session 内
+    ``_flow_context`` 为准，不向模型重复。）
+    """
     current_stage_eval = next(
         (e for e in result.stage_evaluations if e.status == "in_progress"), None
     )
 
     eval_json: dict[str, Any] = {
-        "flow_id": result.flow_id,
-        "skill_name": result.skill_name,
-        "current_stage": None,
-        "stages_overview": [
-            {"id": e.id, "name": e.name, "status": e.status}
-            for e in result.stage_evaluations
-        ],
+        "process_name": "当前流程执行状态评估",
     }
 
-    if result.current_stage and current_stage_eval:
-        fields_dict: dict[str, Any] = {}
+    if result.is_done:
+        eval_json["flow_status"] = "completed"
+    elif result.current_stage and current_stage_eval:
+        defs = result.current_stage.fields
+        outstanding: dict[str, Any] = {}
+        has_field_error = False
         if current_stage_eval.fields:
             for name, fs in current_stage_eval.fields.items():
+                if fs.status not in ("missing", "error"):
+                    continue
                 entry: dict[str, Any] = {"status": fs.status}
-                if fs.status == "collected":
-                    entry["value"] = _summarize_value(fs.value)
-                if fs.status == "missing" and fs.description:
-                    entry["hint"] = fs.description
+                if fs.status == "missing":
+                    hint_parts: list[str] = []
+                    if fs.description:
+                        hint_parts.append(fs.description)
+                    fd = defs.get(name)
+                    if fd is not None and not fd.state_key:
+                        hint_parts.append(
+                            "请向用户确认后调用 `collect_user_fields` 提交该字段。"
+                        )
+                    if hint_parts:
+                        entry["hint"] = " ".join(hint_parts)
                 if fs.status == "error" and fs.error:
                     entry["error"] = fs.error
-                fields_dict[name] = entry
+                    has_field_error = True
+                outstanding[name] = entry
 
         eval_json["current_stage"] = {
             "id": result.current_stage.id,
             "name": result.current_stage.name,
-            "result": "blocked" if result.is_blocked else "incomplete",
+            "result": "invalid" if has_field_error else "incomplete",
             "suggested_tools": result.current_stage.tools,
-            "fields": fields_dict,
+            "outstanding_fields": outstanding,
         }
 
-    content = f"## Flow Evaluation\n\n```json\n{json.dumps(eval_json, ensure_ascii=False, indent=2)}\n```"
-
-    if current_stage_eval and current_stage_eval.fields:
-        missing = [name for name, fs in current_stage_eval.fields.items() if fs.status == "missing"]
-        if missing:
-            content += "\n\n请向用户收集缺失字段后调用 `collect_user_fields` 提交。"
-
-    return {"role": "system", "content": content}
+    content = json.dumps(eval_json, ensure_ascii=False)
+    return content
 
 
 # ── FlowCallbacks ─────────────────────────────────────────────────────────────
@@ -280,12 +291,96 @@ class FlowCallbacks:
         ctx.session.updated_at = datetime.now()
 
         # ── 注入提示词 ──────────────────────────────────────────────────────
-        messages.append(_build_evaluation_message(result))
-
-        if result.is_blocked:
-            return CallbackResult(block_model=True, inject_response=result.block_message)
+        # 合并到第一条 system 消息而非 append 新 system 消息：
+        # 多数 LLM API（国产模型/内部 vLLM）只认一条 system 消息，多条会导致第二条被忽略。
+        eval_msg = _build_evaluation_message(result)
+        _append_to_system_message(messages, eval_msg)
 
         return None
+
+    # ── before_tool ───────────────────────────────────────────────────────────
+
+    async def before_tool_stage_guard(
+        self,
+        ctx: CallbackContext,
+        *,
+        turn: int,
+        tool_calls: list[ToolCall],
+        **_: Any,
+    ) -> CallbackResult | None:
+        """阻断越级调用：当前 stage 未完成、LLM 却调用了下游 stage 的专属工具。
+
+        判定规则：
+          1. 必须存在已激活流程（`_flow_context.skill_name` 与 `current_stage`）。
+          2. `current_stage` 不为 `__completed__`。
+          3. tool_call.name 命中某个 stage_idx > current_idx 的 `StageDefinition.tools`。
+          4. 不在任何 stage.tools 中的工具视作通用工具（resume_task / collect_user_fields /
+             rollback_flow_stage / read_skill / memory 等），一律放行。
+
+        命中时合成 STOP tool_results：runner._tool_phase 的 STOP 收尾路径
+        会拼出 assistant 回复并立刻退出 loop，等价于「踩刹车」。
+        """
+        flow_ctx: dict[str, Any] = ctx.session.state.get("_flow_context") or {}
+        skill_name = flow_ctx.get("skill_name", "")
+        current_stage_id = flow_ctx.get("current_stage")
+        if not skill_name or not current_stage_id or current_stage_id == "__completed__":
+            return None
+
+        evaluator = FlowEvaluatorRegistry.get(skill_name)
+        if evaluator is None:
+            return None
+
+        stage_index = {s.id: i for i, s in enumerate(evaluator.stages)}
+        cur_idx = stage_index.get(current_stage_id)
+        if cur_idx is None:
+            return None
+
+        future_tools: set[str] = set()
+        for s in evaluator.stages[cur_idx + 1 :]:
+            future_tools.update(s.tools)
+        if not future_tools:
+            return None
+
+        offending = [tc for tc in tool_calls if tc.name in future_tools]
+        if not offending:
+            return None
+
+        current_stage = evaluator.stages[cur_idx]
+        fixed_message = (
+            f"当前流程阶段「{current_stage.name}」尚未完成，"
+            f"请先按提示完成本阶段后再继续。"
+        )
+        logger.warning(
+            "[FlowGuard] skill=%s flow_id=%s stage=%s blocked future-stage tool_calls=%s",
+            skill_name,
+            flow_ctx.get("flow_id", "?")[:8],
+            current_stage_id,
+            [tc.name for tc in offending],
+        )
+
+        # 同时为本回合所有 tool_calls 合成 STOP 结果，避免越级工具实际执行。
+        # 越级工具 → STOP+固定话术；其他工具 → STOP+空，统一终止本轮。
+        stop_results: list[AgentToolResult] = []
+        for tc in tool_calls:
+            if tc.name in future_tools:
+                stop_results.append(
+                    AgentToolResult(
+                        tool_call_id=tc.id,
+                        result_type=ToolResultType.TEXT,
+                        content=fixed_message,
+                        loop_action=ToolLoopAction.STOP,
+                    )
+                )
+            else:
+                stop_results.append(
+                    AgentToolResult(
+                        tool_call_id=tc.id,
+                        result_type=ToolResultType.TEXT,
+                        content="",
+                        loop_action=ToolLoopAction.STOP,
+                    )
+                )
+        return CallbackResult(action=HookAction.OVERRIDE, tool_results=stop_results)
 
     def _build_stage_reference_block(
         self,
@@ -351,17 +446,15 @@ class FlowCallbacks:
             return None
 
         try:
-            restorable = evaluator.get_restorable_state(flow_ctx)
-            current_stage_id = restorable["current_stage"]
+            persistable = evaluator.get_persistable_context(flow_ctx)
+            current_stage_id = persistable.get("current_stage", "__completed__")
 
-            # checkpoint 检查：只在最后完成的阶段标记了 checkpoint=True 时写盘。
+            # checkpoint 检查：只在最后完成的阶段标记了 checkpoint=True 时写盘；
             # 流程已全部完成（__completed__）时始终写盘以触发 TaskRegistry 清理。
-            # _flow_context._needs_persist=True（由 rollback 设置）时强制写盘。
-            needs_persist = bool(flow_ctx.get("_needs_persist"))
-            if current_stage_id != "__completed__" and not needs_persist:
+            if current_stage_id != "__completed__":
                 completed_ids = [
                     s.id for s in evaluator.stages
-                    if restorable["stages"].get(s.id, {}).get("status") == "completed"
+                    if persistable.get(f"stage_{s.id}")
                 ]
                 if not completed_ids:
                     return None
@@ -383,7 +476,7 @@ class FlowCallbacks:
                 skill_name=skill_name,
                 current_stage=current_stage_id,
                 last_session_id=session.session_id,
-                flow_context_snapshot=restorable,
+                flow_context_snapshot=persistable,
                 task_name=task_name,
                 resume_ttl_hours=self._ttl_hours,
             )

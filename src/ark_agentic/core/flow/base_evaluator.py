@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
@@ -93,10 +94,6 @@ class StageEvaluation:
 class StageDefinition:
     """阶段定义。
 
-    required 语义:
-      True（默认）: 必须阶段，无数据时阻塞后续阶段，视为当前阶段。
-      False: 可跳过阶段，无数据时自动跳过，不阻塞后续推进。
-
     fields 语义:
       声明每个 output_schema 字段的抽取策略。
       有 state_key：evaluator 自动从 session.state 提取。
@@ -105,6 +102,9 @@ class StageDefinition:
 
     reference_file: references/ 目录下的文件名（如 "identity_verify.md"）。
       Dynamic 注入模式以此为准，与 stage.id 解耦。
+
+    tools: 该阶段期望使用的工具名列表。框架据此识别「未来 stage 专属工具」，
+      在 before_tool 钩子里阻断越级调用；未列入任何 stage.tools 的工具视为通用工具。
 
     checkpoint=True: 该阶段完成后触发 persist_flow_context 写盘，保留跨会话恢复点。
 
@@ -115,7 +115,6 @@ class StageDefinition:
     id: str
     name: str
     description: str
-    required: bool = True
     output_schema: type[BaseModel] | None = None
     reference_file: str | None = None
     tools: list[str] = field(default_factory=list)
@@ -155,13 +154,16 @@ class StageDefinition:
 
 @dataclass
 class FlowEvalResult:
-    """完整评估结果"""
+    """完整评估结果。
+
+    阻断 LLM 推进的语义不再由 evaluate 决定：
+      - 字段缺失 / 校验失败 → 当前 stage 仍处于 in_progress，由提示词与 FieldStatus 暴露原因；
+      - 「越级调用下游 stage 工具」由 FlowCallbacks.before_tool_stage_guard 在工具执行前拦截。
+    """
 
     flow_id: str
     skill_name: str
     is_done: bool
-    is_blocked: bool = False               # True 时阻断 model 调用
-    block_message: str = ""                # 阻断时的固定话术
     current_stage: StageDefinition | None = None
     stage_evaluations: list[StageEvaluation] = field(default_factory=list)
     state_delta: dict[str, Any] = field(default_factory=dict)
@@ -343,22 +345,14 @@ class BaseFlowEvaluator(ABC):
         state_delta: dict[str, Any] = {}
 
         for stage in self.stages:
-            # 已提交的阶段
             if flow_ctx.get(f"stage_{stage.id}"):
                 evaluations.append(StageEvaluation(id=stage.id, name=stage.name, status="completed"))
                 continue
 
-            # 可跳过的非必须阶段
-            if not stage.required and not stage.fields:
-                evaluations.append(StageEvaluation(id=stage.id, name=stage.name, status="completed"))
-                continue
-
-            # 抽取所有字段
             fields_status = self._extract_all_fields(stage, state, flow_ctx)
             all_collected = all(f.status == "collected" for f in fields_status.values())
             collected = {k: v.value for k, v in fields_status.items()}
 
-            # 仅在字段齐套后做 Pydantic 校验（类型/约束）；缺失时由 fields_status 表达
             valid: bool = True
             errors: list[str] = []
             if all_collected:
@@ -374,37 +368,22 @@ class BaseFlowEvaluator(ABC):
                 )
                 continue
 
-            # 非必须阶段：有缺失或校验失败 → 跳过
-            if not stage.required:
-                evaluations.append(StageEvaluation(id=stage.id, name=stage.name, status="completed"))
-                continue
-
             if not valid:
                 for name, err_fs in self._mark_validation_errors(fields_status, errors).items():
                     fields_status[name] = err_fs
+                logger.warning(
+                    "[FlowEval] skill=%s flow_id=%s → stage=%s validation failed: %s",
+                    self.skill_name, flow_ctx.get("flow_id", "?")[:8], stage.id, errors,
+                )
 
             evaluations.append(StageEvaluation(
                 id=stage.id, name=stage.name, status="in_progress", fields=fields_status
             ))
             self._append_remaining_pending(evaluations)
 
-            state_delta["_flow_stage"] = stage.id
-            if not valid:
-                logger.warning(
-                    "[FlowEval] skill=%s flow_id=%s → stage=%s blocked (validation failed): %s",
-                    self.skill_name, flow_ctx.get("flow_id", "?")[:8], stage.id, errors,
-                )
-                return FlowEvalResult(
-                    flow_id=flow_ctx.get("flow_id", ""),
-                    skill_name=self.skill_name,
-                    is_done=False,
-                    is_blocked=True,
-                    block_message=f"{stage.name}信息验证失败：{errors[0] if errors else '字段有误'}",
-                    current_stage=stage,
-                    stage_evaluations=evaluations,
-                    state_delta=state_delta,
-                    available_checkpoints=list(flow_ctx.get("checkpoints") or []),
-                )
+            flow_ctx["current_stage"] = stage.id
+            state_delta["_flow_context.current_stage"] = stage.id
+
             logger.info(
                 "[FlowEval] skill=%s flow_id=%s → stage=%s (%s) progress=%d/%d",
                 self.skill_name, flow_ctx.get("flow_id", "?")[:8],
@@ -416,15 +395,14 @@ class BaseFlowEvaluator(ABC):
                 flow_id=flow_ctx.get("flow_id", ""),
                 skill_name=self.skill_name,
                 is_done=False,
-                is_blocked=False,
                 current_stage=stage,
                 stage_evaluations=evaluations,
                 state_delta=state_delta,
                 available_checkpoints=list(flow_ctx.get("checkpoints") or []),
             )
 
-        # 全部完成
-        state_delta["_flow_stage"] = "__completed__"
+        flow_ctx["current_stage"] = "__completed__"
+        state_delta["_flow_context.current_stage"] = "__completed__"
         logger.info(
             "[FlowEval] skill=%s flow_id=%s → completed (%d stages)",
             self.skill_name, flow_ctx.get("flow_id", "?")[:8], len(self.stages),
@@ -596,40 +574,35 @@ class BaseFlowEvaluator(ABC):
                 )
         return result
 
-    def get_restorable_state(self, flow_ctx: dict[str, Any]) -> dict[str, Any]:
-        """序列化为可持久化格式（写入 active_tasks.json）。"""
-        # 直接遍历 flow_ctx 检查 stage_{id} 是否有数据来判断完成状态
-        is_done = True
-        current_stage_id = "__completed__"
+    def get_persistable_context(self, flow_ctx: dict[str, Any]) -> dict[str, Any]:
+        """返回扁平 flow_ctx 浅拷贝（运行时 = 持久化同形状），剔除 _user_input_*。
 
-        for stage in self.stages:
-            if not self._is_stage_complete(stage, flow_ctx):
-                if stage.required:
-                    is_done = False
-                    current_stage_id = stage.id
-                    break
-                # 非必须阶段跳过
-
-        if is_done:
-            current_stage_id = "__completed__"
-
-        return {
-            "flow_id": flow_ctx.get("flow_id"),
-            "skill_name": self.skill_name,
-            "current_stage": current_stage_id,
-            "stages": {
-                stage.id: {
-                    "status": "completed" if self._is_stage_complete(stage, flow_ctx) else "pending",
-                    "data": flow_ctx.get(f"stage_{stage.id}", {}),
-                    "delta": flow_ctx.get(f"stage_{stage.id}_delta", {}),
-                }
-                for stage in self.stages
-            },
+        恒等约束：`get_persistable_context(flow_ctx)` 与 ResumeTaskTool 还原后的 flow_ctx
+        在 `flow_id / skill_name / current_stage / stage_*  / stage_*_delta / checkpoints`
+        上字段名与值都一致。
+        """
+        snapshot: dict[str, Any] = {
+            k: v for k, v in flow_ctx.items() if not k.startswith("_user_input_")
         }
+        snapshot.setdefault("flow_id", flow_ctx.get("flow_id"))
+        snapshot.setdefault("skill_name", self.skill_name)
+        snapshot.setdefault("current_stage", "__completed__")
+        return snapshot
 
-    def _is_stage_complete(self, stage: StageDefinition, flow_ctx: dict[str, Any]) -> bool:
-        stage_data = flow_ctx.get(f"stage_{stage.id}", {})
-        if not stage_data:
-            return not stage.required
-        valid, _ = stage.validate_output(stage_data)
-        return valid
+    def iter_delta_state(self, flow_ctx: dict[str, Any]) -> Iterator[tuple[str, Any]]:
+        """遍历所有 stage_*_delta，产出 (state_key, raw_value)，供 resume 还原 session.state。
+
+        多个 stage delta 同名 state_key 的合并语义由调用方决定（默认后序覆盖前序）。
+        """
+        for key, value in flow_ctx.items():
+            if (
+                key.startswith("stage_")
+                and key.endswith("_delta")
+                and isinstance(value, dict)
+            ):
+                for state_key, raw in value.items():
+                    yield state_key, raw
+
+    def is_stage_committed(self, stage_id: str, flow_ctx: dict[str, Any]) -> bool:
+        """阶段是否已 commit（仅看 flow_ctx 中是否有 stage_{id} 真值，不再二次校验 schema）。"""
+        return bool(flow_ctx.get(f"stage_{stage_id}"))

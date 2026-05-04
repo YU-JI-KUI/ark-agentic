@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import AgentTool, ToolParameter
+from ..flow.base_evaluator import FlowEvaluatorRegistry
 from ..types import AgentToolResult, ToolCall, ToolResultType
 
 logger = logging.getLogger(__name__)
@@ -148,72 +149,37 @@ class ResumeTaskTool(AgentTool):
 
     @staticmethod
     def _snapshot_to_flow_context(task: dict[str, Any]) -> dict[str, Any]:
-        """将 active_tasks.json snapshot 格式转换回 _flow_context 运行时格式。
+        """将 `flow_context_snapshot` 还原为运行时 `_flow_context`（扁平，与持久化同形）。
 
-        snapshot 格式（get_restorable_state 产出）:
-            {
-              "flow_id": "...",
-              "stages": {
-                "identity_verify": {"status": "completed", "data": {...}, "delta": {...}},
-                ...
-              }
-            }
-
-        _flow_context 运行时格式（evaluator 读取）:
-            {
-              "flow_id": "...",
-              "skill_name": "...",
-              "stage_identity_verify": {...},        # 展平，key = stage_{id}
-              "stage_identity_verify_delta": {...},  # 原始工具输出快照，key = stage_{id}_delta
-              ...
-            }
+        期望与 `BaseFlowEvaluator.get_persistable_context(flow_ctx)` 写入的结构一致：
+        flow_id / skill_name / current_stage / stage_<id> / stage_<id>_delta / checkpoints / …
         """
-        snapshot = task.get("flow_context_snapshot", {})
-        flow_ctx: dict[str, Any] = {
-            "flow_id": task["flow_id"],
-            "skill_name": task["skill_name"],
-        }
-        for stage_id, stage_info in snapshot.get("stages", {}).items():
-            if stage_info.get("status") == "completed" and stage_info.get("data"):
-                flow_ctx[f"stage_{stage_id}"] = stage_info["data"]
-            if stage_info.get("delta"):
-                flow_ctx[f"stage_{stage_id}_delta"] = stage_info["delta"]
-
-        # 从已完成的 checkpoint 阶段重建 checkpoints 历史，
-        # 使 rollback_flow_stage 在 resume 后仍能获取有效回退点列表。
-        from ..flow.base_evaluator import FlowEvaluatorRegistry
-        evaluator = FlowEvaluatorRegistry.get(task["skill_name"])
-        if evaluator:
-            checkpoints = [
-                {"stage_id": s.id, "name": s.name, "description": s.description}
-                for s in evaluator.stages
-                if s.checkpoint
-                and snapshot.get("stages", {}).get(s.id, {}).get("status") == "completed"
-            ]
-            if checkpoints:
-                flow_ctx["checkpoints"] = checkpoints
-
-        # 清理可能遗留的用户输入暂存区
-        # 确保 resume 后从干净的流程状态开始评估
-        if evaluator:
-            for stage in evaluator.stages:
-                flow_ctx.pop(f"_user_input_{stage.id}", None)
-
-        return flow_ctx
+        snapshot: dict[str, Any] = dict(task.get("flow_context_snapshot") or {})
+        snapshot.setdefault("flow_id", task["flow_id"])
+        snapshot.setdefault("skill_name", task["skill_name"])
+        snapshot.setdefault(
+            "current_stage", task.get("current_stage", "__completed__")
+        )
+        for key in list(snapshot.keys()):
+            if key.startswith("_user_input_"):
+                snapshot.pop(key, None)
+        return snapshot
 
     @staticmethod
     def _extract_delta_state(task: dict[str, Any]) -> dict[str, Any]:
-        """从所有已完成阶段的 delta 中提取原始工具 state 键，还原到 session.state 顶层。
-
-        这样 render_a2ui 等通过 state_keys 读取工具输出的工具，
-        在流程恢复后仍能在 session.state 中找到所需数据。
-
-        只处理 status="completed" 的阶段；delta 键发生冲突时后续阶段覆盖前序阶段。
-        旧格式快照（无 delta 字段）降级为空 dict，保持向后兼容。
-        """
-        snapshot = task.get("flow_context_snapshot", {})
+        """从所有 `stage_*_delta` 合并到 session.state 顶层（后出现的 key 覆盖先前的）。"""
+        snapshot: dict[str, Any] = dict(task.get("flow_context_snapshot") or {})
+        ev = FlowEvaluatorRegistry.get(task.get("skill_name") or "")
         result: dict[str, Any] = {}
-        for stage_info in snapshot.get("stages", {}).values():
-            if stage_info.get("status") == "completed":
-                result.update(stage_info.get("delta", {}))
+        if ev is not None:
+            for state_key, raw in ev.iter_delta_state(snapshot):
+                result[state_key] = raw
+            return result
+        for key, value in snapshot.items():
+            if (
+                key.startswith("stage_")
+                and key.endswith("_delta")
+                and isinstance(value, dict)
+            ):
+                result.update(value)
         return result

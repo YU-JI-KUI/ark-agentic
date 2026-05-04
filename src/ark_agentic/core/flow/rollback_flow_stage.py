@@ -107,6 +107,10 @@ class RollbackFlowStageTool(AgentTool):
         ]
         state_delta["_flow_context.checkpoints"] = updated_checkpoints
 
+        # 立即把 current_stage 重置到目标 stage_id，
+        # 让下一轮 evaluate 直接以该 stage 为切入点（而不是先认为 __completed__）。
+        state_delta["_flow_context.current_stage"] = target_stage_id
+
         logger.info(
             "Flow rolled back: skill=%s target=%s cleared=%s",
             skill_name, target_stage_id, [s.id for s in stages_to_clear],

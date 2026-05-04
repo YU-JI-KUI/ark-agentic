@@ -1,7 +1,7 @@
 """CollectUserFieldsTool — 向当前流程阶段提交用户提供的字段。
 
 替代原 CommitFlowStageTool，设计差异：
-  - 无 stage_id 参数：从 session.state["_flow_stage"] 自动推断
+  - 无 stage_id 参数：从 _flow_context["current_stage"] 自动推断
   - 仅需提供无 state_key 的字段；有 state_key 的字段由 evaluator 自动从 session.state 提取
   - 用户字段写入暂存区 _user_input_{stage_id}，由 evaluate() 统一抽取和提交
 """
@@ -53,15 +53,14 @@ class CollectUserFieldsTool(AgentTool):
     ) -> AgentToolResult:
         ctx = context or {}
 
-        # 从 session.state 推断当前阶段
-        stage_id: str | None = ctx.get("_flow_stage")
+        flow_ctx: dict[str, Any] = ctx.get("_flow_context") or {}
+        stage_id: str | None = flow_ctx.get("current_stage")
         if not stage_id or stage_id == "__completed__":
             return AgentToolResult.error_result(
                 tool_call.id,
-                "当前没有待提交的流程阶段（_flow_stage 未设置或已完成）。",
+                "当前没有待提交的流程阶段（_flow_context.current_stage 未设置或已完成）。",
             )
 
-        flow_ctx: dict[str, Any] = ctx.get("_flow_context") or {}
         skill_name = flow_ctx.get("skill_name", "")
 
         evaluator = FlowEvaluatorRegistry.get(skill_name)

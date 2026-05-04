@@ -1,6 +1,6 @@
 ---
 name: 保险取款流程（Flow）
-description: 通过 5 阶段 SOP 流程处理保险取款：身份核验 → 方案查询 → 方案确认 → 二次确认 → 执行取款。支持跨会话中断恢复。
+description: 通过 5 阶段 SOP 处理保险取款：身份核验 → 方案查询 → 方案确认 → 二次确认 → 执行取款。支持跨会话中断恢复。
 version: "1.0.0"
 invocation_policy: auto
 group: insurance
@@ -20,53 +20,65 @@ required_tools:
   - resume_task
 ---
 
-# 保险取款流程（Agentic Native Flow）
+# 保险取款流程（Flow）
 
-通过结构化 SOP 处理取款业务，流程由框架自动驱动（无需手动调用评估器）。
+用户已进入「取款办理」闭环时，按阶段完成核验、算费、交互确认与提交。**每轮发言前**必须先根据系统提示中的**流程状态 JSON**决定动作，再按对应阶段的 `references/*.md` 细化话术与工具参数。
 
-## 核心规则
+---
 
-1. **Flow Evaluation 消息是流程决策的核心依据** — 每轮 LLM 调用前，框架自动运行 `before_model_flow_eval` hook，生成一条 `role="system"` 的独立消息（`## Flow Evaluation`），包含：
-   - `stages_overview`：各阶段状态（completed / in_progress / pending）
-   - `current_stage`：当前阶段 ID、字段状态（collected / missing / error）、建议工具
-   - 每轮必须**先读取该消息**，再决定下一步操作
-2. **统一评估-提交机制** — 所有字段的抽取、Pydantic 校验和阶段提交均在 `evaluate()` 中统一完成，不存在工具执行后自动提交的 hook
-   - 有 `state_key` 的字段：evaluator 自动从 session.state 提取
-   - 无 `state_key` 的字段：LLM 通过 `collect_user_fields` 写入暂存区，由**下一轮 evaluate()** 统一校验和提交
-   - 字段全部就绪且校验通过时，evaluator 自动提交并推进阶段
-3. **阻断机制** — 当 Pydantic 校验失败时，框架直接阻断 LLM 调用（`block_model=True`），返回固定话术（如「XX信息获取失败，是否需要重试？」），LLM 不会收到用户输入，也无法生成回复
-4. 根据当前阶段的 `suggested_tools` 和阶段参考文档，执行对应的数据收集或操作
-5. `collect_user_fields` 只写入暂存区，不直接触发提交 — 下一轮 evaluate() 会从暂存区读取并统一处理
+## 决策依据（系统提示中的流程状态）
 
-## 异常处理原则
+系统消息末尾以 `---` 分隔，其后为**一行可解析的 JSON**（对象）。仅用其字段做判断，**不要**依据对流水线实现的猜测来跳步。
 
-- **关键信息缺失**：明确告知用户缺失内容，无法继续时终止流程
-- **用户中途退出**：若用户明确表示不再继续，停止流程；已完成阶段数据保留，支持后续通过 `resume_task` 恢复
+| 字段路径 | 含义与行动 |
+|----------|------------|
+| `flow_status === "completed"` | 本流程已在系统内闭环结束。向用户做恰当收尾说明，**不要**再为推进本流程而调用 `customer_info` / `policy_query` / `rule_engine` / `render_a2ui` / `submit_withdrawal` 等办理链工具。 |
+| `current_stage` 存在 | 仍在办理中。必须处理完本阶段再进入下一阶段。 |
+| `current_stage.result === "invalid"` | `outstanding_fields` 中存在 `status: "error"` 的项。先根据其中的 `error`（及 `hint`）修正数据、重试工具或向用户澄清，**不要**无视错误继续往下走。 |
+| `current_stage.result === "incomplete"` | `outstanding_fields` 中为待补数据。对每一项：`hint` 若说明需 `collect_user_fields`，则在和用户确认取值后调用；否则用 `suggested_tools` 中的工具从系统侧补齐。 |
+| `current_stage.suggested_tools` | 当前阶段**优先**使用的工具名列表；选工具时与之对齐，避免凭感觉调用未列出的业务工具。 |
+| `outstanding_fields` 为空对象且 `result` 仍为 `incomplete` | 少见；仍遵守 `suggested_tools` 与阶段参考文档，直至下轮 JSON 更新。 |
 
-## 流程恢复与放弃
+若在未完成当前阶段时调用了**仅属于后面阶段**的工具，你会收到短小拒绝话术（阶段未完成）；此时应回到上表，先清掉 `outstanding_fields`。
 
-当 Flow Evaluation 消息中出现「未完成的取款流程」JSON 列表时，必须先与用户确认处理方式，再调用 `resume_task`：
+---
 
-| 用户意图 | 调用方式 | 框架行为 |
-|----------|----------|----------|
-| 继续之前的流程 | `resume_task(flow_id="<JSON 中的 flow_id>", action="resume")` | 恢复 `_flow_context`，按原阶段继续 |
-| 放弃 / 重新开始 | `resume_task(flow_id="<JSON 中的 flow_id>", action="discard")` | 从 `active_tasks.json` 中**永久删除**该任务记录，下一轮可发起新流程 |
+## 阶段顺序与参考（`id` 与 JSON 中 `current_stage.id` 一致）
 
-注意事项：
+| 顺序 | `id` | 要点 |
+|------|------|------|
+| 1 | `identity_verify` | `customer_info`、`policy_query`；见 `identity_verify.md` |
+| 2 | `options_query` | `rule_engine`；见 `options_query.md` |
+| 3 | `plan_confirm` | `render_a2ui` + 用户确认；见 `plan_confirm.md` |
+| 4 | `double_confirm` | 用户再次确认；见 `double_confirm.md` |
+| 5 | `execute` | `submit_withdrawal`；见 `execute.md` |
 
-1. **必须**用 JSON 列表中的 `flow_id`
-2. 在用户尚未明确表态前，**不要**自行调用 `resume_task`；持续向用户呈现 JSON 列表中的任务，引导用户做出选择
-3. 若用户说"重新开始"/"忘掉之前的"/"取消" → 优先视为 `discard`；说"接着办"/"继续"/"恢复" → 视为 `resume`
-4. discard 成功后，下一轮 Flow Evaluation 会自动初始化新的 `_flow_context` 进入 `identity_verify`，无需额外操作
+各阶段的详细字段、卡片与话术以 `references/` 为准。
 
-## 流程回退
+---
 
-当用户希望修改已完成阶段的内容（如更换方案、重新查询等）：
+## 待恢复任务列表（与流程状态 JSON 并列时）
 
-1. 查看 Flow Evaluation 消息中的 `available_checkpoints` 列表
-2. 根据用户意图找到最合适的回退点：
-   - **明确匹配**：告知用户将回退到「XX阶段」重新执行，等待用户确认
-   - **无法判断**：将所有可回退节点全部展示，请用户指定
-3. 用户确认后调用 `rollback_flow_stage(stage_id=<确认的 stage_id>)`
-4. 工具自动清除目标阶段及其后续所有阶段的数据
-5. 下一轮 Flow Evaluation 自动重新评估，从目标阶段重新开始执行
+当系统提示中出现 **「检测到未完成的流程任务」** 及 JSON 数组（含 `flow_id`、`task_name` 等）时：
+
+- **必须先向用户说明选项并征得明确答复**，再调用 `resume_task`。
+- `flow_id` **必须**来自该数组中的条目。
+- 用户表示继续办理 → `resume_task(flow_id="…", action="resume")`；表示放弃/重做 → `resume_task(flow_id="…", action="discard")`。
+- 在用户表态前**不要**调用 `resume_task`。
+
+---
+
+## 回退（用户要改已确认内容）
+
+当用户明确要求修改已走过阶段的关键结论（如方案、金额、渠道）：
+
+1. 本流程的 checkpoint 阶段为 **`plan_confirm`**（方案确认）；回退目标一般回到该阶段或用户明确指向的更早阶段。
+2. 向用户说明将回退到哪个阶段、会清空哪些后续数据，**得到确认后再**调用 `rollback_flow_stage(stage_id="…")`。
+3. `stage_id` 须为**已完成的 checkpoint 阶段 id**（与工具描述一致）；调用后按**新**的状态 JSON 从该阶段继续。
+
+---
+
+## 沟通与风险
+
+- 关键信息不足时，明确告知缺什么，不要虚构数据。
+- 敏感操作提示风险；工具只返回纯 `tool_call` 时不要夹带长解释（见全局协议）。
