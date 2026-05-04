@@ -227,7 +227,7 @@ from fastapi.staticfiles import StaticFiles
 from ark_agentic.core.registry import AgentRegistry
 from ark_agentic.api import chat as chat_api
 from ark_agentic.api import deps as api_deps
-from ark_agentic.studio import setup_studio_from_env
+from ark_agentic.plugins.studio import setup_studio_from_env
 
 from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
 

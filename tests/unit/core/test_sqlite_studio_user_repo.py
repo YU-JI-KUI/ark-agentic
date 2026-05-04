@@ -6,7 +6,7 @@ import pytest
 
 from ark_agentic.core.db.config import DBConfig
 from ark_agentic.core.db.engine import get_async_engine, init_schema, reset_engine_cache
-from ark_agentic.studio.services.auth.storage.sqlite import SqliteStudioUserRepository
+from ark_agentic.plugins.studio.services.auth.storage.sqlite import SqliteStudioUserRepository
 
 
 async def test_ensure_schema_is_public_and_idempotent(tmp_path):

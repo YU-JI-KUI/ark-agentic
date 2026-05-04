@@ -17,8 +17,8 @@ from fastapi import Request
 
 if TYPE_CHECKING:
     from ..core.registry import AgentRegistry
-    from ..services.jobs.plugin import JobsContext
-    from ..services.notifications.setup import NotificationsContext
+    from ..plugins.jobs.plugin import JobsContext
+    from ..plugins.notifications.setup import NotificationsContext
 
 
 @dataclass

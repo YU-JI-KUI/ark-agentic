@@ -46,7 +46,7 @@ def tmp_sessions_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def studio_auth_headers():
     """Build Studio bearer auth headers for tests."""
-    from ark_agentic.studio.services.auth import issue_studio_token
+    from ark_agentic.plugins.studio.services.auth import issue_studio_token
 
     def _headers(user_id: str = "admin") -> dict[str, str]:
         return {"Authorization": f"Bearer {issue_studio_token(user_id)}"}
@@ -68,11 +68,11 @@ def studio_auth_context(
     """
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    from ark_agentic.studio.services.auth import (
+    from ark_agentic.plugins.studio.services.auth import (
         reset_studio_user_repo_cache,
         set_studio_user_repo_for_testing,
     )
-    from ark_agentic.studio.services.auth.storage.sqlite import (
+    from ark_agentic.plugins.studio.services.auth.storage.sqlite import (
         SqliteStudioUserRepository,
     )
 

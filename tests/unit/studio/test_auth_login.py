@@ -11,15 +11,15 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 
-from ark_agentic.studio.api import auth as auth_api
-from ark_agentic.studio.services import auth_service
-from ark_agentic.studio.services.auth import (
+from ark_agentic.plugins.studio.api import auth as auth_api
+from ark_agentic.plugins.studio.services import auth_service
+from ark_agentic.plugins.studio.services.auth import (
     AuthCredentials,
     AuthProvider,
     InternalAuthProvider,
     StudioUser,
 )
-from ark_agentic.studio.services.authz_service import get_studio_user_repo
+from ark_agentic.plugins.studio.services.authz_service import get_studio_user_repo
 
 
 @pytest.fixture

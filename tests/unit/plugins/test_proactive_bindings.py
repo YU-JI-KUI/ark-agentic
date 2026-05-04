@@ -10,11 +10,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ark_agentic.services.jobs import (
+from ark_agentic.plugins.jobs import (
     apply_proactive_job_bindings,
     build_proactive_job_bindings,
 )
-from ark_agentic.services.jobs.base import JobMeta
+from ark_agentic.plugins.jobs.base import JobMeta
 
 
 class _FakeRunner:
@@ -76,7 +76,7 @@ async def test_warmup_hook_skips_when_manager_none(
     job = _make_fake_job()
     apply_proactive_job_bindings(runner, build_proactive_job_bindings(job=job))
 
-    import ark_agentic.services.jobs.manager as manager_mod
+    import ark_agentic.plugins.jobs.manager as manager_mod
     monkeypatch.setattr(manager_mod, "get_job_manager", lambda: None)
 
     await runner.hooks[0]()
@@ -93,7 +93,7 @@ async def test_warmup_hook_registers_when_manager_present(
     apply_proactive_job_bindings(runner, build_proactive_job_bindings(job=job))
 
     fake_manager = MagicMock()
-    import ark_agentic.services.jobs.manager as manager_mod
+    import ark_agentic.plugins.jobs.manager as manager_mod
     monkeypatch.setattr(manager_mod, "get_job_manager", lambda: fake_manager)
 
     await runner.hooks[0]()

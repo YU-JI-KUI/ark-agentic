@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.services.notifications.models import Notification
-from ark_agentic.services.notifications.protocol import NotificationRepository
-from ark_agentic.services.notifications.storage.file import (
+from ark_agentic.plugins.notifications.models import Notification
+from ark_agentic.plugins.notifications.protocol import NotificationRepository
+from ark_agentic.plugins.notifications.storage.file import (
     FileNotificationRepository,
 )
 

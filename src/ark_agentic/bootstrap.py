@@ -25,9 +25,9 @@ async def bootstrap_storage() -> None:
     """
     from .core.db.config import load_db_config_from_env
     from .core.db.engine import init_schema as init_core_schema
-    from .services.jobs.engine import init_schema as init_jobs_schema
-    from .services.notifications.engine import init_schema as init_notif_schema
-    from .studio.services.auth.engine import init_schema as init_studio_schema
+    from .plugins.jobs.engine import init_schema as init_jobs_schema
+    from .plugins.notifications.engine import init_schema as init_notif_schema
+    from .plugins.studio.services.auth.engine import init_schema as init_studio_schema
 
     cfg = load_db_config_from_env()
     if cfg.db_type == "sqlite":

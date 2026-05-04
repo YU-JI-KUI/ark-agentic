@@ -40,9 +40,9 @@ from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
 from ark_agentic.agents import register_all as register_all_agents
 from ark_agentic.core.observability import setup_tracing_from_env, shutdown_tracing
-from ark_agentic.services.jobs.plugin import JobsPlugin
-from ark_agentic.services.notifications.plugin import NotificationsPlugin
-from ark_agentic.studio.plugin import StudioPlugin
+from ark_agentic.plugins.jobs.plugin import JobsPlugin
+from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
+from ark_agentic.plugins.studio.plugin import StudioPlugin
 from ark_agentic.agents.securities.tools.service.mock_mode import get_mock_mode
 
 logger = logging.getLogger(__name__)

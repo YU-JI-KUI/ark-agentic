@@ -10,7 +10,7 @@ from typing import Any, ClassVar
 import bcrypt
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from ark_agentic.studio.services.auth.provider import AuthCredentials, AuthProvider, StudioUser
+from ark_agentic.plugins.studio.services.auth.provider import AuthCredentials, AuthProvider, StudioUser
 
 logger = logging.getLogger(__name__)
 

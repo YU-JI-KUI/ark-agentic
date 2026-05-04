@@ -28,7 +28,7 @@ _test_engine: AsyncEngine | None = None
 def _build_engine() -> AsyncEngine:
     db_type = os.environ.get("DB_TYPE", "file").strip().lower()
     if db_type == "sqlite":
-        from ....core.db.engine import get_engine as _core_get_engine
+        from .....core.db.engine import get_engine as _core_get_engine
         return _core_get_engine()
 
     DEFAULT_STUDIO_DB_PATH.parent.mkdir(parents=True, exist_ok=True)

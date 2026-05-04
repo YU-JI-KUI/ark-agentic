@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ark_agentic.api.context import AppContext, get_ctx
-from ark_agentic.services.notifications.service import NotificationsService
+from ark_agentic.plugins.notifications.service import NotificationsService
 
 router = APIRouter(prefix="/api", tags=["notifications"])
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ def get_notifications_service(
 
 def get_job_manager(ctx: AppContext = Depends(get_ctx)):
     """Resolve JobManager from the global singleton (jobs feature owns it)."""
-    from ark_agentic.services.jobs import get_job_manager as _get
+    from ark_agentic.plugins.jobs import get_job_manager as _get
     jm = _get()
     if jm is None:
         raise HTTPException(

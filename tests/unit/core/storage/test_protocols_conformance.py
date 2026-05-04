@@ -11,8 +11,8 @@ from ark_agentic.core.storage.protocols import (
     MemoryRepository,
     SessionRepository,
 )
-from ark_agentic.services.jobs.protocol import JobRunRepository
-from ark_agentic.services.notifications.protocol import NotificationRepository
+from ark_agentic.plugins.jobs.protocol import JobRunRepository
+from ark_agentic.plugins.notifications.protocol import NotificationRepository
 
 
 def _public_methods(proto: type) -> set[str]:

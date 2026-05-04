@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from ..core.plugin import BasePlugin
+from ...core.plugin import BasePlugin
 
 
 class StudioPlugin(BasePlugin):

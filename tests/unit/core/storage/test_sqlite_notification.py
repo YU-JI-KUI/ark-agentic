@@ -11,12 +11,12 @@ from ark_agentic.core.db.engine import (
     get_async_engine,
     reset_engine_cache,
 )
-from ark_agentic.services.notifications.engine import (
+from ark_agentic.plugins.notifications.engine import (
     init_schema as init_notif_schema,
 )
-from ark_agentic.services.notifications.models import Notification
-from ark_agentic.services.notifications.protocol import NotificationRepository
-from ark_agentic.services.notifications.storage.sqlite import (
+from ark_agentic.plugins.notifications.models import Notification
+from ark_agentic.plugins.notifications.protocol import NotificationRepository
+from ark_agentic.plugins.notifications.storage.sqlite import (
     SqliteNotificationRepository,
 )
 

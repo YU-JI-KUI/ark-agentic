@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.services.jobs.factory import build_job_run_repository
-from ark_agentic.services.jobs.paths import get_job_runs_base_dir
-from ark_agentic.services.jobs.storage.file import FileJobRunRepository
-from ark_agentic.services.jobs.storage.sqlite import SqliteJobRunRepository
+from ark_agentic.plugins.jobs.factory import build_job_run_repository
+from ark_agentic.plugins.jobs.paths import get_job_runs_base_dir
+from ark_agentic.plugins.jobs.storage.file import FileJobRunRepository
+from ark_agentic.plugins.jobs.storage.sqlite import SqliteJobRunRepository
 
 
 def test_default_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -65,7 +65,7 @@ def test_factory_rejects_file_mode_without_base_dir(
 
 
 def test_reexported_from_package() -> None:
-    from ark_agentic.services.jobs import (
+    from ark_agentic.plugins.jobs import (
         JobRunRepository,
         build_job_run_repository as reexported_factory,
         get_job_runs_base_dir as reexported_path,

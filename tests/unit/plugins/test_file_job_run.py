@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.services.jobs.protocol import JobRunRepository
-from ark_agentic.services.jobs.storage.file import FileJobRunRepository
+from ark_agentic.plugins.jobs.protocol import JobRunRepository
+from ark_agentic.plugins.jobs.storage.file import FileJobRunRepository
 
 
 @pytest.fixture

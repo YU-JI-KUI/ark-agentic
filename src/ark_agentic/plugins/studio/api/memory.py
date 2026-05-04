@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from ark_agentic.api.deps import get_registry
 from ark_agentic.core.memory.manager import MemoryManager
-from ark_agentic.studio.services.auth import StudioPrincipal, require_studio_roles, require_studio_user
+from ark_agentic.plugins.studio.services.auth import StudioPrincipal, require_studio_roles, require_studio_user
 
 
 def _user_id_from_user_memory_rel_path(file_path: str) -> str | None:

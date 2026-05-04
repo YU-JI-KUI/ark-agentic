@@ -14,7 +14,7 @@ from typing import Any
 from ark_agentic.core.tools.base import AgentTool, ToolParameter, read_string_param, read_list_param
 from ark_agentic.core.types import AgentToolResult, ToolCall
 from ark_agentic.core.utils.env import get_agents_root
-from ark_agentic.studio.services.agent_service import (
+from ark_agentic.plugins.studio.services.agent_service import (
     AgentScaffoldSpec,
     list_agents as svc_list_agents,
     scaffold_agent,

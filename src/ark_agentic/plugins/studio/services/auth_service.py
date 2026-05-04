@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any
 
-from ark_agentic.studio.services.auth import (
+from ark_agentic.plugins.studio.services.auth import (
     AuthCredentials,
     AuthProvider,
     InternalAuthProvider,

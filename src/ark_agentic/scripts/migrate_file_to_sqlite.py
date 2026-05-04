@@ -33,13 +33,13 @@ from ..core.db.engine import (
     init_schema as init_core_schema,
     set_engine_for_testing,
 )
-from ..services.jobs.engine import init_schema as init_jobs_schema
-from ..services.jobs.storage.models import JobRunRow
-from ..services.jobs.storage.sqlite import SqliteJobRunRepository
-from ..services.notifications.engine import (
+from ..plugins.jobs.engine import init_schema as init_jobs_schema
+from ..plugins.jobs.storage.models import JobRunRow
+from ..plugins.jobs.storage.sqlite import SqliteJobRunRepository
+from ..plugins.notifications.engine import (
     init_schema as init_notif_schema,
 )
-from ..studio.services.auth.engine import (
+from ..plugins.studio.services.auth.engine import (
     init_schema as init_studio_schema,
 )
 from ..core.db.models import (
@@ -50,9 +50,9 @@ from ..core.storage.repository.file.memory import FileMemoryRepository
 from ..core.storage.repository.file.session import FileSessionRepository
 from ..core.storage.repository.sqlite.memory import SqliteMemoryRepository
 from ..core.storage.repository.sqlite.session import SqliteSessionRepository
-from ..services.notifications.storage.file import FileNotificationRepository
-from ..services.notifications.storage.models import NotificationRow
-from ..services.notifications.storage.sqlite import SqliteNotificationRepository
+from ..plugins.notifications.storage.file import FileNotificationRepository
+from ..plugins.notifications.storage.models import NotificationRow
+from ..plugins.notifications.storage.sqlite import SqliteNotificationRepository
 
 logger = logging.getLogger(__name__)
 

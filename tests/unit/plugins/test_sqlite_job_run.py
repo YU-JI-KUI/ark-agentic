@@ -10,9 +10,9 @@ from ark_agentic.core.db.engine import (
     reset_engine_cache,
     set_engine_for_testing,
 )
-from ark_agentic.services.jobs.engine import init_schema as init_jobs_schema
-from ark_agentic.services.jobs.protocol import JobRunRepository
-from ark_agentic.services.jobs.storage.sqlite import SqliteJobRunRepository
+from ark_agentic.plugins.jobs.engine import init_schema as init_jobs_schema
+from ark_agentic.plugins.jobs.protocol import JobRunRepository
+from ark_agentic.plugins.jobs.storage.sqlite import SqliteJobRunRepository
 
 
 @pytest.fixture(autouse=True)

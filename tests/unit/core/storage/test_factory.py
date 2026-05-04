@@ -29,13 +29,13 @@ from ark_agentic.core.storage.factory import (
     build_memory_repository,
     build_session_repository,
 )
-from ark_agentic.services.notifications.factory import (
+from ark_agentic.plugins.notifications.factory import (
     build_notification_repository,
 )
-from ark_agentic.services.notifications.storage.file import (
+from ark_agentic.plugins.notifications.storage.file import (
     FileNotificationRepository,
 )
-from ark_agentic.services.notifications.storage.sqlite import (
+from ark_agentic.plugins.notifications.storage.sqlite import (
     SqliteNotificationRepository,
 )
 
