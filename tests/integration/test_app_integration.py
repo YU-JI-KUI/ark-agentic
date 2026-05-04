@@ -140,23 +140,31 @@ class TestChatRunOptionsIntegration:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_warms_up_registered_agents() -> None:
-    """Lifespan calls ``register_all`` for agent discovery, then walks the
-    registry warming up every entry. The Plugin loop is no-op here because
-    ENABLE_* env flags are unset."""
-    from ark_agentic import app as app_module
+async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> None:
+    """``AgentsRuntime.start`` walks the registry warming up every runner;
+    ``stop`` closes every runner's memory backend. Driven via Bootstrap."""
+    from ark_agentic.core.bootstrap import Bootstrap
+    from ark_agentic.core.runtime.agents import AgentsRuntime
 
     runner = AsyncMock()
     registry = MagicMock()
     registry.list_ids.return_value = ["insurance", "securities"]
     registry.get.return_value = runner
 
+    class _AppStub:
+        class state:
+            pass
+        state = state()
+
     with (
-        patch.object(app_module, "register_all_agents"),
-        patch.object(app_module, "_registry", registry),
-        patch.object(app_module.api_deps, "init_registry"),
+        patch("ark_agentic.agents.register_all"),
+        patch("ark_agentic.plugins.api.deps.init_registry"),
     ):
-        async with app_module.lifespan(app_module.app):
+        from types import SimpleNamespace
+
+        bootstrap = Bootstrap([AgentsRuntime(registry=registry)])
+        async with bootstrap.lifespan(_AppStub(), ctx=SimpleNamespace()):
             pass
 
     assert runner.warmup.await_count == 2
+    assert runner.close_memory.await_count == 2

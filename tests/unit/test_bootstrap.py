@@ -16,7 +16,7 @@ from ark_agentic.core.lifecycle import BaseLifecycle
 
 
 async def test_bootstrap_runs_default_plugins_in_file_mode(monkeypatch):
-    from ark_agentic.app import PLUGINS
+    from ark_agentic.bootstrap import DEFAULT_PLUGINS as PLUGINS
     monkeypatch.setenv("DB_TYPE", "file")
     bootstrap = Bootstrap(list(PLUGINS))
     # init_all must succeed without exceptions in file mode.
@@ -24,7 +24,7 @@ async def test_bootstrap_runs_default_plugins_in_file_mode(monkeypatch):
 
 
 async def test_bootstrap_runs_default_plugins_in_sqlite_mode(monkeypatch, tmp_path):
-    from ark_agentic.app import PLUGINS
+    from ark_agentic.bootstrap import DEFAULT_PLUGINS as PLUGINS
     reset_engine_cache()
     try:
         monkeypatch.setenv("DB_TYPE", "sqlite")
