@@ -91,7 +91,7 @@ async def test_build_memory_returns_file_when_unset(
 ):
     monkeypatch.delenv("DB_TYPE", raising=False)
 
-    repo = build_memory_repository(workspace_dir=tmp_path)
+    repo = build_memory_repository(workspace_dir=tmp_path, cached=False)
 
     assert isinstance(repo, FileMemoryRepository)
 
@@ -101,7 +101,7 @@ async def test_build_memory_returns_sqlite_when_sqlite(
 ):
     monkeypatch.setenv("DB_TYPE", "sqlite")
 
-    repo = build_memory_repository(workspace_dir=tmp_path)
+    repo = build_memory_repository(workspace_dir=tmp_path, cached=False)
 
     assert isinstance(repo, SqliteMemoryRepository)
 

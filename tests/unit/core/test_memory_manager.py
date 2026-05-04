@@ -67,11 +67,14 @@ async def test_memory_manager_no_longer_exposes_memory_path() -> None:
 
 def test_build_memory_manager_wires_file_repository(tmp_path: Path) -> None:
     """Default factory still returns a working MemoryManager rooted at memory_dir."""
+    from ark_agentic.core.storage.decorators.memory import CachedMemoryRepository
+
     mgr = build_memory_manager(tmp_path)
 
     assert isinstance(mgr, MemoryManager)
-    # Internal repo is the file backend in default DB_TYPE=file mode.
-    assert isinstance(mgr._repo, FileMemoryRepository)
+    # Internal repo is the cached wrapper around the file backend.
+    assert isinstance(mgr._repo, CachedMemoryRepository)
+    assert isinstance(mgr._repo.inner, FileMemoryRepository)
     # MemoryConfig kept for back-compat; surface workspace_dir for callers
     # that read it (e.g. scanner / dream).
     assert mgr.config.workspace_dir == str(tmp_path)

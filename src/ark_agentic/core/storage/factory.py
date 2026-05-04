@@ -81,16 +81,33 @@ def build_session_repository(
 
 def build_memory_repository(
     workspace_dir: str | Path | None = None,
+    *,
+    cached: bool = True,
 ) -> MemoryRepository:
+    """Build the memory repository for the active backend.
+
+    By default the result is wrapped in ``CachedMemoryRepository`` so
+    per-user ``read()`` calls hit the process cache. Pass ``cached=False``
+    to opt out (used by tests that need to inspect the raw backend).
+    """
     db_type = _resolve_db_type()
     if db_type == "file":
-        return FileMemoryRepository(
+        repo: MemoryRepository = FileMemoryRepository(
             _require_path(workspace_dir, "MemoryRepository", "workspace_dir")
         )
-    if db_type == "sqlite":
+    elif db_type == "sqlite":
         from ..db.engine import get_engine
-        return SqliteMemoryRepository(get_engine())
-    raise ValueError(f"Unsupported DB_TYPE for memory repository: {db_type!r}")
+        repo = SqliteMemoryRepository(get_engine())
+    else:
+        raise ValueError(
+            f"Unsupported DB_TYPE for memory repository: {db_type!r}"
+        )
+
+    if not cached:
+        return repo
+    from .cache_adapter import get_cache
+    from .decorators import CachedMemoryRepository
+    return CachedMemoryRepository(repo, get_cache())
 
 
 def build_agent_state_repository(
