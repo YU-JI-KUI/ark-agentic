@@ -1,8 +1,8 @@
 """StudioUserRepository Protocol — Studio role grants store.
 
 Studio is the operations console; users / roles live in DB regardless of
-``DB_TYPE``. The protocol is DB-agnostic so future PG migration is a one-file
-swap.
+``DB_TYPE``. The protocol is DB-agnostic so future PG migration is a
+one-file swap.
 """
 
 from __future__ import annotations
@@ -67,6 +67,10 @@ class StudioUserRepository(Protocol):
     invariant. Implementations should raise ``LastAdminError`` rather
     than silently completing the operation.
     """
+
+    async def ensure_schema(self) -> None:
+        """Idempotent schema bootstrap (table + seed admin row)."""
+        ...
 
     async def list_users_page(
         self,

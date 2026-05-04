@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Mapping
 
-from ark_agentic.studio.services.authz_service import StudioRole
+from ark_agentic.studio.services.auth.protocol import StudioRole
 
 
 @dataclass(frozen=True)

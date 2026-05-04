@@ -26,13 +26,11 @@ from .repository.file.session import FileSessionRepository
 from .repository.sqlite.agent_state import SqliteAgentStateRepository
 from .repository.sqlite.memory import SqliteMemoryRepository
 from .repository.sqlite.session import SqliteSessionRepository
-from .repository.sqlite.studio_user import SqliteStudioUserRepository
 from .protocols import (
     AgentStateRepository,
     Cache,
     MemoryRepository,
     SessionRepository,
-    StudioUserRepository,
 )
 
 
@@ -118,15 +116,3 @@ def build_agent_state_repository(
 def build_cache() -> Cache:
     """PR2: Cache is always in-process. PR3 introduces RedisCache via env."""
     return MemoryCache()
-
-
-def build_studio_user_repository(
-    engine: AsyncEngine,
-) -> StudioUserRepository:
-    """Studio is DB-only — no file backend exists.
-
-    Always returns the SQLite implementation. The caller decides which
-    engine to pass (the central ``core.db`` engine when DB_TYPE=sqlite,
-    or a dedicated Studio engine otherwise — see Studio's own bootstrap).
-    """
-    return SqliteStudioUserRepository(engine)

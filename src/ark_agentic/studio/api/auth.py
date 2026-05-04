@@ -16,14 +16,14 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from ark_agentic.studio.services.auth import AuthCredentials
-from ark_agentic.studio.services.auth_service import authenticate_studio_user, logout_studio_user
-from ark_agentic.studio.services.authz_service import (
+from ark_agentic.studio.services.auth import (
+    AuthCredentials,
     StudioRole,
     get_studio_user_repo,
     issue_studio_token,
     issue_studio_token_id,
 )
+from ark_agentic.studio.services.auth_service import authenticate_studio_user, logout_studio_user
 
 router = APIRouter()
 INVALID_LOGIN_DETAIL = "Invalid username or password"

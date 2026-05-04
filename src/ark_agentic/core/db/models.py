@@ -7,9 +7,7 @@ own feature packages and import ``Base`` from here so all tables share one
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -75,20 +73,3 @@ class AgentState(Base):
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class StudioUser(Base):
-    """Studio user role grants.
-
-    Migrated here from ``studio.services.authz_service`` (Task 11) so the
-    table joins the global metadata and gets created by the unified
-    ``init_schema(engine)`` call. The Table object surfaces for legacy
-    SQLAlchemy Core queries via ``StudioUser.__table__``.
-    """
-
-    __tablename__ = "studio_users"
-
-    user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    role: Mapped[str] = mapped_column(String(32))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -39,10 +39,7 @@ from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
 from ark_agentic.core.observability import setup_tracing_from_env, shutdown_tracing
 from ark_agentic.studio import setup_studio_from_env
-from ark_agentic.studio.services.authz_service import (
-    ensure_studio_schema,
-    get_studio_user_repo,
-)
+from ark_agentic.studio.services.auth import ensure_studio_schema
 from ark_agentic.agents.securities.tools.service.mock_mode import get_mock_mode
 
 logger = logging.getLogger(__name__)
