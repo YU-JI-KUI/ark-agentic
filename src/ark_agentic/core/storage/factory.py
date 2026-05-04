@@ -49,16 +49,34 @@ def _require_path(path: str | Path | None, what: str, param: str) -> Path:
 
 def build_session_repository(
     sessions_dir: str | Path | None = None,
+    *,
+    cached: bool = True,
 ) -> SessionRepository:
+    """Build the session repository for the active backend.
+
+    By default the result is wrapped in ``CachedSessionRepository`` so
+    ``load_meta`` reads benefit from the process cache (memory:// by
+    default; redis:// in production multi-worker). Pass ``cached=False``
+    to opt out (used by tests that need to inspect the raw backend).
+    """
     db_type = _resolve_db_type()
     if db_type == "file":
-        return FileSessionRepository(
+        repo: SessionRepository = FileSessionRepository(
             _require_path(sessions_dir, "SessionRepository", "sessions_dir")
         )
-    if db_type == "sqlite":
+    elif db_type == "sqlite":
         from ..db.engine import get_engine
-        return SqliteSessionRepository(get_engine())
-    raise ValueError(f"Unsupported DB_TYPE for session repository: {db_type!r}")
+        repo = SqliteSessionRepository(get_engine())
+    else:
+        raise ValueError(
+            f"Unsupported DB_TYPE for session repository: {db_type!r}"
+        )
+
+    if not cached:
+        return repo
+    from .cache_adapter import get_cache
+    from .decorators import CachedSessionRepository
+    return CachedSessionRepository(repo, get_cache())
 
 
 def build_memory_repository(
