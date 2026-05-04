@@ -2,8 +2,9 @@
 
 模式:
   - agents factory 构造 Job + bindings
-  - apply_proactive_job_bindings(runner, bindings) 挂到 runner 上
-  - runner.warmup() 触发 _warmup_tasks,把 job 注册进 JobManager
+  - apply_proactive_job_bindings(runner, bindings) 通过 runner.add_warmup_hook
+    把 job 注册任务挂到 runner 的 warmup 钩子上
+  - runner.warmup() 触发钩子,把 job 注册进 JobManager
 
 runner 本身不感知 Job / JobManager 的存在。
 """
@@ -39,7 +40,7 @@ def apply_proactive_job_bindings(
     runner: "AgentRunner",
     bindings: ProactiveJobBindings,
 ) -> "AgentRunner":
-    """把 job 注册任务挂到 runner 的 _warmup_tasks 上。
+    """Register the job's bootstrap as a runner warmup hook.
 
     runner 不感知 job 类型或 JobManager;此函数负责闭包捕获 job
     并在 warmup 时动态引用 get_job_manager(允许 JobManager 未启用)。
@@ -69,9 +70,5 @@ def apply_proactive_job_bindings(
         job_manager.register(job)
         logger.info("Registered proactive job '%s'", job.meta.job_id)
 
-    tasks = getattr(runner, "_warmup_tasks", None)
-    if tasks is None:
-        tasks = []
-        setattr(runner, "_warmup_tasks", tasks)
-    tasks.append(_register_proactive_job)
+    runner.add_warmup_hook(_register_proactive_job)
     return runner

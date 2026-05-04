@@ -27,6 +27,7 @@ class FileMemoryRepository:
 
     def __init__(self, workspace_dir: str | Path) -> None:
         self._workspace = Path(workspace_dir)
+        self._workspace.mkdir(parents=True, exist_ok=True)
 
     def _memory_path(self, user_id: str) -> Path:
         return self._workspace / user_id / _PROFILE_FILENAME
@@ -103,9 +104,16 @@ class FileMemoryRepository:
         offset: int = 0,
         order_by_updated_desc: bool = True,
     ) -> list[str]:
-        return await asyncio.to_thread(self._list_users_sync, order_by_updated_desc)
+        return await asyncio.to_thread(
+            self._list_users_sync, limit, offset, order_by_updated_desc,
+        )
 
-    def _list_users_sync(self, order_by_updated_desc: bool) -> list[str]:
+    def _list_users_sync(
+        self,
+        limit: int | None,
+        offset: int,
+        order_by_updated_desc: bool,
+    ) -> list[str]:
         if not self._workspace.exists():
             return []
         users_with_mtime: list[tuple[str, float]] = []
@@ -117,4 +125,12 @@ class FileMemoryRepository:
                 continue
             users_with_mtime.append((entry.name, mem.stat().st_mtime))
         users_with_mtime.sort(key=lambda t: t[1], reverse=order_by_updated_desc)
-        return [name for name, _ in users_with_mtime]
+        names = [name for name, _ in users_with_mtime]
+        return _paginate(names, limit, offset)
+
+
+def _paginate(items: list, limit: int | None, offset: int) -> list:
+    start = max(offset, 0)
+    if limit is None:
+        return items[start:]
+    return items[start:start + limit]

@@ -57,9 +57,24 @@ class SessionManager:
             )
         self._repository = repository
 
-    @property
-    def repository(self) -> "SessionRepository":
-        return self._repository
+    # ── Raw transcript I/O (Studio raw editor) ────────────
+
+    async def get_raw_transcript(
+        self, session_id: str, user_id: str,
+    ) -> str | None:
+        """Return the JSONL transcript verbatim. Admin / debug only."""
+        return await self._repository.get_raw_transcript(session_id, user_id)
+
+    async def put_raw_transcript(
+        self,
+        session_id: str,
+        user_id: str,
+        jsonl_content: str,
+    ) -> None:
+        """Validate and atomically replace the transcript. Admin only."""
+        await self._repository.put_raw_transcript(
+            session_id, user_id, jsonl_content,
+        )
 
     # ============ 会话生命周期 ============
 

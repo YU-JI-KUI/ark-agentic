@@ -70,17 +70,17 @@ def build_memory_manager(
     *,
     engine: "AsyncEngine | None" = None,
 ) -> MemoryManager:
-    """工厂：构建一个根据 ``DB_TYPE`` 自动选后端的 ``MemoryManager``。
+    """Factory: builds a ``MemoryManager`` whose backend is picked by
+    ``DB_TYPE``.
 
-    When ``engine`` is provided it is forwarded to the repository factory,
-    skipping the internal DB_TYPE re-parse.
+    ``memory_dir`` is required for the file backend; the SQLite backend
+    treats it as a logical workspace label (used by adjacent modules
+    like the proactive scanner). The directory itself is created lazily
+    by ``FileMemoryRepository`` only when file mode is active.
     """
     if memory_dir is None:
         memory_dir = Path(tempfile.gettempdir()) / "ark_memory"
     memory_dir = Path(memory_dir)
-    memory_dir.mkdir(parents=True, exist_ok=True)
-
-    _warn_orphaned_index(memory_dir)
 
     from ..storage.factory import build_memory_repository
 
@@ -96,13 +96,3 @@ def build_memory_manager(
         repository=repo,
         config=MemoryConfig(workspace_dir=str(memory_dir)),
     )
-
-
-def _warn_orphaned_index(workspace: Path) -> None:
-    idx_dir = workspace / ".memory"
-    if idx_dir.is_dir():
-        logger.warning(
-            "Orphaned SQLite index directory found at %s — "
-            "it is no longer used and can be safely deleted.",
-            idx_dir,
-        )

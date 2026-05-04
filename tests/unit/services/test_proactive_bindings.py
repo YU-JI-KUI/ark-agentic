@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,10 +17,14 @@ from ark_agentic.services.jobs import (
 from ark_agentic.services.jobs.base import JobMeta
 
 
-@dataclass
 class _FakeRunner:
-    """最小 runner stub,仅用于 setattr/getattr。"""
-    pass
+    """Minimal runner stub exposing the public ``add_warmup_hook`` surface."""
+
+    def __init__(self) -> None:
+        self.hooks: list = []
+
+    def add_warmup_hook(self, hook) -> None:
+        self.hooks.append(hook)
 
 
 def _make_fake_job(job_id: str = "test_job") -> Any:
@@ -40,36 +43,32 @@ def test_apply_no_op_when_job_is_none() -> None:
     bindings = build_proactive_job_bindings(job=None)
     result = apply_proactive_job_bindings(runner, bindings)
     assert result is runner
-    assert not hasattr(runner, "_warmup_tasks")
+    assert runner.hooks == []
 
 
-def test_apply_appends_warmup_task() -> None:
+def test_apply_registers_warmup_hook() -> None:
     runner = _FakeRunner()
     job = _make_fake_job()
-    bindings = build_proactive_job_bindings(job=job)
-    apply_proactive_job_bindings(runner, bindings)
+    apply_proactive_job_bindings(runner, build_proactive_job_bindings(job=job))
 
-    tasks = getattr(runner, "_warmup_tasks", None)
-    assert tasks is not None
-    assert len(tasks) == 1
-    assert callable(tasks[0])
+    assert len(runner.hooks) == 1
+    assert callable(runner.hooks[0])
 
 
-def test_apply_appends_to_existing_tasks() -> None:
+def test_apply_appends_to_existing_hooks() -> None:
     runner = _FakeRunner()
-    existing_task = AsyncMock()
-    setattr(runner, "_warmup_tasks", [existing_task])
+    existing = AsyncMock()
+    runner.add_warmup_hook(existing)
 
     job = _make_fake_job()
     apply_proactive_job_bindings(runner, build_proactive_job_bindings(job=job))
 
-    tasks = getattr(runner, "_warmup_tasks")
-    assert len(tasks) == 2
-    assert tasks[0] is existing_task
+    assert len(runner.hooks) == 2
+    assert runner.hooks[0] is existing
 
 
 @pytest.mark.asyncio
-async def test_warmup_task_skips_when_manager_none(
+async def test_warmup_hook_skips_when_manager_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """get_job_manager() 返回 None 时(未启用 ENABLE_JOB_MANAGER),应静默跳过。"""
@@ -77,17 +76,15 @@ async def test_warmup_task_skips_when_manager_none(
     job = _make_fake_job()
     apply_proactive_job_bindings(runner, build_proactive_job_bindings(job=job))
 
-    # 跳过 manager 模块的实际 import,直接 mock get_job_manager 返回 None
     import ark_agentic.services.jobs.manager as manager_mod
     monkeypatch.setattr(manager_mod, "get_job_manager", lambda: None)
 
-    task = runner._warmup_tasks[0]  # type: ignore[attr-defined]
-    await task()  # 不应抛异常
-    assert job.method_calls == []  # 未调用 register
+    await runner.hooks[0]()
+    assert job.method_calls == []
 
 
 @pytest.mark.asyncio
-async def test_warmup_task_registers_when_manager_present(
+async def test_warmup_hook_registers_when_manager_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """get_job_manager() 返回实例时,应调用 register(job)。"""
@@ -99,34 +96,30 @@ async def test_warmup_task_registers_when_manager_present(
     import ark_agentic.services.jobs.manager as manager_mod
     monkeypatch.setattr(manager_mod, "get_job_manager", lambda: fake_manager)
 
-    task = runner._warmup_tasks[0]  # type: ignore[attr-defined]
-    await task()
+    await runner.hooks[0]()
     fake_manager.register.assert_called_once_with(job)
 
 
 @pytest.mark.asyncio
-async def test_runner_warmup_executes_warmup_tasks() -> None:
-    """验证 AgentRunner.warmup() 真的会执行 _warmup_tasks 列表。"""
+async def test_runner_warmup_runs_every_hook() -> None:
+    """AgentRunner.warmup() 调用所有通过 add_warmup_hook 注册的回调。"""
     from ark_agentic.core.runner import AgentRunner
 
-    # 不构造完整 runner(避免依赖 LLM/SessionManager),直接 mock
     runner = MagicMock(spec=AgentRunner)
-    runner._warmup_tasks = [AsyncMock(), AsyncMock()]
+    runner._warmup_hooks = [AsyncMock(), AsyncMock()]
     runner.warmup = AgentRunner.warmup.__get__(runner)
 
     await runner.warmup()
-    for task in runner._warmup_tasks:
-        task.assert_awaited_once()
+    for hook in runner._warmup_hooks:
+        hook.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_runner_warmup_no_tasks_attribute() -> None:
-    """没有 _warmup_tasks 属性时 warmup() 应该 no-op。"""
+async def test_runner_warmup_with_no_hooks_is_a_noop() -> None:
     from ark_agentic.core.runner import AgentRunner
 
     runner = MagicMock(spec=AgentRunner)
-    if hasattr(runner, "_warmup_tasks"):
-        del runner._warmup_tasks
+    runner._warmup_hooks = []
     runner.warmup = AgentRunner.warmup.__get__(runner)
 
-    await runner.warmup()  # 不应抛
+    await runner.warmup()

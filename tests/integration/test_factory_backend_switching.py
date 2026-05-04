@@ -40,7 +40,7 @@ def test_session_manager_uses_file_backend_by_default(
 
     sm = SessionManager(tmp_path)
 
-    assert isinstance(sm.repository, FileSessionRepository)
+    assert isinstance(sm._repository, FileSessionRepository)
 
 
 async def test_session_manager_uses_sqlite_when_db_type_sqlite(
@@ -55,7 +55,7 @@ async def test_session_manager_uses_sqlite_when_db_type_sqlite(
 
     sm = SessionManager(tmp_path, db_engine=engine)
 
-    assert isinstance(sm.repository, SqliteSessionRepository)
+    assert isinstance(sm._repository, SqliteSessionRepository)
 
 
 async def test_session_manager_e2e_under_sqlite(

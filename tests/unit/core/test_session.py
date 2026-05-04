@@ -321,7 +321,7 @@ class TestRepositoryBackedPersistence:
 
         # New SessionManager with same dir must see the message via repository.
         fresh = SessionManager(sessions_dir=tmp_sessions_dir)
-        loaded = await fresh.repository.load_messages(session.session_id, self.USER_ID)
+        loaded = await fresh._repository.load_messages(session.session_id, self.USER_ID)
         assert any(m.content == "hello" for m in loaded), \
             "add_message must persist synchronously; pending-buffer is gone"
 
@@ -340,7 +340,7 @@ class TestEphemeralPathDoesNotPersist:
         # In-memory copy is updated...
         assert any(m.content == "ephemeral" for m in manager.get_messages(session.session_id))
         # ...but the repository was never touched.
-        loaded = await manager.repository.load_messages(session.session_id, "u1")
+        loaded = await manager._repository.load_messages(session.session_id, "u1")
         assert all(m.content != "ephemeral" for m in loaded)
 
 
@@ -354,13 +354,13 @@ class TestFinalizeIsCalled:
         session = await manager.create_session(self.USER_ID)
 
         called: list[tuple[str, str]] = []
-        original_finalize = manager.repository.finalize
+        original_finalize = manager._repository.finalize
 
         async def _spy(sid: str, uid: str) -> None:  # type: ignore[override]
             called.append((sid, uid))
             await original_finalize(sid, uid)
 
-        manager.repository.finalize = _spy  # type: ignore[method-assign]
+        manager._repository.finalize = _spy  # type: ignore[method-assign]
 
         await manager.compact_session(session.session_id, self.USER_ID, force=True)
 

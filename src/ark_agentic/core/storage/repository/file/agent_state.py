@@ -60,12 +60,15 @@ class FileAgentStateRepository:
         order_by_updated_desc: bool = True,
     ) -> list[tuple[str, str]]:
         return await asyncio.to_thread(
-            self._list_users_with_key_sync, key, order_by_updated_desc
+            self._list_users_with_key_sync,
+            key, limit, offset, order_by_updated_desc,
         )
 
     def _list_users_with_key_sync(
         self,
         key: str,
+        limit: int | None,
+        offset: int,
         order_by_updated_desc: bool,
     ) -> list[tuple[str, str]]:
         if not self._workspace.exists():
@@ -80,4 +83,8 @@ class FileAgentStateRepository:
             value = kp.read_text(encoding="utf-8")
             results.append((entry.name, value, kp.stat().st_mtime))
         results.sort(key=lambda t: t[2], reverse=order_by_updated_desc)
-        return [(name, value) for name, value, _ in results]
+        rows = [(name, value) for name, value, _ in results]
+        start = max(offset, 0)
+        if limit is None:
+            return rows[start:]
+        return rows[start:start + limit]

@@ -68,15 +68,13 @@ def _message_to_item(msg: Any) -> MessageItem:
         if msg.tool_results
         else None
     )
-    thinking = getattr(msg, "thinking", None)
-    metadata = getattr(msg, "metadata", None) or None
     return MessageItem(
         role=role,
         content=content,
         tool_calls=tool_calls,
         tool_results=tool_results,
-        thinking=thinking,
-        metadata=metadata,
+        thinking=msg.thinking,
+        metadata=msg.metadata or None,
     )
 
 
@@ -158,8 +156,7 @@ async def get_session_raw(
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
 
-    repo = runner.session_manager.repository
-    raw = await repo.get_raw_transcript(session_id, user_id)
+    raw = await runner.session_manager.get_raw_transcript(session_id, user_id)
     if raw is None:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
     return PlainTextResponse(content=raw, media_type="application/x-ndjson")
@@ -183,10 +180,10 @@ async def put_session_raw(
 
     body = (await request.body()).decode("utf-8")
 
-    repo = runner.session_manager.repository
-
     try:
-        await repo.put_raw_transcript(session_id, user_id, body)
+        await runner.session_manager.put_raw_transcript(
+            session_id, user_id, body,
+        )
     except RawJsonlValidationError as e:
         detail = {"message": str(e)}
         if e.line_number is not None:

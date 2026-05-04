@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, NamedTuple, TYPE_CHECKING
@@ -222,6 +223,9 @@ class AgentRunner:
         # Dreamer is fully constructed by the factory and injected here.
         # The runner never builds repositories itself.
         self._dreamer = dreamer
+        # Warmup hooks are appended by services (jobs / future bindings)
+        # via add_warmup_hook(); runner just runs them on warmup().
+        self._warmup_hooks: list[Callable[[], Awaitable[None]]] = []
 
         # LLMCaller / ToolExecutor (SRP)
         self._llm_caller = LLMCaller(
@@ -278,17 +282,24 @@ class AgentRunner:
         """返回共享 MemoryManager（所有用户共用一个实例）。"""
         return self._memory_manager
 
-    async def warmup(self) -> None:
-        """Warmup hook — 执行 services 模块附加的 _warmup_tasks。
+    def add_warmup_hook(
+        self, hook: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Register an async hook to run on ``warmup()``.
 
-        runner 本身不感知具体任务(job 注册、资源预热等);services 层通过
-        apply_*_bindings() 在构造后追加任务,此处仅负责依次触发。
+        Public hook point: services (e.g. jobs/bindings) register
+        startup tasks here without reaching into runner internals.
         """
-        tasks = getattr(self, "_warmup_tasks", None)
-        if not tasks:
-            return
-        for task in tasks:
-            await task()
+        self._warmup_hooks.append(hook)
+
+    async def warmup(self) -> None:
+        """Run every hook registered via ``add_warmup_hook``.
+
+        The runner stays unaware of what each hook does (job registration,
+        cache priming, …) — services attach behaviour from outside.
+        """
+        for hook in self._warmup_hooks:
+            await hook()
 
     @property
     def memory_manager(self) -> "MemoryManager | None":

@@ -85,7 +85,7 @@ class DummySessionManager:
         self._transcript_manager = DummyTranscriptManager()
         if transcript_files:
             self._transcript_manager.files.update(transcript_files)
-        self.repository = DummySessionRepository(self._transcript_manager)
+        self._repository = DummySessionRepository(self._transcript_manager)
 
     def list_sessions(self):
         return list(self._sessions.values())
@@ -101,6 +101,12 @@ class DummySessionManager:
 
     async def reload_session_from_disk(self, sid, user_id):
         return self._sessions.get(sid)
+
+    async def get_raw_transcript(self, sid, user_id):
+        return await self._repository.get_raw_transcript(sid, user_id)
+
+    async def put_raw_transcript(self, sid, user_id, content):
+        await self._repository.put_raw_transcript(sid, user_id, content)
 
 
 class DummyMemoryManager:

@@ -137,11 +137,19 @@ def build_standard_agent(
     compaction = compaction_config or CompactionConfig(
         context_window=128_000, preserve_recent=4
     )
+    # Build the session repository once and share it with both the manager
+    # and the dreamer — keeps the dreamer independent of SessionManager
+    # internals.
+    from .storage.factory import build_session_repository
+
+    session_repo = build_session_repository(
+        sessions_dir=sessions_dir, engine=db_engine,
+    )
     session_manager = SessionManager(
         sessions_dir=sessions_dir,
         compaction_config=compaction,
         summarizer=LLMSummarizer(llm),
-        db_engine=db_engine,
+        repository=session_repo,
     )
 
     tool_registry = ToolRegistry()
@@ -167,7 +175,7 @@ def build_standard_agent(
             dreamer = MemoryDreamer(
                 lambda: llm,
                 memory_manager=memory_manager,
-                session_repo=session_manager.repository,
+                session_repo=session_repo,
                 state_repo=state_repo,
             )
 
