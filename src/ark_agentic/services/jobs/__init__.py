@@ -10,6 +10,9 @@
 """
 
 from .base import BaseJob, JobMeta, JobRunStats
+from .factory import build_job_run_repository
+from .paths import get_job_runs_base_dir
+from .protocol import JobRunRepository
 from .scanner import UserShardScanner
 from .proactive_service import ProactiveServiceJob
 from .bindings import (
@@ -22,11 +25,14 @@ __all__ = [
     "BaseJob",
     "JobMeta",
     "JobRunStats",
+    "JobRunRepository",
     "UserShardScanner",
     "ProactiveServiceJob",
     "ProactiveJobBindings",
+    "build_job_run_repository",
     "build_proactive_job_bindings",
     "apply_proactive_job_bindings",
+    "get_job_runs_base_dir",
 ]
 
 # JobManager 需要 apscheduler,仅在已安装时导出

@@ -17,13 +17,11 @@ import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ...core.storage.protocols import (
-        AgentStateRepository,
-        MemoryRepository,
-    )
+    from ...core.storage.protocols import MemoryRepository
     from ..notifications.delivery import NotificationDelivery
     from ..notifications.protocol import NotificationRepository
     from .base import BaseJob, JobRunStats
+    from .protocol import JobRunRepository
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +62,10 @@ class UserShardScanner:
         notification_repo: "NotificationRepository | None" = None,
     ) -> "JobRunStats":
         """Scan all users; for users with intent, run the job's full pipeline."""
-        from ...core.storage.factory import (
-            build_agent_state_repository,
-            build_memory_repository,
-        )
+        from ...core.storage.factory import build_memory_repository
         from .base import JobRunStats
+        from .factory import build_job_run_repository
+        from .paths import get_job_runs_base_dir
 
         stats = JobRunStats()
         semaphore = asyncio.Semaphore(self._max_concurrent)
@@ -77,11 +74,15 @@ class UserShardScanner:
         # is a test-time injection escape hatch.
         effective_repo = notification_repo or job.notification_repo
 
-        # Repositories rooted at job's per-agent memory workspace.
-        # Backend selected by ``DB_TYPE`` via the storage factory.
+        # MemoryRepository is rooted at the job's per-agent memory workspace
+        # (``data/ark_memory/{agent_id}``); job-run timestamps live in the
+        # jobs feature's own location and are partitioned by job_id (which
+        # is globally unique).
         workspace_dir = job.memory_manager.config.workspace_dir
         memory_repo: MemoryRepository = build_memory_repository(workspace_dir=workspace_dir)
-        state_repo: AgentStateRepository = build_agent_state_repository(workspace_dir=workspace_dir)
+        job_run_repo: JobRunRepository = build_job_run_repository(
+            base_dir=get_job_runs_base_dir(),
+        )
 
         # list_users via MemoryRepository (替代 iterdir + 逐用户 stat 风暴)
         all_users = await memory_repo.list_users(order_by_updated_desc=True)
@@ -97,7 +98,7 @@ class UserShardScanner:
         async def _process_one(user_id: str) -> None:
             async with semaphore:
                 await self._process_user_safe(
-                    user_id, job, effective_repo, delivery, stats, state_repo,
+                    user_id, job, effective_repo, delivery, stats, job_run_repo,
                 )
 
         for batch in _chunks(all_users, self._batch_size):
@@ -116,7 +117,7 @@ class UserShardScanner:
         repo: "NotificationRepository",
         delivery: "NotificationDelivery",
         stats: "JobRunStats",
-        state_repo: "AgentStateRepository",
+        job_run_repo: "JobRunRepository",
     ) -> None:
         """Per-user pipeline with timeout + exception isolation."""
         try:
@@ -131,7 +132,7 @@ class UserShardScanner:
                 return
 
             # Idempotency: already processed today → skip.
-            if await self._is_already_processed_today(user_id, job, state_repo):
+            if await self._is_already_processed_today(user_id, job, job_run_repo):
                 stats.skipped += 1
                 return
 
@@ -147,7 +148,7 @@ class UserShardScanner:
             else:
                 stats.skipped += 1
 
-            await self._touch_last_job(user_id, job, state_repo)
+            await self._touch_last_job(user_id, job, job_run_repo)
 
         except asyncio.TimeoutError:
             stats.timed_out += 1
@@ -156,37 +157,29 @@ class UserShardScanner:
             stats.errors += 1
             logger.error("Job %s error for user %s: %s", job.meta.job_id, user_id, e, exc_info=True)
 
-    @staticmethod
-    def _job_state_key(job: "BaseJob") -> str:
-        return f"last_job_{job.meta.job_id}"
-
     async def _is_already_processed_today(
         self,
         user_id: str,
         job: "BaseJob",
-        state_repo: "AgentStateRepository",
+        job_run_repo: "JobRunRepository",
     ) -> bool:
         """检查今天是否已经处理过（防止 Job 重启后重复处理）。"""
-        raw = await state_repo.get(user_id, self._job_state_key(job))
-        if raw is None:
+        last_ts = await job_run_repo.get_last_run(user_id, job.meta.job_id)
+        if last_ts is None:
             return False
-        try:
-            last_ts = float(raw.strip())
-            # 24 小时内已处理视为重复
-            return (time.time() - last_ts) < 86400
-        except (ValueError, AttributeError):
-            return False
+        # 24 小时内已处理视为重复
+        return (time.time() - last_ts) < 86400
 
     async def _touch_last_job(
         self,
         user_id: str,
         job: "BaseJob",
-        state_repo: "AgentStateRepository",
+        job_run_repo: "JobRunRepository",
     ) -> None:
         """写入当前时间戳作为最后处理时间。"""
         try:
-            await state_repo.set(
-                user_id, self._job_state_key(job), str(time.time())
+            await job_run_repo.set_last_run(
+                user_id, job.meta.job_id, time.time(),
             )
         except OSError as e:
             logger.warning("Failed to touch last_job for %s: %s", user_id, e)

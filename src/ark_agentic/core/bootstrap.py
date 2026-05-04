@@ -17,12 +17,14 @@ async def bootstrap_storage() -> None:
     """
     from .db.config import load_db_config_from_env
     from .db.engine import init_schema as init_core_schema
+    from ..services.jobs.engine import init_schema as init_jobs_schema
     from ..services.notifications.engine import init_schema as init_notif_schema
     from ..studio.services.auth.engine import init_schema as init_studio_schema
 
     cfg = load_db_config_from_env()
     if cfg.db_type == "sqlite":
         await init_core_schema()
+        await init_jobs_schema()
         await init_notif_schema()
     # Studio initialises regardless: file mode uses its dedicated engine.
     await init_studio_schema()
