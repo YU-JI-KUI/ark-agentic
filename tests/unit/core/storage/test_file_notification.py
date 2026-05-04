@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.storage.repository.file.notification import (
+from ark_agentic.services.notifications.models import Notification
+from ark_agentic.services.notifications.protocol import NotificationRepository
+from ark_agentic.services.notifications.storage.file import (
     FileNotificationRepository,
 )
-from ark_agentic.core.storage.protocols import NotificationRepository
-from ark_agentic.services.notifications.models import Notification
 
 
 @pytest.fixture

@@ -20,9 +20,9 @@ if TYPE_CHECKING:
     from ...core.storage.protocols import (
         AgentStateRepository,
         MemoryRepository,
-        NotificationRepository,
     )
     from ..notifications.delivery import NotificationDelivery
+    from ..notifications.protocol import NotificationRepository
     from .base import BaseJob, JobRunStats
 
 logger = logging.getLogger(__name__)

@@ -9,12 +9,10 @@ SQLite 后端的 raw transcript 路径也复用它们。
 
 from .agent_state import FileAgentStateRepository
 from .memory import FileMemoryRepository
-from .notification import FileNotificationRepository
 from .session import FileSessionRepository
 
 __all__ = [
     "FileAgentStateRepository",
     "FileMemoryRepository",
-    "FileNotificationRepository",
     "FileSessionRepository",
 ]

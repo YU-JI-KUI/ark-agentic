@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from ark_agentic.core.tools.registry import ToolRegistry
     from ark_agentic.core.memory.manager import MemoryManager
-    from ark_agentic.core.storage.protocols import NotificationRepository
+    from ark_agentic.services.notifications.protocol import NotificationRepository
 
 logger = logging.getLogger(__name__)
 

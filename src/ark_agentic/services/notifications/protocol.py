@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from ....services.notifications.models import Notification, NotificationList
+from .models import Notification, NotificationList
 
 
 @runtime_checkable

@@ -35,7 +35,6 @@ from ark_agentic.core.startup_guard import validate_deployment_config
 from ark_agentic.core.bootstrap import bootstrap_storage
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
-from ark_agentic.api import notifications as notifications_api
 from ark_agentic.agents.insurance import create_insurance_agent
 from ark_agentic.agents.securities import create_securities_agent
 from ark_agentic.core.observability import setup_tracing_from_env, shutdown_tracing
@@ -195,7 +194,8 @@ app.include_router(chat_api.router)
 # (依赖 services/jobs 的 apscheduler 与 services/notifications 的 fastapi 路由,
 #  通过 ark-agentic[server] extras 安装)
 if _env_flag("ENABLE_JOB_MANAGER"):
-    app.include_router(notifications_api.router)
+    from ark_agentic.services.notifications import setup_notifications
+    setup_notifications(app)
     logger.info("Mounted /api/notifications and /api/jobs routes")
 setup_studio_from_env(app, registry=_registry)
 

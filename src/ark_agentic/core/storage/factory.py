@@ -22,18 +22,15 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from .repository.file.agent_state import FileAgentStateRepository
 from .repository.file.memory import FileMemoryRepository
 from .inproc_cache import MemoryCache
-from .repository.file.notification import FileNotificationRepository
 from .repository.file.session import FileSessionRepository
 from .repository.sqlite.agent_state import SqliteAgentStateRepository
 from .repository.sqlite.memory import SqliteMemoryRepository
-from .repository.sqlite.notification import SqliteNotificationRepository
 from .repository.sqlite.session import SqliteSessionRepository
 from .repository.sqlite.studio_user import SqliteStudioUserRepository
 from .protocols import (
     AgentStateRepository,
     Cache,
     MemoryRepository,
-    NotificationRepository,
     SessionRepository,
     StudioUserRepository,
 )
@@ -116,31 +113,6 @@ def build_agent_state_repository(
             _require_engine(engine, "AgentStateRepository")
         )
     raise ValueError(f"Unsupported DB_TYPE for agent state repository: {db_type!r}")
-
-
-def build_notification_repository(
-    base_dir: str | Path | None = None,
-    engine: AsyncEngine | None = None,
-    agent_id: str = "",
-) -> NotificationRepository:
-    """Build a notification repository scoped to one ``agent_id``.
-
-    File backend isolates by directory (``base_dir`` already includes the
-    agent path); SQLite backend isolates by ``agent_id`` column filtering.
-    """
-    db_type = _resolve_db_type()
-    if db_type == "file":
-        return FileNotificationRepository(
-            _require_path(base_dir, "NotificationRepository", "base_dir")
-        )
-    if db_type == "sqlite":
-        return SqliteNotificationRepository(
-            _require_engine(engine, "NotificationRepository"),
-            agent_id=agent_id,
-        )
-    raise ValueError(
-        f"Unsupported DB_TYPE for notification repository: {db_type!r}"
-    )
 
 
 def build_cache() -> Cache:

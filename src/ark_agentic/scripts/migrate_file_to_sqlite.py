@@ -31,18 +31,18 @@ from ..core.db.config import DBConfig
 from ..core.db.engine import get_async_engine, init_schema
 from ..core.db.models import (
     AgentState,
-    NotificationRow,
     SessionMeta,
     UserMemory,
 )
 from ..core.storage.repository.file.agent_state import FileAgentStateRepository
 from ..core.storage.repository.file.memory import FileMemoryRepository
-from ..core.storage.repository.file.notification import FileNotificationRepository
 from ..core.storage.repository.file.session import FileSessionRepository
 from ..core.storage.repository.sqlite.agent_state import SqliteAgentStateRepository
 from ..core.storage.repository.sqlite.memory import SqliteMemoryRepository
-from ..core.storage.repository.sqlite.notification import SqliteNotificationRepository
 from ..core.storage.repository.sqlite.session import SqliteSessionRepository
+from ..services.notifications.storage.file import FileNotificationRepository
+from ..services.notifications.storage.models import NotificationRow
+from ..services.notifications.storage.sqlite import SqliteNotificationRepository
 
 logger = logging.getLogger(__name__)
 

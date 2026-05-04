@@ -17,11 +17,10 @@ import json
 import logging
 from pathlib import Path
 
-from .....services.notifications.models import Notification, NotificationList
+from ..models import Notification, NotificationList
 
 logger = logging.getLogger(__name__)
 
-# Cap for tail read; protects against pathological log files.
 _MAX_TAIL_LINES = 200
 
 
@@ -112,7 +111,6 @@ class FileNotificationRepository:
                 n.read = n.notification_id in read_ids
                 notifications.append(n)
             except Exception:
-                # Skip torn / corrupt lines
                 continue
 
         total = len(notifications)

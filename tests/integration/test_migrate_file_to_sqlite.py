@@ -17,9 +17,6 @@ from ark_agentic.core.storage.repository.file.agent_state import (
     FileAgentStateRepository,
 )
 from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
-from ark_agentic.core.storage.repository.file.notification import (
-    FileNotificationRepository,
-)
 from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 from ark_agentic.core.storage.repository.sqlite.agent_state import (
     SqliteAgentStateRepository,
@@ -27,15 +24,18 @@ from ark_agentic.core.storage.repository.sqlite.agent_state import (
 from ark_agentic.core.storage.repository.sqlite.memory import (
     SqliteMemoryRepository,
 )
-from ark_agentic.core.storage.repository.sqlite.notification import (
-    SqliteNotificationRepository,
-)
 from ark_agentic.core.storage.repository.sqlite.session import (
     SqliteSessionRepository,
 )
 from ark_agentic.core.types import AgentMessage, MessageRole
 from ark_agentic.scripts.migrate_file_to_sqlite import migrate
 from ark_agentic.services.notifications.models import Notification
+from ark_agentic.services.notifications.storage.file import (
+    FileNotificationRepository,
+)
+from ark_agentic.services.notifications.storage.sqlite import (
+    SqliteNotificationRepository,
+)
 
 
 @pytest.fixture(autouse=True)

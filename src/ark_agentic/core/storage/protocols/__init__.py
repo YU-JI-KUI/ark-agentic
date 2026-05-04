@@ -6,7 +6,6 @@
 from .agent_state import AgentStateRepository
 from .cache import Cache
 from .memory import MemoryRepository
-from .notification import NotificationRepository
 from .session import SessionRepository
 from .studio_user import (
     InvalidStudioRoleError,
@@ -24,7 +23,6 @@ __all__ = [
     "AgentStateRepository",
     "Cache",
     "MemoryRepository",
-    "NotificationRepository",
     "SessionRepository",
     "StudioUserRepository",
     "StudioUserRecord",

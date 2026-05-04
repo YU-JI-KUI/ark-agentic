@@ -12,11 +12,11 @@ from ark_agentic.core.db.engine import (
     init_schema,
     reset_engine_cache,
 )
-from ark_agentic.core.storage.repository.sqlite.notification import (
+from ark_agentic.services.notifications.models import Notification
+from ark_agentic.services.notifications.protocol import NotificationRepository
+from ark_agentic.services.notifications.storage.sqlite import (
     SqliteNotificationRepository,
 )
-from ark_agentic.core.storage.protocols import NotificationRepository
-from ark_agentic.services.notifications.models import Notification
 
 
 @pytest.fixture(autouse=True)

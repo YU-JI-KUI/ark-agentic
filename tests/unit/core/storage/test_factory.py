@@ -17,18 +17,12 @@ from ark_agentic.core.storage.repository.file.agent_state import (
 )
 from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
 from ark_agentic.core.storage.inproc_cache import MemoryCache
-from ark_agentic.core.storage.repository.file.notification import (
-    FileNotificationRepository,
-)
 from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 from ark_agentic.core.storage.repository.sqlite.agent_state import (
     SqliteAgentStateRepository,
 )
 from ark_agentic.core.storage.repository.sqlite.memory import (
     SqliteMemoryRepository,
-)
-from ark_agentic.core.storage.repository.sqlite.notification import (
-    SqliteNotificationRepository,
 )
 from ark_agentic.core.storage.repository.sqlite.session import (
     SqliteSessionRepository,
@@ -37,8 +31,16 @@ from ark_agentic.core.storage.factory import (
     build_agent_state_repository,
     build_cache,
     build_memory_repository,
-    build_notification_repository,
     build_session_repository,
+)
+from ark_agentic.services.notifications.factory import (
+    build_notification_repository,
+)
+from ark_agentic.services.notifications.storage.file import (
+    FileNotificationRepository,
+)
+from ark_agentic.services.notifications.storage.sqlite import (
+    SqliteNotificationRepository,
 )
 
 

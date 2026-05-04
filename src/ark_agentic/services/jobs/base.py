@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ...core.memory.manager import MemoryManager
-    from ...core.storage.protocols import NotificationRepository
     from ..notifications.models import Notification
+    from ..notifications.protocol import NotificationRepository
 
 
 @dataclass

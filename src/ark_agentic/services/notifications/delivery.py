@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from .models import Notification
 
 if TYPE_CHECKING:
-    from ...core.storage.protocols import NotificationRepository
+    from .protocol import NotificationRepository
 
 logger = logging.getLogger(__name__)
 

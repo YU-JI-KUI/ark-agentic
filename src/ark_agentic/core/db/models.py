@@ -1,14 +1,15 @@
-"""ORM models — single source of truth for the SQLite (and future PG) schema.
+"""Core ORM models — sessions, memory, agent_state.
 
-Note: ``studio_users`` is moved into this module by Task 11 so all tables share
-``Base.metadata`` and a single ``init_schema`` call creates everything.
+Independent feature tables (notifications, studio_users, …) live in their
+own feature packages and import ``Base`` from here so all tables share one
+``Base.metadata`` and one ``init_schema`` call still creates everything.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -72,21 +73,6 @@ class AgentState(Base):
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
-
-
-class NotificationRow(Base):
-    __tablename__ = "notifications"
-
-    notification_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    agent_id: Mapped[str] = mapped_column(String(64), default="")
-    user_id: Mapped[str] = mapped_column(String(255))
-    payload_json: Mapped[str] = mapped_column(Text)
-    read: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[float]
-
-    __table_args__ = (
-        Index("ix_notif_agent_user_read", "agent_id", "user_id", "read"),
-    )
 
 
 class StudioUser(Base):

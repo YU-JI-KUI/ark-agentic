@@ -24,11 +24,11 @@ def register_proactive_jobs(
     db_engine: "AsyncEngine | None",
 ) -> None:
     """Bind proactive jobs for all agents that have a memory manager."""
-    from ark_agentic.core.storage.factory import build_notification_repository
     from ark_agentic.services.jobs import (
         apply_proactive_job_bindings,
         build_proactive_job_bindings,
     )
+    from ark_agentic.services.notifications import build_notification_repository
     from ark_agentic.agents.insurance.proactive_job import InsuranceProactiveJob
     from ark_agentic.agents.securities.proactive_job import SecuritiesProactiveJob
 

@@ -21,11 +21,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from .....services.notifications.models import (
-    Notification,
-    NotificationList,
-)
-from ....db.models import NotificationRow
+from ..models import Notification, NotificationList
+from .models import NotificationRow
 
 
 class SqliteNotificationRepository:
@@ -36,17 +33,12 @@ class SqliteNotificationRepository:
         self._agent_id = agent_id
 
     async def save(self, notification: Notification) -> None:
-        # Notification.agent_id is the source of truth — repos pin to one
-        # agent_id, so a misrouted notification (different agent_id) is a bug
-        # the caller should not silently absorb.
         if notification.agent_id and notification.agent_id != self._agent_id:
             raise ValueError(
                 f"Notification.agent_id={notification.agent_id!r} does not "
                 f"match repository agent_id={self._agent_id!r}"
             )
         payload = notification.model_dump_json()
-        # ON CONFLICT DO NOTHING keeps save() idempotent on retries without
-        # the SELECT-then-INSERT race.
         stmt = sqlite_insert(NotificationRow).values(
             notification_id=notification.notification_id,
             agent_id=self._agent_id,
@@ -80,12 +72,8 @@ class SqliteNotificationRepository:
         if limit:
             page_stmt = page_stmt.limit(limit).offset(offset)
         elif offset:
-            # SQLAlchemy requires LIMIT for OFFSET; -1 means "no upper bound".
             page_stmt = page_stmt.limit(-1).offset(offset)
 
-        # Counts are independent of paging / unread_only filter so the
-        # response shape matches the file backend (total = full visible set,
-        # unread_count = live unread tally).
         total_stmt = (
             select(func.count()).select_from(NotificationRow).where(scope)
         )
