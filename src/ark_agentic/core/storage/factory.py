@@ -15,17 +15,18 @@ from pathlib import Path
 
 from .repository.file.agent_state import FileAgentStateRepository
 from .repository.file.memory import FileMemoryRepository
-from .inproc_cache import MemoryCache
 from .repository.file.session import FileSessionRepository
 from .repository.sqlite.agent_state import SqliteAgentStateRepository
 from .repository.sqlite.memory import SqliteMemoryRepository
 from .repository.sqlite.session import SqliteSessionRepository
 from .protocols import (
     AgentStateRepository,
-    Cache,
     MemoryRepository,
     SessionRepository,
 )
+# Re-export the cache accessor so callers don't need to know the adapter
+# module name. ``get_cache`` is the singleton entry point.
+from .cache_adapter import get_cache  # noqa: F401
 
 
 def _resolve_db_type() -> str:
@@ -86,8 +87,3 @@ def build_agent_state_repository(
         from ..db.engine import get_engine
         return SqliteAgentStateRepository(get_engine())
     raise ValueError(f"Unsupported DB_TYPE for agent state repository: {db_type!r}")
-
-
-def build_cache() -> Cache:
-    """PR2: Cache is always in-process. PR3 introduces RedisCache via env."""
-    return MemoryCache()
