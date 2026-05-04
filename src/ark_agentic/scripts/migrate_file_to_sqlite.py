@@ -33,6 +33,9 @@ from ..core.db.engine import (
     init_schema as init_core_schema,
     set_engine_for_testing,
 )
+from ..services.jobs.engine import init_schema as init_jobs_schema
+from ..services.jobs.storage.models import JobRunRow
+from ..services.jobs.storage.sqlite import SqliteJobRunRepository
 from ..services.notifications.engine import (
     init_schema as init_notif_schema,
 )
@@ -40,14 +43,11 @@ from ..studio.services.auth.engine import (
     init_schema as init_studio_schema,
 )
 from ..core.db.models import (
-    AgentState,
     SessionMeta,
     UserMemory,
 )
-from ..core.storage.repository.file.agent_state import FileAgentStateRepository
 from ..core.storage.repository.file.memory import FileMemoryRepository
 from ..core.storage.repository.file.session import FileSessionRepository
-from ..core.storage.repository.sqlite.agent_state import SqliteAgentStateRepository
 from ..core.storage.repository.sqlite.memory import SqliteMemoryRepository
 from ..core.storage.repository.sqlite.session import SqliteSessionRepository
 from ..services.notifications.storage.file import FileNotificationRepository
@@ -62,7 +62,8 @@ class MigrationStats:
     sessions: int = 0
     session_messages: int = 0
     memory_users: int = 0
-    agent_state_keys: int = 0
+    last_dream_markers: int = 0
+    job_runs: int = 0
     notifications: int = 0
     skipped: dict[str, int] = field(default_factory=dict)
 
@@ -130,6 +131,12 @@ async def _migrate_memory(
     *,
     dry_run: bool,
 ) -> None:
+    """Migrate MEMORY.md content + last_dream_at marker.
+
+    The ``.last_dream`` dotfile is read through the same
+    ``FileMemoryRepository`` that production now uses; the timestamp lands
+    on ``user_memory.last_dream_at`` via ``SqliteMemoryRepository``.
+    """
     if not memory_dir.exists():
         return
 
@@ -143,73 +150,82 @@ async def _migrate_memory(
                     UserMemory.user_id == user_id,
                 )
             )).first()
+
         if exists:
             stats.bump_skip("user_memory")
+        elif dry_run:
+            stats.memory_users += 1
+        else:
+            content = await src.read(user_id)
+            await dst.overwrite(user_id, content)
+            stats.memory_users += 1
+
+        last_dream = await src.get_last_dream_at(user_id)
+        if last_dream is None:
             continue
         if dry_run:
-            stats.memory_users += 1
+            stats.last_dream_markers += 1
             continue
-
-        content = await src.read(user_id)
-        await dst.overwrite(user_id, content)
-        stats.memory_users += 1
+        await dst.set_last_dream_at(user_id, last_dream)
+        stats.last_dream_markers += 1
 
 
-# ── Agent state markers (.last_*) ──────────────────────────────────
+# ── Job-run markers (.last_job_<id>) ──────────────────────────────
 
 
-# Markers we knowingly migrate. Anything else under ``{user}/.<key>`` is
-# left in place — those are usually editor / VCS dotfiles, not state.
-_KNOWN_AGENT_STATE_PREFIXES = ("last_dream", "last_job_")
-
-
-async def _migrate_agent_state(
+async def _migrate_job_runs(
     engine: AsyncEngine,
-    workspace_dir: Path,
+    memory_dir: Path,
     stats: MigrationStats,
     *,
     dry_run: bool,
 ) -> None:
-    if not workspace_dir.exists():
+    """Migrate per-(user, job) last-run dotfiles into the ``job_runs`` table.
+
+    Pre-refactor the scanner stored ``.last_job_<job_id>`` next to MEMORY.md
+    inside the agent's workspace, so this function expects
+    ``memory_dir`` to be that workspace (same semantics as
+    ``_migrate_memory``). When migrating multiple agents, run the script
+    once per agent. job_id is globally unique across agents so the target
+    table needs no agent partitioning.
+    """
+    if not memory_dir.exists():
         return
 
-    src = FileAgentStateRepository(workspace_dir)
-    dst = SqliteAgentStateRepository(engine)
+    dst = SqliteJobRunRepository(engine)
 
-    # Discover all (user, key) pairs by walking dir + filtering known
-    # markers. Tries the known keys per user instead of scanning every
-    # dotfile so we don't ingest editor / VCS leftovers.
-    for user_dir in workspace_dir.iterdir():
+    for user_dir in memory_dir.iterdir():
         if not user_dir.is_dir():
             continue
         user_id = user_dir.name
         for marker in user_dir.iterdir():
-            if not marker.is_file() or not marker.name.startswith("."):
+            if not marker.is_file():
                 continue
-            key = marker.name[1:]
-            if not any(key.startswith(p) for p in _KNOWN_AGENT_STATE_PREFIXES):
-                stats.bump_skip("agent_state_unknown_key")
+            if not marker.name.startswith(".last_job_"):
                 continue
-            value = await src.get(user_id, key)
-            if value is None:
+            job_id = marker.name[len(".last_job_"):]
+            try:
+                last_ts = float(marker.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                stats.bump_skip("job_run_unparseable")
                 continue
 
             async with engine.connect() as conn:
                 existing = (await conn.execute(
-                    select(AgentState.user_id).where(
-                        AgentState.user_id == user_id,
-                        AgentState.key == key,
+                    select(JobRunRow.user_id).where(
+                        JobRunRow.user_id == user_id,
+                        JobRunRow.job_id == job_id,
                     )
                 )).first()
             if existing:
-                stats.bump_skip("agent_state")
+                stats.bump_skip("job_run")
                 continue
             if dry_run:
-                stats.agent_state_keys += 1
+                stats.job_runs += 1
                 continue
 
-            await dst.set(user_id, key, value)
-            stats.agent_state_keys += 1
+            await dst.set_last_run(user_id, job_id, last_ts)
+            stats.job_runs += 1
 
 
 # ── Notifications ─────────────────────────────────────────────────
@@ -310,6 +326,7 @@ async def migrate(
     # has every required table regardless of which adapters this run uses.
     set_engine_for_testing(engine)
     await init_core_schema(engine)
+    await init_jobs_schema()
     await init_notif_schema()
     await init_studio_schema()
 
@@ -320,8 +337,11 @@ async def migrate(
 
     if memory_dir is not None:
         await _migrate_memory(engine, memory_dir, stats, dry_run=dry_run)
-        # Agent state markers live alongside MEMORY.md (workspace_dir).
-        await _migrate_agent_state(engine, memory_dir, stats, dry_run=dry_run)
+        # Per-(user, job) last-run dotfiles still live under the legacy
+        # memory_dir layout (``{agent}/{user}/.last_job_<id>``). They are
+        # routed into the jobs feature's own table here. New file-mode
+        # writes go to ``data/ark_job_runs/``.
+        await _migrate_job_runs(engine, memory_dir, stats, dry_run=dry_run)
 
     if notifications_dir is not None:
         await _migrate_notifications(
@@ -364,7 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         "sessions": stats.sessions,
         "session_messages": stats.session_messages,
         "memory_users": stats.memory_users,
-        "agent_state_keys": stats.agent_state_keys,
+        "last_dream_markers": stats.last_dream_markers,
+        "job_runs": stats.job_runs,
         "notifications": stats.notifications,
         "skipped": stats.skipped,
         "dry_run": args.dry_run,

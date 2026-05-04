@@ -1,8 +1,8 @@
-"""Core ORM models — sessions, memory, agent_state.
+"""Core ORM models — sessions, user memory.
 
-Independent feature tables (notifications, studio_users, …) live in their
-own feature packages and import ``Base`` from here so all tables share one
-``Base.metadata`` and one ``init_schema`` call still creates everything.
+Independent feature tables (notifications, jobs, studio_users, …) live in
+their own feature packages with their own ``DeclarativeBase``; this Base
+holds only the central ones.
 """
 
 from __future__ import annotations
@@ -64,15 +64,6 @@ class UserMemory(Base):
     # Timestamp (epoch seconds) of the user's last memory consolidation pass.
     # NULL until the dreamer first marks the user.
     last_dream_at: Mapped[float | None] = mapped_column(Float, nullable=True)
-    updated_at: Mapped[int] = mapped_column(Integer, default=0)
-
-
-class AgentState(Base):
-    __tablename__ = "agent_state"
-
-    user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    key: Mapped[str] = mapped_column(String(128), primary_key=True)
-    value: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
 
 

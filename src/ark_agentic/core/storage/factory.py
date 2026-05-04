@@ -13,17 +13,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .repository.file.agent_state import FileAgentStateRepository
 from .repository.file.memory import FileMemoryRepository
 from .repository.file.session import FileSessionRepository
-from .repository.sqlite.agent_state import SqliteAgentStateRepository
 from .repository.sqlite.memory import SqliteMemoryRepository
 from .repository.sqlite.session import SqliteSessionRepository
-from .protocols import (
-    AgentStateRepository,
-    MemoryRepository,
-    SessionRepository,
-)
+from .protocols import MemoryRepository, SessionRepository
 
 
 def _resolve_db_type() -> str:
@@ -88,17 +82,3 @@ def build_memory_repository(
     )
 
 
-def build_agent_state_repository(
-    workspace_dir: str | Path | None = None,
-) -> AgentStateRepository:
-    db_type = _resolve_db_type()
-    if db_type == "file":
-        return FileAgentStateRepository(
-            _require_path(workspace_dir, "AgentStateRepository", "workspace_dir")
-        )
-    if db_type == "sqlite":
-        from ..db.engine import get_engine
-        return SqliteAgentStateRepository(get_engine())
-    raise ValueError(
-        f"Unsupported DB_TYPE for agent state repository: {db_type!r}"
-    )

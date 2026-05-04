@@ -137,7 +137,7 @@ def get_async_engine(config: DBConfig | None = None) -> AsyncEngine:
 
 
 async def init_schema(engine: AsyncEngine | None = None) -> None:
-    """Create core tables (sessions / memory / agent_state). Idempotent.
+    """Create core tables (sessions / user memory). Idempotent.
 
     Each independent feature has its own ``init_schema()`` against its
     own ``DeclarativeBase.metadata`` — they are NOT created here.

@@ -17,14 +17,8 @@ from ark_agentic.core.db.engine import (
     reset_engine_for_testing,
     set_engine_for_testing,
 )
-from ark_agentic.core.storage.repository.file.agent_state import (
-    FileAgentStateRepository,
-)
 from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
 from ark_agentic.core.storage.repository.file.session import FileSessionRepository
-from ark_agentic.core.storage.repository.sqlite.agent_state import (
-    SqliteAgentStateRepository,
-)
 from ark_agentic.core.storage.repository.sqlite.memory import (
     SqliteMemoryRepository,
 )
@@ -32,7 +26,6 @@ from ark_agentic.core.storage.repository.sqlite.session import (
     SqliteSessionRepository,
 )
 from ark_agentic.core.storage.factory import (
-    build_agent_state_repository,
     build_memory_repository,
     build_session_repository,
 )
@@ -104,26 +97,6 @@ async def test_build_memory_returns_sqlite_when_sqlite(
     repo = build_memory_repository(workspace_dir=tmp_path)
 
     assert isinstance(repo, SqliteMemoryRepository)
-
-
-async def test_build_agent_state_returns_file_when_unset(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-):
-    monkeypatch.delenv("DB_TYPE", raising=False)
-
-    repo = build_agent_state_repository(workspace_dir=tmp_path)
-
-    assert isinstance(repo, FileAgentStateRepository)
-
-
-async def test_build_agent_state_returns_sqlite_when_sqlite(
-    monkeypatch: pytest.MonkeyPatch, sqlite_engine, tmp_path: Path,
-):
-    monkeypatch.setenv("DB_TYPE", "sqlite")
-
-    repo = build_agent_state_repository(workspace_dir=tmp_path)
-
-    assert isinstance(repo, SqliteAgentStateRepository)
 
 
 async def test_build_notification_returns_file_when_unset(

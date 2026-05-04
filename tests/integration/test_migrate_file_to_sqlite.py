@@ -12,14 +12,8 @@ from ark_agentic.core.db.engine import (
     get_async_engine,
     reset_engine_cache,
 )
-from ark_agentic.core.storage.repository.file.agent_state import (
-    FileAgentStateRepository,
-)
 from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
 from ark_agentic.core.storage.repository.file.session import FileSessionRepository
-from ark_agentic.core.storage.repository.sqlite.agent_state import (
-    SqliteAgentStateRepository,
-)
 from ark_agentic.core.storage.repository.sqlite.memory import (
     SqliteMemoryRepository,
 )
@@ -28,6 +22,7 @@ from ark_agentic.core.storage.repository.sqlite.session import (
 )
 from ark_agentic.core.types import AgentMessage, MessageRole
 from ark_agentic.scripts.migrate_file_to_sqlite import migrate
+from ark_agentic.services.jobs.storage.sqlite import SqliteJobRunRepository
 from ark_agentic.services.notifications.models import Notification
 from ark_agentic.services.notifications.storage.file import (
     FileNotificationRepository,
@@ -60,13 +55,15 @@ async def _seed_file_data(tmp_path: Path) -> tuple[Path, Path, Path]:
         AgentMessage(role=MessageRole.USER, content="hello", timestamp=datetime.now()),
     )
 
-    # Memory
+    # Memory + last_dream marker (now persisted on user_memory.last_dream_at)
     memory_repo = FileMemoryRepository(memory_dir)
     await memory_repo.upsert_headings("u1", "## Profile\nname: A\n")
+    await memory_repo.set_last_dream_at("u1", 1700000000.0)
 
-    # Agent state
-    state_repo = FileAgentStateRepository(memory_dir)
-    await state_repo.set("u1", "last_dream", "1700000000.0")
+    # Job-run marker — pre-refactor layout: dotfile next to MEMORY.md
+    (memory_dir / "u1" / ".last_job_test_job").write_text(
+        "1700000111.0", encoding="utf-8",
+    )
 
     # Notification
     notif_repo = FileNotificationRepository(notifications_dir)
@@ -92,7 +89,8 @@ async def test_migrate_copies_all_entities(tmp_path: Path):
     assert stats.sessions == 1
     assert stats.session_messages == 1
     assert stats.memory_users == 1
-    assert stats.agent_state_keys == 1
+    assert stats.last_dream_markers == 1
+    assert stats.job_runs == 1
     assert stats.notifications == 1
 
 
@@ -121,9 +119,10 @@ async def test_migrate_round_trips_data_into_sqlite_repos(tmp_path: Path):
 
     memory_repo = SqliteMemoryRepository(engine)
     assert "Profile" in await memory_repo.read("u1")
+    assert await memory_repo.get_last_dream_at("u1") == 1700000000.0
 
-    state_repo = SqliteAgentStateRepository(engine)
-    assert await state_repo.get("u1", "last_dream") == "1700000000.0"
+    job_run_repo = SqliteJobRunRepository(engine)
+    assert await job_run_repo.get_last_run("u1", "test_job") == 1700000111.0
 
     notif_repo = SqliteNotificationRepository(engine)
     listing = await notif_repo.list_recent("u1")
@@ -157,7 +156,7 @@ async def test_migrate_is_idempotent(tmp_path: Path):
     assert second.sessions == 0
     assert second.skipped.get("session_meta") == 1
     assert second.skipped.get("user_memory") == 1
-    assert second.skipped.get("agent_state") == 1
+    assert second.skipped.get("job_run") == 1
     assert second.skipped.get("notification") == 1
 
 

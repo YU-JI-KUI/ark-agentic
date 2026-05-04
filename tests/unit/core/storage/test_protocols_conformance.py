@@ -8,10 +8,10 @@ from __future__ import annotations
 import inspect
 
 from ark_agentic.core.storage.protocols import (
-    AgentStateRepository,
     MemoryRepository,
     SessionRepository,
 )
+from ark_agentic.services.jobs.protocol import JobRunRepository
 from ark_agentic.services.notifications.protocol import NotificationRepository
 
 
@@ -58,17 +58,17 @@ def test_memory_repository_method_set():
     assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"
 
 
-def test_agent_state_repository_method_set():
-    expected = {"get", "set", "list_users_with_key"}
-
-    actual = _public_methods(AgentStateRepository)
-
-    assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"
-
-
 def test_notification_repository_method_set():
     expected = {"save", "list_recent", "mark_read"}
 
     actual = _public_methods(NotificationRepository)
+
+    assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"
+
+
+def test_job_run_repository_method_set():
+    expected = {"get_last_run", "set_last_run"}
+
+    actual = _public_methods(JobRunRepository)
 
     assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"

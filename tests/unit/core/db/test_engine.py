@@ -110,11 +110,11 @@ async def test_init_schema_creates_core_tables() -> None:
         "session_meta",
         "session_messages",
         "user_memory",
-        "agent_state",
     }.issubset(names)
     # Feature tables NOT created by core's init_schema.
     assert "notifications" not in names
     assert "studio_users" not in names
+    assert "job_runs" not in names
 
 
 def test_reset_engine_cache_returns_fresh_engine() -> None:

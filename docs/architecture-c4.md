@@ -100,7 +100,7 @@ graph TB
     subgraph L0["Layer 0 · Business"]
         Runner[AgentRunner]
         SessionMgr[SessionManager<br/>_sessions: dict in-memory]
-        MemoryMgr[MemoryManager<br/>_memory: dict in-memory]
+        MemoryMgr["MemoryManager<br/>_memory: dict in-memory<br/>_dreamer: encapsulated"]
         Scanner[UserShardScanner]
         Routes[FastAPI routes]
     end
@@ -108,15 +108,15 @@ graph TB
     subgraph L1["Layer 1 · Factory (env-driven dispatch)"]
         F1[build_session_repository]
         F2[build_memory_repository]
-        F3[build_agent_state_repository]
+        F3[build_job_run_repository]
         F4[build_notification_repository]
         F5[build_studio_user_repository]
     end
 
     subgraph L2["Layer 2 · Protocol (contracts)"]
         P1[SessionRepository<br/>4 narrow + aggregate]
-        P2[MemoryRepository]
-        P3[AgentStateRepository]
+        P2[MemoryRepository<br/>+ get/set_last_dream_at]
+        P3[JobRunRepository]
         P4[NotificationRepository]
         P5[StudioUserRepository]
     end
@@ -124,22 +124,23 @@ graph TB
     subgraph L3a["Layer 3a · Adapter (file)"]
         A1[FileSessionRepository]
         A2[FileMemoryRepository]
-        A3[FileAgentStateRepository]
+        A3[FileJobRunRepository]
         A4[FileNotificationRepository]
     end
 
     subgraph L3b["Layer 3b · Adapter (sqlite)"]
         B1[SqliteSessionRepository]
         B2[SqliteMemoryRepository]
-        B3[SqliteAgentStateRepository]
+        B3[SqliteJobRunRepository]
         B4[SqliteNotificationRepository]
         B5[SqliteStudioUserRepository]
     end
 
     subgraph L4["Layer 4 · Engine (per-domain singleton)"]
         E1[core.db.engine.get_engine<br/>+ init_schema for Base]
-        E2[notifications.engine.get_engine<br/>+ init_schema for NotificationsBase]
-        E3[studio.auth.engine.get_engine<br/>+ init_schema for AuthBase]
+        E2[jobs.engine.get_engine<br/>+ init_schema for JobsBase]
+        E3[notifications.engine.get_engine<br/>+ init_schema for NotificationsBase]
+        E4[studio.auth.engine.get_engine<br/>+ init_schema for AuthBase]
     end
 
     Runner --> SessionMgr
@@ -169,9 +170,9 @@ graph TB
 
     B1 --> E1
     B2 --> E1
-    B3 --> E1
-    B4 --> E2
-    B5 --> E3
+    B3 --> E2
+    B4 --> E3
+    B5 --> E4
 ```
 
 **每层职责**
@@ -182,7 +183,7 @@ graph TB
 | 1 Factory | env-driven 选 backend | ✅ | 5 个 build_* |
 | 2 Protocol | 契约 | ✅ | 5 |
 | 3a/3b Adapter | 真实 I/O | ❌ | 4 + 5 |
-| 4 Engine | 持有 AsyncEngine + 自己 feature 的 init_schema | ❌ | 3 |
+| 4 Engine | 持有 AsyncEngine + 自己 feature 的 init_schema | ❌ | 4 |
 
 **审核要点**
 
@@ -197,8 +198,8 @@ graph TB
 ```mermaid
 graph LR
     subgraph "Core (agent runtime)"
-        CoreSt[core/storage/<br/>3 protocols + adapters]
-        CoreDb[core/db/<br/>Base = DeclarativeBase<br/>+ engine + 4 ORM tables]
+        CoreSt[core/storage/<br/>2 protocols + adapters]
+        CoreDb[core/db/<br/>Base = DeclarativeBase<br/>+ engine + 3 ORM tables]
     end
 
     subgraph "Feature: notifications"
@@ -221,6 +222,10 @@ graph LR
     end
 
     subgraph "Feature: jobs"
+        JP[protocol.py]
+        JF[factory.py]
+        JE[engine.py<br/>init_schema JobsBase]
+        JS[storage/<br/>JobsBase = DeclarativeBase<br/>+ JobRunRow]
         JM[manager.py +<br/>scanner.py]
         JB[bindings.py<br/>warmup hooks]
     end
@@ -239,8 +244,9 @@ graph LR
 
 **审核要点（重点变化）**
 
-- 之前画的 `NS -.shares Base.metadata.-> CoreDb` 已经消失 —— **每个 feature 自己的 `DeclarativeBase`**。
-- 删除 notifications / studio 整个目录，core 不会留 dangling table。
+- **每个 feature 自己的 `DeclarativeBase`**（`Base` / `JobsBase` / `NotificationsBase` / `AuthBase`）。
+- 删除任意一个 feature 整个目录，core 不会留 dangling table。
+- `services/jobs/` 自己拥有 `JobRunRepository` Protocol + 适配器 + factory + engine —— 与 notifications / studio.auth 同形；scanner 不再向 core/storage 借存储。
 - core 和 feature 之间唯一耦合点：**`engine.py` 共享同一个 `AsyncEngine` 实例**（连接复用）；元数据/schema 完全独立。
 
 ---
@@ -255,8 +261,20 @@ classDiagram
     }
     class SessionMeta { core/db/models.py }
     class SessionMessage { core/db/models.py }
-    class UserMemory { core/db/models.py }
-    class AgentState { core/db/models.py }
+    class UserMemory {
+        core/db/models.py
+        + last_dream_at: float | None
+    }
+
+    class JobsBase {
+        <<DeclarativeBase>>
+        services/jobs/storage/models.py
+    }
+    class JobRunRow {
+        services/jobs/storage/models.py
+        PK (user_id, job_id)
+        last_run_at: float
+    }
 
     class NotificationsBase {
         <<DeclarativeBase>>
@@ -273,18 +291,19 @@ classDiagram
     Base <|-- SessionMeta
     Base <|-- SessionMessage
     Base <|-- UserMemory
-    Base <|-- AgentState
+    JobsBase <|-- JobRunRow
     NotificationsBase <|-- NotificationRow
     AuthBase <|-- StudioUserRow
 
     note for Base "init_schema in core.db.engine<br/>creates ONLY core tables"
+    note for JobsBase "init_schema in services.jobs.engine<br/>creates ONLY job_runs table"
     note for NotificationsBase "init_schema in services.notifications.engine<br/>creates ONLY notifications table"
     note for AuthBase "init_schema in studio.services.auth.engine<br/>creates ONLY studio_users table"
 ```
 
 **审核要点**
 
-- 3 个 `DeclarativeBase` × 3 个独立 metadata × 3 个独立 `init_schema()` —— 真解耦
+- 4 个 `DeclarativeBase` × 4 个独立 metadata × 4 个独立 `init_schema()` —— 真解耦
 - Grep 验证：0 个跨 feature 的 `core.db.base` import (`grep -rn "from .*core.db.base" src/ark_agentic | grep -v core/db/` → ∅)
 
 ---
@@ -309,6 +328,7 @@ sequenceDiagram
     AppPy->>Bootstrap: bootstrap_storage()
     alt DB_TYPE=sqlite
         Bootstrap->>CoreEng: init_schema() → Base.metadata.create_all
+        Bootstrap->>CoreEng: jobs.init_schema() → JobsBase.metadata.create_all
         Bootstrap->>NotifEng: init_schema() → NotificationsBase.metadata.create_all
     end
     Bootstrap->>StudioEng: init_schema() → AuthBase.metadata.create_all<br/>+ seed admin
@@ -481,16 +501,16 @@ graph LR
     subgraph "✅ Business code may import"
         I1[SessionRepository Protocol]
         I2[MemoryRepository Protocol]
-        I3[AgentStateRepository Protocol]
+        I3[JobRunRepository Protocol]
         I4[NotificationRepository Protocol]
         I5[StudioUserRepository Protocol]
         F1[build_session_repository]
         F2[build_memory_repository]
-        F3[build_agent_state_repository]
+        F3[build_job_run_repository]
         F4[build_notification_repository]
         F5[build_studio_user_repository]
         M1[SessionManager]
-        M2[MemoryManager]
+        M2[MemoryManager<br/>+ maybe_consolidate]
         M3[AgentRunner.add_warmup_hook]
     end
 
@@ -498,9 +518,10 @@ graph LR
         X1[AsyncEngine]
         X2[FileXxxRepository]
         X3[SqliteXxxRepository]
-        X4[NotificationRow / StudioUserRow ORM]
-        X5[Base / NotificationsBase / AuthBase DeclarativeBase]
+        X4[ORM rows: NotificationRow / StudioUserRow / JobRunRow]
+        X5[DeclarativeBase: Base / JobsBase / NotificationsBase / AuthBase]
         X6[app.state.X 直接读]
+        X7[MemoryDreamer / should_dream — internal to core/memory/]
     end
 ```
 

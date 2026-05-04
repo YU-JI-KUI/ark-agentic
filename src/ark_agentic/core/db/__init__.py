@@ -1,9 +1,8 @@
 """Core database engine + ORM models.
 
 Owns the shared AsyncEngine accessor and the core ``Base`` for sessions /
-memory / agent_state tables. Each independent feature has its own
-``DeclarativeBase`` and its own ``init_schema()`` — this Base only
-covers core tables.
+user memory tables. Each independent feature has its own ``DeclarativeBase``
+and its own ``init_schema()`` — this Base only covers core tables.
 
 PR3 will swap ``init_schema`` for Alembic when PG migration enters scope.
 """
