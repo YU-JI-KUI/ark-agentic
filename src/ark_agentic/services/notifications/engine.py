@@ -1,11 +1,9 @@
-"""Notifications engine accessor.
+"""Notifications engine accessor + schema initialiser.
 
-Notifications currently shares the central ``core.db`` engine — but
-business code goes through this module so a future split (dedicated DB
-or sharded engine) is a one-file change. ``init_schema`` is intentionally
-empty: ``NotificationRow`` registers on the shared ``Base.metadata`` and
-``core.db.engine.init_schema`` already creates it. Kept as a hook point
-so the bootstrap can call every domain's ``init_schema`` symmetrically.
+Notifications currently shares the central ``core.db`` engine — but the
+feature's tables live on its own ``NotificationsBase.metadata``, so
+``init_schema()`` here truly creates only the notifications schema. A
+future split (dedicated DB, sharded engine) is a one-file change.
 """
 
 from __future__ import annotations
@@ -13,8 +11,8 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 # Importing the storage package registers ``NotificationRow`` on
-# ``core.db.base.Base.metadata`` so the central ``init_schema`` covers it.
-from . import storage  # noqa: F401
+# ``NotificationsBase.metadata``.
+from .storage.models import NotificationsBase
 
 
 def get_engine() -> AsyncEngine:
@@ -23,5 +21,7 @@ def get_engine() -> AsyncEngine:
 
 
 async def init_schema() -> None:
-    """No-op: tables register on the shared ``Base.metadata``."""
-    return None
+    """Create notifications tables only. Idempotent."""
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(NotificationsBase.metadata.create_all)

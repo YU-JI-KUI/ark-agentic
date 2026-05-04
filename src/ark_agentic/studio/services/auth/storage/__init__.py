@@ -1,8 +1,7 @@
 """Studio user-repository storage adapters (sqlite-only).
 
-Imported as a side-effect of ``studio/services/auth/factory.py`` so
-``StudioUserRow`` registers on ``core.db.base.Base.metadata`` before
-``init_schema()`` runs.
+``StudioUserRow`` registers on the feature-local ``AuthBase`` metadata,
+created by ``studio.services.auth.engine.init_schema()``.
 """
 
 from .sqlite import SqliteStudioUserRepository

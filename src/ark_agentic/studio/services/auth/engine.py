@@ -16,7 +16,7 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 # Importing the storage package registers ``StudioUserRow`` on
-# ``core.db.base.Base.metadata`` so init_schema covers it.
+# the feature-local ``AuthBase.metadata``.
 from . import storage  # noqa: F401
 
 DEFAULT_STUDIO_DB_PATH = Path("data/ark_studio.db")

@@ -21,9 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from .base import Base
 from .config import DBConfig, load_db_config_from_env
 
-# Make sure all core ORM models are imported so they register on
-# Base.metadata before init_schema() runs. Feature packages register
-# their own tables when their factory module is imported.
+# Import core ORM models so they register on this domain's
+# ``Base.metadata`` before ``init_schema()`` runs. Each feature owns
+# its own ``DeclarativeBase`` and registers its tables independently.
 from . import models  # noqa: F401
 
 
@@ -137,7 +137,10 @@ def get_async_engine(config: DBConfig | None = None) -> AsyncEngine:
 
 
 async def init_schema(engine: AsyncEngine | None = None) -> None:
-    """Create all tables registered on ``Base.metadata``. Idempotent.
+    """Create core tables (sessions / memory / agent_state). Idempotent.
+
+    Each independent feature has its own ``init_schema()`` against its
+    own ``DeclarativeBase.metadata`` — they are NOT created here.
 
     Without arguments, uses the domain engine via ``get_engine()``.
     Passing an explicit engine is supported for tests / migration tools.

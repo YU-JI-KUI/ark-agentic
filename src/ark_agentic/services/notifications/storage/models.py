@@ -1,19 +1,21 @@
-"""Notifications ORM table.
+"""Notifications ORM tables — own DeclarativeBase.
 
-Lives in the notifications feature package — core no longer knows about
-this table. The class still extends ``core.db.base.Base`` so that one
-shared ``Base.metadata`` covers all features served by the same engine.
+The feature owns its own ``DeclarativeBase`` so ``init_schema()`` here
+creates only this feature's tables. No cross-domain ``Base.metadata``
+coupling.
 """
 
 from __future__ import annotations
 
 from sqlalchemy import Boolean, Index, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
-
-from ....core.db.base import Base
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-class NotificationRow(Base):
+class NotificationsBase(DeclarativeBase):
+    """Declarative base for notifications tables."""
+
+
+class NotificationRow(NotificationsBase):
     __tablename__ = "notifications"
 
     notification_id: Mapped[str] = mapped_column(String(64), primary_key=True)

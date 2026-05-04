@@ -28,7 +28,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ..core.db.config import DBConfig
-from ..core.db.engine import get_async_engine, init_schema
+from ..core.db.engine import (
+    get_async_engine,
+    init_schema as init_core_schema,
+    set_engine_for_testing,
+)
+from ..services.notifications.engine import (
+    init_schema as init_notif_schema,
+)
+from ..studio.services.auth.engine import (
+    init_schema as init_studio_schema,
+)
 from ..core.db.models import (
     AgentState,
     SessionMeta,
@@ -296,7 +306,12 @@ async def migrate(
 ) -> MigrationStats:
     cfg = DBConfig(db_type="sqlite", connection_str=db_url)
     engine = get_async_engine(cfg)
-    await init_schema(engine)
+    # Each domain owns its own schema; run them all so the migration target
+    # has every required table regardless of which adapters this run uses.
+    set_engine_for_testing(engine)
+    await init_core_schema(engine)
+    await init_notif_schema()
+    await init_studio_schema()
 
     stats = MigrationStats()
 

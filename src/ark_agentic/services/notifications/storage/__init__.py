@@ -1,8 +1,7 @@
 """Notification storage adapters (file / sqlite).
 
-Imported as a side-effect of ``services/notifications/factory.py`` so the
-``NotificationRow`` ORM model registers on ``core.db.base.Base.metadata``
-before ``init_schema()`` runs.
+``NotificationRow`` registers on the feature-local ``NotificationsBase``
+metadata, created by ``services.notifications.engine.init_schema()``.
 """
 
 from .file import FileNotificationRepository

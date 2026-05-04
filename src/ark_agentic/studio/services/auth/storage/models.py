@@ -1,12 +1,11 @@
-"""Studio user-grants ORM table.
+"""Studio user-grants ORM table — own DeclarativeBase.
 
-Lives in the studio auth feature package — core no longer knows about
-this table. The class still extends ``core.db.base.Base`` so one shared
-``Base.metadata`` covers all features served by the same engine.
+The feature owns its own ``DeclarativeBase`` so ``init_schema()`` here
+creates only the ``studio_users`` table — no cross-domain coupling.
 
-Renamed from ``StudioUser`` to ``StudioUserRow`` to avoid clashing with
-the ``StudioUser`` dataclass that ``AuthProvider.authenticate()`` returns
-(``studio.services.auth.provider``).
+``StudioUserRow`` is the ORM row class; ``StudioUser`` (a frozen dataclass
+returned by ``AuthProvider.authenticate()``) lives in
+``studio.services.auth.provider`` — different concern, different name.
 """
 
 from __future__ import annotations
@@ -14,12 +13,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import DateTime, String
-from sqlalchemy.orm import Mapped, mapped_column
-
-from .....core.db.base import Base
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-class StudioUserRow(Base):
+class AuthBase(DeclarativeBase):
+    """Declarative base for studio auth tables."""
+
+
+class StudioUserRow(AuthBase):
     """Studio user role grants."""
 
     __tablename__ = "studio_users"

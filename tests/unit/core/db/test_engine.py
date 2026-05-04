@@ -86,7 +86,13 @@ def test_get_async_engine_normalizes_sync_sqlite_url() -> None:
     assert "aiosqlite" in str(engine.url)
 
 
-async def test_init_schema_creates_all_tables() -> None:
+async def test_init_schema_creates_core_tables() -> None:
+    """``core.db.engine.init_schema`` only covers core's own tables.
+
+    Each independent feature has its own ``DeclarativeBase`` and its
+    own ``init_schema`` (see ``services.notifications.engine``,
+    ``studio.services.auth.engine``).
+    """
     cfg = DBConfig(
         db_type="sqlite", connection_str="sqlite+aiosqlite:///:memory:",
     )
@@ -99,14 +105,16 @@ async def test_init_schema_creates_all_tables() -> None:
             lambda sync_conn: set(inspect(sync_conn).get_table_names())
         )
 
+    # Core-only tables present.
     assert {
         "session_meta",
         "session_messages",
         "user_memory",
         "agent_state",
-        "notifications",
-        "studio_users",
     }.issubset(names)
+    # Feature tables NOT created by core's init_schema.
+    assert "notifications" not in names
+    assert "studio_users" not in names
 
 
 def test_reset_engine_cache_returns_fresh_engine() -> None:

@@ -15,7 +15,6 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.sql import ColumnElement
 
-from .....core.db.base import Base
 from ..protocol import (
     InvalidStudioRoleError,
     LastAdminError,
@@ -25,7 +24,7 @@ from ..protocol import (
     StudioUserRecord,
     VALID_STUDIO_ROLES,
 )
-from .models import StudioUserRow
+from .models import AuthBase, StudioUserRow
 
 
 def _utcnow() -> datetime:
@@ -66,7 +65,7 @@ class SqliteStudioUserRepository:
             if self._initialized:
                 return
             async with self._engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
+                await conn.run_sync(AuthBase.metadata.create_all)
             await _seed_default_admin(self._engine)
             self._initialized = True
 
