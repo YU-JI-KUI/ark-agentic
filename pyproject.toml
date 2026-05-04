@@ -14,7 +14,6 @@ dependencies = [
     "opentelemetry-api",
     "opentelemetry-sdk",
     "openinference-semantic-conventions",
-    "aiocache>=0.12",
 ]
 
 [project.optional-dependencies]
@@ -28,7 +27,6 @@ server = [
     "opentelemetry-exporter-otlp-proto-http",
     "openinference-instrumentation-langchain",
     "arize-phoenix-otel",
-    "aiocache[redis]>=0.12",
 ]
 # db: 切换到 PostgreSQL 时加装（默认 SQLite 不需要）
 db = [

@@ -42,12 +42,6 @@ async def _setup_sqlite_engine(connection_str: str):
     return engine
 
 
-def _unwrap(repo):
-    """Look through CachedSessionRepository wrapper to the raw backend."""
-    inner = getattr(repo, "inner", None)
-    return inner if inner is not None else repo
-
-
 def test_session_manager_uses_file_backend_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ):
@@ -55,7 +49,7 @@ def test_session_manager_uses_file_backend_by_default(
 
     sm = SessionManager(tmp_path)
 
-    assert isinstance(_unwrap(sm._repository), FileSessionRepository)
+    assert isinstance(sm._repository, FileSessionRepository)
 
 
 async def test_session_manager_uses_sqlite_when_db_type_sqlite(
@@ -66,7 +60,7 @@ async def test_session_manager_uses_sqlite_when_db_type_sqlite(
 
     sm = SessionManager(tmp_path)
 
-    assert isinstance(_unwrap(sm._repository), SqliteSessionRepository)
+    assert isinstance(sm._repository, SqliteSessionRepository)
 
 
 async def test_session_manager_e2e_under_sqlite(

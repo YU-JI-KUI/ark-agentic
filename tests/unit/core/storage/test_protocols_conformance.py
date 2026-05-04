@@ -9,7 +9,6 @@ import inspect
 
 from ark_agentic.core.storage.protocols import (
     AgentStateRepository,
-    Cache,
     MemoryRepository,
     SessionRepository,
 )
@@ -64,13 +63,5 @@ def test_notification_repository_method_set():
     expected = {"save", "list_recent", "mark_read"}
 
     actual = _public_methods(NotificationRepository)
-
-    assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"
-
-
-def test_cache_method_set():
-    expected = {"get", "set", "delete", "exists"}
-
-    actual = _public_methods(Cache)
 
     assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"

@@ -24,9 +24,6 @@ from .protocols import (
     MemoryRepository,
     SessionRepository,
 )
-# Re-export the cache accessor so callers don't need to know the adapter
-# module name. ``get_cache`` is the singleton entry point.
-from .cache_adapter import get_cache  # noqa: F401
 
 
 def _resolve_db_type() -> str:
@@ -49,65 +46,46 @@ def _require_path(path: str | Path | None, what: str, param: str) -> Path:
 
 def build_session_repository(
     sessions_dir: str | Path | None = None,
-    *,
-    cached: bool = True,
 ) -> SessionRepository:
     """Build the session repository for the active backend.
 
-    By default the result is wrapped in ``CachedSessionRepository`` so
-    ``load_meta`` reads benefit from the process cache (memory:// by
-    default; redis:// in production multi-worker). Pass ``cached=False``
-    to opt out (used by tests that need to inspect the raw backend).
+    SessionManager keeps an in-memory mirror of active sessions, so a
+    process cache layer here would be redundant in single-worker mode.
+    Multi-worker / Redis is deferred to the PG/Redis milestone.
     """
     db_type = _resolve_db_type()
     if db_type == "file":
-        repo: SessionRepository = FileSessionRepository(
+        return FileSessionRepository(
             _require_path(sessions_dir, "SessionRepository", "sessions_dir")
         )
-    elif db_type == "sqlite":
+    if db_type == "sqlite":
         from ..db.engine import get_engine
-        repo = SqliteSessionRepository(get_engine())
-    else:
-        raise ValueError(
-            f"Unsupported DB_TYPE for session repository: {db_type!r}"
-        )
-
-    if not cached:
-        return repo
-    from .cache_adapter import get_cache
-    from .decorators import CachedSessionRepository
-    return CachedSessionRepository(repo, get_cache())
+        return SqliteSessionRepository(get_engine())
+    raise ValueError(
+        f"Unsupported DB_TYPE for session repository: {db_type!r}"
+    )
 
 
 def build_memory_repository(
     workspace_dir: str | Path | None = None,
-    *,
-    cached: bool = True,
 ) -> MemoryRepository:
     """Build the memory repository for the active backend.
 
-    By default the result is wrapped in ``CachedMemoryRepository`` so
-    per-user ``read()`` calls hit the process cache. Pass ``cached=False``
-    to opt out (used by tests that need to inspect the raw backend).
+    MemoryManager keeps an in-memory mirror of recently-read user memory,
+    same shape as SessionManager._sessions; the repo layer is straight
+    pass-through to file/sqlite.
     """
     db_type = _resolve_db_type()
     if db_type == "file":
-        repo: MemoryRepository = FileMemoryRepository(
+        return FileMemoryRepository(
             _require_path(workspace_dir, "MemoryRepository", "workspace_dir")
         )
-    elif db_type == "sqlite":
+    if db_type == "sqlite":
         from ..db.engine import get_engine
-        repo = SqliteMemoryRepository(get_engine())
-    else:
-        raise ValueError(
-            f"Unsupported DB_TYPE for memory repository: {db_type!r}"
-        )
-
-    if not cached:
-        return repo
-    from .cache_adapter import get_cache
-    from .decorators import CachedMemoryRepository
-    return CachedMemoryRepository(repo, get_cache())
+        return SqliteMemoryRepository(get_engine())
+    raise ValueError(
+        f"Unsupported DB_TYPE for memory repository: {db_type!r}"
+    )
 
 
 def build_agent_state_repository(
@@ -121,4 +99,6 @@ def build_agent_state_repository(
     if db_type == "sqlite":
         from ..db.engine import get_engine
         return SqliteAgentStateRepository(get_engine())
-    raise ValueError(f"Unsupported DB_TYPE for agent state repository: {db_type!r}")
+    raise ValueError(
+        f"Unsupported DB_TYPE for agent state repository: {db_type!r}"
+    )

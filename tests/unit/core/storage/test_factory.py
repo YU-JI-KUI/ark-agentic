@@ -71,7 +71,7 @@ def test_build_session_returns_file_when_db_type_unset(
 ):
     monkeypatch.delenv("DB_TYPE", raising=False)
 
-    repo = build_session_repository(sessions_dir=tmp_path, cached=False)
+    repo = build_session_repository(sessions_dir=tmp_path)
 
     assert isinstance(repo, FileSessionRepository)
 
@@ -81,7 +81,7 @@ async def test_build_session_returns_sqlite_when_db_type_sqlite(
 ):
     monkeypatch.setenv("DB_TYPE", "sqlite")
 
-    repo = build_session_repository(sessions_dir=tmp_path, cached=False)
+    repo = build_session_repository(sessions_dir=tmp_path)
 
     assert isinstance(repo, SqliteSessionRepository)
 
@@ -91,7 +91,7 @@ async def test_build_memory_returns_file_when_unset(
 ):
     monkeypatch.delenv("DB_TYPE", raising=False)
 
-    repo = build_memory_repository(workspace_dir=tmp_path, cached=False)
+    repo = build_memory_repository(workspace_dir=tmp_path)
 
     assert isinstance(repo, FileMemoryRepository)
 
@@ -101,7 +101,7 @@ async def test_build_memory_returns_sqlite_when_sqlite(
 ):
     monkeypatch.setenv("DB_TYPE", "sqlite")
 
-    repo = build_memory_repository(workspace_dir=tmp_path, cached=False)
+    repo = build_memory_repository(workspace_dir=tmp_path)
 
     assert isinstance(repo, SqliteMemoryRepository)
 
@@ -150,7 +150,7 @@ def test_unknown_db_type_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     monkeypatch.setenv("DB_TYPE", "redis")
 
     with pytest.raises(ValueError, match="Unsupported DB_TYPE"):
-        build_session_repository(sessions_dir=tmp_path, cached=False)
+        build_session_repository(sessions_dir=tmp_path)
 
 
 def test_file_without_dir_raises(monkeypatch: pytest.MonkeyPatch):
@@ -159,7 +159,7 @@ def test_file_without_dir_raises(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("DB_TYPE", raising=False)
 
     with pytest.raises(ValueError, match="sessions_dir"):
-        build_session_repository(sessions_dir=None, cached=False)
+        build_session_repository(sessions_dir=None)
 
 
 async def test_sqlite_session_does_not_need_dir(
@@ -168,6 +168,6 @@ async def test_sqlite_session_does_not_need_dir(
     """SQLite path must not require sessions_dir (a file-backend concern)."""
     monkeypatch.setenv("DB_TYPE", "sqlite")
 
-    repo = build_session_repository(cached=False)
+    repo = build_session_repository()
 
     assert isinstance(repo, SqliteSessionRepository)

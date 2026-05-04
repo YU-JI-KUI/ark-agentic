@@ -35,23 +35,6 @@ for module_name in OPTIONAL_MODULES:
             sys.modules[module_name] = stub
 
 
-@pytest.fixture(autouse=True)
-def _reset_storage_cache_singleton():
-    """Drop the process-wide cache between tests.
-
-    The cache built by ``core.storage.cache_adapter.get_cache()`` is a
-    process singleton; without this reset, state cached by one test
-    (e.g. user memory contents) leaks into the next test that uses the
-    same key.
-    """
-    from ark_agentic.core.storage.cache_adapter import (
-        reset_cache_for_testing,
-    )
-    reset_cache_for_testing()
-    yield
-    reset_cache_for_testing()
-
-
 @pytest.fixture
 def tmp_sessions_dir(tmp_path: Path) -> Path:
     """Provide a temporary sessions directory for tests requiring SessionManager."""

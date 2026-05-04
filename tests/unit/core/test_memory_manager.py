@@ -67,16 +67,12 @@ async def test_memory_manager_no_longer_exposes_memory_path() -> None:
 
 def test_build_memory_manager_wires_file_repository(tmp_path: Path) -> None:
     """Default factory still returns a working MemoryManager rooted at memory_dir."""
-    from ark_agentic.core.storage.decorators.memory import CachedMemoryRepository
-
     mgr = build_memory_manager(tmp_path)
 
     assert isinstance(mgr, MemoryManager)
-    # Internal repo is the cached wrapper around the file backend.
-    assert isinstance(mgr._repo, CachedMemoryRepository)
-    assert isinstance(mgr._repo.inner, FileMemoryRepository)
-    # MemoryConfig kept for back-compat; surface workspace_dir for callers
-    # that read it (e.g. scanner / dream).
+    # No decorator wrapping any more: the in-memory mirror lives on the
+    # MemoryManager itself, the repo is the raw file backend.
+    assert isinstance(mgr._repo, FileMemoryRepository)
     assert mgr.config.workspace_dir == str(tmp_path)
 
 
@@ -89,6 +85,80 @@ async def test_memory_manager_round_trip_through_real_file_repo(tmp_path: Path) 
 
     assert "Profile" in content
     assert "Alice" in content
+
+
+# ── In-memory mirror (parallels SessionManager._sessions) ─────────
+
+
+async def test_read_memory_caches_in_memory(tmp_path: Path) -> None:
+    """Second read for the same user hits the in-memory mirror, not the repo."""
+    mgr = build_memory_manager(tmp_path)
+    await mgr.write_memory("u1", "## A\n1\n")
+
+    first = await mgr.read_memory("u1")
+    assert "A" in first
+
+    # Replace the repo with a stub that raises if read is called.
+    class _Boom:
+        async def read(self, *a, **kw):
+            raise AssertionError("read should be served from in-memory mirror")
+    mgr._repo = _Boom()  # type: ignore[assignment]
+
+    second = await mgr.read_memory("u1")
+    assert second == first
+
+
+async def test_read_memory_caches_empty_string_for_cold_user(tmp_path: Path) -> None:
+    """Cold users (no MEMORY.md) cache the empty string so subsequent reads
+    don't re-hit the file system every chat turn."""
+    mgr = build_memory_manager(tmp_path)
+
+    first = await mgr.read_memory("u-cold")
+    assert first == ""
+
+    class _Boom:
+        async def read(self, *a, **kw):
+            raise AssertionError("empty string must be cached")
+    mgr._repo = _Boom()  # type: ignore[assignment]
+
+    assert await mgr.read_memory("u-cold") == ""
+
+
+async def test_write_memory_invalidates_in_memory_mirror(tmp_path: Path) -> None:
+    mgr = build_memory_manager(tmp_path)
+    await mgr.write_memory("u1", "## A\n1\n")
+    await mgr.read_memory("u1")  # populate mirror
+
+    await mgr.write_memory("u1", "## B\n2\n")
+
+    # Mirror invalidated; next read computes the merged content from disk.
+    content = await mgr.read_memory("u1")
+    assert "A" in content and "B" in content
+
+
+async def test_overwrite_eagerly_populates_mirror(tmp_path: Path) -> None:
+    """overwrite() knows the exact new content; mirror is set directly,
+    no extra disk read on the next read_memory call."""
+    mgr = build_memory_manager(tmp_path)
+    await mgr.read_memory("u1")  # cold read populates with ""
+
+    await mgr.overwrite("u1", "fresh\n")
+
+    class _Boom:
+        async def read(self, *a, **kw):
+            raise AssertionError("overwrite should populate the mirror")
+    mgr._repo = _Boom()  # type: ignore[assignment]
+
+    assert await mgr.read_memory("u1") == "fresh\n"
+
+
+def test_evict_user_drops_mirror(tmp_path: Path) -> None:
+    mgr = build_memory_manager(tmp_path)
+    mgr._memory["u1"] = "cached"
+
+    mgr.evict_user("u1")
+
+    assert "u1" not in mgr._memory
 
 
 def test_memory_config_keeps_workspace_dir() -> None:

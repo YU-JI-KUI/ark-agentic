@@ -4,13 +4,11 @@
 """
 
 from .agent_state import AgentStateRepository
-from .cache import Cache
 from .memory import MemoryRepository
 from .session import SessionRepository
 
 __all__ = [
     "AgentStateRepository",
-    "Cache",
     "MemoryRepository",
     "SessionRepository",
 ]

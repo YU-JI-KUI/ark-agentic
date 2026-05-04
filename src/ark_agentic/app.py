@@ -31,7 +31,6 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ark_agentic.core.registry import AgentRegistry
-from ark_agentic.core.startup_guard import validate_deployment_config
 from ark_agentic.api.context import AppContext
 from ark_agentic.core.bootstrap import bootstrap_storage
 from ark_agentic.api import deps as api_deps
@@ -53,11 +52,9 @@ def _env_flag(name: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Step 0: 部署配置检查 + 各域 schema 初始化 ──
-    # validate_deployment_config: 多 worker + 进程内 cache 错配立刻 raise.
+    # ── Step 0: 各域 schema 初始化 ──
     # bootstrap_storage 调用 core / notifications / studio 三域的
     # init_schema()，每个域的 engine 完全封装在自己的 engine.py 内。
-    validate_deployment_config()
     await bootstrap_storage()
     logger.info("Storage bootstrapped (DB_TYPE=%s)", os.getenv("DB_TYPE", "file"))
 
