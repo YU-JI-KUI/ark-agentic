@@ -193,6 +193,12 @@ class ResumeTaskTool(AgentTool):
             if checkpoints:
                 flow_ctx["checkpoints"] = checkpoints
 
+        # 清理可能遗留的用户输入暂存区
+        # 确保 resume 后从干净的流程状态开始评估
+        if evaluator:
+            for stage in evaluator.stages:
+                flow_ctx.pop(f"_user_input_{stage.id}", None)
+
         return flow_ctx
 
     @staticmethod

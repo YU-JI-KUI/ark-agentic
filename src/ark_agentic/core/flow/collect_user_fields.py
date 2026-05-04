@@ -2,8 +2,8 @@
 
 替代原 CommitFlowStageTool，设计差异：
   - 无 stage_id 参数：从 session.state["_flow_stage"] 自动推断
-  - 仅需提供 source="user" 的字段；source="tool" 字段由框架自动从 session.state 提取
-  - 框架完成校验和持久化写入
+  - 仅需提供无 state_key 的字段；有 state_key 的字段由 evaluator 自动从 session.state 提取
+  - 用户字段写入暂存区 _user_input_{stage_id}，由 evaluate() 统一抽取和提交
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any
 
 from ..tools.base import AgentTool, ToolParameter
 from ..types import AgentToolResult, ToolCall
-from .base_evaluator import BaseFlowEvaluator, FlowEvaluatorRegistry
+from .base_evaluator import FlowEvaluatorRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -21,16 +21,18 @@ logger = logging.getLogger(__name__)
 class CollectUserFieldsTool(AgentTool):
     """向当前流程阶段提交用户提供的信息。
 
-    框架自动推断当前阶段（无需 stage_id 参数），并自动从 session.state 提取
-    source="tool" 的字段。LLM 只需提供用户对话中收集到的 source="user" 字段。
+    框架自动推断当前阶段（无需 stage_id 参数）。
+    LLM 只需提供用户对话中收集到的字段（无 state_key 的字段），
+    这些字段会被写入暂存区 _user_input_{stage_id}，
+    由下一轮 evaluate() 统一抽取、校验并提交。
     """
 
     name = "collect_user_fields"
     description = (
         "向当前流程阶段提交用户提供的信息。"
-        "只需提供用户输入的字段（source=user）；"
-        "来自工具调用的字段由框架自动从 session.state 提取。"
-        "提交成功后框架将自动推进到下一阶段。"
+        "只需提供用户输入的字段（无 state_key 的字段）；"
+        "有 state_key 的字段由框架自动从 session.state 提取。"
+        "提交成功后框架将在下一轮自动评估并推进到下一阶段。"
     )
     group = "flow"
 
@@ -40,7 +42,7 @@ class CollectUserFieldsTool(AgentTool):
             type="object",
             description=(
                 "当前阶段需要用户提供的字段键值对。"
-                "只提供 source=user 的字段；tool 来源字段无需填写。"
+                "只提供无 state_key 的字段；有 state_key 的字段由框架自动提取。"
             ),
             required=True,
         )
@@ -78,99 +80,38 @@ class CollectUserFieldsTool(AgentTool):
 
         user_fields_provided: dict[str, Any] = tool_call.arguments.get("fields") or {}
 
-        # 收集所有字段：user 字段来自参数，tool 字段自动提取
-        collected: dict[str, Any] = {}
-        missing_user_fields: list[str] = []
-        missing_tool_keys: list[str] = []
-
-        if stage.field_sources:
-            for field_name, fs in stage.field_sources.items():
-                if fs.source == "user":
-                    if field_name in user_fields_provided:
-                        collected[field_name] = user_fields_provided[field_name]
-                    else:
-                        missing_user_fields.append(field_name)
-                else:  # source="tool"
-                    if not fs.state_key:
-                        logger.warning(
-                            "FieldSource for '%s.%s' has source='tool' but no state_key",
-                            stage_id, field_name,
-                        )
-                        continue
-                    state_value = ctx.get(fs.state_key)
-                    if state_value is None:
-                        missing_tool_keys.append(fs.state_key)
-                    else:
-                        collected[field_name] = BaseFlowEvaluator._extract_field(state_value, fs)
-        else:
-            # 未声明 field_sources：直接使用提供的 fields
-            collected = dict(user_fields_provided)
-
-        if missing_user_fields:
-            return AgentToolResult.error_result(
-                tool_call.id,
-                f"以下用户字段未提供：{missing_user_fields}，请确认后重新提交。",
-            )
-
-        if missing_tool_keys:
-            return AgentToolResult.error_result(
-                tool_call.id,
-                f"以下工具结果尚未写入 session state：{missing_tool_keys}，"
-                f"请先调用对应工具后再提交。",
-            )
-
-        # Pydantic 校验
-        if stage.output_schema:
-            valid, errors = stage.validate_output(collected)
-            if not valid:
+        # 验证用户提供的字段是否属于当前阶段的用户字段（无 state_key）
+        if stage.fields:
+            invalid_fields = []
+            for field_name in user_fields_provided:
+                if field_name not in stage.fields:
+                    invalid_fields.append(field_name)
+            if invalid_fields:
                 return AgentToolResult.error_result(
                     tool_call.id,
-                    f"阶段「{stage.name}」数据校验失败：{'; '.join(errors)}",
+                    f"以下字段不属于当前阶段：{invalid_fields}，请确认后重新提交。",
                 )
 
-        # 构建 state_delta
-        state_delta: dict[str, Any] = {f"_flow_context.stage_{stage_id}": collected}
+        # 将用户输入写入暂存区 _user_input_{stage_id}
+        staging_key = f"_user_input_{stage_id}"
+        existing_inputs: dict[str, Any] = dict(flow_ctx.get(staging_key) or {})
+        existing_inputs.update(user_fields_provided)
 
-        # checkpoint 阶段：追加到 _flow_context.checkpoints（幂等）
-        if stage.checkpoint:
-            existing: list[dict[str, Any]] = list(flow_ctx.get("checkpoints") or [])
-            existing = [c for c in existing if c.get("stage_id") != stage_id]
-            existing.append({
-                "stage_id": stage_id,
-                "name": stage.name,
-                "description": stage.description,
-            })
-            state_delta["_flow_context.checkpoints"] = existing
-
-        # 快照 source="tool" 字段的原始 state 值（stage_delta），供 resume 时还原
-        stage_delta: dict[str, Any] = {}
-        if stage.field_sources:
-            for fs in stage.field_sources.values():
-                if fs.source == "tool" and fs.state_key and fs.state_key not in stage_delta:
-                    raw = ctx.get(fs.state_key)
-                    if raw is not None:
-                        stage_delta[fs.state_key] = raw
-        for key in stage.delta_state_keys:
-            if key not in stage_delta:
-                raw = ctx.get(key)
-                if raw is not None:
-                    stage_delta[key] = raw
-        if stage_delta:
-            state_delta[f"_flow_context.stage_{stage_id}_delta"] = stage_delta
+        state_delta: dict[str, Any] = {f"_flow_context.{staging_key}": existing_inputs}
 
         logger.debug(
-            "CollectUserFields: stage=%s collected=%s delta_keys=%s",
-            stage_id, list(collected), list(stage_delta),
+            "CollectUserFields: stage=%s fields=%s staging_key=%s",
+            stage_id, list(user_fields_provided), staging_key,
         )
 
         return AgentToolResult.json_result(
             tool_call.id,
             {
-                "committed": True,
+                "staged": True,
                 "stage_id": stage_id,
                 "stage_name": stage.name,
                 "message": (
-                    f"阶段「{stage.name}」用户数据已提交。"
+                    f"阶段「{stage.name}」用户数据已暂存。"
                     f"框架将在下一轮自动评估阶段进展。"
                 ),
             },

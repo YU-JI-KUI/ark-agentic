@@ -59,6 +59,8 @@ class CallbackResult:
     tool_results: "list[AgentToolResult] | None" = None
     context_updates: dict[str, Any] | None = None
     event: CallbackEvent | None = None
+    block_model: bool = False           # True 时跳过 LLM 调用
+    inject_response: str | None = None  # 阻断时直接返回的话术
 
 
 # ============ Shared Context ============

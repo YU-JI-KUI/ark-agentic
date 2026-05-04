@@ -1,12 +1,12 @@
 # 设计文档：Agentic Native TaskFlow
 
-> **更新日期**: 2026-04-20
+> **更新日期**: 2026-04-29
 
 ---
 
 ## 1. 设计哲学
 
-* **最小侵入性 (Minimal-Intrusive)**：不改动 `AgentRunner` 的核心 ReAct 循环逻辑；框架层新增 `SkillLoader` reference 按需加载、`FlowCallbacks` 三个 Hook、`state_delta` 点路径合并，均为增量扩展。
+* **最小侵入性 (Minimal-Intrusive)**：不改动 `AgentRunner` 的核心 ReAct 循环逻辑；框架层新增 `SkillLoader` reference 按需加载、`FlowCallbacks` 两个 Hook、`state_delta` 点路径合并，均为增量扩展。
 * **智能体原生 (Agentic Native)**：流程编排不依赖 LLM 主动调用评估器，而是由框架 Hook 在每轮 ReAct 循环的关键节点自动驱动评估与提交。
 * **按需内化 (Lazy Loading)**：通过 `reference` 解决 SKILL 臃肿问题，仅在进入对应阶段时加载该阶段的 reference 文档。
 * **状态驱动 (State-Driven)**：利用 `session.state` 实现跨会话的任务持久化与恢复。
@@ -29,7 +29,7 @@
 
 ### 2.1 Hook 驱动模式
 
-Evaluator 不是 LLM 工具，而是由 `FlowCallbacks` 的三个 Hook 自动驱动的确定性状态机：
+Evaluator 不是 LLM 工具，而是由 `FlowCallbacks` 的两个 Hook 自动驱动的确定性状态机：
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -40,19 +40,16 @@ Evaluator 不是 LLM 工具，而是由 `FlowCallbacks` 的三个 Hook 自动驱
 │  │    _turn_matched_skills 反查 Registry）                     │  │
 │  │ 2. 检测 pending task（每轮直检 TaskRegistry）               │  │
 │  │ 3. 初始化 flow_id（首次调用，无活跃流程且无 pending）       │  │
-│  │ 4. 调用 evaluator.evaluate() 获取当前阶段                   │  │
+│  │ 4. 调用 evaluator.evaluate() 统一评估（含自动提交）         │  │
+│  │    → 抽取字段 → Pydantic 校验 → 自动提交 / 阻断判断         │  │
 │  │ 5. state_delta 写入 session.state                          │  │
-│  │ 6. 注入流程状态提示 + 当前阶段 reference 到 system message  │  │
+│  │ 6. 注入评估结果（role="system" 结构化 JSON）                │  │
+│  │    + 当前阶段 reference 到 system message                   │  │
+│  │ 7. is_blocked=True → CallbackResult(block_model=True)       │  │
+│  │    阻断 LLM 调用，返回 block_message 固定话术               │  │
 │  └────────────────────────────────────────────────────────────┘  │
-│                          ↓                                       │
+│                          ↓  (未阻断时)                           │
 │                    LLM 调用                                      │
-│                          ↓                                       │
-│  ┌─ after_tool_auto_commit ──────────────────────────────────┐  │
-│  │ 1. 读取 _flow_context + skill_name                        │  │
-│  │ 2. 调用 evaluator.auto_commit_tool_stages()               │  │
-│  │     → 只含 source="tool" 字段且数据已就绪的阶段自动提交    │  │
-│  │ 3. state_delta + _flow_context 同步回 session.state       │  │
-│  └────────────────────────────────────────────────────────────┘  │
 │                          ↓                                       │
 │                     ... 下一轮 ...                                │
 │                                                                  │
@@ -70,14 +67,17 @@ Evaluator 不是 LLM 工具，而是由 `FlowCallbacks` 的三个 Hook 自动驱
 ```
 before_model_flow_eval（每轮自动运行）
   → 检测 pending task（直检 TaskRegistry）
-  → evaluate() → state_delta 写入 _flow_stage
-    → 注入流程状态 + 当前阶段 reference 到 system message
-      → Agent 按 SOP 执行业务工具（结果写入 session.state）
-        → after_tool_auto_commit：全 tool 字段阶段自动提交
-        → collect_user_fields：含 user 字段阶段由 LLM 提交
-          → Pydantic 校验通过 → 写入 _flow_context.stage_<id>
-          → checkpoint 阶段 → 追加到 _flow_context.checkpoints
-        → 下一轮 before_model_flow_eval 再评估 → 进入下一阶段
+  → evaluate() 统一评估：
+    → 抽取所有字段（state 自动抽取 + _user_input_ 暂存区）
+    → 全部就绪 → Pydantic 校验 → 自动提交 → 写入 _flow_context.stage_<id>
+    → checkpoint 阶段 → 追加到 _flow_context.checkpoints
+    → 有缺失字段 → 当前阶段 in_progress，注入 user_required_fields
+    → 校验失败 → is_blocked=True，返回固定话术
+    → 全部完成 → is_done=True，_flow_stage="__completed__"
+    → 评估结果作为 role="system" 结构化 JSON message 注入
+  → 未阻断时：Agent 按 SOP 执行业务工具 / 收集用户输入
+    → collect_user_fields → 写入 _user_input_{stage_id} 暂存区
+    → 下一轮 before_model_flow_eval 再评估
   → after_agent: persist_flow_context（仅 checkpoint 阶段写盘）
 ```
 
@@ -111,10 +111,7 @@ class BaseFlowEvaluator(ABC):
         return self.skill_name
 
     def evaluate(self, flow_ctx, state) -> FlowEvalResult:
-        """运行一次完整流程评估（供 before_model hook 调用）。"""
-
-    def auto_commit_tool_stages(self, flow_ctx, state, state_delta):
-        """自动提交只含 source='tool' 字段且数据已就绪的阶段（供 after_tool hook 调用）。"""
+        """统一评估：抽取所有字段 → 自动推进 → 返回结构化结果（供 before_model hook 调用）。"""
 
     def render_task_name(self, flow_ctx) -> str:
         """按 task_name_template 渲染任务名。"""
@@ -127,32 +124,35 @@ class BaseFlowEvaluator(ABC):
 
 | 方法 | 调用方 | 说明 |
 |------|--------|------|
-| `evaluate()` | `before_model_flow_eval` | 遍历阶段，确定当前阶段，输出 `FlowEvalResult` |
-| `auto_commit_tool_stages()` | `after_tool_auto_commit` | 按序处理全 tool 字段阶段，遇 user 字段/数据缺失即停 |
+| `evaluate()` | `before_model_flow_eval` | 遍历阶段，抽取字段，自动提交就绪阶段，输出 `FlowEvalResult` |
+| `_extract_all_fields()` | `evaluate()` 内部 | 统一从 `session.state` + `_user_input_{stage_id}` 暂存区抽取所有字段 |
+| `_commit_stage()` | `evaluate()` 内部 | 唯一提交路径：写入 stage 数据、清理暂存区、处理 checkpoint、快照 delta |
 | `render_task_name()` | `persist_flow_context` | 模板渲染，缺失变量返回 "{待定}" |
 | `get_restorable_state()` | `persist_flow_context` | 转换为 active_tasks.json 快照格式 |
 
-### 3.2 FieldSource — 字段来源声明
+### 3.2 FieldDefinition — 字段定义（替代 FieldSource）
 
 ```python
 @dataclass
-class FieldSource:
-    """阶段 schema 字段的数据来源声明。
+class FieldDefinition:
+    """阶段字段定义 — 统一声明抽取策略。
 
-    source="tool": 框架从 session.state[state_key] 自动提取，LLM 无需传值。
-    source="user": LLM 必须通过 collect_user_fields(fields=...) 明确提供。
+    有 state_key → evaluator 自动从 session.state 抽取
+    无 state_key → 需用户通过 collect_user_fields 提供（写入暂存区 _user_input_{stage_id}）
+    两者都可以，evaluator 统一评估
 
-    提取逻辑（仅 source="tool" 时有效，优先级：transform > path > 直接取值）：
-      transform: 若提供，调用 transform(state_value) 得到字段值
+    提取逻辑（仅 state_key 有效时，优先级：transform > path > 直接取值）：
+      transform: 若提供，调用 transform(state_value) 得到字段值（适合复杂提取）
       path:      若提供，按点路径遍历 state_value（如 "identity.verified"）
       否则：     直接使用 state_value 本身
     """
-    source: Literal["tool", "user"] = "user"
-    state_key: str | None = None
-    path: str | None = None
-    transform: Callable[[Any], Any] | None = None
-    description: str | None = None  # 仅 source="user" 时有意义，注入提示词
+    description: str = ""              # 字段说明，注入评估 message 供 LLM 参考
+    state_key: str | None = None       # 自动抽取源（state 中的 key）
+    path: str | None = None            # 点路径（在 state_value 内遍历）
+    transform: Callable[[Any], Any] | None = None  # 自定义提取函数
 ```
+
+> **向后兼容**：`FieldSource` 保留为 `FieldDefinition` 的别名，旧代码无需修改。
 
 ### 3.3 StageDefinition — 阶段定义
 
@@ -166,7 +166,7 @@ class StageDefinition:
     output_schema: type[BaseModel] | None = None
     reference_file: str | None = None   # references/ 下的文件名
     tools: list[str] = field(default_factory=list)
-    field_sources: dict[str, FieldSource] = field(default_factory=dict)
+    fields: dict[str, FieldDefinition] = field(default_factory=dict)
     checkpoint: bool = False            # 完成后触发持久化
     delta_state_keys: list[str] = field(default_factory=list)  # 额外快照的 state key
 ```
@@ -176,14 +176,48 @@ class StageDefinition:
 ```python
 @dataclass
 class FlowEvalResult:
+    """完整评估结果"""
+
+    flow_id: str
+    skill_name: str
     is_done: bool
-    current_stage: StageDefinition | None
-    completed_stages: list[dict[str, Any]]
-    state_delta: dict[str, Any]
-    available_checkpoints: list[dict[str, Any]]
+    is_blocked: bool = False               # True 时阻断 model 调用
+    block_message: str = ""                # 阻断时的固定话术
+    current_stage: StageDefinition | None = None
+    stage_evaluations: list[StageEvaluation] = field(default_factory=list)
+    state_delta: dict[str, Any] = field(default_factory=dict)
+    available_checkpoints: list[dict[str, Any]] = field(default_factory=list)
+
+    # 向后兼容：completed_stages 从 stage_evaluations 派生
+    @property
+    def completed_stages(self) -> list[dict[str, Any]]: ...
 ```
 
-### 3.5 FlowEvaluatorRegistry — 全局注册表
+### 3.5 FieldStatus — 单字段评估状态
+
+```python
+@dataclass
+class FieldStatus:
+    """单字段评估状态"""
+    status: Literal["collected", "missing", "error"]
+    value: Any = None           # collected 时有值
+    description: str = ""       # missing 时的提示
+    error: str = ""             # error 时的错误信息
+```
+
+### 3.6 StageEvaluation — 单阶段评估结果
+
+```python
+@dataclass
+class StageEvaluation:
+    """单阶段评估结果"""
+    id: str
+    name: str
+    status: Literal["completed", "in_progress", "pending"]
+    fields: dict[str, FieldStatus] | None = None  # in_progress 时有值
+```
+
+### 3.7 FlowEvaluatorRegistry — 全局注册表
 
 ```python
 class FlowEvaluatorRegistry:
@@ -207,7 +241,7 @@ class FlowEvaluatorRegistry:
 
 ---
 
-## 4. FlowCallbacks — 三个生命周期 Hook
+## 4. FlowCallbacks — 两个生命周期 Hook
 
 ```python
 class FlowCallbacks:
@@ -217,10 +251,7 @@ class FlowCallbacks:
     # Hook 1: before_model — 每轮 LLM 调用前
     async def before_model_flow_eval(self, ctx, *, turn, messages, **_): ...
 
-    # Hook 2: after_tool — 工具执行后
-    async def after_tool_auto_commit(self, ctx, *, turn, results, **_): ...
-
-    # Hook 3: after_agent — 整个 run 结束后
+    # Hook 2: after_agent — 整个 run 结束后
     async def persist_flow_context(self, ctx, *, response): ...
 ```
 
@@ -232,25 +263,14 @@ class FlowCallbacks:
 2. **Pending task 检测**：无 `flow_id` 时直检 `TaskRegistry.list_active()`，将结果以 JSON 数组注入 system message
 3. **初始化 flow_id**：首次调用且无 pending 时，通过 `TaskRegistry.generate_flow_id()` 生成短 ID
 4. **运行评估**：调用 `evaluator.evaluate(flow_ctx, state)`
+   - 内部完成字段抽取、Pydantic 校验、自动提交
+   - 校验失败时 `is_blocked=True`，`block_message` 返回固定话术
 5. **写入 state**：`state_delta` 通过 `apply_delta()` 点路径合并
-6. **注入提示词**：流程状态 + 当前阶段 reference
+6. **注入评估消息**：评估结果（`FlowEvalResult`）作为独立 `role="system"` message 注入，结构化 JSON 格式
+7. **注入提示词**：当前阶段 reference
+8. **阻断判断**：`is_blocked=True` 时返回 `CallbackResult(block_model=True)`，直接返回 `block_message` 给用户，跳过 LLM 调用
 
-### 4.2 after_tool_auto_commit
-
-工具执行后自动运行：
-
-1. 读取 `_flow_context` + `skill_name`，反查 evaluator
-2. 调用 `evaluator.auto_commit_tool_stages(flow_ctx, state, state_delta)`
-3. 有变更时同步回 `session.state`
-
-**自动提交逻辑**：按阶段顺序遍历，遇到以下情况即停止：
-- 阶段已有数据（`stage_<id>` 非空）
-- 无 `field_sources` 声明（需显式提交）
-- 含 `source="user"` 字段（需 LLM 收集）
-- 数据未就绪（state_key 缺失）
-- Pydantic 校验失败
-
-### 4.3 persist_flow_context
+### 4.2 persist_flow_context
 
 整个 run 结束后持久化：
 
@@ -309,14 +329,19 @@ def _is_flow_managed(self, skill_id: str) -> bool:
 
 ### 6.1 CollectUserFieldsTool
 
-向当前阶段提交 `source="user"` 的字段。框架自动推断当前阶段（无需 stage_id），并自动提取 `source="tool"` 字段：
+将用户提供的字段写入当前阶段的暂存区。框架自动推断当前阶段（无需 stage_id）。**本工具仅做写入，不做校验**；字段有效性由下一轮 `evaluate()` 统一评估：
 
 ```python
 class CollectUserFieldsTool(AgentTool):
     name = "collect_user_fields"
     description = "向当前流程阶段提交用户提供的信息。"
-    # 参数: fields (object, required) — source="user" 的字段键值对
+    # 参数: fields (object, required) — 字段键值对
 ```
+
+**写入目标**：`session.state["_flow_context"]["_user_input_{stage_id}"]`
+- 有 `state_key` 的字段由 evaluator 自动从 `session.state` 抽取，无需 LLM 调用本工具
+- 无 `state_key` 的字段必须通过本工具提交
+- 同一阶段多次调用会合并（而非覆盖）已提交的字段
 
 ### 6.2 RollbackFlowStageTool
 
@@ -349,7 +374,10 @@ session.state["_flow_context"] = {
     "flow_id": "260420-a1b2",
     "skill_name": "withdraw_money_flow",
 
-    # 各阶段数据
+    # 用户输入暂存区（collect_user_fields 写入，evaluate 提交后清理）
+    "_user_input_plan_confirm": {"confirmed": True, "selected_option": {...}},
+
+    # 各阶段数据（evaluate 自动提交后写入）
     "stage_identity_verify": {"user_id": "U001", "id_card_verified": True, "policy_ids": [...]},
     "stage_identity_verify_delta": {"_customer_info_result": {...}, "_policy_query_result": {...}},
 
@@ -449,28 +477,30 @@ metadata={"state_delta": {"_flow_context": {"stage_identity_verify": {...}}}}
    → _flow_context 为空
    → TaskRegistry 检测无待恢复任务
    → 初始化: {flow_id: "260420-a1b2", skill_name: "withdraw_money_flow"}
-   → evaluate() → current_stage = identity_verify
-   → 注入流程状态 + identity_verify.md reference
-4. LLM 按 SOP 调用 customer_info, policy_query
-5. after_tool_auto_commit:
-   → identity_verify 全为 tool 字段 → 自动提交
-   → state_delta 写入 _flow_context.stage_identity_verify
-6. 下一轮 before_model_flow_eval:
-   → evaluate() → current_stage = options_query
-   → 注入 options_query.md reference
-7. LLM 调用 rule_engine
-8. after_tool_auto_commit: options_query 自动提交
-9. 下一轮 before_model_flow_eval:
+   → evaluate() → 抽取字段 → identity_verify 全字段就绪 → 自动提交
+   → current_stage = options_query
+   → 注入评估结果 JSON + options_query.md reference
+4. LLM 按 SOP 调用 rule_engine
+5. 下一轮 before_model_flow_eval:
+   → evaluate() → options_query 全字段就绪 → 自动提交
    → current_stage = plan_confirm
-   → 提示词列出 user_required_fields: confirmed, selected_option, amount
-10. LLM 向用户确认方案后调用 collect_user_fields(fields={confirmed: true, ...})
-11. 下一轮 before_model_flow_eval: current_stage = double_confirm
-12. LLM 向用户二次确认后调用 collect_user_fields(fields={double_confirm: true})
-13. 下一轮 before_model_flow_eval: current_stage = execute
-14. LLM 调用 submit_withdrawal
-15. after_tool_auto_commit: execute 自动提交
-16. 下一轮 before_model_flow_eval: is_done=True → __completed__
-17. persist_flow_context: __completed__ → TaskRegistry 自动删除记录
+   → 注入评估结果 JSON（含 user_required_fields: confirmed, selected_option, amount）
+6. LLM 向用户确认方案后调用 collect_user_fields(fields={confirmed: true, ...})
+   → 写入 _user_input_plan_confirm 暂存区
+7. 下一轮 before_model_flow_eval:
+   → evaluate() → 从暂存区读取用户字段 → plan_confirm 全字段就绪 → 自动提交
+   → current_stage = double_confirm
+8. LLM 向用户二次确认后调用 collect_user_fields(fields={double_confirm: true})
+   → 写入 _user_input_double_confirm 暂存区
+9. 下一轮 before_model_flow_eval:
+   → evaluate() → double_confirm 全字段就绪 → 自动提交
+   → current_stage = execute
+   → 注入 execute.md reference
+10. LLM 调用 submit_withdrawal
+11. 下一轮 before_model_flow_eval:
+    → evaluate() → execute 全字段就绪 → 自动提交
+    → is_done=True → __completed__
+12. persist_flow_context: __completed__ → TaskRegistry 自动删除记录
 ```
 
 ### 9.2 跨会话恢复
@@ -483,11 +513,11 @@ metadata={"state_delta": {"_flow_context": {"stage_identity_verify": {...}}}}
    → 注入 pending task JSON 列表
 3. LLM 向用户展示未完成任务，等待确认
 4. 用户选择继续 → LLM 调用 resume_task(flow_id="260420-a1b2", action="resume")
-   → 还原 _flow_context（含 checkpoints 列表）
+   → 还原 _flow_context（含 checkpoints 列表和 _user_input_ 暂存区）
    → 还原 _plan_allocations 等 delta 到 session.state 顶层
 5. 下一轮 before_model_flow_eval:
-   → evaluate() → current_stage = execute
-   → 注入 execute.md reference
+   → evaluate() → 从 state + 暂存区抽取字段 → current_stage = execute
+   → 注入评估结果 JSON + execute.md reference
 6. LLM 按 execute 阶段 SOP 调用 submit_withdrawal
 ```
 
@@ -516,9 +546,9 @@ metadata={"state_delta": {"_flow_context": {"stage_identity_verify": {...}}}}
 
 | 日志标签 | 级别 | 输出位置 | 示例 |
 |---------|------|---------|------|
-| `[FlowEval]` | INFO | `evaluate()` | `skill=withdraw_money_flow flow_id=260420-a → stage=plan_confirm (方案确认) progress=2/5 completed=['identity_verify', 'options_query']` |
-| `[AutoCommit]` | INFO | `auto_commit_tool_stages()` | `skill=withdraw_money_flow stage=identity_verify (身份核验) fields=['user_id', 'id_card_verified', 'policy_ids'] checkpoint=False` |
-| `[AutoCommit]` | DEBUG | `auto_commit_tool_stages()` | `skill=withdraw_money_flow stopped: stage 'plan_confirm' has user-source fields` |
+| `[FlowEval]` | INFO | `evaluate()` | `skill=withdraw_money_flow flow_id=260420-a → stage=plan_confirm (方案确认) progress=2/5` |
+| `[FlowEval]` | INFO | `evaluate()` | `skill=withdraw_money_flow flow_id=260420-a → auto-committed stage=identity_verify (身份核验)` |
+| `[FlowEval]` | WARNING | `evaluate()` | `skill=withdraw_money_flow flow_id=260420-a → stage=plan_confirm blocked (validation failed): [...]` |
 
 ---
 
@@ -549,14 +579,13 @@ src/ark_agentic/
 ├── core/
 │   ├── flow/
 │   │   ├── __init__.py              # 模块导出
-│   │   ├── base_evaluator.py        # BaseFlowEvaluator(ABC) + FieldSource + StageDefinition
-│   │   │                            # + FlowEvalResult + FlowEvaluatorRegistry
-│   │   │                            # + task_name_template / render_task_name
-│   │   ├── callbacks.py             # FlowCallbacks: 3 个 Hook
-│   │   │                            #   before_model_flow_eval / after_tool_auto_commit
-│   │   │                            #   / persist_flow_context
+│   │   ├── base_evaluator.py        # BaseFlowEvaluator(ABC) + FieldDefinition + FieldStatus
+│   │   │                            # + StageEvaluation + StageDefinition + FlowEvalResult
+│   │   │                            # + FlowEvaluatorRegistry + task_name_template / render_task_name
+│   │   ├── callbacks.py             # FlowCallbacks: 2 个 Hook
+│   │   │                            #   before_model_flow_eval / persist_flow_context
 │   │   │                            #   + _build_stage_reference_block (Dynamic reference 注入)
-│   │   ├── collect_user_fields.py   # CollectUserFieldsTool
+│   │   ├── collect_user_fields.py   # CollectUserFieldsTool（仅写入暂存区）
 │   │   ├── rollback_flow_stage.py   # RollbackFlowStageTool（回退到 checkpoint 阶段）
 │   │   └── task_registry.py         # TaskRegistry（active_tasks.json + generate_flow_id）
 │   ├── tools/
@@ -585,12 +614,13 @@ src/ark_agentic/
 
 ## 13. 关键设计决策
 
-### D1: Evaluator 由 Hook 自动驱动
+### D1: 统一评估点（evaluate() 单路径）
 
-Evaluator 不是 AgentTool，由 `FlowCallbacks` 的三个 Hook 自动驱动。理由：
+Evaluator 由 `FlowCallbacks` 的两个 Hook 自动驱动，所有评估与提交统一在 `evaluate()` 方法内完成。理由：
 - 避免依赖 LLM 主动调用评估器，确保流程状态始终同步
-- 自动提交纯 tool 字段阶段减少 LLM 轮次消耗
-- `collect_user_fields` 无需 stage_id 参数，降低 LLM 出错概率
+- 单路径设计消除 `auto_commit_tool_stages()` 与 `CollectUserFieldsTool.execute()` 双提交入口的竞态和复杂度
+- `_commit_stage()` 作为唯一提交入口，仅在 `evaluate()` 的 stage 循环内被调用，禁止其他位置调用
+- `collect_user_fields` 仅写入暂存区，不做校验，降低 LLM 工具复杂度
 
 ### D2: Pending Task 检测每轮直检 Registry
 
@@ -615,3 +645,11 @@ flow-managed skill 的 reference 统一由 `FlowCallbacks._build_stage_reference
 ### D7: 短 flow_id 生成
 
 `TaskRegistry.generate_flow_id()` 生成 `YYMMDD-HHHH` 格式（日期前缀 + 4位hex），per-user 查重，碰撞时重试最多 8 次后扩至 8 位 hex。比纯 UUID 更利于日志排查和人工检索。
+
+### D8: 阻断机制（Pydantic 校验失败即阻断）
+
+`evaluate()` 内部 Pydantic 校验失败时，`FlowEvalResult.is_blocked=True`，`before_model_flow_eval` 返回 `CallbackResult(block_model=True)` 直接返回固定话术给用户，跳过 LLM 调用。理由：
+- 数据异常时继续让 LLM 处理只会产生更多不可预期的行为
+- 固定话术（如"信息获取失败，是否需要重试？"）给用户明确的下一步指引
+- 阻断机制防止脏数据流入后续阶段，保证流程数据质量
+- 评估结果作为独立 `role="system"` message 注入，结构化 JSON 便于 LLM 理解和调试

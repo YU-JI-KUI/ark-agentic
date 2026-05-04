@@ -97,6 +97,8 @@ class RollbackFlowStageTool(AgentTool):
         for stage in stages_to_clear:
             state_delta[f"_flow_context.stage_{stage.id}"] = {}
             state_delta[f"_flow_context.stage_{stage.id}_delta"] = {}
+            # 清理用户输入暂存区（collect_user_fields 写入的临时数据）
+            state_delta[f"_flow_context._user_input_{stage.id}"] = None
 
         # 同步移除已清除阶段的 checkpoint 记录
         cleared_ids = {s.id for s in stages_to_clear}

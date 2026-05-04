@@ -7,9 +7,9 @@
   4. double_confirm  — 二次确认，收集 double_confirm:bool（collect_user_fields）
   5. execute         — 执行取款（submit_withdrawal，全工具字段，自动提交）
 
-评估器不再是 LLM 工具，由 FlowCallbacks 的 Hook 自动驱动：
-  - after_tool_auto_commit: 自动提交 identity_verify / options_query / execute（全工具字段阶段）
-  - before_model_flow_eval: 评估当前阶段并注入提示词，列出待收集字段
+评估器不再是 LLM 工具，由 FlowCallbacks 的 before_model_flow_eval Hook 自动驱动：
+  - 评估当前阶段并注入结构化提示词，列出待收集字段
+  - evaluate() 内部统一完成字段抽取、校验、自动提交
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from ark_agentic.core.flow.base_evaluator import (
     BaseFlowEvaluator,
-    FieldSource,
+    FieldDefinition,
     StageDefinition,
 )
 
@@ -30,6 +30,8 @@ class IdentityVerifyOutput(BaseModel):
     """身份核验阶段完成条件"""
 
     user_id: str
+    phone: str                      # 映射自 contact , 必填字段
+    email: str | None               # 映射自 contact , 非必填字段
     id_card_verified: bool          # 映射自 customer_info → identity.verified
     policy_ids: list[str]           # 映射自 policy_query → policyAssertList[*].policy_id
 
@@ -69,7 +71,7 @@ class ExecuteOutput(BaseModel):
 class WithdrawalFlowEvaluator(BaseFlowEvaluator):
     """保险取款 4 阶段流程评估器（业务层实现）。
 
-    继承 BaseFlowEvaluator，仅定义阶段列表、schema 和 field_sources。
+    继承 BaseFlowEvaluator，仅定义阶段列表、schema 和 fields。
     """
 
     @property
@@ -95,19 +97,24 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 output_schema=IdentityVerifyOutput,
                 reference_file="identity_verify.md",
                 tools=["customer_info", "policy_query"],
-                field_sources={
-                    "user_id": FieldSource(
-                        source="tool",
+                fields={
+                    "user_id": FieldDefinition(
                         state_key="_customer_info_result",
-                        path="user_id",
+                        path="identity.id_number",
                     ),
-                    "id_card_verified": FieldSource(
-                        source="tool",
+                    "phone": FieldDefinition(
+                        state_key="_customer_info_result",
+                        path="contact.phone_number",
+                    ),
+                    "email": FieldDefinition(
+                        state_key="_customer_info_result",
+                        path="contact.email",
+                    ),                    
+                    "id_card_verified": FieldDefinition(
                         state_key="_customer_info_result",
                         path="identity.verified",
                     ),
-                    "policy_ids": FieldSource(
-                        source="tool",
+                    "policy_ids": FieldDefinition(
                         state_key="_policy_query_result",
                         transform=lambda r: [
                             p["policy_id"]
@@ -125,19 +132,16 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 output_schema=OptionsQueryOutput,
                 reference_file="options_query.md",
                 tools=["rule_engine"],
-                field_sources={
-                    "available_options": FieldSource(
-                        source="tool",
+                fields={
+                    "available_options": FieldDefinition(
                         state_key="_rule_engine_result",
                         path="options",
                     ),
-                    "total_cash_value": FieldSource(
-                        source="tool",
+                    "total_cash_value": FieldDefinition(
                         state_key="_rule_engine_result",
                         path="total_available_excl_loan",
                     ),
-                    "max_withdrawal": FieldSource(
-                        source="tool",
+                    "max_withdrawal": FieldDefinition(
                         state_key="_rule_engine_result",
                         path="total_available_incl_loan",
                     ),
@@ -153,17 +157,14 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 reference_file="plan_confirm.md",
                 tools=["render_a2ui"],
                 delta_state_keys=["_plan_allocations"],  # render_a2ui 写入，resume 时还原供 submit_withdrawal 使用
-                field_sources={
-                    "confirmed": FieldSource(
-                        source="user",
+                fields={
+                    "confirmed": FieldDefinition(
                         description="用户是否确认方案（true/false）",
                     ),
-                    "selected_option": FieldSource(
-                        source="user",
+                    "selected_option": FieldDefinition(
                         description="用户选择的方案，含 channels（渠道列表）和 target（目标金额）",
                     ),
-                    "amount": FieldSource(
-                        source="user",
+                    "amount": FieldDefinition(
                         description="最终确认的取款金额（元，浮点数）",
                     ),
                 },
@@ -176,9 +177,8 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 output_schema=DoubleConfirmOutput,
                 reference_file="double_confirm.md",
                 tools=[],
-                field_sources={
-                    "double_confirm": FieldSource(
-                        source="user",
+                fields={
+                    "double_confirm": FieldDefinition(
                         description="用户是否再次确认办理（true/false）",
                     ),
                 },
@@ -191,14 +191,12 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                 output_schema=ExecuteOutput,
                 reference_file="execute.md",
                 tools=["submit_withdrawal"],
-                field_sources={
-                    "submitted": FieldSource(
-                        source="tool",
+                fields={
+                    "submitted": FieldDefinition(
                         state_key="_submitted_channels",
                         transform=lambda channels: bool(channels),
                     ),
-                    "channels": FieldSource(
-                        source="tool",
+                    "channels": FieldDefinition(
                         state_key="_submitted_channels",
                     ),
                 },

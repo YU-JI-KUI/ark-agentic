@@ -1,13 +1,12 @@
 """Flow 框架级回调实现。
 
-三个 Hook 构成完整的 Flow 生命周期管理：
+两个 Hook 构成完整的 Flow 生命周期管理：
 
   before_model_flow_eval — before_model hook:
     每轮 LLM 调用前自动运行评估器，将当前阶段状态注入到系统提示词中。
+    evaluate() 内部统一完成字段抽取、校验、自动提交。
     处理 pending task 检测（替代原 evaluator.execute() 中的逻辑）。
-
-  after_tool_auto_commit — after_tool hook:
-    工具执行后自动提交只含 source='tool' 字段且数据已就绪的阶段。
+    当 is_blocked=True 时通过 CallbackResult.block_model 阻断 LLM 调用。
 
   persist_flow_context — after_agent hook:
     持久化 _flow_context 到 active_tasks.json。
@@ -19,7 +18,6 @@
     fc = FlowCallbacks(sessions_dir=sessions_dir)
     callbacks = RunnerCallbacks(
         before_model=[fc.before_model_flow_eval],
-        after_tool=[fc.after_tool_auto_commit],
         after_agent=[fc.persist_flow_context],
     )
 """
@@ -34,9 +32,9 @@ from pathlib import Path
 from typing import Any
 
 from ..callbacks import CallbackContext, CallbackResult
-from ..state_utils import apply_delta, apply_state_delta
+from ..state_utils import apply_delta
 from ..types import AgentMessage
-from .base_evaluator import BaseFlowEvaluator, FlowEvalResult, FlowEvaluatorRegistry, StageDefinition
+from .base_evaluator import BaseFlowEvaluator, FlowEvalResult, FlowEvaluatorRegistry
 from .task_registry import TaskRegistry
 
 logger = logging.getLogger(__name__)
@@ -98,54 +96,71 @@ def _format_pending_tasks_json(tasks: list[dict[str, Any]]) -> str:
     )
 
 
-def _format_flow_status(result: FlowEvalResult, evaluator: BaseFlowEvaluator) -> str:
-    """格式化当前阶段状态注入内容（提示词层面）。"""
-    if result.is_done:
-        return f"## 流程状态：{evaluator.skill_name}\n\n所有阶段已完成，流程结束。"
+def _summarize_value(value: Any, max_len: int = 200) -> Any:
+    """对 collected 值做轻量摘要。"""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    s = str(value)
+    return s if len(s) <= max_len else s[:max_len] + "..."
 
-    stage = result.current_stage
-    assert stage is not None
 
-    lines = [
-        f"## 当前流程状态：{evaluator.skill_name}",
-        f"",
-        f"- **当前阶段**：{stage.name}（{stage.id}）",
-        f"- **阶段说明**：{stage.description}",
-        f"- **建议工具**：{', '.join(stage.tools) if stage.tools else '无'}",
-    ]
+def _build_evaluation_message(result: FlowEvalResult) -> dict[str, Any]:
+    """构造评估结果独立消息，包含结构化 JSON。"""
+    current_stage_eval = next(
+        (e for e in result.stage_evaluations if e.status == "in_progress"), None
+    )
 
-    progress = f"{len(result.completed_stages)}/{len(evaluator.stages)}"
-    lines.append(f"- **进度**：{progress}")
+    eval_json: dict[str, Any] = {
+        "flow_id": result.flow_id,
+        "skill_name": result.skill_name,
+        "current_stage": None,
+        "stages_overview": [
+            {"id": e.id, "name": e.name, "status": e.status}
+            for e in result.stage_evaluations
+        ],
+    }
 
-    # 待收集的用户字段（核心：前置提醒，聚焦模型注意力）
-    user_fields = stage.user_required_fields()
-    if user_fields:
-        lines.append(f"")
-        lines.append(f"**待收集字段**（请向用户确认后调用 `collect_user_fields` 提交）：")
-        for f in user_fields:
-            desc = f.get("description", "")
-            lines.append(f"  - `{f['field']}`：{desc}")
+    if result.current_stage and current_stage_eval:
+        fields_dict: dict[str, Any] = {}
+        if current_stage_eval.fields:
+            for name, fs in current_stage_eval.fields.items():
+                entry: dict[str, Any] = {"status": fs.status}
+                if fs.status == "collected":
+                    entry["value"] = _summarize_value(fs.value)
+                if fs.status == "missing" and fs.description:
+                    entry["hint"] = fs.description
+                if fs.status == "error" and fs.error:
+                    entry["error"] = fs.error
+                fields_dict[name] = entry
 
-    # 可回退的 checkpoint
-    if result.available_checkpoints:
-        cp_names = [c["name"] for c in result.available_checkpoints]
-        lines.append(f"")
-        lines.append(f"- **可回退节点**：{', '.join(cp_names)}")
+        eval_json["current_stage"] = {
+            "id": result.current_stage.id,
+            "name": result.current_stage.name,
+            "result": "blocked" if result.is_blocked else "incomplete",
+            "suggested_tools": result.current_stage.tools,
+            "fields": fields_dict,
+        }
 
-    return "\n".join(lines)
+    content = f"## Flow Evaluation\n\n```json\n{json.dumps(eval_json, ensure_ascii=False, indent=2)}\n```"
+
+    if current_stage_eval and current_stage_eval.fields:
+        missing = [name for name, fs in current_stage_eval.fields.items() if fs.status == "missing"]
+        if missing:
+            content += "\n\n请向用户收集缺失字段后调用 `collect_user_fields` 提交。"
+
+    return {"role": "system", "content": content}
 
 
 # ── FlowCallbacks ─────────────────────────────────────────────────────────────
 
 
 class FlowCallbacks:
-    """Flow 框架的三个生命周期 Hook，注入到 RunnerCallbacks。
+    """Flow 框架的生命周期 Hook，注入到 RunnerCallbacks。
 
     使用:
         fc = FlowCallbacks(sessions_dir=sessions_dir)
         RunnerCallbacks(
             before_model=[fc.before_model_flow_eval],
-            after_tool=[fc.after_tool_auto_commit],
             after_agent=[fc.persist_flow_context],
         )
     """
@@ -249,15 +264,6 @@ class FlowCallbacks:
 
         # ── 运行评估 ────────────────────────────────────────────────────────
         result = evaluator.evaluate(flow_ctx, state)
-
-        # 将 state_delta 写入 session.state
-        for key, value in result.state_delta.items():
-            apply_delta(state, key, value)
-        ctx.session.updated_at = datetime.now()
-
-        # ── 注入提示词 ──────────────────────────────────────────────────────
-        _append_to_system_message(messages, _format_flow_status(result, evaluator))
-
         # 注入当前阶段 reference：单一注入路径，避免 loader 全量 dump + runner 二次 enrich 的双重加载
         if result.current_stage is not None:
             ref_block = self._build_stage_reference_block(
@@ -266,7 +272,19 @@ class FlowCallbacks:
             if ref_block:
                 _append_to_system_message(messages, ref_block)
 
-        # evaluate() 内部已输出 [FlowEval] 日志，此处不再重复
+        # 将 state_delta 写入 session.state（evaluate 内部会 in-place 修改 flow_ctx）
+        for key, value in result.state_delta.items():
+            apply_delta(state, key, value)
+        # 同步 flow_ctx 整体（evaluate 内部 in-place 修改了 flow_ctx）
+        state["_flow_context"] = flow_ctx
+        ctx.session.updated_at = datetime.now()
+
+        # ── 注入提示词 ──────────────────────────────────────────────────────
+        messages.append(_build_evaluation_message(result))
+
+        if result.is_blocked:
+            return CallbackResult(block_model=True, inject_response=result.block_message)
+
         return None
 
     def _build_stage_reference_block(
@@ -307,49 +325,6 @@ class FlowCallbacks:
             logger.warning("[FlowEval] failed to read reference %s: %s", ref_path, e)
             return None
         return f"### 当前阶段参考: {current_stage_id}\n\n{ref_content}"
-
-    # ── after_tool ────────────────────────────────────────────────────────────
-
-    async def after_tool_auto_commit(
-        self,
-        ctx: CallbackContext,
-        *,
-        turn: int,
-        results: list,
-        **_: Any,
-    ) -> CallbackResult | None:
-        """after_tool hook: 自动提交只含 source='tool' 字段且数据已就绪的阶段。
-
-        工具执行完毕后立即运行，使 session.state 中的 _flow_context 保持最新，
-        下一轮 before_model_flow_eval 可直接读到已提交的阶段状态。
-        """
-        state = ctx.session.state
-        flow_ctx_raw: dict[str, Any] | None = state.get("_flow_context")
-        if not flow_ctx_raw or not flow_ctx_raw.get("flow_id"):
-            return None
-
-        skill_name = flow_ctx_raw.get("skill_name", "")
-        evaluator = FlowEvaluatorRegistry.get(skill_name)
-        if not evaluator:
-            return None
-
-        # 用可变副本操作（auto_commit_tool_stages 会同步修改 flow_ctx）
-        flow_ctx = dict(flow_ctx_raw)
-        state_delta: dict[str, Any] = {}
-        evaluator.auto_commit_tool_stages(flow_ctx, state, state_delta)
-
-        if state_delta:
-            # 同步回 session.state（flow_ctx 副本中的修改已包含在 state_delta 里）
-            apply_state_delta(state, state_delta)
-            # 同步 _flow_context 整体（因为 flow_ctx 副本做了 in-place 修改）
-            state["_flow_context"] = flow_ctx
-            ctx.session.updated_at = datetime.now()
-            logger.info(
-                "[AutoCommit] turn=%d skill=%s delta_keys=%s",
-                turn, skill_name, list(state_delta),
-            )
-
-        return None
 
     # ── after_agent ───────────────────────────────────────────────────────────
 
