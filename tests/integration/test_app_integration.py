@@ -141,7 +141,9 @@ class TestChatRunOptionsIntegration:
 
 @pytest.mark.asyncio
 async def test_lifespan_warms_up_registered_agents() -> None:
-    """Phoenix hooks are optional/commented in app; lifespan still registers agents and warms up."""
+    """Lifespan calls ``register_all`` for agent discovery, then walks the
+    registry warming up every entry. The Plugin loop is no-op here because
+    ENABLE_* env flags are unset."""
     from ark_agentic import app as app_module
 
     runner = AsyncMock()
@@ -150,8 +152,7 @@ async def test_lifespan_warms_up_registered_agents() -> None:
     registry.get.return_value = runner
 
     with (
-        patch.object(app_module, "create_insurance_agent", return_value=runner),
-        patch.object(app_module, "create_securities_agent", return_value=runner),
+        patch.object(app_module, "register_all_agents"),
         patch.object(app_module, "_registry", registry),
         patch.object(app_module.api_deps, "init_registry"),
     ):

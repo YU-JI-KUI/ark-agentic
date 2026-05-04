@@ -25,7 +25,12 @@ _FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
 
 
 def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
-    """挂载 Studio 路由、前端静态文件、并可选自动注册 MetaBuilder Agent。"""
+    """挂载 Studio 路由 + 前端静态文件。
+
+    ``registry`` 参数保留但不再使用（之前 Studio 在此自动注册 meta_builder；
+    该职责现在由 ``agents.register_all`` 统一接管，与 Studio 独立）。
+    """
+    del registry  # kept for API compatibility; meta_builder is auto-registered
 
     from .api import agents as agents_api
     from .api import auth as auth_api
@@ -45,14 +50,6 @@ def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
     app.include_router(sessions_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(memory_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(config_api.router, prefix="/api/studio", tags=["studio"])
-
-    if registry is not None and "meta_builder" not in registry.list_ids():
-        try:
-            from ark_agentic.agents.meta_builder import create_meta_builder_from_env
-            registry.register("meta_builder", create_meta_builder_from_env())
-            logger.info("MetaBuilder agent auto-registered by Studio")
-        except Exception as e:
-            logger.warning("MetaBuilder init failed, Studio chat unavailable: %s", e, exc_info=True)
 
     # 挂载前端静态资源（如果 build 产物存在）
     if _FRONTEND_DIST.is_dir():

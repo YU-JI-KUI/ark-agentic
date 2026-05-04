@@ -1,11 +1,11 @@
-"""Typed application context — replaces ad-hoc ``app.state`` lookups.
+"""Typed application context — single source of truth for the request scope.
 
-Each independent feature contributes its own ``*Context`` (defined in
-that feature's package); the aggregate ``AppContext`` is exposed via
-the ``get_ctx`` FastAPI dependency.
+Each plugin's ``lifespan`` may yield a context value that the host
+attaches to a typed field on ``AppContext``. Handlers access them via
+``Depends(get_ctx)`` instead of ``getattr(app.state, ...)``.
 
-This keeps core unaware of feature shapes (forward refs only) while
-giving handlers a single typed entry point instead of ``getattr``.
+Plugins remain forward-referenced so ``api/`` does not pull each
+plugin's package at import time.
 """
 
 from __future__ import annotations
@@ -16,17 +16,27 @@ from typing import TYPE_CHECKING
 from fastapi import Request
 
 if TYPE_CHECKING:
+    from ..core.registry import AgentRegistry
+    from ..services.jobs.plugin import JobsContext
     from ..services.notifications.setup import NotificationsContext
 
 
 @dataclass
 class AppContext:
+    """Aggregate runtime state populated by plugins' lifespans + the host.
+
+    Each field is ``None`` when its owning plugin is disabled, so handlers
+    can render a 503 instead of crashing.
+    """
+
+    registry: "AgentRegistry | None" = None
     notifications: "NotificationsContext | None" = None
+    jobs: "JobsContext | None" = None
 
 
 def get_ctx(request: Request) -> AppContext:
     """FastAPI dependency: returns the application context populated by
-    ``app.py`` lifespan. Raises ``AttributeError`` if accessed before
+    ``app.py`` lifespan. Raises ``RuntimeError`` if accessed before
     lifespan ran (programmer error)."""
     ctx = getattr(request.app.state, "ctx", None)
     if ctx is None:

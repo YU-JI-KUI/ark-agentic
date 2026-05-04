@@ -30,20 +30,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from contextlib import AsyncExitStack
+
 from ark_agentic.core.registry import AgentRegistry
+from ark_agentic.core.plugin import Plugin
 from ark_agentic.api.context import AppContext
 from ark_agentic.bootstrap import bootstrap_storage
 from ark_agentic.api import deps as api_deps
 from ark_agentic.api import chat as chat_api
-from ark_agentic.agents.insurance import create_insurance_agent
-from ark_agentic.agents.securities import create_securities_agent
+from ark_agentic.agents import register_all as register_all_agents
 from ark_agentic.core.observability import setup_tracing_from_env, shutdown_tracing
-from ark_agentic.studio import setup_studio_from_env
+from ark_agentic.services.jobs.plugin import JobsPlugin
+from ark_agentic.services.notifications.plugin import NotificationsPlugin
+from ark_agentic.studio.plugin import StudioPlugin
 from ark_agentic.agents.securities.tools.service.mock_mode import get_mock_mode
 
 logger = logging.getLogger(__name__)
 
 _registry = AgentRegistry()
+
+# Built-in plugins. Order matters: NotificationsPlugin populates
+# ``app_ctx.notifications`` before JobsPlugin reads it.
+PLUGINS: list[Plugin] = [
+    NotificationsPlugin(),
+    JobsPlugin(),
+    StudioPlugin(),
+]
 
 
 def _env_flag(name: str) -> bool:
@@ -52,87 +64,47 @@ def _env_flag(name: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Step 0: 各域 schema 初始化 ──
-    # bootstrap_storage 调用 core / notifications / studio 三域的
-    # init_schema()，每个域的 engine 完全封装在自己的 engine.py 内。
+    # ── Step 0: schema bootstrap ──
     await bootstrap_storage()
     logger.info("Storage bootstrapped (DB_TYPE=%s)", os.getenv("DB_TYPE", "file"))
 
-    # ── Step 1: 装配 notifications + jobs（如果启用）────────────────────
-    notif_ctx = None
-    job_manager = None
-    if _env_flag("ENABLE_JOB_MANAGER"):
-        try:
-            from ark_agentic.services.jobs import (
-                JobManager,
-                UserShardScanner,
-                set_job_manager,
-            )
-            from ark_agentic.services.notifications import (
-                build_notifications_context,
-            )
-        except ImportError as e:
-            raise RuntimeError(
-                "ENABLE_JOB_MANAGER=1 requires 'ark-agentic[server]' extras. "
-                f"Install with: pip install 'ark-agentic[server]' (cause: {e})"
-            ) from e
-
-        notif_ctx = build_notifications_context()
-
-        scanner = UserShardScanner(
-            max_concurrent=int(os.getenv("JOB_MAX_CONCURRENT", "50")),
-            batch_size=int(os.getenv("JOB_BATCH_SIZE", "500")),
-            shard_index=int(os.getenv("JOB_SHARD_INDEX", "0")),
-            total_shards=int(os.getenv("JOB_TOTAL_SHARDS", "1")),
-        )
-        job_manager = JobManager(
-            delivery=notif_ctx.delivery,
-            scanner=scanner,
-        )
-        set_job_manager(job_manager)
+    # Plugin-owned schema. ``bootstrap_storage`` already covers domains
+    # known to it; plugins added later (or written by users via CLI)
+    # can opt in via their own ``init_schema``.
+    for p in PLUGINS:
+        if p.is_enabled():
+            await p.init_schema()
 
     tracer_provider = setup_tracing_from_env(service_name="ark-agentic-api")
 
-    # ── Step 2: 创建并注册 Agents ────────────────────────────────────────
-    _enable_memory = _env_flag("ENABLE_MEMORY")
-    _enable_dream = _env_flag("ENABLE_DREAM") if os.getenv("ENABLE_DREAM") else True
-    _registry.register("insurance", create_insurance_agent(
-        enable_memory=_enable_memory,
-        enable_dream=_enable_dream,
-    ))
-    _registry.register("securities", create_securities_agent(
-        enable_memory=_enable_memory,
-        enable_dream=_enable_dream,
-    ))
-
-    if _enable_memory and notif_ctx is not None:
-        from ark_agentic.services.jobs.proactive_setup import register_proactive_jobs
-        from ark_agentic.services.notifications import get_notifications_base_dir
-        register_proactive_jobs(
-            _registry, notifications_base_dir=get_notifications_base_dir(),
-        )
-
+    # ── Step 1: 注册 Agents（独立于 plugin 加载）────────────────────────
+    register_all_agents(
+        _registry,
+        enable_memory=_env_flag("ENABLE_MEMORY"),
+        enable_dream=_env_flag("ENABLE_DREAM") if os.getenv("ENABLE_DREAM") else True,
+    )
     api_deps.init_registry(_registry)
 
-    # Publish the typed context — the only state surface routes touch.
-    app.state.ctx = AppContext(notifications=notif_ctx)
+    # ── Step 2: enter every enabled plugin's lifespan ──────────────────
+    async with AsyncExitStack() as stack:
+        ctx = AppContext(registry=_registry)
+        for p in PLUGINS:
+            if not p.is_enabled():
+                continue
+            value = await stack.enter_async_context(p.lifespan(ctx))
+            setattr(ctx, p.name, value)
+            logger.info("Plugin %r started", p.name)
 
-    # ── Step 3: warmup 各 Agent ────────────────────────────────────────
-    for agent_id in _registry.list_ids():
-        runner = _registry.get(agent_id)
-        await runner.warmup()
-        logger.info("Agent '%s' warmed up", agent_id)
+        app.state.ctx = ctx
 
-    if job_manager is not None:
-        await job_manager.start()
-        logger.info("JobManager started")
+        # ── Step 3: warmup agents ──
+        for agent_id in _registry.list_ids():
+            runner = _registry.get(agent_id)
+            await runner.warmup()
+            logger.info("Agent '%s' warmed up", agent_id)
 
-    logger.info("Unified API started with agents: %s", _registry.list_ids())
-    yield
-
-    if job_manager is not None:
-        await job_manager.stop()
-        logger.info("JobManager stopped")
+        logger.info("Unified API started with agents: %s", _registry.list_ids())
+        yield
 
     for agent_id in _registry.list_ids():
         runner = _registry.get(agent_id)
@@ -166,15 +138,12 @@ async def _drop_windows_update_probes(request, call_next):
     return await call_next(request)
 
 # ---- 挂载路由 ----
+# Always-on: chat. Plugin routes mount here too, gated by is_enabled().
 app.include_router(chat_api.router)
-# notifications/jobs API 仅在启用 ENABLE_JOB_MANAGER 时挂载
-# (依赖 services/jobs 的 apscheduler 与 services/notifications 的 fastapi 路由,
-#  通过 ark-agentic[server] extras 安装)
-if _env_flag("ENABLE_JOB_MANAGER"):
-    from ark_agentic.services.notifications import setup_notifications
-    setup_notifications(app)
-    logger.info("Mounted /api/notifications and /api/jobs routes")
-setup_studio_from_env(app, registry=_registry)
+for _plugin in PLUGINS:
+    if _plugin.is_enabled():
+        _plugin.install_routes(app)
+        logger.info("Plugin %r routes mounted", _plugin.name)
 
 # ---- 静态文件 & 测试 UI ----
 _STATIC_DIR = Path(__file__).parent / "static"
