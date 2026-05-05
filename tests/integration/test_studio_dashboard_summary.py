@@ -13,13 +13,25 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from ark_agentic.core.protocol.app_context import AppContext
 from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.core.storage.entries import (
     MemorySummaryEntry,
     SessionSummaryEntry,
 )
-from ark_agentic.plugins.api.deps import init_registry
 from ark_agentic.plugins.studio.api.dashboard import router as dashboard_router
+
+
+def _mount_dashboard(registry: AgentRegistry) -> FastAPI:
+    """Build a FastAPI app with the dashboard router and the registry
+    attached the same way ``Bootstrap.start`` would.
+    """
+    fastapi_app = FastAPI()
+    fastapi_app.include_router(dashboard_router, prefix="/api/studio")
+    ctx = AppContext()
+    ctx.agent_registry = registry
+    fastapi_app.state.ctx = ctx
+    return fastapi_app
 
 
 class _StubSessionManager:
@@ -98,11 +110,7 @@ def app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FastAPI:
         ]),
         mm=None,
     ))
-    init_registry(registry)
-
-    fastapi_app = FastAPI()
-    fastapi_app.include_router(dashboard_router, prefix="/api/studio")
-    return fastapi_app
+    return _mount_dashboard(registry)
 
 
 def test_dashboard_summary_aggregates_across_agents(
@@ -166,10 +174,8 @@ def test_dashboard_summary_includes_workspace_memory_md_and_knowledge(
         sm=_StubSessionManager([]),
         mm=_StubMemoryManager([], workspace),
     ))
-    init_registry(registry)
 
-    fastapi_app = FastAPI()
-    fastapi_app.include_router(dashboard_router, prefix="/api/studio")
+    fastapi_app = _mount_dashboard(registry)
 
     client = TestClient(fastapi_app)
     studio_auth_context(client=client)

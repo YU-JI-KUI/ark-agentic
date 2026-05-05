@@ -9,7 +9,7 @@ import logging
 import uuid
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ark_agentic.core.stream.event_bus import StreamEventBus
@@ -28,6 +28,7 @@ router = APIRouter()
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
+    http_request: Request,
     x_ark_session_id: str | None = Header(None, alias="x-ark-session-id"),
     x_ark_user_id: str | None = Header(None, alias="x-ark-user-id"),
     x_ark_message_id: str | None = Header(None, alias="x-ark-message-id"),
@@ -36,7 +37,7 @@ async def chat(
     """Chat 端点，支持流式和非流式响应。
 
     """
-    agent = get_agent(request.agent_id)
+    agent = get_agent(http_request, request.agent_id)
 
     # ── resolve user_id (mandatory) ──
     user_id = request.user_id or x_ark_user_id

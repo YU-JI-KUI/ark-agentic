@@ -2,7 +2,7 @@
 Studio Sessions & Memory API tests.
 
 Session API: view + edit only (no create/delete). List/detail use list_sessions_from_disk and load_session.
-Tests use deps.init_registry() to inject a registry with a mock AgentRunner.
+Tests inject the registry by attaching an ``AppContext`` to ``app.state``.
 """
 
 import json
@@ -13,12 +13,12 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from ark_agentic.plugins.api.deps import init_registry
-from ark_agentic.plugins.studio.api.sessions import router as sessions_router
-from ark_agentic.plugins.studio.api.memory import _resolve_memory_path, router as memory_router
+from ark_agentic.core.protocol.app_context import AppContext
 from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.core.session.format import RawJsonlValidationError
 from ark_agentic.core.storage.entries import MemorySummaryEntry, SessionSummaryEntry
+from ark_agentic.plugins.studio.api.memory import _resolve_memory_path, router as memory_router
+from ark_agentic.plugins.studio.api.sessions import router as sessions_router
 
 
 # ── Dummy objects ───────────────────────────────────────────────────
@@ -176,6 +176,15 @@ client = TestClient(app)
 VALID_JSONL_SID1 = '{"type":"session","id":"sid1","timestamp":"","cwd":""}\n{"type":"message","message":{"role":"user","content":"hi"},"timestamp":0}\n'
 
 
+def _attach_registry(registry: AgentRegistry) -> None:
+    """Mirror what ``Bootstrap.start`` does: publish the registry on
+    ``app.state.ctx.agent_registry`` so the request-time deps resolve it.
+    """
+    ctx = AppContext()
+    ctx.agent_registry = registry
+    app.state.ctx = ctx
+
+
 @pytest.fixture(autouse=True)
 def setup_registry(tmp_path: Path, studio_auth_context):
     """Inject a clean registry before each test."""
@@ -189,7 +198,7 @@ def setup_registry(tmp_path: Path, studio_auth_context):
         transcript_files={"sid1": VALID_JSONL_SID1},
     )
     registry.register("insurance", runner)
-    init_registry(registry)
+    _attach_registry(registry)
     yield
 
 
@@ -299,7 +308,7 @@ def _register_insurance(*, memory_manager: DummyMemoryManager | None) -> None:
     sessions, transcript_files = _sessions_and_transcript()
     runner = DummyAgentRunner(sessions, transcript_files, memory_manager=memory_manager)
     registry.register("insurance", runner)
-    init_registry(registry)
+    _attach_registry(registry)
 
 
 def test_list_memory_files_empty_when_memory_disabled():
@@ -414,7 +423,7 @@ async def test_list_memory_files_merges_sqlite_user_without_disk_md(
             "insurance",
             DummyAgentRunner(sessions, transcript_files, memory_manager=mm),
         )
-        init_registry(registry)
+        _attach_registry(registry)
 
         response = client.get("/api/studio/agents/insurance/memory/files")
         assert response.status_code == 200
