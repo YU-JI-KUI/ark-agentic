@@ -1,4 +1,5 @@
-"""Observability — OTel decorators + multi-backend provider registry."""
+"""Observability — OTel decorators + multi-backend provider registry +
+the framework's tracing Lifecycle component (auto-loaded by Bootstrap)."""
 
 from .decorators import (
     add_span_attributes,
@@ -8,6 +9,7 @@ from .decorators import (
     traced_chain,
     traced_tool,
 )
+from .lifecycle import TracingLifecycle
 from .links import current_trace_id_or_none, resolve_trace_link_template
 from .tracing import (
     get_tracer,
@@ -16,6 +18,7 @@ from .tracing import (
 )
 
 __all__ = [
+    "TracingLifecycle",
     "add_span_attributes",
     "add_span_input",
     "add_span_output",

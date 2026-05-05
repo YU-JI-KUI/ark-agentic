@@ -3,7 +3,8 @@
 Public API surface — 外部项目应仅使用此模块及子模块 __all__ 中列出的符号。
 
 子模块:
-    core.runtime  — AgentRunner, AgentRegistry, RunnerCallbacks, AgentsRuntime, TracingRuntime …
+    core.runtime  — AgentRunner, AgentRegistry, RunnerCallbacks, AgentsRuntime …
+    core.observability — OTel decorators, tracing setup, TracingLifecycle
     core.session  — SessionManager, JSONL 编解码, 上下文压缩
     core.protocol — Lifecycle / Plugin / Bootstrap / AppContext
     core.tools   — AgentTool, ToolRegistry 等

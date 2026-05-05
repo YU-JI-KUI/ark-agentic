@@ -3,7 +3,7 @@
 Validates the lifecycle phases (``init`` / ``start`` / ``stop``) and
 their ordering / idempotency. Uses ``with_defaults=False`` for tests
 exercising arbitrary recorder components; the always-on lifecycle
-defaults (AgentsRuntime + TracingRuntime) are covered by separate
+defaults (AgentsRuntime + TracingLifecycle) are covered by separate
 integration tests.
 """
 
@@ -186,7 +186,7 @@ async def test_disabled_components_are_skipped():
 
 async def test_default_components_include_agents_and_tracing():
     """Bootstrap with defaults always loads AgentsRuntime first and
-    TracingRuntime last — they're framework-mandatory."""
+    TracingLifecycle last — they're framework-mandatory."""
     bootstrap = Bootstrap()
     names = [c.name for c in bootstrap.components]
 
