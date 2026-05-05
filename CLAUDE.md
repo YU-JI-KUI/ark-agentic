@@ -18,6 +18,45 @@ Lightweight ReAct agent framework. Python backend + embedded React/Vite studio U
 - `src/ark_agentic/agents/` — agent implementations
 - `tests/` — pytest tests (mirror the source tree: `tests/test_<module>.py`)
 
+## Architecture boundaries
+
+The codebase is layered. Imports only flow **downward**:
+
+```
+app.py / portal/        ← framework-internal composition (not in wheel)
+agents/ · plugins/      ← user-selectable features (Plugin)
+core/                   ← engine: runner, memory, sessions, storage, llm, lifecycle
+```
+
+Rules:
+
+- **`core/` is self-contained.** It must never import from `plugins/`, `agents/`,
+  `portal/`, or `app.py`. If core needs something a feature provides, define a
+  `Protocol` in core and let the feature implement it.
+- **Features (`plugins/*`, `agents/*`) depend on core**, not on each other.
+  Cross-feature wiring belongs in the composition root (`app.py`) via the
+  shared `AppContext`.
+- **`portal/` and `app.py` are framework-only** and excluded from the published
+  wheel. Wheel consumers compose their own app from `core` + `plugins` +
+  `bootstrap.DEFAULT_PLUGINS`.
+
+### Lifecycle vs Plugin
+
+Both live in `core/`. They are structurally identical Protocols; the distinction
+is **semantic**.
+
+- **`Lifecycle`** (`core/lifecycle.py`) — the base contract every long-lived
+  component implements: `name`, `is_enabled()`, `init()`, `install_routes(app)`,
+  `start(ctx)`, `stop()`. Used directly by **core runtime capabilities** that
+  are not optional features (e.g. `AgentsRuntime`, `TracingRuntime`, `Portal`).
+- **`Plugin(Lifecycle)`** (`core/plugin.py`) — marker subtype for
+  **user-selectable features** (`APIPlugin`, `JobsPlugin`, `NotificationsPlugin`,
+  `StudioPlugin`). Picking a different feature set means swapping plugins; you
+  do not swap `Lifecycle` components.
+
+Bootstrap (`core/bootstrap.py`) drives any list of `Lifecycle` — it does not
+care whether a component is a Plugin or a core runtime.
+
 ## Commands
 
 ### Python (from repo root)
