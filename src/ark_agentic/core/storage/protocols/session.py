@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from ..entries import SessionStoreEntry
+from ..entries import SessionStoreEntry, SessionSummaryEntry
 from ...types import AgentMessage
 
 
@@ -120,6 +120,28 @@ class SessionMetaStore(Protocol):
         """
         ...
 
+    async def list_session_summaries(
+        self,
+        user_id: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[SessionSummaryEntry]:
+        """List sessions + per-session message_count and first user message.
+
+        Replaces "list metas + load every transcript to count messages"
+        on the dashboard / Studio listing hot path. Backends MUST resolve
+        the count and snippet without loading full transcripts:
+
+        - SQLite/PG: single statement with correlated scalar subqueries.
+        - File:      sequential JSONL scan that stops at the first
+                     ``role == "user"`` line.
+
+        ORDER BY ``updated_at`` DESC. ``first_user_message`` is the
+        content truncated to 80 characters, or ``None`` when the session
+        has no user message yet. All backends must honour ``limit/offset``.
+        """
+        ...
+
     async def delete(
         self,
         session_id: str,
@@ -174,6 +196,18 @@ class SessionAdminStore(Protocol):
 
         ORDER BY updated_at DESC. All backends must honour ``limit/offset``.
         PR3 PG: ``limit=None`` must raise — admin full scans require paging.
+        """
+        ...
+
+    async def list_all_session_summaries(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[SessionSummaryEntry]:
+        """Admin-only: cross-user version of ``list_session_summaries``.
+
+        Same single-round-trip aggregation contract; ORDER BY
+        ``updated_at`` DESC. All backends must honour ``limit/offset``.
         """
         ...
 

@@ -32,13 +32,35 @@ from ...session.format import (
 from ._lock import FileLock
 from ._paginate import paginate
 from ...types import AgentMessage
-from ..entries import SessionStoreEntry
+from ..entries import SessionStoreEntry, SessionSummaryEntry
 
 logger = logging.getLogger(__name__)
 
 _META_FILENAME = "sessions.json"
 _META_LOCK_FILENAME = "sessions.json.lock"
 _META_CACHE_TTL_SECONDS = 45.0
+
+
+def _first_text_snippet(message: dict) -> str | None:
+    """Return the 80-char snippet of the first ``text`` block in ``content``.
+
+    ``serialize_message`` writes ``content`` as a list of typed blocks
+    (``[{"type": "text", "text": ...}, ...]``); legacy rows stored a plain
+    string. Both shapes are handled.
+    """
+    content = message.get("content")
+    if isinstance(content, str):
+        return content[:80] or None
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "text":
+                continue
+            text = block.get("text")
+            if isinstance(text, str) and text:
+                return text[:80]
+    return None
 
 
 class FileSessionRepository:
@@ -208,6 +230,99 @@ class FileSessionRepository:
     ) -> list[tuple[str, str]]:
         rows = await asyncio.to_thread(self._list_all_sessions_sync)
         return paginate(rows, limit, offset)
+
+    async def list_session_summaries(
+        self,
+        user_id: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[SessionSummaryEntry]:
+        store = await asyncio.to_thread(self._load_meta_store, user_id, False)
+        ordered = sorted(
+            store.values(), key=lambda e: e.updated_at, reverse=True,
+        )
+        page = paginate(ordered, limit, offset)
+        return [
+            await asyncio.to_thread(
+                self._summarize_session_sync, user_id, entry,
+            )
+            for entry in page
+        ]
+
+    async def list_all_session_summaries(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[SessionSummaryEntry]:
+        rows = await asyncio.to_thread(self._collect_all_summary_metas)
+        page = paginate(rows, limit, offset)
+        return [
+            await asyncio.to_thread(
+                self._summarize_session_sync, uid, entry,
+            )
+            for uid, entry in page
+        ]
+
+    def _collect_all_summary_metas(
+        self,
+    ) -> list[tuple[str, SessionStoreEntry]]:
+        if not self._sessions_dir.exists():
+            return []
+        rows: list[tuple[str, SessionStoreEntry]] = []
+        for user_dir in self._sessions_dir.iterdir():
+            if not user_dir.is_dir():
+                continue
+            store = self._load_meta_store(user_dir.name, skip_cache=False)
+            for entry in store.values():
+                rows.append((user_dir.name, entry))
+        rows.sort(key=lambda t: t[1].updated_at, reverse=True)
+        return rows
+
+    def _summarize_session_sync(
+        self, user_id: str, entry: SessionStoreEntry,
+    ) -> SessionSummaryEntry:
+        """Walk the JSONL once: count message lines + grab first user content.
+
+        Avoids the full ``deserialize_message`` pipeline for every line.
+        Stops parsing message bodies as soon as the first user content is
+        found; subsequent lines are only counted via cheap JSON load +
+        type check.
+        """
+        path = self._transcript_path(entry.session_id, user_id)
+        message_count = 0
+        snippet: str | None = None
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if data.get("type") != "message":
+                            continue
+                        message_count += 1
+                        if snippet is None:
+                            msg = data.get("message") or {}
+                            if msg.get("role") == "user":
+                                snippet = _first_text_snippet(msg)
+            except OSError as e:
+                logger.warning(
+                    "summary scan failed for %s: %s", path, e,
+                )
+        return SessionSummaryEntry(
+            session_id=entry.session_id,
+            user_id=user_id,
+            updated_at=entry.updated_at,
+            message_count=message_count,
+            first_user_message=snippet,
+            model=entry.model,
+            provider=entry.provider,
+            state=entry.state,
+        )
 
     # ── Sync helpers (run via asyncio.to_thread) ────────────────────
 

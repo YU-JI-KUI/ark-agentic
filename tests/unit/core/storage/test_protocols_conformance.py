@@ -31,7 +31,9 @@ def test_session_repository_method_set():
         "load_meta",
         "list_session_ids",
         "list_session_metas",
+        "list_session_summaries",
         "list_all_sessions",
+        "list_all_session_summaries",
         "delete",
         "get_raw_transcript",
         "put_raw_transcript",
@@ -49,6 +51,7 @@ def test_memory_repository_method_set():
         "upsert_headings",
         "overwrite",
         "list_users",
+        "list_memory_summaries",
         "get_last_dream_at",
         "set_last_dream_at",
     }

@@ -59,3 +59,37 @@ class SessionStoreEntry:
             active_skill_ids=data.get("activeSkillIds", []),
             state=data.get("state", {}),
         )
+
+
+@dataclass
+class SessionSummaryEntry:
+    """Lightweight per-session row for list / dashboard views.
+
+    Backends compute ``message_count`` and ``first_user_message`` in a
+    single round-trip — callers must not derive these from full message
+    loads. ``first_user_message`` is the content of the earliest message
+    whose role is ``user``; backends MUST truncate to 80 characters.
+    """
+
+    session_id: str
+    user_id: str
+    updated_at: int
+    message_count: int
+    first_user_message: str | None
+    model: str
+    provider: str
+    state: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MemorySummaryEntry:
+    """Per-user memory row for the Studio memory listing.
+
+    ``size_bytes`` is the byte length of the markdown blob. Sourced from
+    a single aggregate query (SQLite ``length(content)``) or one
+    ``stat()`` call (file backend) — never by reading the blob into RAM.
+    """
+
+    user_id: str
+    size_bytes: int
+    updated_at: int | None

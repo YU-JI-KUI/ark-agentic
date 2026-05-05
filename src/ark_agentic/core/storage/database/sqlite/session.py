@@ -35,8 +35,37 @@ from ....session.format import (
     parse_raw_jsonl,
     serialize_message,
 )
-from ...entries import SessionStoreEntry
+from ...entries import SessionStoreEntry, SessionSummaryEntry
 from ....types import AgentMessage
+
+
+def _extract_first_text(payload_json: str | None) -> str | None:
+    """Pull a 80-char snippet from the first text block of a message payload.
+
+    ``payload_json`` is the value of ``session_messages.payload_json``,
+    written by ``serialize_message`` — content is a list of typed blocks
+    (``[{type: text, text: ...}, ...]``). Legacy rows that stored content
+    as a plain string are also handled.
+    """
+    if not payload_json:
+        return None
+    try:
+        payload = json.loads(payload_json)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    content = payload.get("content") if isinstance(payload, dict) else None
+    if isinstance(content, str):
+        return content[:80] or None
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "text":
+                continue
+            text = block.get("text")
+            if isinstance(text, str) and text:
+                return text[:80]
+    return None
 
 
 class SqliteSessionRepository:
@@ -228,6 +257,87 @@ class SqliteSessionRepository:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt)).all()
         return [(r[0], r[1]) for r in rows]
+
+    async def list_session_summaries(
+        self,
+        user_id: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[SessionSummaryEntry]:
+        stmt = self._summary_stmt().where(SessionMeta.user_id == user_id)
+        if limit is not None:
+            stmt = stmt.limit(limit).offset(offset)
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(stmt)).all()
+        return [self._row_to_summary(r) for r in rows]
+
+    async def list_all_session_summaries(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[SessionSummaryEntry]:
+        stmt = self._summary_stmt()
+        if limit is not None:
+            stmt = stmt.limit(limit).offset(offset)
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(stmt)).all()
+        return [self._row_to_summary(r) for r in rows]
+
+    @staticmethod
+    def _summary_stmt() -> Any:
+        """Single-statement correlated scalar subqueries.
+
+        ``mc`` counts messages per session; ``fum`` returns the
+        ``payload_json`` of the earliest user-role message. Pulling the
+        whole payload (vs ``json_extract($.content)``) keeps the typing
+        story simple — Python truncates the content to 80 chars.
+        """
+        mc = (
+            select(func.count(SessionMessage.id))
+            .where(SessionMessage.session_id == SessionMeta.session_id)
+            .correlate(SessionMeta)
+            .scalar_subquery()
+        )
+        fum = (
+            select(SessionMessage.payload_json)
+            .where(
+                SessionMessage.session_id == SessionMeta.session_id,
+                func.json_extract(
+                    SessionMessage.payload_json, "$.role",
+                ) == "user",
+            )
+            .order_by(SessionMessage.seq.asc())
+            .limit(1)
+            .correlate(SessionMeta)
+            .scalar_subquery()
+        )
+        return (
+            select(
+                SessionMeta.session_id,
+                SessionMeta.user_id,
+                SessionMeta.updated_at,
+                SessionMeta.model,
+                SessionMeta.provider,
+                SessionMeta.state_json,
+                mc.label("mc"),
+                fum.label("fum"),
+            )
+            .order_by(SessionMeta.updated_at.desc())
+        )
+
+    @staticmethod
+    def _row_to_summary(row: Any) -> SessionSummaryEntry:
+        snippet = _extract_first_text(row.fum)
+        return SessionSummaryEntry(
+            session_id=row.session_id,
+            user_id=row.user_id,
+            updated_at=row.updated_at,
+            message_count=int(row.mc or 0),
+            first_user_message=snippet,
+            model=row.model,
+            provider=row.provider,
+            state=json.loads(row.state_json or "{}"),
+        )
 
     @staticmethod
     def _row_to_entry(row: Any) -> SessionStoreEntry:

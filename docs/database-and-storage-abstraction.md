@@ -185,7 +185,7 @@ $env:DB_CONNECTION_STR = "sqlite+aiosqlite:///data/ark.db"
 
 ### 4.3 从文件存储迁移到 SQLite
 
-使用脚本 [`ark_agentic.scripts.migrate_file_to_sqlite`](../src/ark_agentic/scripts/migrate_file_to_sqlite.py)（参见其模块文档字符串中的命令行示例）；集成测试见 `tests/integration/test_migrate_file_to_sqlite.py`。
+使用脚本 [`scripts/migrations/file_to_sqlite.py`](../scripts/migrations/file_to_sqlite.py)（参见其模块文档字符串中的命令行示例）；集成测试见 `tests/integration/test_migrate_file_to_sqlite.py`。
 
 ### 4.4 测试中使用内存 SQLite
 

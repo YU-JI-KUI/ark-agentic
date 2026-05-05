@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
     from ..session import SessionManager
+    from ..storage.entries import MemorySummaryEntry
     from ..storage.protocols import MemoryRepository
     from .dream import MemoryDreamer
 
@@ -123,6 +124,14 @@ class MemoryManager:
 
     async def list_user_ids(self) -> list[str]:
         return await self._repo.list_users()
+
+    async def list_memory_summaries(self) -> list["MemorySummaryEntry"]:
+        """Per-user (size_bytes, updated_at) — single-round-trip aggregation.
+
+        Replaces ``list_user_ids()`` + N ``read_memory(uid)`` on dashboard /
+        Studio listings.
+        """
+        return await self._repo.list_memory_summaries()
 
     def evict_user(self, user_id: str) -> None:
         """Drop the in-memory mirror for one user (test helper / tools)."""

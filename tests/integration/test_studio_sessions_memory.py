@@ -18,6 +18,7 @@ from ark_agentic.plugins.studio.api.sessions import router as sessions_router
 from ark_agentic.plugins.studio.api.memory import _resolve_memory_path, router as memory_router
 from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.core.session.format import RawJsonlValidationError
+from ark_agentic.core.storage.entries import MemorySummaryEntry, SessionSummaryEntry
 
 
 # ── Dummy objects ───────────────────────────────────────────────────
@@ -93,6 +94,24 @@ class DummySessionManager:
     async def list_sessions_from_disk(self, user_id=None):
         return list(self._sessions.values())
 
+    async def list_summaries_from_disk(self, user_id=None):
+        rows: list[SessionSummaryEntry] = []
+        for s in self._sessions.values():
+            first_user = next(
+                (m for m in s.messages if m.role == "user" and m.content), None,
+            )
+            rows.append(SessionSummaryEntry(
+                session_id=s.session_id,
+                user_id=s.user_id,
+                updated_at=0,
+                message_count=len(s.messages),
+                first_user_message=first_user.content[:80] if first_user else None,
+                model="",
+                provider="",
+                state=s.state,
+            ))
+        return rows
+
     def get_session(self, sid):
         return self._sessions.get(sid)
 
@@ -117,6 +136,9 @@ class DummyMemoryManager:
         self._dirty = False
 
     async def list_user_ids(self) -> list[str]:
+        return []
+
+    async def list_memory_summaries(self) -> list[MemorySummaryEntry]:
         return []
 
     async def read_memory(self, user_id: str) -> str:

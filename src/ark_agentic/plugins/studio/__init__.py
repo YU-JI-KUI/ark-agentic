@@ -35,6 +35,7 @@ def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
     from .api import agents as agents_api
     from .api import auth as auth_api
     from .api import config as config_api
+    from .api import dashboard as dashboard_api
     from .api import skills as skills_api
     from .api import tools as tools_api
     from .api import sessions as sessions_api
@@ -49,6 +50,7 @@ def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
     app.include_router(tools_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(sessions_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(memory_api.router, prefix="/api/studio", tags=["studio"])
+    app.include_router(dashboard_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(config_api.router, prefix="/api/studio", tags=["studio"])
 
     # 挂载前端静态资源（如果 build 产物存在）
