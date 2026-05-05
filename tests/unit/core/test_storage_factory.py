@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from ark_agentic.core.db.engine import reset_engine_cache
+from ark_agentic.core.storage.database.engine import reset_engine_cache
 
 
 async def test_build_memory_repository_sqlite_without_explicit_engine(monkeypatch, tmp_path):
     """Factory must not raise when engine=None in sqlite mode — use global engine."""
-    from ark_agentic.core.db.config import DBConfig
-    from ark_agentic.core.db.engine import get_async_engine, init_schema
+    from ark_agentic.core.storage.database.config import DBConfig
+    from ark_agentic.core.storage.database.engine import get_async_engine, init_schema
     from ark_agentic.core.storage.factory import build_memory_repository
 
     reset_engine_cache()
@@ -18,7 +18,7 @@ async def test_build_memory_repository_sqlite_without_explicit_engine(monkeypatc
         monkeypatch.setenv("DB_TYPE", "sqlite")
         monkeypatch.setenv("DB_CONNECTION_STR", f"sqlite+aiosqlite:///{tmp_path}/factory_test.db")
 
-        cfg = DBConfig(db_type="sqlite", connection_str=f"sqlite+aiosqlite:///{tmp_path}/factory_test.db")
+        cfg = DBConfig(connection_str=f"sqlite+aiosqlite:///{tmp_path}/factory_test.db")
         engine = get_async_engine(cfg)
         await init_schema(engine)
 

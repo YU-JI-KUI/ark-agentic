@@ -15,7 +15,7 @@ from ark_agentic.core.session.format import (
     serialize_tool_result,
 )
 from ark_agentic.core.storage.entries import SessionStoreEntry
-from ark_agentic.core.storage.repository.file._lock import FileLock
+from ark_agentic.core.storage.file._lock import FileLock
 from ark_agentic.core.types import (
     AgentMessage,
     AgentToolResult,
@@ -227,6 +227,7 @@ class TestSessionStoreEntry:
         from ark_agentic.core.storage import entries as storage_entries
 
         assert SessionStoreEntry is storage_entries.SessionStoreEntry
+
 
     def test_dto_round_trip_does_not_carry_file_paths(self) -> None:
         """Backend-neutral: the DTO no longer exposes ``session_ref`` /

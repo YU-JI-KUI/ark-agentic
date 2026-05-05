@@ -23,6 +23,7 @@ server = [
     "bcrypt>=5.0.0",
     "sqlalchemy>=2.0.0",
     "aiosqlite>=0.20.0",
+    "alembic>=1.13.0",
     "apscheduler>=3.11",
     "opentelemetry-exporter-otlp-proto-http",
     "openinference-instrumentation-langchain",

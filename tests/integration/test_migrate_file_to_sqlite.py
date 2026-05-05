@@ -7,17 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.db.config import DBConfig
-from ark_agentic.core.db.engine import (
+from ark_agentic.core.storage.database.config import DBConfig
+from ark_agentic.core.storage.database.engine import (
     get_async_engine,
     reset_engine_cache,
 )
-from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
-from ark_agentic.core.storage.repository.file.session import FileSessionRepository
-from ark_agentic.core.storage.repository.sqlite.memory import (
+from ark_agentic.core.storage.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.file.session import FileSessionRepository
+from ark_agentic.core.storage.database.sqlite.memory import (
     SqliteMemoryRepository,
 )
-from ark_agentic.core.storage.repository.sqlite.session import (
+from ark_agentic.core.storage.database.sqlite.session import (
     SqliteSessionRepository,
 )
 from ark_agentic.core.types import AgentMessage, MessageRole
@@ -110,7 +110,7 @@ async def test_migrate_round_trips_data_into_sqlite_repos(tmp_path: Path):
     # Open the same engine and verify each Repository sees the migrated data.
     # The migrate() call already created every domain's schema; we just
     # need a working engine reference here to construct read repos.
-    cfg = DBConfig(db_type="sqlite", connection_str=db_url)
+    cfg = DBConfig(connection_str=db_url)
     engine = get_async_engine(cfg)
 
     session_repo = SqliteSessionRepository(engine)
@@ -177,7 +177,7 @@ async def test_migrate_dry_run_does_not_write(tmp_path: Path):
     # ``migrate(dry_run=True)`` still ran init_schema, so the tables
     # exist; they're just empty.
     assert stats.sessions >= 1
-    cfg = DBConfig(db_type="sqlite", connection_str=db_url)
+    cfg = DBConfig(connection_str=db_url)
     engine = get_async_engine(cfg)
     session_repo = SqliteSessionRepository(engine)
     assert await session_repo.list_session_ids("u1") == []

@@ -12,17 +12,17 @@ from pathlib import Path
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from ark_agentic.core.db.engine import (
+from ark_agentic.core.storage.database.engine import (
     init_schema,
-    reset_engine_for_testing,
+    reset_engine_cache,
     set_engine_for_testing,
 )
-from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
-from ark_agentic.core.storage.repository.file.session import FileSessionRepository
-from ark_agentic.core.storage.repository.sqlite.memory import (
+from ark_agentic.core.storage.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.file.session import FileSessionRepository
+from ark_agentic.core.storage.database.sqlite.memory import (
     SqliteMemoryRepository,
 )
-from ark_agentic.core.storage.repository.sqlite.session import (
+from ark_agentic.core.storage.database.sqlite.session import (
     SqliteSessionRepository,
 )
 from ark_agentic.core.storage.factory import (
@@ -42,9 +42,9 @@ from ark_agentic.plugins.notifications.storage.sqlite import (
 
 @pytest.fixture(autouse=True)
 def _clean_engine_cache():
-    reset_engine_for_testing()
+    reset_engine_cache()
     yield
-    reset_engine_for_testing()
+    reset_engine_cache()
 
 
 @pytest.fixture

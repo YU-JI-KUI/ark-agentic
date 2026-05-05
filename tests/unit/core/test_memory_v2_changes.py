@@ -230,10 +230,10 @@ class TestDreamRetryCounter:
         from ark_agentic.core.memory.dream import MemoryDreamer
         from ark_agentic.core.memory.manager import build_memory_manager
         from ark_agentic.core.session import SessionManager
-        from ark_agentic.core.storage.repository.file.memory import (
+        from ark_agentic.core.storage.file.memory import (
             FileMemoryRepository,
         )
-        from ark_agentic.core.storage.repository.file.session import (
+        from ark_agentic.core.storage.file.session import (
             FileSessionRepository,
         )
 
@@ -282,10 +282,10 @@ class TestDreamRetryCounter:
         from ark_agentic.core.memory.dream import DreamResult, MemoryDreamer
         from ark_agentic.core.memory.manager import build_memory_manager
         from ark_agentic.core.session import SessionManager
-        from ark_agentic.core.storage.repository.file.memory import (
+        from ark_agentic.core.storage.file.memory import (
             FileMemoryRepository,
         )
-        from ark_agentic.core.storage.repository.file.session import (
+        from ark_agentic.core.storage.file.session import (
             FileSessionRepository,
         )
 

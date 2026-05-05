@@ -63,7 +63,7 @@ from .session.compaction import (
 )
 from .session.format import RawJsonlValidationError
 from .storage.entries import SessionStoreEntry
-from .storage.repository.file._lock import FileLock
+from .storage.file._lock import FileLock
 from .llm import (
     PAModel,
     PAModelConfig,

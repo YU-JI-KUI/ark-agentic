@@ -27,8 +27,8 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from ..core.db.config import DBConfig
-from ..core.db.engine import (
+from ..core.storage.database.config import DBConfig
+from ..core.storage.database.engine import (
     get_async_engine,
     init_schema as init_core_schema,
     set_engine_for_testing,
@@ -42,14 +42,14 @@ from ..plugins.notifications.engine import (
 from ..plugins.studio.services.auth.engine import (
     init_schema as init_studio_schema,
 )
-from ..core.db.models import (
+from ..core.storage.database.models import (
     SessionMeta,
     UserMemory,
 )
-from ..core.storage.repository.file.memory import FileMemoryRepository
-from ..core.storage.repository.file.session import FileSessionRepository
-from ..core.storage.repository.sqlite.memory import SqliteMemoryRepository
-from ..core.storage.repository.sqlite.session import SqliteSessionRepository
+from ..core.storage.file.memory import FileMemoryRepository
+from ..core.storage.file.session import FileSessionRepository
+from ..core.storage.database.sqlite.memory import SqliteMemoryRepository
+from ..core.storage.database.sqlite.session import SqliteSessionRepository
 from ..plugins.notifications.storage.file import FileNotificationRepository
 from ..plugins.notifications.storage.models import NotificationRow
 from ..plugins.notifications.storage.sqlite import SqliteNotificationRepository
@@ -320,7 +320,7 @@ async def migrate(
     db_url: str,
     dry_run: bool,
 ) -> MigrationStats:
-    cfg = DBConfig(db_type="sqlite", connection_str=db_url)
+    cfg = DBConfig(connection_str=db_url)
     engine = get_async_engine(cfg)
     # Each domain owns its own schema; run them all so the migration target
     # has every required table regardless of which adapters this run uses.

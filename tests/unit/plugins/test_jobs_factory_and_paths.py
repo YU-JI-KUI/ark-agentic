@@ -38,8 +38,8 @@ def test_factory_returns_file_backend_by_default(
 def test_factory_returns_sqlite_backend_when_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from ark_agentic.core.db.config import DBConfig
-    from ark_agentic.core.db.engine import (
+    from ark_agentic.core.storage.database.config import DBConfig
+    from ark_agentic.core.storage.database.engine import (
         get_async_engine,
         reset_engine_cache,
         set_engine_for_testing,
@@ -47,7 +47,7 @@ def test_factory_returns_sqlite_backend_when_configured(
 
     reset_engine_cache()
     monkeypatch.setenv("DB_TYPE", "sqlite")
-    cfg = DBConfig(db_type="sqlite", connection_str="sqlite+aiosqlite:///:memory:")
+    cfg = DBConfig(connection_str="sqlite+aiosqlite:///:memory:")
     set_engine_for_testing(get_async_engine(cfg))
     try:
         repo = build_job_run_repository()

@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from ark_agentic.core.db.config import DBConfig
-from ark_agentic.core.db.engine import (
+from ark_agentic.core.storage.database.config import DBConfig
+from ark_agentic.core.storage.database.engine import (
     get_async_engine,
     reset_engine_cache,
 )
@@ -35,7 +35,7 @@ async def repo() -> SqliteNotificationRepository:
     )
     engine = get_async_engine(cfg)
     # Inject as the process engine so notifications' init_schema picks it up.
-    from ark_agentic.core.db.engine import set_engine_for_testing
+    from ark_agentic.core.storage.database.engine import set_engine_for_testing
     set_engine_for_testing(engine)
     await init_notif_schema()
     return SqliteNotificationRepository(engine)

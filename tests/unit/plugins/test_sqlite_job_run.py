@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from ark_agentic.core.db.config import DBConfig
-from ark_agentic.core.db.engine import (
+from ark_agentic.core.storage.database.config import DBConfig
+from ark_agentic.core.storage.database.engine import (
     get_async_engine,
     reset_engine_cache,
     set_engine_for_testing,

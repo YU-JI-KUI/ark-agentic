@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from ark_agentic.core.db.engine import reset_engine_cache
 from ark_agentic.core.protocol.bootstrap import Bootstrap
 from ark_agentic.core.protocol.lifecycle import BaseLifecycle
+from ark_agentic.core.storage.database.engine import reset_engine_cache
 
 
 async def test_bootstrap_runs_with_defaults_in_file_mode(monkeypatch):

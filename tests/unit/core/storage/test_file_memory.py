@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.file.memory import FileMemoryRepository
 from ark_agentic.core.storage.protocols import MemoryRepository
 
 
