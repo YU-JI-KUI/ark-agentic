@@ -137,8 +137,6 @@ class TestLoopStateMakeResult:
         ls = _LoopState(
             turns=2,
             total_tool_calls=1,
-            total_prompt_tokens=10,
-            total_completion_tokens=20,
             all_tool_calls=[tc],
             all_tool_results=[],
         )
@@ -150,6 +148,4 @@ class TestLoopStateMakeResult:
         assert out.tool_calls_count == 1
         assert out.tool_calls == [tc]
         assert out.tool_results == []
-        assert out.prompt_tokens == 10
-        assert out.completion_tokens == 20
         assert out.stopped_by_limit is True

@@ -1,4 +1,4 @@
-"""Integration tests: runner writes display-only metadata to user/assistant messages."""
+"""Integration tests: runner writes display-only fields to user/assistant messages."""
 
 from __future__ import annotations
 
@@ -14,10 +14,8 @@ from ark_agentic.core.runtime.callbacks import (
     HookAction,
     RunnerCallbacks,
 )
-from ark_agentic.core.memory.manager import MemoryManager, build_memory_manager
 from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
-from ark_agentic.core.skills.router import RouteDecision
 from ark_agentic.core.tools.base import AgentTool
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import AgentToolResult, ToolCall
@@ -32,17 +30,6 @@ class _DummyTool(AgentTool):
         self, tool_call: ToolCall, context: dict[str, Any] | None = None
     ) -> AgentToolResult:
         return AgentToolResult.text_result(tool_call.id, "ok")
-
-
-class _RecordingRouter:
-    history_window = 4
-    timeout = 5.0
-
-    def __init__(self, decision: RouteDecision) -> None:
-        self.decision = decision
-
-    async def route(self, ctx: Any) -> RouteDecision:
-        return self.decision
 
 
 class _StubLLM:
@@ -81,7 +68,6 @@ def _make_runner(
     *,
     callbacks: RunnerCallbacks | None = None,
     tool_registry: ToolRegistry | None = None,
-    memory_manager: MemoryManager | None = None,
     skill_router: Any = None,
 ) -> AgentRunner:
     llm = _StubLLM(responses=[AIMessage(content="ok")])
@@ -89,7 +75,6 @@ def _make_runner(
         llm=llm,  # type: ignore[arg-type]
         session_manager=SessionManager(tmp_sessions_dir),
         tool_registry=tool_registry or ToolRegistry(),
-        memory_manager=memory_manager,
         config=RunnerConfig(
             max_turns=2, auto_compact=False, skill_router=skill_router,
         ),
@@ -178,7 +163,8 @@ async def test_assistant_message_carries_active_skill_ids(tmp_sessions_dir: Path
     )
     asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
     assert asst_msgs
-    assert asst_msgs[-1].metadata["active_skill_ids"] == ["skill-a"]
+    assert asst_msgs[-1].turn_context is not None
+    assert asst_msgs[-1].turn_context.active_skill_id == "skill-a"
 
 
 @pytest.mark.asyncio
@@ -193,8 +179,8 @@ async def test_assistant_skips_active_skill_ids_when_empty(tmp_sessions_dir: Pat
         stream=False,
     )
     asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
-    assert "active_skill_ids" not in asst_msgs[-1].metadata
-    assert "active_skills_at_turn" not in asst_msgs[-1].metadata
+    assert asst_msgs[-1].turn_context is not None
+    assert asst_msgs[-1].turn_context.active_skill_id is None
 
 
 @pytest.mark.asyncio
@@ -212,7 +198,8 @@ async def test_assistant_carries_tools_mounted(tmp_sessions_dir: Path) -> None:
         stream=False,
     )
     asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
-    assert "noop" in asst_msgs[-1].metadata["tools_mounted"]
+    assert asst_msgs[-1].turn_context is not None
+    assert "noop" in asst_msgs[-1].turn_context.tools_mounted
 
 
 @pytest.mark.asyncio
@@ -229,131 +216,10 @@ async def test_assistant_omits_tools_mounted_when_no_tools(
         stream=False,
     )
     asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
-    assert "tools_mounted" not in asst_msgs[-1].metadata
+    assert asst_msgs[-1].turn_context is not None
+    assert asst_msgs[-1].turn_context.tools_mounted == []
 
 
-@pytest.mark.asyncio
-async def test_assistant_carries_memory_used_when_present(
-    tmp_sessions_dir: Path, tmp_path: Path,
-) -> None:
-    """Memory line count from MEMORY.md lands on the assistant message."""
-    workspace = tmp_path / "memory_workspace"
-    mm = build_memory_manager(workspace)
-    await mm.write_memory("u1", "## prefs\nlikes coffee\nlikes cats")
-    runner = _make_runner(tmp_sessions_dir, memory_manager=mm)
-    session = await runner.session_manager.create_session(user_id="u1")
-    await runner.run(
-        session_id=session.session_id,
-        user_input="hi",
-        user_id="u1",
-        input_context={"user:id": "u1", "meta:chat_request": {"message_id": "m"}},
-        stream=False,
-    )
-    asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
-    assert asst_msgs[-1].metadata["memory_used"] > 0
-    assert "_memory_lines" not in session.state, (
-        "Side-channel state must be popped after read"
-    )
-
-
-@pytest.mark.asyncio
-async def test_assistant_carries_memory_used_zero_when_profile_empty(
-    tmp_sessions_dir: Path, tmp_path: Path,
-) -> None:
-    """When memory is configured but profile is empty, assistant records 0 lines."""
-    workspace = tmp_path / "memory_workspace"
-    mm = build_memory_manager(workspace)
-    runner = _make_runner(tmp_sessions_dir, memory_manager=mm)
-    session = await runner.session_manager.create_session(user_id="u1")
-    await runner.run(
-        session_id=session.session_id,
-        user_input="hi",
-        user_id="u1",
-        input_context={"user:id": "u1", "meta:chat_request": {"message_id": "m"}},
-        stream=False,
-    )
-    asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
-    assert asst_msgs[-1].metadata["memory_used"] == 0
-
-
-@pytest.mark.asyncio
-async def test_assistant_omits_memory_used_when_no_memory(
-    tmp_sessions_dir: Path,
-) -> None:
-    runner = _make_runner(tmp_sessions_dir)
-    session = await runner.session_manager.create_session(user_id="u1")
-    await runner.run(
-        session_id=session.session_id,
-        user_input="hi",
-        user_id="u1",
-        input_context={"user:id": "u1", "meta:chat_request": {"message_id": "m"}},
-        stream=False,
-    )
-    asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
-    assert "memory_used" not in asst_msgs[-1].metadata
-
-
-@pytest.mark.asyncio
-async def test_assistant_carries_router_decision_when_router_fires(
-    tmp_sessions_dir: Path, tmp_path: Path,
-) -> None:
-    """When the skill router runs, its decision lands on the assistant message."""
-    import tempfile
-    from ark_agentic.core.skills.base import SkillConfig
-    from ark_agentic.core.skills.loader import SkillLoader
-    from ark_agentic.core.types import SkillLoadMode
-
-    skill_dir = tmp_path / "skill_x"
-    skill_dir.mkdir()
-    (skill_dir / "SKILL.md").write_text(
-        "---\nname: SkillX\ndescription: test skill\n---\n\nbody"
-    )
-    cfg = SkillConfig(
-        skill_directories=[str(tmp_path)], load_mode=SkillLoadMode.dynamic,
-    )
-    loader = SkillLoader(cfg)
-    loader.load_from_directories()
-    skill_id = next(iter(loader._skills.keys()))
-
-    router = _RecordingRouter(RouteDecision(skill_id=skill_id, reason="match"))
-    runner = AgentRunner(
-        llm=_StubLLM(responses=[AIMessage(content="ok")]),  # type: ignore[arg-type]
-        session_manager=SessionManager(tmp_sessions_dir),
-        tool_registry=ToolRegistry(),
-        skill_loader=loader,
-        config=RunnerConfig(
-            max_turns=2,
-            auto_compact=False,
-            skill_config=cfg,
-            skill_router=router,
-        ),
-    )
-    session = await runner.session_manager.create_session(user_id="u1")
-    await runner.run(
-        session_id=session.session_id,
-        user_input="hi",
-        user_id="u1",
-        input_context={"user:id": "u1", "meta:chat_request": {"message_id": "m"}},
-        stream=False,
-    )
-    asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
-    rd = asst_msgs[-1].metadata["router_decision"]
-    assert rd["skill_id"] == skill_id
-    assert rd["reason"] == "match"
-
-
-@pytest.mark.asyncio
-async def test_assistant_omits_router_decision_when_router_absent(
-    tmp_sessions_dir: Path,
-) -> None:
-    runner = _make_runner(tmp_sessions_dir)
-    session = await runner.session_manager.create_session(user_id="u1")
-    await runner.run(
-        session_id=session.session_id,
-        user_input="hi",
-        user_id="u1",
-        input_context={"user:id": "u1", "meta:chat_request": {"message_id": "m"}},
-        stream=False,
-    )
-    asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
-    assert "router_decision" not in asst_msgs[-1].metadata
+# memory_used and router_decision were removed entirely. The router outcome
+# is reflected in session.active_skill_ids (SSOT) and captured in
+# turn_context.active_skill_id; no per-message stash is needed.

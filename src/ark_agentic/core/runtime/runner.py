@@ -55,6 +55,7 @@ from ..types import (
     ToolCall,
     ToolLoopAction,
     ToolResultType,
+    TurnContext,
 )
 if TYPE_CHECKING:
     from ..memory.manager import MemoryManager
@@ -129,10 +130,6 @@ class RunResult:
     # 所有工具结果（用于提取结构化数据，如模板卡片）
     tool_results: list[AgentToolResult] = field(default_factory=list)
 
-    # Token 使用
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-
     # 是否因达到限制而停止
     stopped_by_limit: bool = False
 
@@ -154,15 +151,8 @@ class _LoopState:
 
     turns: int = 0
     total_tool_calls: int = 0
-    total_prompt_tokens: int = 0
-    total_completion_tokens: int = 0
     all_tool_calls: list[ToolCall] = field(default_factory=list)
     all_tool_results: list[AgentToolResult] = field(default_factory=list)
-
-    # 每轮 _run_turn 在 _build_messages/_build_tools 之后填充，
-    # _model_phase 写到 assistant 消息 metadata（sparse write）。
-    last_tools_mounted: list[str] = field(default_factory=list)
-    last_memory_used: int = 0
 
     def make_result(self, response: AgentMessage, **overrides: Any) -> RunResult:
         return RunResult(
@@ -171,8 +161,6 @@ class _LoopState:
             tool_calls_count=self.total_tool_calls,
             tool_calls=self.all_tool_calls,
             tool_results=self.all_tool_results,
-            prompt_tokens=self.total_prompt_tokens,
-            completion_tokens=self.total_completion_tokens,
             **overrides,
         )
 
@@ -383,8 +371,6 @@ class AgentRunner:
         add_span_attributes({
             "ark.turns": result.turns,
             "ark.tool_calls_count": result.tool_calls_count,
-            "ark.prompt_tokens": result.prompt_tokens,
-            "ark.completion_tokens": result.completion_tokens,
             "ark.stopped_by_limit": result.stopped_by_limit,
         })
         add_span_output({
@@ -572,7 +558,7 @@ class AgentRunner:
         tool_results: list[AgentToolResult],
     ) -> None:
         for tr in tool_results:
-            state_delta = tr.metadata.get("state_delta")
+            state_delta = tr.state_delta if tr.state_delta is not None else tr.metadata.get("state_delta")
             if state_delta and isinstance(state_delta, dict):
                 AgentRunner._apply_state_delta(session.state, state_delta)
                 session.updated_at = __import__("datetime").datetime.now()
@@ -595,7 +581,7 @@ class AgentRunner:
         from ..types import SessionEffect
 
         for tr in tool_results:
-            effects = tr.metadata.get("session_effects")
+            effects = tr.session_effects if tr.session_effects is not None else tr.metadata.get("session_effects", [])
             if not isinstance(effects, list):
                 continue
             for raw in effects:
@@ -768,15 +754,11 @@ class AgentRunner:
         )
         tools = self._build_tools(state=state, session=session)
 
-        # Capture per-turn build outputs for the Studio session-detail UI.
-        # `_memory_lines` is set as a side channel by _build_system_prompt;
-        # pop it so it doesn't leak to the next turn or the LLM.
-        ls.last_tools_mounted = [
+        tools_mounted = [
             (t.get("function", {}).get("name") or t.get("name") or "")
             for t in tools
         ]
-        ls.last_tools_mounted = [n for n in ls.last_tools_mounted if n]
-        ls.last_memory_used = int(state.pop("_memory_lines", 0) or 0)
+        tools_mounted = [n for n in tools_mounted if n]
 
         logger.info(
             "Turn %d | messages=%d tools=%d model=%s",
@@ -802,6 +784,11 @@ class AgentRunner:
             return model_result
 
         response = model_result
+        ctx_session = self.session_manager.get_session(session_id)
+        response.turn_context = TurnContext(
+            active_skill_id=ctx_session.current_active_skill_id if ctx_session else None,
+            tools_mounted=tools_mounted,
+        )
         if response.tool_calls:
             stop = await self._tool_phase(
                 session_id,
@@ -950,48 +937,20 @@ class AgentRunner:
         if am and am.response:
             response = am.response
 
-        # Display-only assistant metadata (Studio session-detail UI). See spec §4.2.
         from ..observability import current_trace_id_or_none
-        session_for_meta = self.session_manager.get_session(session_id)
-        if session_for_meta is not None and session_for_meta.active_skill_ids:
-            response.metadata["active_skill_ids"] = list(
-                session_for_meta.active_skill_ids
-            )
         trace_id = current_trace_id_or_none()
         if trace_id:
             response.metadata.setdefault("trace", {})["trace_id"] = trace_id
-        if ls.last_tools_mounted:
-            response.metadata["tools_mounted"] = list(ls.last_tools_mounted)
-        if self._memory_manager is not None:
-            # Always record line count (including 0) so Studio can distinguish
-            # "profile empty this turn" from "memory feature not configured".
-            response.metadata["memory_used"] = int(ls.last_memory_used)
-        if cb_ctx is not None:
-            router_decision = cb_ctx.metadata.pop("_router_decision", None)
-            if router_decision is not None:
-                response.metadata["router_decision"] = router_decision
 
-        usage = response.metadata.get("usage", {})
-        turn_prompt = usage.get("prompt_tokens", 0)
-        turn_completion = usage.get("completion_tokens", 0)
-        ls.total_prompt_tokens += turn_prompt
-        ls.total_completion_tokens += turn_completion
-        finish_reason = response.metadata.get("finish_reason")
+        finish_reason = response.finish_reason
         logger.info(
-            "Turn %d | finish_reason=%s content_len=%d tool_calls=%d tokens=+%d/%d",
+            "Turn %d | finish_reason=%s content_len=%d tool_calls=%d",
             ls.turns,
             finish_reason,
             len(response.content or ""),
             len(response.tool_calls or []),
-            turn_prompt,
-            turn_completion,
         )
 
-        self.session_manager.update_token_usage(
-            session_id,
-            prompt_tokens=turn_prompt,
-            completion_tokens=turn_completion,
-        )
         session_for_persist = self.session_manager.get_session_required(session_id)
         await self.session_manager.add_message(
             session_id, session_for_persist.user_id or "", response,
@@ -999,8 +958,6 @@ class AgentRunner:
 
         add_span_attributes({
             "ark.finish_reason": finish_reason,
-            "ark.prompt_tokens": turn_prompt,
-            "ark.completion_tokens": turn_completion,
             "ark.response_content_length": len(response.content or ""),
             "ark.tool_call_count": len(response.tool_calls or []),
         })
@@ -1150,12 +1107,10 @@ class AgentRunner:
     ) -> RunResult:
         """Final turn summary."""
         logger.info(
-            "[RUN_END] session=%s turns=%d tool_calls=%d tokens=%d/%d",
+            "[RUN_END] session=%s turns=%d tool_calls=%d",
             session_id[:8],
             ls.turns,
             ls.total_tool_calls,
-            ls.total_prompt_tokens,
-            ls.total_completion_tokens,
         )
         return ls.make_result(response)
 
@@ -1167,7 +1122,7 @@ class AgentRunner:
         skill_load_mode: str = "full",
         session: SessionEntry | None = None,
     ) -> list[dict[str, Any]]:
-        """构建 LLM 消息列表"""
+        """构建 LLM 消息列表。"""
         import json
 
         if session is None:
@@ -1276,13 +1231,6 @@ class AgentRunner:
                 current or "<none>", decision.skill_id, decision.reason,
             )
 
-        # Stash for assistant-message metadata; popped once by _model_phase so
-        # only the first assistant message of the run carries router_decision.
-        cb_ctx.metadata["_router_decision"] = {
-            "skill_id": decision.skill_id,
-            "reason": decision.reason,
-        }
-
         add_span_attributes({
             "ark.router.candidate_count": len(candidates),
             "ark.router.decision": decision.skill_id or "none",
@@ -1366,12 +1314,6 @@ class AgentRunner:
                     )
                 except Exception:
                     pass
-
-        # Side channel for _run_turn → _LoopState.last_memory_used; popped on
-        # read so it never reaches the LLM or persists across turns.
-        state["_memory_lines"] = (
-            len(profile_content.splitlines()) if profile_content else 0
-        )
 
         flow_hint = state.get("_flow_hint", "")
 

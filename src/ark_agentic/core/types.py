@@ -96,6 +96,9 @@ class AgentToolResult:
     loop_action: ToolLoopAction = ToolLoopAction.CONTINUE
     events: list[ToolEvent] = field(default_factory=list)
     _llm_digest: str | None = field(default=None, repr=False)
+    # Extracted from metadata — runner reads these directly
+    state_delta: dict[str, Any] | None = field(default=None)
+    session_effects: list[SessionEffect] | None = field(default=None)
 
     def __init__(
         self,
@@ -107,6 +110,8 @@ class AgentToolResult:
         loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
         events: list[ToolEvent] | None = None,
         llm_digest: str | None = None,
+        state_delta: dict[str, Any] | None = None,
+        session_effects: list[SessionEffect] | None = None,
     ) -> None:
         self.tool_call_id = tool_call_id
         self.result_type = result_type
@@ -116,6 +121,8 @@ class AgentToolResult:
         self.loop_action = loop_action
         self.events = events if events is not None else []
         self._llm_digest = llm_digest
+        self.state_delta = state_delta
+        self.session_effects = session_effects
 
     @property
     def llm_digest(self) -> str:
@@ -242,6 +249,8 @@ class AgentMessage:
     thinking: str | None = None  # 思考过程（extended thinking）
     timestamp: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
+    finish_reason: str | None = None          # lifted from metadata; persisted to JSONL
+    turn_context: TurnContext | None = None   # per-turn input snapshot; persisted; assistant only
 
     @classmethod
     def system(cls, content: str) -> AgentMessage:
@@ -367,6 +376,14 @@ class TokenUsage:
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
+
+
+@dataclass
+class TurnContext:
+    """Per-turn LLM call input context — Studio display only, never in LLM prompts."""
+
+    active_skill_id: str | None = None
+    tools_mounted: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -50,8 +50,6 @@ def mock_agent_runner():
         runner.run.return_value = RunResult(
             response=AgentMessage(role=MessageRole.ASSISTANT, content="Hello"),
             turns=1,
-            prompt_tokens=10,
-            completion_tokens=10
         )
         
         mock_get.return_value = runner

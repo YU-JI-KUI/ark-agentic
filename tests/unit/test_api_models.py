@@ -121,7 +121,6 @@ class TestChatResponse:
             message_id="msg-001",
             response="Hello!",
             turns=1,
-            usage={"prompt_tokens": 10, "completion_tokens": 5},
         )
         data = resp.model_dump()
         assert data["session_id"] == "sess-001"

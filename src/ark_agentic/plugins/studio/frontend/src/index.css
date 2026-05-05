@@ -2679,25 +2679,42 @@ pre.code-block {
 }
 .tlm-item.tool .tlm-detail { border-left-color: var(--accent); }
 
-.dt-toolbar {
-  position: absolute;
-  top: 8px;
-  right: 10px;
+/* User / assistant detail: first metadata row + trace button share row 1 (no extra blank line). */
+.tlm-detail:has(> .dt-toolbar) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: start;
+}
+
+.tlm-detail > .dt-toolbar {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  position: static;
+  margin: 0;
+  z-index: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  z-index: 1;
 }
+
+.tlm-detail > .dt-toolbar + * {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  min-width: 0;
+}
+
+.tlm-detail > *:nth-child(n + 3) {
+  grid-column: 1 / -1;
+}
+
 .dt-toolbar .action-button {
   height: 22px;
   padding: 0 8px;
   font-size: 11px;
 }
-/* Reserve room on the first content row so the absolutely-positioned toolbar
-   doesn't overlap the leading label. Only the FIRST content child needs it. */
-.dt-toolbar + .dt-block,
-.dt-toolbar + .dt-row,
-.dt-toolbar + .dt-empty { margin-top: 0; padding-right: 130px; min-height: 22px; }
 
 /* Tool detail panel */
 .tool-detail-head {
@@ -2822,6 +2839,20 @@ pre.code-block {
   border-radius: 3px;
   border: 1px solid var(--line);
 }
+/* Keep long OpenAI-style tool_call_id on one line; column gets a larger min width in the grid. */
+.tool-meta-item-tool-call-id {
+  min-width: min(100%, 300px);
+}
+.tool-meta-item-tool-call-id dd {
+  word-break: normal;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.tool-meta-item-tool-call-id dd code {
+  white-space: nowrap;
+}
 .dt-row {
   display: grid;
   grid-template-columns: 110px 1fr;
@@ -2833,17 +2864,34 @@ pre.code-block {
   align-items: center;
 }
 .dt-row-message-id .dt-message-id-value {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   min-width: 0;
 }
+.dt-message-id-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+.dt-message-id-cluster .icon-action-button {
+  flex-shrink: 0;
+}
 .dt-message-id-code {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.dt-memory-hint {
+  color: var(--ink-4);
+  font-style: italic;
+  font-size: 11.5px;
+  font-weight: normal;
+}
+.dt-memory-hint strong {
+  font-weight: 600;
+  color: var(--ink-3);
 }
 .dt-tools-inline {
   display: flex;
