@@ -9,7 +9,7 @@ import tempfile
 
 import pytest
 
-from ark_agentic.core.history_merge import (
+from ark_agentic.core.session.history_merge import (
     InsertOp,
     _build_external_pairs,
     _build_session_pairs,
@@ -18,7 +18,7 @@ from ark_agentic.core.history_merge import (
     merge_external_history,
     normalize_content,
 )
-from ark_agentic.core.session import SessionManager
+from ark_agentic.core.session.manager import SessionManager
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 
@@ -165,7 +165,7 @@ class TestBuildSessionPairs:
 
 class TestPairsMatch:
     def test_exact_match(self):
-        from ark_agentic.core.history_merge import _ExternalPair, _SessionPair
+        from ark_agentic.core.session.history_merge import _ExternalPair, _SessionPair
         ep = _ExternalPair(
             user={"role": "user", "content": "hello"},
             assistant={"role": "assistant", "content": "world"},
@@ -174,7 +174,7 @@ class TestPairsMatch:
         assert _pairs_match(ep, sp)
 
     def test_user_match_assistant_mismatch(self):
-        from ark_agentic.core.history_merge import _ExternalPair, _SessionPair
+        from ark_agentic.core.session.history_merge import _ExternalPair, _SessionPair
         ep = _ExternalPair(
             user={"role": "user", "content": "你好"},
             assistant={"role": "assistant", "content": "你有什么事？请问需要什么帮助？"},

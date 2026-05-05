@@ -5,10 +5,8 @@ import pytest
 import tempfile
 from pathlib import Path
 
-from ark_agentic.core.persistence import (
-    FileLock,
+from ark_agentic.core.session.format import (
     SessionHeader,
-    SessionStoreEntry,
     deserialize_message,
     deserialize_tool_call,
     deserialize_tool_result,
@@ -16,6 +14,8 @@ from ark_agentic.core.persistence import (
     serialize_tool_call,
     serialize_tool_result,
 )
+from ark_agentic.core.storage.entries import SessionStoreEntry
+from ark_agentic.core.storage.repository.file._lock import FileLock
 from ark_agentic.core.types import (
     AgentMessage,
     AgentToolResult,
@@ -223,8 +223,7 @@ class TestSessionStoreEntry:
 
     def test_dto_lives_in_storage_entries_module(self) -> None:
         """SessionStoreEntry is the backend-neutral DTO under
-        ``core.storage.entries``; ``core.persistence`` re-exports it for
-        legacy import paths but never owns the class."""
+        ``core.storage.entries`` — sole canonical home."""
         from ark_agentic.core.storage import entries as storage_entries
 
         assert SessionStoreEntry is storage_entries.SessionStoreEntry

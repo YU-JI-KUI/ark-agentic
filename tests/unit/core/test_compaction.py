@@ -2,7 +2,7 @@
 
 import os
 import pytest
-from ark_agentic.core.compaction import (
+from ark_agentic.core.session.compaction import (
     CompactionConfig,
     ContextCompactor,
     LLMSummarizer,

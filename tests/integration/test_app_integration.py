@@ -145,7 +145,7 @@ async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> No
     ``stop`` closes every runner's memory backend."""
     from types import SimpleNamespace
 
-    from ark_agentic.core.bootstrap import Bootstrap
+    from ark_agentic.core.protocol.bootstrap import Bootstrap
     from ark_agentic.core.runtime.agents import AgentsRuntime
 
     runner = AsyncMock()
@@ -157,7 +157,9 @@ async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> No
         patch("ark_agentic.agents.register_all"),
         patch("ark_agentic.plugins.api.deps.init_registry"),
     ):
-        bootstrap = Bootstrap([AgentsRuntime(registry=registry)])
+        bootstrap = Bootstrap(
+            [AgentsRuntime(registry=registry)], with_defaults=False,
+        )
         await bootstrap.start(SimpleNamespace())
         await bootstrap.stop()
 

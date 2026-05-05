@@ -20,7 +20,7 @@ import logging
 import os
 from typing import Any
 
-from ..lifecycle import BaseLifecycle
+from ..protocol.lifecycle import BaseLifecycle
 from ..registry import AgentRegistry
 
 logger = logging.getLogger(__name__)

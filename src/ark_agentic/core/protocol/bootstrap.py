@@ -1,8 +1,11 @@
 """Bootstrap — drives a list of Lifecycle components through init/start/stop.
 
 Stateful orchestrator. Hosts (FastAPI ``app.py``, CLI scaffolds, tests)
-construct a Bootstrap with their chosen component list and drive it
-through three idempotent phases:
+build a Bootstrap with their chosen plugins; the always-on lifecycle
+components (``AgentsRuntime``, ``TracingRuntime``) are auto-loaded by
+this module and cannot be deselected by callers.
+
+Phases:
 
 - ``init`` — one-time setup (schema creation, dirs). Re-callable; only
   runs once per Bootstrap instance.
@@ -41,11 +44,45 @@ from .lifecycle import Lifecycle
 logger = logging.getLogger(__name__)
 
 
+def default_lifecycle_components() -> list[Lifecycle]:
+    """Always-on framework components — agents registry + tracing.
+
+    Returns a fresh list of new instances on each call. Order matters:
+    agents first (registry must be ready before any plugin's ``start``
+    runs), tracing last (so a tracing failure can't block earlier
+    components from starting / stopping).
+
+    Imported lazily to keep the protocol package free of concrete-
+    runtime imports at module load time.
+    """
+    from ..runtime.agents import AgentsRuntime
+    from ..runtime.tracing import TracingRuntime
+    return [AgentsRuntime(), TracingRuntime()]
+
+
 class Bootstrap:
     """Filters disabled components at construction; remembers which ones
-    successfully started so ``stop`` only tears down what really started."""
+    successfully started so ``stop`` only tears down what really started.
 
-    def __init__(self, components: list[Lifecycle]) -> None:
+    Public API: pass ``plugins`` (the user-selectable lifecycle list).
+    The mandatory defaults (``AgentsRuntime`` + ``TracingRuntime``) are
+    prepended / appended automatically. Tests that need to exercise
+    Bootstrap mechanics with arbitrary recorders can pass
+    ``with_defaults=False``.
+    """
+
+    def __init__(
+        self,
+        plugins: list[Lifecycle] | None = None,
+        *,
+        with_defaults: bool = True,
+    ) -> None:
+        if with_defaults:
+            defaults = default_lifecycle_components()
+            agents, tracing = defaults[0], defaults[-1]
+            components: list[Lifecycle] = [agents] + list(plugins or []) + [tracing]
+        else:
+            components = list(plugins or [])
         self._components: list[Lifecycle] = [
             c for c in components if c.is_enabled()
         ]

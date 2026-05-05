@@ -27,7 +27,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ....db.models import SessionMessage, SessionMeta
-from ....session_format import (
+from ....session.format import (
     MessageEntry,
     RawJsonlValidationError,
     SessionHeader,

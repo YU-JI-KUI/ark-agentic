@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_asyncio
 
-from ark_agentic.core.compaction import CompactionConfig, SimpleSummarizer
+from ark_agentic.core.session.compaction import CompactionConfig, SimpleSummarizer
 from ark_agentic.core.memory.extractor import FlushResult, MemoryFlusher
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.prompt.builder import PromptConfig

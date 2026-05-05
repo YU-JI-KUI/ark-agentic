@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Callable, TYPE_CHECKING
 from pydantic import BaseModel
 
 from .rules import MEMORY_FILTER_RULES
-from ..compaction import estimate_tokens
+from ..session.compaction import estimate_tokens
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel

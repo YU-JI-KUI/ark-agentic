@@ -15,7 +15,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from ark_agentic.plugins.api.deps import get_registry
-from ark_agentic.core.session_format import RawJsonlValidationError, serialize_tool_result
+from ark_agentic.core.session.format import RawJsonlValidationError, serialize_tool_result
 from ark_agentic.plugins.studio.services.auth import StudioPrincipal, require_studio_roles, require_studio_user
 
 logger = logging.getLogger(__name__)

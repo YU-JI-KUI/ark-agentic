@@ -11,7 +11,7 @@ import logging
 import os
 from typing import Any
 
-from ..lifecycle import BaseLifecycle
+from ..protocol.lifecycle import BaseLifecycle
 from ..observability import setup_tracing_from_env, shutdown_tracing
 
 logger = logging.getLogger(__name__)

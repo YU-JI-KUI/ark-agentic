@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from ...core.plugin import BasePlugin
+from ...core.protocol.plugin import BasePlugin
 
 
 def _env_flag(name: str) -> bool:

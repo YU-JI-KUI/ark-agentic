@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ...core.plugin import BasePlugin
+from ...core.protocol.plugin import BasePlugin
 
 _STATIC_DIR = Path(__file__).parent / "static"
 

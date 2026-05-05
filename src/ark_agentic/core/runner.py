@@ -27,7 +27,7 @@ from .llm.caller import LLMCaller
 from .llm.errors import LLMError, LLMErrorReason
 from .llm.sampling import SamplingConfig
 from .prompt.builder import SystemPromptBuilder, PromptConfig
-from .session import SessionManager
+from .session.manager import SessionManager
 from .skills.base import SkillConfig
 from .skills.loader import SkillLoader
 from .skills.matcher import SkillMatcher
@@ -489,7 +489,7 @@ class AgentRunner:
         self._merge_input_context(session, input_context)
 
         if history and self.config.accept_external_history and use_history:
-            from .history_merge import merge_external_history
+            from .session.history_merge import merge_external_history
 
             ops = merge_external_history(session.messages, history)
             if ops:

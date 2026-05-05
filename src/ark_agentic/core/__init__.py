@@ -48,8 +48,8 @@ from .callbacks import (
 )
 from .runner import AgentRunner, RunnerConfig, RunResult
 from .agent_factory import AgentDef, build_standard_agent
-from .session import SessionManager
-from .compaction import (
+from .session.manager import SessionManager
+from .session.compaction import (
     ContextCompactor,
     CompactionConfig,
     CompactionResult,
@@ -57,11 +57,9 @@ from .compaction import (
     estimate_tokens,
     estimate_message_tokens,
 )
-from .persistence import (
-    SessionStoreEntry,
-    FileLock,
-    RawJsonlValidationError,
-)
+from .session.format import RawJsonlValidationError
+from .storage.entries import SessionStoreEntry
+from .storage.repository.file._lock import FileLock
 from .llm import (
     PAModel,
     PAModelConfig,

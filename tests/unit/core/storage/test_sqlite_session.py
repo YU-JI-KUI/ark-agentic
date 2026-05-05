@@ -174,7 +174,7 @@ async def test_put_raw_transcript_other_user_raises_and_keeps_owner(
     repo: SqliteSessionRepository,
 ):
     """Misrouted put_raw refuses; the owner's transcript stays intact."""
-    from ark_agentic.core.persistence import RawJsonlValidationError
+    from ark_agentic.core.session.format import RawJsonlValidationError
 
     await repo.create("s1", "u1", model="m", provider="p", state={})
     await repo.append_message("s1", "u1", _msg("owner-msg"))
@@ -198,7 +198,7 @@ async def test_update_meta_concurrent_inserts_no_integrity_error(
     succeed — the second must UPDATE, not raise IntegrityError."""
     import asyncio
 
-    from ark_agentic.core.persistence import SessionStoreEntry
+    from ark_agentic.core.storage.entries import SessionStoreEntry
 
     e1 = SessionStoreEntry(
         session_id="s1", updated_at=1, model="m", provider="p", state={"k": 1},

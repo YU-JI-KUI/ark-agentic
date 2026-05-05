@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ...core.plugin import BasePlugin
+from ...core.protocol.plugin import BasePlugin
 
 if TYPE_CHECKING:
     from .manager import JobManager
