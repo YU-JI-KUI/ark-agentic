@@ -5,7 +5,7 @@ Holds everything the framework needs at runtime to run agents:
 - agent execution: ``AgentRunner`` (ReAct loop), ``AgentRegistry``,
   ``RunnerCallbacks`` (per-call hooks), ``IntakeGuard`` Protocol,
   the citation/grounding callback, and ``build_standard_agent``.
-- the agents Lifecycle wrapper: ``AgentsRuntime`` — Bootstrap
+- the agents Lifecycle wrapper: ``AgentsLifecycle`` — Bootstrap
   auto-loads this alongside ``observability.TracingLifecycle``
   around the user-selectable plugins.
 
@@ -14,7 +14,7 @@ exists so Bootstrap can drive registration / warmup uniformly
 alongside plugins.
 """
 
-from .agents_runtime import AgentsRuntime
+from .lifecycle import AgentsLifecycle
 from .callbacks import (
     AfterAgentCallback,
     AfterModelCallback,
@@ -43,7 +43,7 @@ __all__ = [
     "AgentDef",
     "AgentRegistry",
     "AgentRunner",
-    "AgentsRuntime",
+    "AgentsLifecycle",
     "BeforeAgentCallback",
     "BeforeLoopEndCallback",
     "BeforeModelCallback",

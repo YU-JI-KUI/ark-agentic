@@ -2,7 +2,7 @@
 
 Stateful orchestrator. Hosts (FastAPI ``app.py``, CLI scaffolds, tests)
 build a Bootstrap with their chosen plugins; the always-on lifecycle
-components (``AgentsRuntime``, ``TracingLifecycle``) are auto-loaded by
+components (``AgentsLifecycle``, ``TracingLifecycle``) are auto-loaded by
 this module and cannot be deselected by callers.
 
 Phases:
@@ -56,8 +56,8 @@ def default_lifecycle_components() -> list[Lifecycle]:
     runtime imports at module load time.
     """
     from ..observability.lifecycle import TracingLifecycle
-    from ..runtime.agents_runtime import AgentsRuntime
-    return [AgentsRuntime(), TracingLifecycle()]
+    from ..runtime.lifecycle import AgentsLifecycle
+    return [AgentsLifecycle(), TracingLifecycle()]
 
 
 class Bootstrap:
@@ -65,7 +65,7 @@ class Bootstrap:
     successfully started so ``stop`` only tears down what really started.
 
     Public API: pass ``plugins`` (the user-selectable lifecycle list).
-    The mandatory defaults (``AgentsRuntime`` + ``TracingLifecycle``)
+    The mandatory defaults (``AgentsLifecycle`` + ``TracingLifecycle``)
     are prepended / appended automatically. Tests that need to exercise
     Bootstrap mechanics with arbitrary recorders can pass
     ``with_defaults=False``.

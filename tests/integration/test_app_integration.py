@@ -140,13 +140,13 @@ class TestChatRunOptionsIntegration:
 
 
 @pytest.mark.asyncio
-async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> None:
-    """``AgentsRuntime.start`` walks the registry warming up every runner;
+async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> None:
+    """``AgentsLifecycle.start`` walks the registry warming up every runner;
     ``stop`` closes every runner's memory backend."""
     from types import SimpleNamespace
 
     from ark_agentic.core.protocol.bootstrap import Bootstrap
-    from ark_agentic.core.runtime.agents_runtime import AgentsRuntime
+    from ark_agentic.core.runtime.lifecycle import AgentsLifecycle
 
     runner = AsyncMock()
     registry = MagicMock()
@@ -158,7 +158,7 @@ async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> No
         patch("ark_agentic.plugins.api.deps.init_registry"),
     ):
         bootstrap = Bootstrap(
-            [AgentsRuntime(registry=registry)], with_defaults=False,
+            [AgentsLifecycle(registry=registry)], with_defaults=False,
         )
         await bootstrap.start(SimpleNamespace())
         await bootstrap.stop()

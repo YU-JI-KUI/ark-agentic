@@ -19,7 +19,7 @@ Python ≥3.12 (uv, hatchling) · FastAPI + SQLAlchemy + APScheduler · React 19
 src/ark_agentic/
   core/                  engine — must not import from plugins/agents/portal/app
     protocol/            Lifecycle/Plugin Protocols, Bootstrap, AppContext
-    runtime/             agent execution (Runner, Registry, Callbacks, Guard …) + AgentsRuntime
+    runtime/             agent execution (Runner, Registry, Callbacks, Guard …) + AgentsLifecycle
     observability/       OTel decorators, tracing setup, TracingLifecycle
     session/             SessionManager, JSONL format, compaction, history merge
     storage/ ...         storage backends, db, etc.
@@ -45,13 +45,13 @@ Hard rules:
 
 - **`core/` is self-contained.** Never imports from `plugins/`, `agents/`, `portal/`, or `app.py`. If core needs something a feature provides, define a `Protocol` in core and let the feature implement it.
 - **Features depend on core, not on each other.** Cross-feature wiring belongs in `app.py` via the shared `AppContext`.
-- **`portal/` and `app.py` are framework-only** and excluded from the published wheel. Wheel consumers build their own composition root with `Bootstrap(plugins=[...])` — the always-on `AgentsRuntime` + `TracingLifecycle` are auto-loaded by `Bootstrap` itself and cannot be deselected.
+- **`portal/` and `app.py` are framework-only** and excluded from the published wheel. Wheel consumers build their own composition root with `Bootstrap(plugins=[...])` — the always-on `AgentsLifecycle` + `TracingLifecycle` are auto-loaded by `Bootstrap` itself and cannot be deselected.
 
 ### Lifecycle vs Plugin
 
 Both live in `core/protocol/`. Structurally identical Protocols; the distinction is **semantic**.
 
-- **`Lifecycle`** (`core/protocol/lifecycle.py`) — base contract for long-lived components: `name`, `is_enabled()`, `init()`, `install_routes(app)`, `start(ctx)`, `stop()`. Used by core runtime capabilities that aren't optional features (`AgentsRuntime`, `TracingLifecycle`, `Portal`).
+- **`Lifecycle`** (`core/protocol/lifecycle.py`) — base contract for long-lived components: `name`, `is_enabled()`, `init()`, `install_routes(app)`, `start(ctx)`, `stop()`. Used by core runtime capabilities that aren't optional features (`AgentsLifecycle`, `TracingLifecycle`, `Portal`).
 - **`Plugin(Lifecycle)`** (`core/protocol/plugin.py`) — marker subtype for user-selectable features (`APIPlugin`, `JobsPlugin`, `NotificationsPlugin`, `StudioPlugin`).
 
 `Bootstrap` (`core/protocol/bootstrap.py`) drives any list of `Lifecycle` — it does not care whether a component is a Plugin or a core runtime. Tests pass `with_defaults=False` to bypass the auto-loaded core runtimes.

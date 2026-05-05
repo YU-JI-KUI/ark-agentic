@@ -45,7 +45,7 @@ from ark_agentic.portal import Portal
 
 logger = logging.getLogger(__name__)
 
-# Mandatory AgentsRuntime + TracingLifecycle are auto-loaded by Bootstrap.
+# Mandatory AgentsLifecycle + TracingLifecycle are auto-loaded by Bootstrap.
 # Portal is framework-internal (not in wheel) — passed alongside plugins
 # because it sits in the same registration order slot (before APIPlugin
 # so its ``/`` route wins in Starlette's first-match routing).
