@@ -15,7 +15,7 @@ from ark_agentic.core.types import ToolCall
 
 
 def _make_manager(workspace_dir: str) -> MemoryManager:
-    return build_memory_manager(workspace_dir)
+    return build_memory_manager(workspace_dir, agent_id="test")
 
 
 def _provider(mgr: MemoryManager) -> MemoryProvider:

@@ -83,7 +83,7 @@ def _make_runner(
     runner = AgentRunner(
         llm=mock_llm,
         tool_registry=registry,
-        session_manager=SessionManager(tmp_path),
+        session_manager=SessionManager(tmp_path, agent_id="test"),
         config=RunnerConfig(max_turns=1, auto_compact=False, skill_config=skill_config),
         skill_loader=skill_loader,
     )

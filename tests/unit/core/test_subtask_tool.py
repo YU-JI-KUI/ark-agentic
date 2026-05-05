@@ -18,7 +18,7 @@ from ark_agentic.core.types import AgentMessage, AgentToolResult, ToolCall
 
 @pytest.fixture
 def session_manager(tmp_path: Path) -> SessionManager:
-    return SessionManager(tmp_path / "sessions")
+    return SessionManager(tmp_path / "sessions", agent_id="test")
 
 
 class _DummyTool(AgentTool):

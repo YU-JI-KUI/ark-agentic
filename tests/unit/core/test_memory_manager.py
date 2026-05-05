@@ -67,7 +67,7 @@ async def test_memory_manager_no_longer_exposes_memory_path() -> None:
 
 def test_build_memory_manager_wires_file_repository(tmp_path: Path) -> None:
     """Default factory still returns a working MemoryManager rooted at memory_dir."""
-    mgr = build_memory_manager(tmp_path)
+    mgr = build_memory_manager(tmp_path, agent_id="test")
 
     assert isinstance(mgr, MemoryManager)
     # No decorator wrapping any more: the in-memory mirror lives on the
@@ -78,7 +78,7 @@ def test_build_memory_manager_wires_file_repository(tmp_path: Path) -> None:
 
 async def test_memory_manager_round_trip_through_real_file_repo(tmp_path: Path) -> None:
     """End-to-end: build_memory_manager → write → read returns the same content."""
-    mgr = build_memory_manager(tmp_path)
+    mgr = build_memory_manager(tmp_path, agent_id="test")
 
     await mgr.write_memory("u1", "## Profile\nname: Alice\n")
     content = await mgr.read_memory("u1")
@@ -92,7 +92,7 @@ async def test_memory_manager_round_trip_through_real_file_repo(tmp_path: Path) 
 
 async def test_read_memory_caches_in_memory(tmp_path: Path) -> None:
     """Second read for the same user hits the in-memory mirror, not the repo."""
-    mgr = build_memory_manager(tmp_path)
+    mgr = build_memory_manager(tmp_path, agent_id="test")
     await mgr.write_memory("u1", "## A\n1\n")
 
     first = await mgr.read_memory("u1")
@@ -111,7 +111,7 @@ async def test_read_memory_caches_in_memory(tmp_path: Path) -> None:
 async def test_read_memory_caches_empty_string_for_cold_user(tmp_path: Path) -> None:
     """Cold users (no MEMORY.md) cache the empty string so subsequent reads
     don't re-hit the file system every chat turn."""
-    mgr = build_memory_manager(tmp_path)
+    mgr = build_memory_manager(tmp_path, agent_id="test")
 
     first = await mgr.read_memory("u-cold")
     assert first == ""
@@ -125,7 +125,7 @@ async def test_read_memory_caches_empty_string_for_cold_user(tmp_path: Path) -> 
 
 
 async def test_write_memory_invalidates_in_memory_mirror(tmp_path: Path) -> None:
-    mgr = build_memory_manager(tmp_path)
+    mgr = build_memory_manager(tmp_path, agent_id="test")
     await mgr.write_memory("u1", "## A\n1\n")
     await mgr.read_memory("u1")  # populate mirror
 
@@ -139,7 +139,7 @@ async def test_write_memory_invalidates_in_memory_mirror(tmp_path: Path) -> None
 async def test_overwrite_eagerly_populates_mirror(tmp_path: Path) -> None:
     """overwrite() knows the exact new content; mirror is set directly,
     no extra disk read on the next read_memory call."""
-    mgr = build_memory_manager(tmp_path)
+    mgr = build_memory_manager(tmp_path, agent_id="test")
     await mgr.read_memory("u1")  # cold read populates with ""
 
     await mgr.overwrite("u1", "fresh\n")
@@ -153,7 +153,7 @@ async def test_overwrite_eagerly_populates_mirror(tmp_path: Path) -> None:
 
 
 def test_evict_user_drops_mirror(tmp_path: Path) -> None:
-    mgr = build_memory_manager(tmp_path)
+    mgr = build_memory_manager(tmp_path, agent_id="test")
     mgr._memory["u1"] = "cached"
 
     mgr.evict_user("u1")
@@ -198,7 +198,7 @@ async def test_maybe_consolidate_is_noop_when_dreaming_disabled(
 ) -> None:
     """Default config has enable_dream=False; manager must not construct a
     dreamer and maybe_consolidate is a silent no-op."""
-    mgr = build_memory_manager(tmp_path)
+    mgr = build_memory_manager(tmp_path, agent_id="test")
 
     assert mgr._dreamer is None
     await mgr.maybe_consolidate("anyone")  # must not raise
@@ -210,7 +210,7 @@ def test_enable_dream_requires_session_manager_and_llm_factory(
     """Memory subsystem is the SSOT for dreamer wiring — building it without
     the inputs it needs must fail loudly, not silently disable dreaming."""
     with pytest.raises(ValueError, match="enable_dream"):
-        build_memory_manager(tmp_path, enable_dream=True)
+        build_memory_manager(tmp_path, enable_dream=True, agent_id="test")
 
 
 async def test_maybe_consolidate_delegates_to_internal_dreamer(
@@ -230,12 +230,14 @@ async def test_maybe_consolidate_delegates_to_internal_dreamer(
     session_manager = SessionManager(
         sessions_dir=sessions_dir,
         repository=FileSessionRepository(sessions_dir),
+        agent_id="test",
     )
     mgr = build_memory_manager(
         tmp_path / "ws",
         enable_dream=True,
         session_manager=session_manager,
         llm_factory=lambda: MagicMock(),
+        agent_id="test",
     )
 
     assert mgr._dreamer is not None

@@ -9,7 +9,9 @@ from ..entries import MemorySummaryEntry
 
 @runtime_checkable
 class MemoryRepository(Protocol):
-    """Heading-structured user memory.
+    """Heading-structured user memory, scoped to ONE agent.
+
+    Same ``user_id`` lives independently under each agent.
 
     DB 实现必须在内部调用 `core.memory.user_profile.parse_heading_sections`
     和 `format_heading_sections` 完成 markdown ⇄ row 转换；这些解析函数

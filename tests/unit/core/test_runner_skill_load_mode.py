@@ -46,7 +46,7 @@ def _make_runner_with_skill(tmp_sessions_dir: Path, load_mode: SkillLoadMode):
             loader = SkillLoader(skill_cfg)
             loader.load_from_directories()
 
-            session_manager = SessionManager(tmp_sessions_dir)
+            session_manager = SessionManager(tmp_sessions_dir, agent_id="test")
             session = session_manager.create_session_sync()
             session_id = session.session_id
             session_manager.add_message_sync(
@@ -156,7 +156,7 @@ def test_dynamic_mode_registers_read_skill_tool(tmp_sessions_dir: Path) -> None:
 
         runner = AgentRunner(
             llm=_MockLLM(),
-            session_manager=SessionManager(tmp_sessions_dir),
+            session_manager=SessionManager(tmp_sessions_dir, agent_id="test"),
             tool_registry=ToolRegistry(),
             skill_loader=loader,
             config=RunnerConfig(skill_config=skill_cfg),
@@ -208,7 +208,7 @@ async def test_full_mode_bootstraps_active_skill_ids_each_turn(
         loader = SkillLoader(skill_cfg)
         loader.load_from_directories()
 
-        sm = SessionManager(tmp_sessions_dir)
+        sm = SessionManager(tmp_sessions_dir, agent_id="test")
         session = await sm.create_session(user_id="u1")
         sm.set_active_skill_ids(session.session_id, ["pre-existing"])
 
@@ -244,7 +244,7 @@ async def test_dynamic_mode_does_not_bootstrap_active_skill_ids(
         loader = SkillLoader(skill_cfg)
         loader.load_from_directories()
 
-        sm = SessionManager(tmp_sessions_dir)
+        sm = SessionManager(tmp_sessions_dir, agent_id="test")
         session = await sm.create_session(user_id="u1")
 
         runner = AgentRunner(
@@ -323,7 +323,7 @@ def _make_runner_with_two_skills(tmp_sessions_dir: Path):
             registry = ToolRegistry()
             registry.register(_AutoEchoTool())
 
-            session_manager = SessionManager(tmp_sessions_dir)
+            session_manager = SessionManager(tmp_sessions_dir, agent_id="test")
             session = session_manager.create_session_sync()
             session_id = session.session_id
             session_manager.add_message_sync(

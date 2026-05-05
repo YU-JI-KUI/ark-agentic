@@ -45,7 +45,7 @@ async def sqlite_repo() -> SqliteSessionRepository:
     )
     engine = get_async_engine(cfg)
     await init_schema(engine)
-    return SqliteSessionRepository(engine)
+    return SqliteSessionRepository(engine, agent_id="agent_a")
 
 
 @pytest.fixture
@@ -204,9 +204,10 @@ async def test_sqlite_summaries_order_by_updated_at_desc(
     assert [r.session_id for r in rows] == ["s_new", "s_old"]
 
 
-async def test_sqlite_list_session_summaries_crosses_users_when_no_user_id(
+async def test_sqlite_list_session_summaries_returns_all_users_for_this_agent(
     sqlite_repo: SqliteSessionRepository,
 ):
+    """``user_id=None`` returns every user under the bound agent, ordered DESC."""
     await _seed(sqlite_repo, "s1", "u1", updated_at=1_000)
     await _seed(sqlite_repo, "s2", "u2", updated_at=2_000)
 

@@ -66,7 +66,7 @@ def base_sessions_dir(tmp_path: Path) -> Path:
 async def base_agent(memory_dir: Path, base_sessions_dir: Path):
     llm = _stub_chat_model()
 
-    memory_manager = build_memory_manager(memory_dir)
+    memory_manager = build_memory_manager(memory_dir, agent_id="test")
 
     session_manager = SessionManager(
         compaction_config=CompactionConfig(
@@ -75,6 +75,7 @@ async def base_agent(memory_dir: Path, base_sessions_dir: Path):
         ),
         sessions_dir=base_sessions_dir,
         summarizer=SimpleSummarizer(),
+        agent_id="test",
     )
 
     runner_config = RunnerConfig(
@@ -112,6 +113,7 @@ async def test_compact_flush_writes_memory(
         compaction_config=tiny_compaction_config,
         sessions_dir=str(base_sessions_dir),
         summarizer=SimpleSummarizer(),
+        agent_id="test",
     )
 
     async def fake_flush(

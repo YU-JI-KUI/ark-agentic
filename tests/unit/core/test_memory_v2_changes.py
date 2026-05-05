@@ -239,7 +239,7 @@ class TestDreamRetryCounter:
 
         ws = tmp_path / "ws"
         ws.mkdir(parents=True)
-        mm = build_memory_manager(ws)
+        mm = build_memory_manager(ws, agent_id="test")
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
@@ -249,6 +249,7 @@ class TestDreamRetryCounter:
             session_manager=SessionManager(
                 sessions_dir=sessions_dir,
                 repository=FileSessionRepository(sessions_dir),
+                agent_id="test",
             ),
             memory_repo=FileMemoryRepository(ws),
         )
@@ -295,10 +296,11 @@ class TestDreamRetryCounter:
         sessions_dir.mkdir()
         dreamer = MemoryDreamer(
             lambda: MagicMock(),
-            memory_manager=build_memory_manager(ws),
+            memory_manager=build_memory_manager(ws, agent_id="test"),
             session_manager=SessionManager(
                 sessions_dir=sessions_dir,
                 repository=FileSessionRepository(sessions_dir),
+                agent_id="test",
             ),
             memory_repo=FileMemoryRepository(ws),
         )

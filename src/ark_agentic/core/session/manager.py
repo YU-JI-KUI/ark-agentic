@@ -39,7 +39,12 @@ class SessionManager:
         compaction_config: CompactionConfig | None = None,
         summarizer: SummarizerProtocol | None = None,
         repository: "SessionRepository | None" = None,
+        *,
+        agent_id: str,
     ) -> None:
+        if not agent_id:
+            raise ValueError("SessionManager requires a non-empty agent_id")
+        self.agent_id = agent_id
         self._sessions: dict[str, SessionEntry] = {}
         self._compaction_config = compaction_config or CompactionConfig()
         self._compactor = ContextCompactor(
@@ -49,7 +54,9 @@ class SessionManager:
         if repository is None:
             from ..storage.factory import build_session_repository
 
-            repository = build_session_repository(sessions_dir=sessions_dir)
+            repository = build_session_repository(
+                agent_id=agent_id, sessions_dir=sessions_dir,
+            )
         self._repository = repository
 
     # ── Narrow read API for in-process consumers ─────────────────────
