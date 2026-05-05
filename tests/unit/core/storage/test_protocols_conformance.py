@@ -33,7 +33,6 @@ def test_session_repository_method_set():
         "list_session_metas",
         "list_session_summaries",
         "list_all_sessions",
-        "list_all_session_summaries",
         "delete",
         "get_raw_transcript",
         "put_raw_transcript",

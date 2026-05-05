@@ -9,16 +9,12 @@ revalidating after writes settle. No Redis / no fastapi-cache.
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import json
 import logging
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, Response
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from ark_agentic.core.storage.entries import MemorySummaryEntry
@@ -33,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(require_studio_user)])
 
-_CACHE_TTL_SECONDS = 2.0
 _TREND_MONTH_COUNT = 6
 _DISTRIBUTION_LIMIT = 6
 _ACTIVITY_LIMIT = 12
@@ -272,7 +267,7 @@ async def _collect_sessions(agents: list[Any]) -> list[tuple[Any, Any]]:
             runner = registry.get(agent.id)
         except KeyError:
             continue
-        for summary in await runner.session_manager.list_summaries_from_disk():
+        for summary in await runner.session_manager.list_session_summaries():
             pairs.append((agent, summary))
     return pairs
 
@@ -667,7 +662,7 @@ def _build_activity(
     return [item for _, item in items[:_ACTIVITY_LIMIT]]
 
 
-# ── Builder + cache ─────────────────────────────────────────────────
+# ── Builder ─────────────────────────────────────────────────────────
 
 
 async def _build_summary() -> DashboardSummary:
@@ -707,47 +702,6 @@ async def _build_summary() -> DashboardSummary:
     )
 
 
-_cache: dict[str, Any] = {"payload": None, "etag": None, "at": 0.0}
-_cache_lock = asyncio.Lock()
-
-
-async def _cached_summary() -> tuple[dict[str, Any], str]:
-    """2-second TTL cache shared across all callers in this process.
-
-    The lock dedupes the rebuild step: under concurrent first-page
-    loads, only the winning task runs ``_build_summary``; the rest
-    rendezvous on the freshly-cached payload. Reads from a warm cache
-    take the fast path without contending on the lock.
-    """
-    now = time.monotonic()
-    if (
-        _cache["payload"] is not None
-        and now - _cache["at"] <= _CACHE_TTL_SECONDS
-    ):
-        return _cache["payload"], _cache["etag"]
-
-    async with _cache_lock:
-        # Re-check inside the lock — another task may have populated it
-        # while we waited.
-        now = time.monotonic()
-        if (
-            _cache["payload"] is not None
-            and now - _cache["at"] <= _CACHE_TTL_SECONDS
-        ):
-            return _cache["payload"], _cache["etag"]
-
-        summary = await _build_summary()
-        payload = summary.model_dump(mode="json")
-        body = json.dumps(
-            payload, sort_keys=True, ensure_ascii=False,
-        ).encode()
-        etag = '"' + hashlib.sha1(body).hexdigest() + '"'
-        _cache["payload"] = payload
-        _cache["etag"] = etag
-        _cache["at"] = now
-        return payload, etag
-
-
 # ── Endpoint ────────────────────────────────────────────────────────
 
 
@@ -756,15 +710,7 @@ async def _cached_summary() -> tuple[dict[str, Any], str]:
     response_model=DashboardSummary,
     response_model_exclude_none=False,
 )
-async def get_dashboard_summary(
-    response: Response,
-    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
-):
-    payload, etag = await _cached_summary()
-    if if_none_match == etag:
-        # 304 is body-less; FastAPI requires a Response object so we
-        # bypass response_model serialisation here.
-        return Response(status_code=304, headers={"ETag": etag})
-    response.headers["ETag"] = etag
+async def get_dashboard_summary(response: Response):
+    summary = await _build_summary()
     response.headers["Cache-Control"] = "max-age=2"
-    return payload
+    return summary

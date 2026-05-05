@@ -120,28 +120,6 @@ class SessionMetaStore(Protocol):
         """
         ...
 
-    async def list_session_summaries(
-        self,
-        user_id: str,
-        limit: int | None = None,
-        offset: int = 0,
-    ) -> list[SessionSummaryEntry]:
-        """List sessions + per-session message_count and first user message.
-
-        Replaces "list metas + load every transcript to count messages"
-        on the dashboard / Studio listing hot path. Backends MUST resolve
-        the count and snippet without loading full transcripts:
-
-        - SQLite/PG: single statement with correlated scalar subqueries.
-        - File:      sequential JSONL scan that stops at the first
-                     ``role == "user"`` line.
-
-        ORDER BY ``updated_at`` DESC. ``first_user_message`` is the
-        content truncated to 80 characters, or ``None`` when the session
-        has no user message yet. All backends must honour ``limit/offset``.
-        """
-        ...
-
     async def delete(
         self,
         session_id: str,
@@ -199,15 +177,27 @@ class SessionAdminStore(Protocol):
         """
         ...
 
-    async def list_all_session_summaries(
+    async def list_session_summaries(
         self,
+        user_id: str | None = None,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[SessionSummaryEntry]:
-        """Admin-only: cross-user version of ``list_session_summaries``.
+        """Per-session message_count + first user message, one round-trip.
 
-        Same single-round-trip aggregation contract; ORDER BY
-        ``updated_at`` DESC. All backends must honour ``limit/offset``.
+        Replaces "list metas + load every transcript" on the Studio /
+        dashboard hot path. Backends MUST resolve count and snippet
+        without loading full transcripts:
+
+        - SQLite/PG: correlated scalar subqueries in one statement.
+        - File:      sequential JSONL scan stopping at first user message.
+
+        ``user_id=None`` returns an admin cross-user listing (all users).
+        ``user_id=<str>`` filters to that user's sessions only.
+
+        ORDER BY ``updated_at`` DESC. ``first_user_message`` is
+        truncated to 80 characters, or ``None`` when no user message
+        exists yet. All backends must honour ``limit/offset``.
         """
         ...
 

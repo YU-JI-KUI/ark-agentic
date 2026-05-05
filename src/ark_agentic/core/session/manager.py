@@ -200,7 +200,7 @@ class SessionManager:
         pairs = await self._repository.list_all_sessions()
         return await self._collect_sessions(pairs)
 
-    async def list_summaries_from_disk(
+    async def list_session_summaries(
         self, user_id: str | None = None,
     ) -> list[SessionSummaryEntry]:
         """Return per-session summaries (count + snippet) without loading messages.
@@ -210,8 +210,6 @@ class SessionManager:
         Studio listing / dashboard hot path. ``user_id=None`` returns
         an admin cross-user listing.
         """
-        if user_id is None:
-            return await self._repository.list_all_session_summaries()
         return await self._repository.list_session_summaries(user_id)
 
     async def _collect_sessions(

@@ -94,7 +94,7 @@ class DummySessionManager:
     async def list_sessions_from_disk(self, user_id=None):
         return list(self._sessions.values())
 
-    async def list_summaries_from_disk(self, user_id=None):
+    async def list_session_summaries(self, user_id=None):
         rows: list[SessionSummaryEntry] = []
         for s in self._sessions.values():
             first_user = next(

@@ -94,7 +94,7 @@ async def list_agent_sessions(
     except KeyError:
         return SessionListResponse(sessions=[])
 
-    summaries = await runner.session_manager.list_summaries_from_disk(user_id=user_id)
+    summaries = await runner.session_manager.list_session_summaries(user_id=user_id)
     items: list[SessionItem] = []
     for s in summaries:
         ts_iso: str | None = None

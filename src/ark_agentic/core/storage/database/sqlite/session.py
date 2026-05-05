@@ -260,23 +260,13 @@ class SqliteSessionRepository:
 
     async def list_session_summaries(
         self,
-        user_id: str,
-        limit: int | None = None,
-        offset: int = 0,
-    ) -> list[SessionSummaryEntry]:
-        stmt = self._summary_stmt().where(SessionMeta.user_id == user_id)
-        if limit is not None:
-            stmt = stmt.limit(limit).offset(offset)
-        async with self._engine.connect() as conn:
-            rows = (await conn.execute(stmt)).all()
-        return [self._row_to_summary(r) for r in rows]
-
-    async def list_all_session_summaries(
-        self,
+        user_id: str | None = None,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[SessionSummaryEntry]:
         stmt = self._summary_stmt()
+        if user_id is not None:
+            stmt = stmt.where(SessionMeta.user_id == user_id)
         if limit is not None:
             stmt = stmt.limit(limit).offset(offset)
         async with self._engine.connect() as conn:

@@ -204,13 +204,13 @@ async def test_sqlite_summaries_order_by_updated_at_desc(
     assert [r.session_id for r in rows] == ["s_new", "s_old"]
 
 
-async def test_sqlite_list_all_session_summaries_crosses_users(
+async def test_sqlite_list_session_summaries_crosses_users_when_no_user_id(
     sqlite_repo: SqliteSessionRepository,
 ):
     await _seed(sqlite_repo, "s1", "u1", updated_at=1_000)
     await _seed(sqlite_repo, "s2", "u2", updated_at=2_000)
 
-    rows = await sqlite_repo.list_all_session_summaries()
+    rows = await sqlite_repo.list_session_summaries()
 
     assert {r.user_id for r in rows} == {"u1", "u2"}
     assert [r.session_id for r in rows] == ["s2", "s1"]

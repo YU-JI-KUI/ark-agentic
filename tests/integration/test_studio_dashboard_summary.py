@@ -1,8 +1,7 @@
 """GET /api/studio/dashboard/summary — single-aggregate BFF endpoint.
 
 Locks down the BFF contract: one HTTP request returns counts +
-distributions + activity for the whole workspace; ETag/304 short-
-circuits a second identical request without rebuilding the payload.
+distributions + activity for the whole workspace.
 """
 
 from __future__ import annotations
@@ -20,17 +19,14 @@ from ark_agentic.core.storage.entries import (
     SessionSummaryEntry,
 )
 from ark_agentic.plugins.api.deps import init_registry
-from ark_agentic.plugins.studio.api.dashboard import (
-    _cache,
-    router as dashboard_router,
-)
+from ark_agentic.plugins.studio.api.dashboard import router as dashboard_router
 
 
 class _StubSessionManager:
     def __init__(self, summaries: list[SessionSummaryEntry]) -> None:
         self._summaries = summaries
 
-    async def list_summaries_from_disk(self, user_id=None):
+    async def list_session_summaries(self, user_id=None):
         return list(self._summaries)
 
 
@@ -51,17 +47,6 @@ class _StubRunner:
     @property
     def memory_manager(self) -> _StubMemoryManager | None:
         return self._memory_manager
-
-
-@pytest.fixture(autouse=True)
-def _reset_dashboard_cache():
-    _cache["payload"] = None
-    _cache["etag"] = None
-    _cache["at"] = 0.0
-    yield
-    _cache["payload"] = None
-    _cache["etag"] = None
-    _cache["at"] = 0.0
 
 
 @pytest.fixture
@@ -200,19 +185,13 @@ def test_dashboard_summary_includes_workspace_memory_md_and_knowledge(
     assert file_types == {"memory": 1, "knowledge": 1}
 
 
-def test_dashboard_summary_returns_etag_and_serves_304_on_revalidate(
+def test_dashboard_summary_returns_cache_control_header(
     app: FastAPI, studio_auth_context,
 ):
     client = TestClient(app)
     studio_auth_context(client=client)
 
-    first = client.get("/api/studio/dashboard/summary")
-    etag = first.headers.get("etag")
-    assert etag is not None
+    response = client.get("/api/studio/dashboard/summary")
 
-    revalidate = client.get(
-        "/api/studio/dashboard/summary",
-        headers={"If-None-Match": etag},
-    )
-    assert revalidate.status_code == 304
-    assert revalidate.headers.get("etag") == etag
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") == "max-age=2"

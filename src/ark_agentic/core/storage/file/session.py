@@ -233,27 +233,22 @@ class FileSessionRepository:
 
     async def list_session_summaries(
         self,
-        user_id: str,
+        user_id: str | None = None,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[SessionSummaryEntry]:
-        store = await asyncio.to_thread(self._load_meta_store, user_id, False)
-        ordered = sorted(
-            store.values(), key=lambda e: e.updated_at, reverse=True,
-        )
-        page = paginate(ordered, limit, offset)
-        return [
-            await asyncio.to_thread(
-                self._summarize_session_sync, user_id, entry,
+        if user_id is not None:
+            store = await asyncio.to_thread(self._load_meta_store, user_id, False)
+            ordered = sorted(
+                store.values(), key=lambda e: e.updated_at, reverse=True,
             )
-            for entry in page
-        ]
-
-    async def list_all_session_summaries(
-        self,
-        limit: int | None = None,
-        offset: int = 0,
-    ) -> list[SessionSummaryEntry]:
+            page = paginate(ordered, limit, offset)
+            return [
+                await asyncio.to_thread(
+                    self._summarize_session_sync, user_id, entry,
+                )
+                for entry in page
+            ]
         rows = await asyncio.to_thread(self._collect_all_summary_metas)
         page = paginate(rows, limit, offset)
         return [
