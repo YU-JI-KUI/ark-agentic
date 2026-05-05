@@ -17,12 +17,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
+from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.core.storage.entries import MemorySummaryEntry
 from ark_agentic.core.utils.env import get_agents_root
-from ark_agentic.plugins.api.deps import get_registry
 from ark_agentic.plugins.studio.services import skill_service, tool_service
 from ark_agentic.plugins.studio.services.auth import require_studio_user
 
+from ._deps import get_registry
 from .agents import _read_agent_meta
 
 logger = logging.getLogger(__name__)
@@ -258,9 +259,10 @@ def _collect_tools(agents_root: Path, agents: list[Any]) -> list[tuple[Any, Any]
     return pairs
 
 
-async def _collect_sessions(agents: list[Any]) -> list[tuple[Any, Any]]:
+async def _collect_sessions(
+    registry: AgentRegistry, agents: list[Any],
+) -> list[tuple[Any, Any]]:
     """Return (agent_meta, SessionSummaryEntry) pairs across registered agents."""
-    registry = get_registry()
     pairs: list[tuple[Any, Any]] = []
     for agent in agents:
         try:
@@ -272,7 +274,9 @@ async def _collect_sessions(agents: list[Any]) -> list[tuple[Any, Any]]:
     return pairs
 
 
-async def _collect_memory(agents: list[Any]) -> list[tuple[Any, Any]]:
+async def _collect_memory(
+    registry: AgentRegistry, agents: list[Any],
+) -> list[tuple[Any, Any]]:
     """Collect (agent, MemorySummaryEntry) pairs across registered agents.
 
     Combines two sources to mirror Studio's per-agent memory listing:
@@ -285,7 +289,6 @@ async def _collect_memory(agents: list[Any]) -> list[tuple[Any, Any]]:
       non-user-scoped memory file (regression vs the previous client-
       side aggregator).
     """
-    registry = get_registry()
     pairs: list[tuple[Any, Any]] = []
     for agent in agents:
         try:
@@ -665,13 +668,13 @@ def _build_activity(
 # ── Builder ─────────────────────────────────────────────────────────
 
 
-async def _build_summary() -> DashboardSummary:
+async def _build_summary(registry: AgentRegistry) -> DashboardSummary:
     agents = await _collect_agents()
     agents_root = get_agents_root(__file__)
     skill_pairs = _collect_skills(agents_root, agents)
     tool_pairs = _collect_tools(agents_root, agents)
-    session_pairs = await _collect_sessions(agents)
-    memory_pairs = await _collect_memory(agents)
+    session_pairs = await _collect_sessions(registry, agents)
+    memory_pairs = await _collect_memory(registry, agents)
 
     distinct_users: set[str] = set()
     for _, s in session_pairs:
@@ -710,7 +713,10 @@ async def _build_summary() -> DashboardSummary:
     response_model=DashboardSummary,
     response_model_exclude_none=False,
 )
-async def get_dashboard_summary(response: Response):
-    summary = await _build_summary()
+async def get_dashboard_summary(
+    response: Response,
+    registry: AgentRegistry = Depends(get_registry),
+):
+    summary = await _build_summary(registry)
     response.headers["Cache-Control"] = "max-age=2"
     return summary

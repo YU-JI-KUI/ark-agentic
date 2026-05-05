@@ -32,13 +32,6 @@ class APIPlugin(BasePlugin):
         # for headless / CLI-only / worker-only deployments.
         return env_flag("ENABLE_API", default=True)
 
-    async def start(self, ctx: Any) -> None:
-        # Wire the legacy ``deps`` singleton from the registry that
-        # AgentsLifecycle published on the context. AgentsLifecycle
-        # always starts before APIPlugin so ctx.agent_registry is set.
-        from . import deps
-        deps.init_registry(ctx.agent_registry)
-
     def install_routes(self, app: Any) -> None:
         from fastapi.middleware.cors import CORSMiddleware
         from fastapi.responses import FileResponse, Response

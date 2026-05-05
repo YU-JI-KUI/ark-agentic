@@ -17,15 +17,6 @@ from ark_agentic.core.types import AgentMessage, MessageRole
 def client() -> TestClient:
     return TestClient(app)
 
-@pytest.fixture(autouse=True)
-def init_agent_registry():
-    from ark_agentic.plugins.api import deps
-    from ark_agentic.core.runtime.registry import AgentRegistry
-    # 初始化一个临时的空的 registry
-    deps.init_registry(AgentRegistry())
-    yield
-    # 清理（如果需要，或者允许其保持原样）
-
 @pytest.fixture
 def mock_agent_runner():
     """Mock the insurance agent runner."""

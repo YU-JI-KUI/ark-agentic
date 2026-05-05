@@ -15,8 +15,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ark_agentic.plugins.api import deps
-from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.plugins.studio.api import agents as agents_api
 from ark_agentic.plugins.studio.api.agents import AgentMeta, _read_agent_meta, _write_agent_meta
 from ark_agentic.plugins.studio.services.authz_service import get_studio_user_repo
@@ -58,8 +56,6 @@ def client(temp_agents_dir: Path, studio_auth_context) -> TestClient:
     """Create a FastAPI TestClient with the studio agents router
     and a patched get_agents_root pointing to the temp directory."""
     app = FastAPI()
-    registry = AgentRegistry()
-    deps.init_registry(registry)
     app.include_router(agents_api.router, prefix="/api/studio")
 
     with patch("ark_agentic.plugins.studio.api.agents.get_agents_root", return_value=temp_agents_dir):
