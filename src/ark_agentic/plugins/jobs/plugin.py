@@ -14,16 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 from ...core.protocol.plugin import BasePlugin
 from ...core.storage import mode
+from ...core.utils.env import env_flag
 
 if TYPE_CHECKING:
     from .manager import JobManager
     from .scanner import UserShardScanner
 
 logger = logging.getLogger(__name__)
-
-
-def _env_flag(name: str) -> bool:
-    return os.getenv(name, "").lower() in ("true", "1")
 
 
 @dataclass
@@ -43,7 +40,7 @@ class JobsPlugin(BasePlugin):
         self._manager: "JobManager | None" = None
 
     def is_enabled(self) -> bool:
-        return _env_flag("ENABLE_JOB_MANAGER")
+        return env_flag("ENABLE_JOB_MANAGER")
 
     async def init(self) -> None:
         if not mode.is_database():
@@ -79,16 +76,15 @@ class JobsPlugin(BasePlugin):
         )
         set_job_manager(manager)
 
-        # Per-agent proactive job bindings: wired once the registry is
-        # populated. AgentsLifecycle starts before JobsPlugin in the
-        # default component list so ctx.registry is ready here.
-        if getattr(ctx, "registry", None) is not None:
-            from ..notifications.paths import get_notifications_base_dir
-            from .proactive_setup import register_proactive_jobs
-            register_proactive_jobs(
-                ctx.registry,
-                notifications_base_dir=get_notifications_base_dir(),
-            )
+        # Per-agent proactive job bindings: AgentsLifecycle starts before
+        # JobsPlugin in the default component list so ctx.agent_registry
+        # is always populated by the time JobsPlugin.start runs.
+        from ..notifications.paths import get_notifications_base_dir
+        from .proactive_setup import register_proactive_jobs
+        register_proactive_jobs(
+            ctx.agent_registry,
+            notifications_base_dir=get_notifications_base_dir(),
+        )
 
         await manager.start()
         logger.info("JobManager started")

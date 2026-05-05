@@ -153,12 +153,9 @@ async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> 
     registry.list_ids.return_value = ["insurance", "securities"]
     registry.get.return_value = runner
 
-    with (
-        patch("ark_agentic.agents.register_all"),
-        patch("ark_agentic.plugins.api.deps.init_registry"),
-    ):
-        bootstrap = Bootstrap(
-            [AgentsLifecycle(registry=registry)], with_defaults=False,
+    with patch("ark_agentic.agents.register_all"):
+        bootstrap = Bootstrap._from_components(
+            [AgentsLifecycle(registry=registry)],
         )
         await bootstrap.start(SimpleNamespace())
         await bootstrap.stop()

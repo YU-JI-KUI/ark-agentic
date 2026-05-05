@@ -24,12 +24,13 @@ from pathlib import Path
 
 from ...session.format import (
     MessageEntry,
-    RawJsonlValidationError,
     SessionHeader,
     deserialize_message,
+    parse_raw_jsonl,
     serialize_message,
 )
 from ._lock import FileLock
+from ._paginate import paginate
 from ...types import AgentMessage
 from ..entries import SessionStoreEntry
 
@@ -38,13 +39,6 @@ logger = logging.getLogger(__name__)
 _META_FILENAME = "sessions.json"
 _META_LOCK_FILENAME = "sessions.json.lock"
 _META_CACHE_TTL_SECONDS = 45.0
-
-
-def _paginate(items: list, limit: int | None, offset: int) -> list:
-    start = max(offset, 0)
-    if limit is None:
-        return items[start:]
-    return items[start:start + limit]
 
 
 class FileSessionRepository:
@@ -135,7 +129,7 @@ class FileSessionRepository:
         messages = await asyncio.to_thread(
             self._load_messages_sync, session_id, user_id,
         )
-        return _paginate(messages, limit, offset)
+        return paginate(messages, limit, offset)
 
     async def get_raw_transcript(
         self,
@@ -157,7 +151,7 @@ class FileSessionRepository:
         Validation errors (``RawJsonlValidationError``) are raised before
         any write happens.
         """
-        self._validate_raw_jsonl(session_id, jsonl_content)
+        parse_raw_jsonl(session_id, jsonl_content)
         path = self._transcript_path(session_id, user_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = (
@@ -193,7 +187,7 @@ class FileSessionRepository:
         offset: int = 0,
     ) -> list[str]:
         ids = await asyncio.to_thread(self._list_session_ids_sync, user_id)
-        return _paginate(ids, limit, offset)
+        return paginate(ids, limit, offset)
 
     async def list_session_metas(
         self,
@@ -205,7 +199,7 @@ class FileSessionRepository:
         ordered = sorted(
             store.values(), key=lambda e: e.updated_at, reverse=True,
         )
-        return _paginate(ordered, limit, offset)
+        return paginate(ordered, limit, offset)
 
     async def list_all_sessions(
         self,
@@ -213,7 +207,7 @@ class FileSessionRepository:
         offset: int = 0,
     ) -> list[tuple[str, str]]:
         rows = await asyncio.to_thread(self._list_all_sessions_sync)
-        return _paginate(rows, limit, offset)
+        return paginate(rows, limit, offset)
 
     # ── Sync helpers (run via asyncio.to_thread) ────────────────────
 
@@ -305,46 +299,6 @@ class FileSessionRepository:
                 if not f.stem.endswith(".lock"):
                     results.append((user_dir.name, f.stem))
         return results
-
-    @staticmethod
-    def _validate_raw_jsonl(session_id: str, content: str) -> None:
-        lines = [line for line in content.splitlines() if line.strip()]
-        if not lines:
-            raise RawJsonlValidationError(
-                "至少需要一行（session header）", line_number=1,
-            )
-        try:
-            first = json.loads(lines[0])
-        except json.JSONDecodeError as e:
-            raise RawJsonlValidationError(
-                f"首行非法 JSON: {e}", line_number=1,
-            ) from e
-        if first.get("type") != "session":
-            raise RawJsonlValidationError(
-                "首行 type 必须为 session", line_number=1,
-            )
-        header_id = (first.get("id") or "").strip()
-        if header_id != session_id.strip():
-            raise RawJsonlValidationError(
-                f"首行 id 与 URL session_id 不一致: "
-                f"{header_id!r} vs {session_id!r}",
-                line_number=1,
-            )
-        for i, line in enumerate(lines[1:], start=2):
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError as e:
-                raise RawJsonlValidationError(
-                    f"第 {i} 行非法 JSON: {e}", line_number=i,
-                ) from e
-            if data.get("type") != "message":
-                raise RawJsonlValidationError(
-                    f"第 {i} 行 type 必须为 message", line_number=i,
-                )
-            if "message" not in data or not isinstance(data["message"], dict):
-                raise RawJsonlValidationError(
-                    f"第 {i} 行必须含 message 对象", line_number=i,
-                )
 
     # ── Meta store (per-user sessions.json with TTL cache) ──────────
 

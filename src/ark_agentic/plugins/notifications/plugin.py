@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from ...core.protocol.plugin import BasePlugin
 from ...core.storage import mode
-
-
-def _env_flag(name: str) -> bool:
-    return os.getenv(name, "").lower() in ("true", "1")
+from ...core.utils.env import env_flag
 
 
 class NotificationsPlugin(BasePlugin):
@@ -22,7 +18,10 @@ class NotificationsPlugin(BasePlugin):
         # Backward compat: notifications today come on alongside the
         # job manager. ``ENABLE_NOTIFICATIONS`` lets future setups opt
         # in without enabling jobs.
-        return _env_flag("ENABLE_NOTIFICATIONS") or _env_flag("ENABLE_JOB_MANAGER")
+        return (
+            env_flag("ENABLE_NOTIFICATIONS")
+            or env_flag("ENABLE_JOB_MANAGER")
+        )
 
     async def init(self) -> None:
         if not mode.is_database():

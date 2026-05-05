@@ -6,7 +6,7 @@ organised. Concrete Lifecycle implementations live in ``core.runtime``.
 """
 
 from .app_context import AppContext
-from .bootstrap import Bootstrap, default_lifecycle_components
+from .bootstrap import Bootstrap
 from .lifecycle import BaseLifecycle, Lifecycle
 from .plugin import BasePlugin, Plugin
 
@@ -17,5 +17,4 @@ __all__ = [
     "Bootstrap",
     "Lifecycle",
     "Plugin",
-    "default_lifecycle_components",
 ]

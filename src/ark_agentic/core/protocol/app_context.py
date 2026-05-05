@@ -3,16 +3,24 @@
 ``Bootstrap.start()`` walks the registered ``Lifecycle`` components and,
 for each one whose ``start()`` returns a non-``None`` value, calls
 ``setattr(ctx, component.name, value)``. Consumers retrieve those
-attributes by name — defensively, since a component may be disabled and
-therefore never publish itself.
+attributes by name — defensively for optional plugins (they may be
+disabled and never publish themselves).
 
-Kept generic on purpose: ``core/`` must not encode the names of optional
-features. Plugins do not type-hint their slots here — they read back via
-``getattr(ctx, "<name>", None)`` and apply local typing.
+Core lifecycle components publish their state through typed slots
+declared here so consumers get static guarantees. Plugins (optional)
+still read via ``getattr(ctx, "<name>", None)``; ``core/`` does not
+encode plugin names.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..runtime.registry import AgentRegistry
+
 
 class AppContext:
-    """Empty namespace; attributes are attached at runtime by Bootstrap."""
+    """Runtime container; core slots are typed, plugin slots are dynamic."""
+
+    agent_registry: "AgentRegistry | None" = None

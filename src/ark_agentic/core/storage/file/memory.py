@@ -16,6 +16,7 @@ from ...memory.user_profile import (
     format_heading_sections,
     parse_heading_sections,
 )
+from ._paginate import paginate
 
 logger = logging.getLogger(__name__)
 
@@ -166,11 +167,4 @@ class FileMemoryRepository:
             users_with_mtime.append((entry.name, mem.stat().st_mtime))
         users_with_mtime.sort(key=lambda t: t[1], reverse=order_by_updated_desc)
         names = [name for name, _ in users_with_mtime]
-        return _paginate(names, limit, offset)
-
-
-def _paginate(items: list, limit: int | None, offset: int) -> list:
-    start = max(offset, 0)
-    if limit is None:
-        return items[start:]
-    return items[start:start + limit]
+        return paginate(names, limit, offset)

@@ -1,115 +1,119 @@
 """Bootstrap — drives a list of Lifecycle components through init/start/stop.
 
-Stateful orchestrator. Hosts (FastAPI ``app.py``, CLI scaffolds, tests)
-build a Bootstrap with their chosen plugins; the always-on lifecycle
-components (``AgentsLifecycle``, ``TracingLifecycle``) are auto-loaded by
-this module and cannot be deselected by callers.
+Stateful orchestrator. Hosts (FastAPI ``app.py``, CLI scaffolds) build a
+Bootstrap with their chosen plugins; the always-on framework lifecycle
+components (``AgentsLifecycle`` first, ``TracingLifecycle`` last) are
+auto-loaded by Bootstrap and cannot be deselected. The class is
+HTTP-agnostic: it never imports FastAPI nor knows about ``app.state``.
+
+The default lifecycle classes are imported inside ``__init__`` rather
+than at module load — runtime/observability transitively pull
+``protocol/`` themselves, so a top-level import would cycle. The ``Lifecycle``
+and ``Plugin`` Protocols themselves stay free of any concrete imports.
 
 Phases:
 
-- ``init`` — one-time setup (schema creation, dirs). Re-callable; only
-  runs once per Bootstrap instance.
-- ``start(ctx)`` — calls ``init`` first (idempotent), then runs
-  ``start(ctx)`` on every component in registration order, attaching
-  any returned value to ``ctx.{name}`` so later components can read it.
+- ``init`` — one-time setup (schema creation, dirs). Idempotent.
+- ``start(ctx)`` — calls ``init`` first, then ``start(ctx)`` on every
+  component in registration order, attaching any non-``None`` return
+  value to ``ctx.{name}`` so later components can read it.
 - ``stop`` — runs ``stop`` on every started component in **reverse**
-  order. Per-component try/except prevents a failing teardown from
-  blocking the rest.
+  order; per-component try/except so a failing teardown can't block
+  the rest.
 
 ``install_routes(app)`` is the orthogonal HTTP-mount hook, called at
 module-load time (before lifespan starts).
 
-The class is HTTP-agnostic: it never imports FastAPI nor knows about
-``app.state`` or ``yield``. Hosts that need a FastAPI lifespan write
-their own thin wrapper — typically::
+CLI scaffolds with their own agents seed the framework registry through
+``Bootstrap.agent_registry`` before ``start()`` runs::
 
-    @asynccontextmanager
-    async def lifespan(app):
-        ctx = AppContext()
-        await bootstrap.start(ctx)
-        app.state.ctx = ctx
-        try:
-            yield
-        finally:
-            await bootstrap.stop()
+    bootstrap = Bootstrap(plugins=[APIPlugin(), ...])
+    bootstrap.agent_registry.register("default", create_default_agent())
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .lifecycle import Lifecycle
 
+if TYPE_CHECKING:
+    from ..runtime.agents_lifecycle import AgentsLifecycle as _AgentsLifecycle
+    from ..runtime.registry import AgentRegistry
+
 logger = logging.getLogger(__name__)
-
-
-def default_lifecycle_components() -> list[Lifecycle]:
-    """Always-on framework components — agents registry + tracing.
-
-    Returns a fresh list of new instances on each call. Order matters:
-    agents first (registry must be ready before any plugin's ``start``
-    runs), tracing last (so a tracing failure can't block earlier
-    components from starting / stopping).
-
-    Imported lazily to keep the protocol package free of concrete-
-    runtime imports at module load time.
-    """
-    from ..observability.tracing_lifecycle import TracingLifecycle
-    from ..runtime.agents_lifecycle import AgentsLifecycle
-    return [AgentsLifecycle(), TracingLifecycle()]
 
 
 class Bootstrap:
     """Filters disabled components at construction; remembers which ones
     successfully started so ``stop`` only tears down what really started.
 
-    Public API: pass ``plugins`` (the user-selectable lifecycle list).
-    The mandatory defaults (``AgentsLifecycle`` + ``TracingLifecycle``)
-    are prepended / appended automatically. Tests that need to exercise
-    Bootstrap mechanics with arbitrary recorders can pass
-    ``with_defaults=False``.
+    Public API: pass the user-selectable ``plugins`` list. The framework
+    defaults — ``AgentsLifecycle`` (first) and ``TracingLifecycle``
+    (last) — are added unconditionally; their ordering matters and is
+    not configurable. Plugins sit between them.
 
-    Third-party hosts that need to seed the agent registry before start
-    (e.g. CLI scaffolds registering their own agent module) can inject
-    a custom ``agents_lifecycle``; it replaces the default
-    ``AgentsLifecycle`` while ``TracingLifecycle`` is still auto-loaded.
+    Hosts that need to seed agents before start populate
+    ``Bootstrap.agent_registry`` directly.
     """
 
     def __init__(
         self,
         plugins: list[Lifecycle] | None = None,
-        *,
-        with_defaults: bool = True,
-        agents_lifecycle: Lifecycle | None = None,
     ) -> None:
-        if with_defaults:
-            defaults = default_lifecycle_components()
-            agents = agents_lifecycle if agents_lifecycle is not None else defaults[0]
-            tracing = defaults[-1]
-            components: list[Lifecycle] = [agents] + list(plugins or []) + [tracing]
-        else:
-            components = list(plugins or [])
-            if agents_lifecycle is not None:
-                components.insert(0, agents_lifecycle)
+        # Lazy import: runtime + observability transitively import the
+        # protocol package, so a top-level import would cycle.
+        from ..observability.tracing_lifecycle import TracingLifecycle
+        from ..runtime.agents_lifecycle import AgentsLifecycle
+
+        self._agents: "_AgentsLifecycle | None" = AgentsLifecycle()
+        self._tracing: Lifecycle | None = TracingLifecycle()
+        components: list[Lifecycle] = (
+            [self._agents] + list(plugins or []) + [self._tracing]
+        )
         self._components: list[Lifecycle] = [
             c for c in components if c.is_enabled()
         ]
         self._started: list[Lifecycle] = []
         self._inited = False
 
+    @classmethod
+    def _from_components(cls, components: list[Lifecycle]) -> "Bootstrap":
+        """Test-only escape hatch: build a Bootstrap from arbitrary
+        recorder lifecycles, bypassing the framework defaults. Production
+        code MUST go through the public constructor.
+        """
+        self = cls.__new__(cls)
+        self._agents = None  # type: ignore[assignment]
+        self._tracing = None  # type: ignore[assignment]
+        self._components = [c for c in components if c.is_enabled()]
+        self._started = []
+        self._inited = False
+        return self
+
     @property
     def components(self) -> tuple[Lifecycle, ...]:
         """Read-only view of the enabled components in registration order."""
         return tuple(self._components)
 
-    async def init(self) -> None:
-        """Run ``init()`` on every enabled component once.
+    @property
+    def agent_registry(self) -> AgentRegistry:
+        """The framework's pre-start ``AgentRegistry``.
 
-        Idempotent: subsequent calls are no-ops. ``start`` calls this
-        first so most hosts never invoke ``init`` directly; tests that
-        only want to exercise schema setup can call it standalone.
+        Hosts populate this before ``start()`` to register their own
+        agents. The same instance is published as ``ctx.agent_registry``
+        once start runs.
         """
+        if self._agents is None:
+            raise RuntimeError(
+                "Bootstrap was built without defaults (test mode); "
+                "no agent_registry is available."
+            )
+        return self._agents.registry
+
+    async def init(self) -> None:
+        """Run ``init()`` on every enabled component once. Idempotent."""
         if self._inited:
             return
         for c in self._components:
@@ -131,23 +135,23 @@ class Bootstrap:
         """Init (if not already), then build runtime context across components.
 
         The non-``None`` return value of each ``start`` is attached to
-        ``ctx.{name}`` so components started later can read it (e.g.
-        JobsPlugin reading ``ctx.notifications``).
+        ``ctx.{name}``. Two components publishing the same name is a
+        configuration error and raises immediately.
         """
         await self.init()
         for c in self._components:
             value = await c.start(ctx)
             if value is not None:
+                if hasattr(ctx, c.name) and getattr(ctx, c.name) is not None:
+                    raise RuntimeError(
+                        f"Lifecycle name collision: ctx.{c.name} already set",
+                    )
                 setattr(ctx, c.name, value)
             self._started.append(c)
             logger.info("Component %r started", c.name)
 
     async def stop(self) -> None:
-        """Run ``stop()`` on every started component in **reverse** order.
-
-        Per-component try/except so a failing teardown cannot block the
-        rest from releasing their resources.
-        """
+        """Run ``stop()`` on every started component in **reverse** order."""
         while self._started:
             c = self._started.pop()
             try:

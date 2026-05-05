@@ -1,10 +1,11 @@
 """Bootstrap orchestrator tests.
 
 Validates the lifecycle phases (``init`` / ``start`` / ``stop``) and
-their ordering / idempotency. Uses ``with_defaults=False`` for tests
-exercising arbitrary recorder components; the always-on lifecycle
-defaults (AgentsLifecycle + TracingLifecycle) are covered by separate
-integration tests.
+their ordering / idempotency. The orchestration tests use
+``Bootstrap._from_components`` so arbitrary recorders aren't sandwiched
+between the framework defaults; the always-on lifecycle defaults
+(AgentsLifecycle + TracingLifecycle) are exercised through the public
+constructor in dedicated tests below.
 """
 
 from __future__ import annotations
@@ -65,9 +66,8 @@ class _Recorder(BaseLifecycle):
 
 async def test_start_attaches_return_value_to_ctx_by_name():
     log: list[str] = []
-    bootstrap = Bootstrap(
+    bootstrap = Bootstrap._from_components(
         [_Recorder("alpha", log), _Recorder("beta", log)],
-        with_defaults=False,
     )
 
     class Ctx:
@@ -82,9 +82,8 @@ async def test_start_attaches_return_value_to_ctx_by_name():
 
 async def test_start_runs_init_first_then_start_in_order():
     log: list[str] = []
-    bootstrap = Bootstrap(
+    bootstrap = Bootstrap._from_components(
         [_Recorder("a", log), _Recorder("b", log), _Recorder("c", log)],
-        with_defaults=False,
     )
 
     class Ctx:
@@ -100,9 +99,8 @@ async def test_start_runs_init_first_then_start_in_order():
 
 async def test_stop_runs_in_reverse_start_order():
     log: list[str] = []
-    bootstrap = Bootstrap(
+    bootstrap = Bootstrap._from_components(
         [_Recorder("a", log), _Recorder("b", log), _Recorder("c", log)],
-        with_defaults=False,
     )
 
     class Ctx:
@@ -116,7 +114,7 @@ async def test_stop_runs_in_reverse_start_order():
 
 async def test_init_is_idempotent():
     log: list[str] = []
-    bootstrap = Bootstrap([_Recorder("only", log)], with_defaults=False)
+    bootstrap = Bootstrap._from_components([_Recorder("only", log)])
 
     await bootstrap.init()
     await bootstrap.init()  # second call is no-op
@@ -126,7 +124,7 @@ async def test_init_is_idempotent():
 
 async def test_start_does_not_double_init_when_init_was_called_first():
     log: list[str] = []
-    bootstrap = Bootstrap([_Recorder("only", log)], with_defaults=False)
+    bootstrap = Bootstrap._from_components([_Recorder("only", log)])
 
     class Ctx:
         pass
@@ -141,13 +139,12 @@ async def test_start_does_not_double_init_when_init_was_called_first():
 
 async def test_stop_failure_does_not_block_others():
     log: list[str] = []
-    bootstrap = Bootstrap(
+    bootstrap = Bootstrap._from_components(
         [
             _Recorder("a", log),
             _Recorder("b", log, fail_stop=True),
             _Recorder("c", log),
         ],
-        with_defaults=False,
     )
 
     class Ctx:
@@ -173,12 +170,27 @@ async def test_disabled_components_are_skipped():
         async def init(self) -> None:
             log.append("disabled.init")
 
-    bootstrap = Bootstrap(
-        [Disabled(), _Recorder("kept", log)], with_defaults=False,
+    bootstrap = Bootstrap._from_components(
+        [Disabled(), _Recorder("kept", log)],
     )
     await bootstrap.init()
 
     assert log == ["kept.init"]
+
+
+async def test_name_collision_raises():
+    """Two components publishing the same ctx slot is a configuration error."""
+    log: list[str] = []
+    bootstrap = Bootstrap._from_components(
+        [_Recorder("dup", log), _Recorder("dup", log)],
+    )
+
+    class Ctx:
+        pass
+
+    import pytest
+    with pytest.raises(RuntimeError, match="collision"):
+        await bootstrap.start(Ctx())
 
 
 # ── default-components contract ──────────────────────────────────────
@@ -190,7 +202,7 @@ async def test_default_components_include_agents_and_tracing():
     bootstrap = Bootstrap()
     names = [c.name for c in bootstrap.components]
 
-    assert names[0] == "registry"
+    assert names[0] == "agent_registry"
     assert names[-1] == "tracing"
 
 
@@ -199,6 +211,24 @@ async def test_user_plugins_sit_between_defaults():
     bootstrap = Bootstrap([plugin])
     names = [c.name for c in bootstrap.components]
 
-    assert names[0] == "registry"
+    assert names[0] == "agent_registry"
     assert "custom" in names
     assert names[-1] == "tracing"
+
+
+async def test_agent_registry_property_seeds_framework_registry():
+    """CLI scaffolds register custom agents through the public registry
+    property before ``start()``."""
+    bootstrap = Bootstrap()
+    registry = bootstrap.agent_registry
+    assert registry is not None
+    # Same instance is exposed; downstream populates it.
+    assert bootstrap.agent_registry is registry
+
+
+async def test_test_mode_bootstrap_has_no_agent_registry():
+    """``_from_components`` skips defaults — agent_registry must raise."""
+    bootstrap = Bootstrap._from_components([])
+    import pytest
+    with pytest.raises(RuntimeError):
+        _ = bootstrap.agent_registry

@@ -15,17 +15,13 @@ FastAPI plumbing.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
 from ...core.protocol.plugin import BasePlugin
+from ...core.utils.env import env_flag
 
 _STATIC_DIR = Path(__file__).parent / "static"
-
-
-def _env_flag(name: str, default: str = "true") -> bool:
-    return os.getenv(name, default).lower() in ("true", "1")
 
 
 class APIPlugin(BasePlugin):
@@ -34,7 +30,14 @@ class APIPlugin(BasePlugin):
     def is_enabled(self) -> bool:
         # API is opt-out (default on); set ENABLE_API=false to disable
         # for headless / CLI-only / worker-only deployments.
-        return _env_flag("ENABLE_API", default="true")
+        return env_flag("ENABLE_API", default=True)
+
+    async def start(self, ctx: Any) -> None:
+        # Wire the legacy ``deps`` singleton from the registry that
+        # AgentsLifecycle published on the context. AgentsLifecycle
+        # always starts before APIPlugin so ctx.agent_registry is set.
+        from . import deps
+        deps.init_registry(ctx.agent_registry)
 
     def install_routes(self, app: Any) -> None:
         from fastapi.middleware.cors import CORSMiddleware

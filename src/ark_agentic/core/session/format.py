@@ -194,6 +194,65 @@ def serialize_message(msg: AgentMessage) -> dict[str, Any]:
     return result
 
 
+def parse_raw_jsonl(
+    session_id: str, content: str,
+) -> list[tuple[int, dict[str, Any]]]:
+    """Validate a JSONL transcript blob and return its parsed message lines.
+
+    Shared between the file and SQLite session backends — both accept the
+    same `PUT .../raw` payload and apply identical schema rules:
+
+    - line 1 is a ``session`` header with ``id == session_id``;
+    - lines 2+ are ``message`` entries with a dict ``message`` field.
+
+    Returns ``[(line_number, parsed_dict), ...]`` for every message line.
+    Header is consumed but not returned. Raises
+    ``RawJsonlValidationError`` on the first violation; nothing is
+    persisted by this function.
+    """
+    lines = [line for line in content.splitlines() if line.strip()]
+    if not lines:
+        raise RawJsonlValidationError(
+            "至少需要一行（session header）", line_number=1,
+        )
+    try:
+        first = json.loads(lines[0])
+    except json.JSONDecodeError as e:
+        raise RawJsonlValidationError(
+            f"首行非法 JSON: {e}", line_number=1,
+        ) from e
+    if first.get("type") != "session":
+        raise RawJsonlValidationError(
+            "首行 type 必须为 session", line_number=1,
+        )
+    header_id = (first.get("id") or "").strip()
+    if header_id != session_id.strip():
+        raise RawJsonlValidationError(
+            f"首行 id 与 URL session_id 不一致: "
+            f"{header_id!r} vs {session_id!r}",
+            line_number=1,
+        )
+
+    messages: list[tuple[int, dict[str, Any]]] = []
+    for i, line in enumerate(lines[1:], start=2):
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError as e:
+            raise RawJsonlValidationError(
+                f"第 {i} 行非法 JSON: {e}", line_number=i,
+            ) from e
+        if data.get("type") != "message":
+            raise RawJsonlValidationError(
+                f"第 {i} 行 type 必须为 message", line_number=i,
+            )
+        if "message" not in data or not isinstance(data["message"], dict):
+            raise RawJsonlValidationError(
+                f"第 {i} 行必须含 message 对象", line_number=i,
+            )
+        messages.append((i, data))
+    return messages
+
+
 def deserialize_message(data: dict[str, Any]) -> AgentMessage:
     role_str = data.get("role", "user")
     role = MessageRole(role_str)
