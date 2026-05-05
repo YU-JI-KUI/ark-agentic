@@ -11,11 +11,7 @@ from ..entries import MemorySummaryEntry
 class MemoryRepository(Protocol):
     """Heading-structured user memory, scoped to ONE agent.
 
-    A repository instance is bound to a single agent at construction —
-    the file backend by its workspace path, the SQLite backend by the
-    ``agent_id`` predicate auto-injected on every query. The same
-    ``user_id`` may exist independently under multiple agents, each
-    with its own memory blob.
+    Same ``user_id`` lives independently under each agent.
 
     DB 实现必须在内部调用 `core.memory.user_profile.parse_heading_sections`
     和 `format_heading_sections` 完成 markdown ⇄ row 转换；这些解析函数

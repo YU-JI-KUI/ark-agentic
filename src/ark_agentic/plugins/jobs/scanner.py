@@ -72,9 +72,7 @@ class UserShardScanner:
         # is a test-time injection escape hatch.
         effective_repo = notification_repo or job.notification_repo
 
-        # The job's MemoryManager already owns an agent-bound repository;
-        # listing users through the manager keeps agent isolation
-        # transparent and avoids re-building a second repo.
+        # Reuse the job's agent-bound MemoryManager instead of building a repo.
         job_run_repo: JobRunRepository = build_job_run_repository(
             base_dir=get_job_runs_base_dir(),
         )

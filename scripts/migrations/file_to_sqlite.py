@@ -333,10 +333,7 @@ async def migrate(
     db_url: str,
     dry_run: bool,
 ) -> MigrationStats:
-    """Per-agent migration. The session/memory directories are the
-    per-agent paths from the file backend; the SQLite target rows land
-    under ``agent_id`` so future per-agent reads see them.
-    """
+    """Per-agent migration: file dirs are agent-rooted; rows land under ``agent_id``."""
     if not agent_id:
         raise ValueError("migrate() requires a non-empty agent_id")
     cfg = DBConfig(connection_str=db_url)

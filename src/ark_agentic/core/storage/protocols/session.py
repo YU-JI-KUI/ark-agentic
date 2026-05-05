@@ -165,11 +165,8 @@ class SessionTranscriptStore(Protocol):
 class SessionAdminStore(Protocol):
     """Cross-user admin queries scoped to ONE agent.
 
-    A repository instance is bound to a single agent at construction —
-    the file backend by its workspace path, the SQLite backend by the
-    ``agent_id`` predicate auto-injected on every query. These methods
-    therefore return the bound agent's data only; cross-agent dashboards
-    fan out across the agent registry and aggregate per-agent results.
+    Repos are bound to one agent at construction; cross-agent dashboards
+    fan out across the registry.
     """
 
     async def list_all_sessions(

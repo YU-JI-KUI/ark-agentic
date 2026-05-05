@@ -1,16 +1,8 @@
-"""SqliteMemoryRepository — blob strategy.
+"""SqliteMemoryRepository — one row per (agent_id, user_id), full markdown blob.
 
-One row per (agent_id, user_id) holding the full markdown blob in
-``user_memory.content``. Heading-level upsert reuses
-``parse_heading_sections`` / ``format_heading_sections`` from
-``core.memory.user_profile`` so semantic behavior matches
-``FileMemoryRepository``. Row-level schema (one heading per row) is
-deferred until search/scoring needs it.
-
-Agent isolation: the repository is bound to one ``agent_id`` at
-construction; all reads/writes go through ``agent_scoped_session`` which
-auto-injects the ``agent_id`` predicate on every ORM SELECT/UPDATE/DELETE
-and supplies the column default on INSERT.
+Heading-level upsert reuses ``parse_heading_sections`` /
+``format_heading_sections`` so behavior matches ``FileMemoryRepository``.
+Bound to one ``agent_id``; reads/writes go through ``agent_scoped_session``.
 """
 
 from __future__ import annotations
@@ -54,13 +46,8 @@ class SqliteMemoryRepository:
         user_id: str,
         content: str,
     ) -> tuple[list[str], list[str]]:
-        """Heading-level upsert. Read-modify-write inside one transaction.
-
-        The merge runs in Python; persistence is a single
-        ``INSERT ... ON CONFLICT DO UPDATE`` so two concurrent callers can no
-        longer both observe "no row" and race two INSERTs (which would
-        otherwise raise IntegrityError on the second commit).
-        """
+        """Read-modify-write merge in Python; one ON CONFLICT DO UPDATE
+        commits, so concurrent callers don't race two INSERTs."""
         async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
             existing = await s.scalar(
                 select(UserMemory.content).where(
@@ -120,8 +107,6 @@ class SqliteMemoryRepository:
     async def set_last_dream_at(
         self, user_id: str, timestamp: float,
     ) -> None:
-        """Upsert the last_dream_at column. When the user has no row yet,
-        insert one with empty content so the marker can be persisted."""
         now_ms = int(time.time() * 1000)
         stmt = sqlite_insert(UserMemory).values(
             agent_id=self._agent_id,

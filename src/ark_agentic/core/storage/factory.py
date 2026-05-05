@@ -1,15 +1,8 @@
 """Core repository factories — mode-driven backend dispatch.
 
-``mode.current()`` decides whether the file or database backend is active.
-``AsyncEngine`` is fully encapsulated by ``database.engine``: the database
-branch asks ``get_engine()`` itself, the file branch only needs paths.
-Business code never sees an engine.
-
-Agent isolation: every repository is bound to a single ``agent_id`` at
-construction. The file backend partitions by workspace path; the SQLite
-backend auto-injects ``WHERE agent_id = ?`` on every query through
-``database.scoping.agent_scoped_session``. Callers must always supply
-``agent_id`` — ``""`` is rejected.
+Every repo is bound to one ``agent_id``: file mode partitions by path,
+SQLite mode auto-injects ``WHERE agent_id = ?``. Empty ``agent_id`` is
+rejected.
 """
 
 from __future__ import annotations
@@ -47,12 +40,6 @@ def build_session_repository(
     *,
     agent_id: str,
 ) -> SessionRepository:
-    """Build a session repository bound to ``agent_id``.
-
-    SessionManager keeps an in-memory mirror of active sessions, so a
-    process cache layer here would be redundant in single-worker mode.
-    Multi-worker / Redis is deferred to the PG/Redis milestone.
-    """
     aid = _require_agent_id(agent_id, "SessionRepository")
     active = mode.current()
     if active == "file":
@@ -70,12 +57,6 @@ def build_memory_repository(
     *,
     agent_id: str,
 ) -> MemoryRepository:
-    """Build a memory repository bound to ``agent_id``.
-
-    MemoryManager keeps an in-memory mirror of recently-read user memory,
-    same shape as SessionManager._sessions; the repo layer is straight
-    pass-through to file/sqlite.
-    """
     aid = _require_agent_id(agent_id, "MemoryRepository")
     active = mode.current()
     if active == "file":

@@ -165,20 +165,9 @@ def build_memory_manager(
     dream_min_hours: float = 24.0,
     dream_min_sessions: int = 3,
 ) -> MemoryManager:
-    """Factory: builds a ``MemoryManager`` whose backend is picked by
-    ``DB_TYPE``.
+    """Backend picked by ``DB_TYPE``; repo bound to ``agent_id``.
 
-    ``memory_dir`` is required for the file backend; the SQLite backend
-    treats it as a logical workspace label (used by adjacent modules
-    like the proactive scanner). The directory itself is created lazily
-    by ``FileMemoryRepository`` only when file mode is active.
-
-    The repository is bound to ``agent_id``: SQLite filters every
-    query by it, file mode partitions by ``memory_dir`` (which already
-    embeds the agent_id by convention).
-
-    When ``enable_dream=True``, ``session_manager`` and ``llm_factory`` are
-    required so the manager can construct an internal ``MemoryDreamer``.
+    ``enable_dream=True`` requires ``session_manager`` and ``llm_factory``.
     """
     if not agent_id:
         raise ValueError("build_memory_manager requires a non-empty agent_id")

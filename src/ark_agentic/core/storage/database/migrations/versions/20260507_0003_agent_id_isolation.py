@@ -1,12 +1,7 @@
 """agent isolation: add agent_id to session_meta / session_messages / user_memory
 
-Adds a NOT NULL ``agent_id`` column to every agent-partitioned table and
-recreates indexes with ``agent_id`` as the leading key. ``user_memory``
-gains a composite ``(agent_id, user_id)`` primary key.
-
-Dev data is discarded — the upgrade drops and recreates every affected
-table. Running this on a populated DB will lose data; this is acceptable
-for the single pre-launch deployment.
+Drops and recreates the three tables — DEV DATA IS DISCARDED. Acceptable
+for the pre-launch deployment.
 
 Revision ID: 0003
 Revises: 0002
@@ -23,8 +18,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Drop the agent-partitioned tables. ``session_messages`` first because
-    # of its FK into ``session_meta``.
+    # session_messages first (FK into session_meta).
     op.drop_index(
         "ix_session_messages_session_seq", table_name="session_messages",
     )
@@ -40,8 +34,7 @@ def upgrade() -> None:
 
     op.drop_table("user_memory")
 
-    # Recreate with agent_id as part of the schema. The PK on session_meta
-    # is composite so per-agent session_ids cannot collide via ON CONFLICT.
+    # Composite PK on session_meta closes cross-agent ON CONFLICT collisions.
     op.create_table(
         "session_meta",
         sa.Column("agent_id", sa.String(64), nullable=False),
@@ -110,8 +103,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Recreating the previous schema also discards data — symmetric with
-    # the upgrade for a pre-launch dev DB.
+    # Symmetric with upgrade — also discards data.
     op.drop_index(
         "ix_user_memory_agent_updated_at", table_name="user_memory",
     )

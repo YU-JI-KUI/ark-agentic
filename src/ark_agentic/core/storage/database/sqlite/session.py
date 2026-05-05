@@ -1,24 +1,14 @@
 """SqliteSessionRepository — SQLAlchemy AsyncEngine implementation.
 
-Schema:
-- ``session_meta``: per (session_id) row with model/provider/state/tokens
-- ``session_messages``: append-only JSONL payloads keyed by (session_id, seq)
-
-Agent isolation:
-- The repository is bound to a single ``agent_id`` at construction. All
-  ORM SELECT/UPDATE/DELETE statements run inside ``agent_scoped_session``
-  which auto-injects ``WHERE agent_id = :bound`` via
-  ``with_loader_criteria``. INSERTs read the same value from the
-  contextvar so they too land under the bound agent without each call
-  site spelling it out.
-- ``user_id`` ownership is still enforced explicitly because the
-  per-agent invariant is not the same as the per-user one — the file
-  backend has identical semantics.
+Bound to one ``agent_id`` at construction; ORM statements run inside
+``agent_scoped_session`` so ``WHERE agent_id = :bound`` is auto-injected
+on SELECT/UPDATE/DELETE. ``user_id`` ownership is still checked
+explicitly — the file backend has the same semantics.
 
 PR3 PG TODO:
-- ``load_messages(limit=None)`` should raise on PG (forces pagination on hot path).
-- ``put_raw_transcript`` already runs DELETE+INSERT in one transaction; PG keeps
-  the same shape.
+- ``load_messages(limit=None)`` should raise on PG (forces pagination).
+- ``json_extract`` in ``_summary_stmt`` is SQLite-only; PG needs
+  ``payload_json::jsonb ->> 'role'``.
 """
 
 from __future__ import annotations
@@ -95,11 +85,8 @@ class SqliteSessionRepository:
         provider: str,
         state: dict,
     ) -> None:
-        # ON CONFLICT DO NOTHING gives "create if missing" in one round-trip
-        # without the SELECT-then-INSERT race window. ``agent_id`` is
-        # populated by the column default reading the contextvar; the PK
-        # is composite ``(agent_id, session_id)`` so the conflict target
-        # has to mention both columns.
+        # ON CONFLICT DO NOTHING avoids the SELECT-then-INSERT race; the
+        # composite PK (agent_id, session_id) is the conflict target.
         stmt = sqlite_insert(SessionMeta).values(
             session_id=session_id,
             user_id=user_id,
@@ -123,16 +110,8 @@ class SqliteSessionRepository:
         user_id: str,
         message: AgentMessage,
     ) -> None:
-        """Append a message with the next sequence number.
-
-        Caller contract: appends to the **same** session_id MUST be serialised
-        by the caller (the runner serialises per-session). Concurrent appends
-        to the same session can both observe the same MAX(seq) before either
-        commits, and the unique ``(session_id, seq)`` index will then reject
-        the second insert with ``IntegrityError``. The runner's per-session
-        ordering makes this latent today, but a future caller that drops
-        that invariant must add retry-on-IntegrityError here.
-        """
+        """Append with next seq. Caller must serialise appends per session_id;
+        concurrent appends rely on the unique index to reject duplicates."""
         payload = json.dumps(serialize_message(message), ensure_ascii=False)
         ts_ms = int(message.timestamp.timestamp() * 1000)
         async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
@@ -161,11 +140,7 @@ class SqliteSessionRepository:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[AgentMessage]:
-        """SQLite tolerates ``limit=None`` (returns full session); PR3 PG must raise.
-
-        Both are valid in PR2 because SQLite is a single-process embedded DB and
-        full-session reads are still cheap. PG hot-path callers must paginate.
-        """
+        """SQLite tolerates ``limit=None``; PR3 PG must raise on hot path."""
         stmt = (
             select(SessionMessage.payload_json)
             .where(
@@ -200,11 +175,8 @@ class SqliteSessionRepository:
                 entry.active_skill_ids, ensure_ascii=False,
             ),
         }
-        # Single-statement upsert. Concurrent callers can no longer both
-        # see "no row" and race two INSERTs. The composite PK on
-        # ``(agent_id, session_id)`` means cross-agent session_id
-        # collisions stay separate rows; without it, this set_ would
-        # silently rewrite another agent's metadata.
+        # Composite PK (agent_id, session_id) keeps cross-agent rows
+        # separate — without it this set_ would rewrite another agent's row.
         stmt = sqlite_insert(SessionMeta).values(
             session_id=session_id,
             agent_id=self._agent_id,
@@ -270,12 +242,7 @@ class SqliteSessionRepository:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[tuple[str, str]]:
-        """List ``(user_id, session_id)`` for every user under THIS agent.
-
-        After agent isolation this no longer crosses agents — the
-        ``with_loader_criteria`` filter restricts the scan to the bound
-        agent, which matches the file backend's per-agent semantics.
-        """
+        """``(user_id, session_id)`` for every user under THIS agent."""
         stmt = (
             select(SessionMeta.user_id, SessionMeta.session_id)
             .order_by(SessionMeta.updated_at.desc())
@@ -292,12 +259,7 @@ class SqliteSessionRepository:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[SessionSummaryEntry]:
-        """Per-agent (and optionally per-user) summary scan.
-
-        ``user_id=None`` returns every user's sessions under THIS agent.
-        Cross-agent dashboards fan out across the registry — the
-        repository never sees data outside its bound agent.
-        """
+        """``user_id=None`` returns all users under THIS agent."""
         stmt = self._summary_stmt()
         if user_id is not None:
             stmt = stmt.where(SessionMeta.user_id == user_id)
@@ -309,22 +271,8 @@ class SqliteSessionRepository:
 
     @staticmethod
     def _summary_stmt() -> Any:
-        """Single-statement correlated scalar subqueries.
-
-        ``mc`` counts messages per session; ``fum`` returns the
-        ``payload_json`` of the earliest user-role message. Pulling the
-        whole payload (vs ``json_extract($.content)``) keeps the typing
-        story simple — Python truncates the content to 80 chars.
-
-        The correlated subqueries reference ``SessionMessage`` and so
-        also receive the ``with_loader_criteria`` agent filter.
-
-        PR3 PG TODO: ``json_extract(... , '$.role')`` is the SQLite
-        spelling of the JSON path operator. PostgreSQL needs
-        ``payload_json::jsonb ->> 'role'`` (or ``json_extract_path_text``)
-        instead — switch via dialect detection on ``self._engine.dialect``
-        when the PG backend lands.
-        """
+        """Per-session count + first-user-message snippet via correlated
+        scalar subqueries. SessionMessage refs pick up the agent filter."""
         mc = (
             select(func.count(SessionMessage.id))
             .where(SessionMessage.session_id == SessionMeta.session_id)
@@ -400,8 +348,6 @@ class SqliteSessionRepository:
                 )
             )).first()
             if existing is None:
-                # Nothing owned by this user under this agent — leave any
-                # other owner's rows alone.
                 return False
             await s.execute(
                 delete(SessionMessage).where(
@@ -476,9 +422,7 @@ class SqliteSessionRepository:
         ]
 
         async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
-            # Confirm ownership before any mutation so a misrouted call
-            # cannot wipe or replace another owner's transcript. The agent
-            # filter is automatic; this just guards user_id ownership.
+            # User-id ownership guard; the agent filter is automatic.
             owner = (await s.execute(
                 select(SessionMeta.session_id).where(
                     SessionMeta.session_id == session_id,
@@ -496,7 +440,6 @@ class SqliteSessionRepository:
                 )
             )
             if rows:
-                # Single executemany round-trip instead of N INSERTs.
                 await s.execute(sqlite_insert(SessionMessage), rows)
             await s.commit()
 

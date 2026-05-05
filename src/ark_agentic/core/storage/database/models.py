@@ -1,13 +1,8 @@
 """Core ORM models — sessions, user memory.
 
-Independent feature tables (notifications, jobs, studio_users, …) live in
-their own feature packages with their own ``DeclarativeBase``; this Base
-holds only the central ones.
-
-Agent isolation: every table inherits :class:`AgentScoped` (see
-``scoping.py``) which adds an ``agent_id`` column and binds row visibility
-to the active agent context. Repositories never spell ``agent_id`` in
-their WHERE clauses; the ORM event listener injects the predicate.
+Each feature owns its own ``DeclarativeBase``; this Base is core-only.
+Every table here inherits :class:`AgentScoped`, so ``agent_id`` is
+auto-injected by the event listener in ``scoping.py``.
 """
 
 from __future__ import annotations
@@ -43,15 +38,8 @@ class SessionMeta(AgentScoped, Base):
     compaction_count: Mapped[int] = mapped_column(Integer, default=0)
     active_skill_ids_json: Mapped[str] = mapped_column(Text, default="[]")
 
-    # Composite PK: session_ids are minted per-agent and not necessarily
-    # unique across agents. Without ``agent_id`` in the PK an upsert from
-    # one agent could silently overwrite another agent's row through
-    # ``ON CONFLICT DO UPDATE``. The composite makes such collisions
-    # impossible at the schema level.
-    #
-    # The composite index ``(agent_id, user_id, updated_at DESC)`` covers
-    # the Studio per-agent + per-user listing and the per-agent admin
-    # scan ``WHERE agent_id=? ORDER BY updated_at DESC``.
+    # Composite PK closes the cross-agent ON CONFLICT DO UPDATE leak —
+    # session_ids are only unique within an agent.
     __table_args__ = (
         PrimaryKeyConstraint("agent_id", "session_id"),
         Index(
@@ -67,9 +55,8 @@ class SessionMessage(AgentScoped, Base):
     __tablename__ = "session_messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # Messages reference a session by its composite ``(agent_id,
-    # session_id)`` key. ON DELETE CASCADE + PRAGMA foreign_keys=ON keep
-    # message rows from outliving their parent session.
+    # Composite FK + ON DELETE CASCADE (PRAGMA foreign_keys=ON in engine.py)
+    # keep messages from outliving their parent session.
     session_id: Mapped[str] = mapped_column(String(128))
     user_id: Mapped[str] = mapped_column(String(255))
     seq: Mapped[int] = mapped_column(Integer)
@@ -102,12 +89,11 @@ class UserMemory(AgentScoped, Base):
 
     user_id: Mapped[str] = mapped_column(String(255))
     content: Mapped[str] = mapped_column(Text, default="")
-    # Timestamp (epoch seconds) of the user's last memory consolidation pass.
-    # NULL until the dreamer first marks the user.
+    # NULL until the dreamer first consolidates this user's memory.
     last_dream_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
 
-    # Composite PK: same ``user_id`` lives independently under each agent.
+    # Same user_id lives independently under each agent.
     __table_args__ = (
         PrimaryKeyConstraint("agent_id", "user_id"),
         Index(
