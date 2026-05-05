@@ -58,14 +58,23 @@ class SqliteStudioUserRepository:
         self._initialized = False
 
     async def ensure_schema(self) -> None:
-        """Lazy schema bootstrap. Idempotent across concurrent callers."""
+        """Lazy schema bootstrap (alembic + admin seed). Idempotent."""
         if self._initialized:
             return
         async with self._init_lock:
             if self._initialized:
                 return
-            async with self._engine.begin() as conn:
-                await conn.run_sync(AuthBase.metadata.create_all)
+            from pathlib import Path
+
+            from ......core.storage.database.migrate import upgrade_to_head
+
+            migrations_dir = Path(__file__).parent / "migrations"
+            await upgrade_to_head(
+                metadata=AuthBase.metadata,
+                migrations_dir=migrations_dir,
+                engine=self._engine,
+                version_table="alembic_version_studio_auth",
+            )
             await _seed_default_admin(self._engine)
             self._initialized = True
 
