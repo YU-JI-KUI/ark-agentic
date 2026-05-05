@@ -24,10 +24,13 @@ Custom hosts (CLI scaffold output, test harnesses) build their own list::
 
     bootstrap = Bootstrap([c for c in DEFAULT_PLUGINS if include(c)])
 
-NOTE: the framework's own showcase site (landing page, agent demos,
-README/wiki rendering) is NOT a plugin and not in this list. It lives
-under ``ark_agentic.showcase`` and is mounted by ``app.py`` directly via
-``setup_showcase(app)`` — excluded from the published wheel.
+NOTE: the framework's own portal (landing page, agent demos, README +
+wiki rendering) lives under ``ark_agentic.portal`` and is excluded from
+the published wheel. ``Portal`` is a Lifecycle component too, but it
+isn't in this list — this repo's ``app.py`` builds its own component
+list with Portal slotted in before APIPlugin (so its ``/`` route wins).
+Third-party deployments using the wheel just construct a Bootstrap from
+``DEFAULT_PLUGINS`` and never see Portal.
 """
 
 from __future__ import annotations

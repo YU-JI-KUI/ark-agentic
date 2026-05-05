@@ -1,8 +1,8 @@
-"""Showcase HTTP routes — landing page, agent demo pages, README, wiki,
+"""Portal HTTP routes — landing page, agent demo pages, README, wiki,
 securities mock-mode admin probe.
 
-Framework-internal endpoints exposed via ``setup_showcase(app)``. Not
-shipped in the published wheel.
+Framework-internal endpoints registered via ``Portal.install_routes``.
+Not shipped in the published wheel.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["showcase"])
+router = APIRouter(tags=["portal"])
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _REPO_ROOT = Path(__file__).resolve().parents[3]

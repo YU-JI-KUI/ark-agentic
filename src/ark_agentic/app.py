@@ -1,9 +1,15 @@
 """ark-agentic FastAPI entry point.
 
-Composition root only: wires the default Lifecycle component list into a
+Composition root only: wires this repo's Lifecycle component list into a
 ``Bootstrap`` and lets it drive everything (init / install_routes /
 start / stop). All actual work — schema, agents, tracing, HTTP routes,
 middleware — lives in components, not here.
+
+This repo's list mirrors ``DEFAULT_PLUGINS`` in ``ark_agentic.bootstrap``
+plus ``Portal``, the framework's own landing site. Portal sits before
+APIPlugin so its ``/`` route registration wins (Starlette matches in
+registration order). End-user projects installed from the wheel don't
+have ``portal/`` and use ``DEFAULT_PLUGINS`` directly.
 """
 
 from __future__ import annotations
@@ -28,12 +34,29 @@ logging.basicConfig(
 
 from fastapi import FastAPI
 
-from ark_agentic.bootstrap import DEFAULT_PLUGINS
 from ark_agentic.core.bootstrap import Bootstrap
+from ark_agentic.core.lifecycle import Lifecycle
+from ark_agentic.core.runtime.agents import AgentsRuntime
+from ark_agentic.core.runtime.tracing import TracingRuntime
 from ark_agentic.plugins.api.context import AppContext
+from ark_agentic.plugins.api.plugin import APIPlugin
+from ark_agentic.plugins.jobs.plugin import JobsPlugin
+from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
+from ark_agentic.plugins.studio.plugin import StudioPlugin
+from ark_agentic.portal import Portal
 
 logger = logging.getLogger(__name__)
-_bootstrap = Bootstrap(DEFAULT_PLUGINS)
+
+_components: list[Lifecycle] = [
+    AgentsRuntime(),
+    Portal(),
+    APIPlugin(),
+    NotificationsPlugin(),
+    JobsPlugin(),
+    StudioPlugin(),
+    TracingRuntime(),
+]
+_bootstrap = Bootstrap(_components)
 
 
 @asynccontextmanager
@@ -53,15 +76,6 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
-
-# Framework-only showcase site (landing / agent demos / README+wiki).
-# Mounted **before** plugin routes so this repo's home page wins over
-# the APIPlugin's default ``/`` chat demo. The showcase package is
-# excluded from the published wheel — third-party deployments install
-# this code path don't have it and fall through to the plugin default.
-from ark_agentic.showcase import setup_showcase
-setup_showcase(app)
-
 _bootstrap.install_routes(app)
 
 

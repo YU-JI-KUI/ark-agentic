@@ -49,7 +49,7 @@ exclude = [
     "src/ark_agentic/agents/insurance",
     "src/ark_agentic/agents/securities",
     "src/ark_agentic/app.py",
-    "src/ark_agentic/showcase",
+    "src/ark_agentic/portal",
     "src/ark_agentic/plugins/studio/frontend/node_modules",
     "src/ark_agentic/plugins/studio/frontend/src",
 ]
