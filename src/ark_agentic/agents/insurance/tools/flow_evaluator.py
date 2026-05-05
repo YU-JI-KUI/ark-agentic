@@ -30,7 +30,7 @@ class IdentityVerifyOutput(BaseModel):
     """身份核验阶段完成条件"""
 
     user_id: str
-    phone: str                      # 映射自 contact , 必填字段
+    phone: str                      # 映射自 contact.phone（与 mock/API 一致）
     email: str | None               # 映射自 contact , 非必填字段
     id_card_verified: bool          # 映射自 customer_info → identity.verified
     policy_ids: list[str]           # 映射自 policy_query → policyAssertList[*].policy_id
@@ -103,7 +103,7 @@ class WithdrawalFlowEvaluator(BaseFlowEvaluator):
                     ),
                     "phone": FieldDefinition(
                         state_key="_customer_info_result",
-                        path="contact.phone_number",
+                        path="contact.phone",
                     ),
                     "email": FieldDefinition(
                         state_key="_customer_info_result",

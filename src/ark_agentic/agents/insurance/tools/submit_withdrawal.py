@@ -136,6 +136,12 @@ class SubmitWithdrawalTool(AgentTool):
             description="展示给用户的文字说明（由 LLM 生成，包含办理内容和剩余渠道提醒）",
             required=False,
         ),
+        ToolParameter(
+            name="email",
+            type="string",
+            description="用户邮箱地址",
+            required=True,
+        ),
     ]
 
     async def execute(
@@ -143,6 +149,14 @@ class SubmitWithdrawalTool(AgentTool):
     ) -> AgentToolResult:
         operation_type: str = tool_call.arguments.get("operation_type", "")
         ctx = context or {}
+        
+        email = tool_call.arguments.get("email", "")
+        logger.info(f">>>>> email: {email}")
+        if not email:
+            return AgentToolResult.error_result(
+                tool_call.id,
+                "用户邮箱地址不能为空",
+            )
 
         source_type = _SOURCE_TYPE_MAP.get(operation_type)
         if source_type is None:

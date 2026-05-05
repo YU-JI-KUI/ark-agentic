@@ -22,21 +22,20 @@ required_tools:
 
 # 保险取款流程（Flow）
 
-用户已进入「取款办理」闭环时，按阶段完成核验、算费、交互确认与提交。**每轮发言前**必须先根据系统提示中的**流程状态 JSON**决定动作，再按对应阶段的 `references/*.md` 细化话术与工具参数。
+用户已进入「取款办理」闭环时，按阶段完成核验、算费、交互确认与提交。**每轮发言前**须结合系统提示中的 **`<flow_evaluation>`**（块首为通用 **「流程评估约定」**，块内 fenced JSON 为结构化状态），再按 `<flow_reference>` 做本阶段话术与参数。
 
 ---
 
-## 决策依据（系统提示中的流程状态）
+## 决策依据（流程状态 JSON）
 
-系统消息末尾以 `---` 分隔，其后为**一行可解析的 JSON**（对象）。仅用其字段做判断，**不要**依据对流水线实现的猜测来跳步。
+通用行动规则（outstanding、阶段守卫、工具边界）见 `<flow_evaluation>` 内 **「流程评估约定」**。下表仅补充 **JSON 字段语义**（对象在该块内 fenced JSON 中）。
 
 | 字段路径 | 含义与行动 |
 |----------|------------|
-| `flow_status === "completed"` | 本流程已在系统内闭环结束。向用户做恰当收尾说明，**不要**再为推进本流程而调用 `customer_info` / `policy_query` / `rule_engine` / `render_a2ui` / `submit_withdrawal` 等办理链工具。 |
+| `flow_status === "completed"` | 本流程已在系统内闭环结束。 |
 | `current_stage` 存在 | 仍在办理中。必须处理完本阶段再进入下一阶段。 |
 | `current_stage.result === "invalid"` | `outstanding_fields` 中存在 `status: "error"` 的项。先根据其中的 `error`（及 `hint`）修正数据、重试工具或向用户澄清，**不要**无视错误继续往下走。 |
 | `current_stage.result === "incomplete"` | `outstanding_fields` 中为待补数据。对每一项：`hint` 若说明需 `collect_user_fields`，则在和用户确认取值后调用；否则用 `suggested_tools` 中的工具从系统侧补齐。 |
-| `current_stage.suggested_tools` | 当前阶段**优先**使用的工具名列表；选工具时与之对齐，避免凭感觉调用未列出的业务工具。 |
 | `outstanding_fields` 为空对象且 `result` 仍为 `incomplete` | 少见；仍遵守 `suggested_tools` 与阶段参考文档，直至下轮 JSON 更新。 |
 
 若在未完成当前阶段时调用了**仅属于后面阶段**的工具，你会收到短小拒绝话术（阶段未完成）；此时应回到上表，先清掉 `outstanding_fields`。

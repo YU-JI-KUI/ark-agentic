@@ -45,6 +45,7 @@ from ..types import (
     ToolLoopAction,
     ToolResultType,
 )
+from ..skills.base import _escape_xml
 from .base_evaluator import BaseFlowEvaluator, FlowEvalResult, FlowEvaluatorRegistry
 from .task_registry import TaskRegistry
 
@@ -58,7 +59,7 @@ def _append_to_system_message(messages: list[dict[str, Any]], content: str) -> N
     """将 content 追加到第一个 system message 末尾。若不存在则插入。"""
     for i, msg in enumerate(messages):
         if msg.get("role") == "system":
-            messages[i] = {**msg, "content": msg["content"] + f"\n\n---\n{content}"}
+            messages[i] = {**msg, "content": msg["content"] + f"\n\n{content}"}
             return
     messages.insert(0, {"role": "system", "content": content})
 
@@ -107,13 +108,28 @@ def _format_pending_tasks_json(tasks: list[dict[str, Any]]) -> str:
     )
 
 
-def _build_evaluation_message(result: FlowEvalResult) -> str:
-    """构造一条 role=system 的消息，content 为**纯 JSON 字符串**（无 Markdown 包裹）。
+# 与阶段 reference 解耦：凡注入 flow_evaluation 且流程未结束时附于 JSON 之前。
+_FLOW_EVALUATION_PROTOCOL = """\
+### 流程评估约定（框架通用）
 
-    负载：`process_name` + 当前阶段待处理项（``current_stage`` / ``outstanding_fields``）；
-    已完成则仅 ``flow_status: completed``。无 ``state_key`` 的缺失项在 ``hint`` 中并入
-    ``collect_user_fields`` 说明。（``flow_id`` / ``skill_name`` 以 session 内
-    ``_flow_context`` 为准，不向模型重复。）
+以下约定适用于**当前** `flow_evaluation` 中的 JSON。
+
+- **`current_stage.outstanding_fields`（见下方 JSON）**
+  - `missing`：向用户说明缺什么、为何需要；若 `hint` 要求则在与用户确认后调用 `collect_user_fields`。在 outstanding **未清空**前，业务工具**仅**使用当前 JSON 中 `suggested_tools`（及技能允许的通用工具如 `resume_task` / `rollback_flow_stage` 等）；**勿**调用仅属于后续阶段的工具。
+  - `error`：按 `error` / `hint` 修正或向用户澄清，可重试本阶段工具；勿宣称已进入后续阶段或替用户推进下一阶段。
+
+- **以本块为准**：若工具 JSON 看似满足某条件，但此处仍为 `incomplete` / `invalid`，说明评估状态尚未对齐，须继续按 outstanding 处理。
+
+- **阶段守卫**：若同轮出现「当前流程阶段「…」尚未完成，请先按提示完成本阶段后再继续」——表示越级工具已被拦截。须**撤回**对后续阶段的表述，只处理 outstanding 与本阶段工具；
+"""
+
+
+def _build_evaluation_message(result: FlowEvalResult) -> str:
+    """与主系统提示一致：``<flow_evaluation>`` 包裹，内层为简短说明 + fenced JSON。
+
+    JSON 负载：``process_name``、``flow_status`` / ``current_stage``、
+    ``outstanding_fields``；无 ``state_key`` 的缺失项在 ``hint`` 中并入
+    ``collect_user_fields`` 说明。
     """
     current_stage_eval = next(
         (e for e in result.stage_evaluations if e.status == "in_progress"), None
@@ -138,6 +154,9 @@ def _build_evaluation_message(result: FlowEvalResult) -> str:
                     hint_parts: list[str] = []
                     if fs.description:
                         hint_parts.append(fs.description)
+                    # 工具侧缺失时 error 为抽取诊断（如 state_key 未就位），必须透出否则 JSON 只剩裸 status
+                    if fs.error:
+                        hint_parts.append(fs.error)
                     fd = defs.get(name)
                     if fd is not None and not fd.state_key:
                         hint_parts.append(
@@ -158,8 +177,14 @@ def _build_evaluation_message(result: FlowEvalResult) -> str:
             "outstanding_fields": outstanding,
         }
 
-    content = json.dumps(eval_json, ensure_ascii=False)
-    return content
+    body_json = json.dumps(eval_json, ensure_ascii=False, indent=2)
+    prefix = "" if result.is_done else _FLOW_EVALUATION_PROTOCOL + "\n"
+    inner = (
+        f"{prefix}"
+        "当前流程结构化状态：\n\n"
+        f"```json\n{body_json}\n```\n"
+    )
+    return f"<flow_evaluation>\n{inner}</flow_evaluation>"
 
 
 # ── FlowCallbacks ─────────────────────────────────────────────────────────────
@@ -419,7 +444,12 @@ class FlowCallbacks:
         except Exception as e:
             logger.warning("[FlowEval] failed to read reference %s: %s", ref_path, e)
             return None
-        return f"### 当前阶段参考: {current_stage_id}\n\n{ref_content}"
+        attrs = (
+            f'stage_id="{_escape_xml(current_stage_id)}" '
+            f'name="{_escape_xml(stage_def.name)}" '
+            f'file="{_escape_xml(stage_def.reference_file)}"'
+        )
+        return f"<flow_reference {attrs}>\n{ref_content}\n</flow_reference>"
 
     # ── after_agent ───────────────────────────────────────────────────────────
 

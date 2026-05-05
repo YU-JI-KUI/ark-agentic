@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 from ..types import SkillEntry, SkillMetadata
-from .base import SkillConfig
+from .base import SkillConfig, _escape_xml
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +146,10 @@ class SkillLoader:
         sections = [body]
         for ref_file in sorted(references_dir.glob("*.md")):
             ref_content = ref_file.read_text(encoding="utf-8")
-            sections.append(f"\n\n---\n### Reference: {ref_file.stem}\n\n{ref_content}")
+            fn = _escape_xml(ref_file.name)
+            sections.append(
+                f'\n\n<skill_reference file="{fn}">\n{ref_content}\n</skill_reference>'
+            )
         return "".join(sections)
 
     def _parse_frontmatter(self, content: str) -> tuple[dict[str, Any], str]:

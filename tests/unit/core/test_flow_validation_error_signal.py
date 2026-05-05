@@ -35,6 +35,13 @@ from ark_agentic.core.types import (
 )
 
 
+def _parse_flow_evaluation_json(text: str) -> dict[str, Any]:
+    """从 ``<flow_evaluation>`` 内嵌的 ```json 围栏取出对象。"""
+    start = text.index("```json") + len("```json")
+    end = text.index("```", start)
+    return json.loads(text[start:end].strip())
+
+
 # ── Test evaluator fixture ───────────────────────────────────────────────────
 
 
@@ -128,10 +135,9 @@ def test_build_evaluation_message_renders_invalid_stage() -> None:
     state: dict[str, Any] = {"identity": {"verified": "not-a-bool", "customer_id": "C123"}}
 
     result = ev.evaluate(flow_ctx, state)
-    msg = _build_evaluation_message(result)
-    text = msg["content"]
-    assert msg["role"] == "system"
-    # 字段级 error 触发 result=invalid
+    text = _build_evaluation_message(result)
+    assert "<flow_evaluation>" in text
+    assert "</flow_evaluation>" in text
     assert '"result": "invalid"' in text
     assert "identity_verify" in text
 
@@ -178,16 +184,20 @@ def test_build_evaluation_message_clean_when_no_errors() -> None:
     state: dict[str, Any] = {}
     result = ev.evaluate(flow_ctx, state)
 
-    msg = _build_evaluation_message(result)
-    text = msg["content"]
-    assert msg["role"] == "system"
+    text = _build_evaluation_message(result)
+    assert "<flow_evaluation>" in text
     assert '"result": "incomplete"' in text
     assert '"result": "blocked"' not in text
     assert "identity_verify" in text
-    # 缺失项均有 state_key（工具侧抽取），hint 中不应引导 collect_user_fields
-    assert "collect_user_fields" not in text
+    # 缺失项均有 state_key（工具侧抽取），JSON hint 中不应引导 collect_user_fields（通用约定里会提到该工具名）
+    payload = _parse_flow_evaluation_json(text)
+    for entry in payload["current_stage"]["outstanding_fields"].values():
+        assert "collect_user_fields" not in str(entry.get("hint", ""))
     assert "stages_overview" not in text
     assert "outstanding_fields" in text
+    # 工具侧缺失须透出 FieldStatus.error 作为 hint，避免只剩裸 status
+    assert "hint" in text
+    assert "state_key" in text
 
 
 def test_build_evaluation_message_collect_hint_when_user_field_missing() -> None:
@@ -202,11 +212,23 @@ def test_build_evaluation_message_collect_hint_when_user_field_missing() -> None
 
     assert result.current_stage is not None
     assert result.current_stage.id == "plan_confirm"
-    msg = _build_evaluation_message(result)
-    assert "outstanding_fields" in msg["content"]
-    assert "stages_overview" not in msg["content"]
-    assert "collect_user_fields" in msg["content"]
-    assert "请向用户确认后调用 `collect_user_fields` 提交该字段" in msg["content"]
+    text = _build_evaluation_message(result)
+    assert "<flow_evaluation>" in text
+    assert "outstanding_fields" in text
+    assert "stages_overview" not in text
+    assert "collect_user_fields" in text
+    assert "请向用户确认后调用 `collect_user_fields` 提交该字段" in text
+
+
+def test_build_evaluation_message_includes_protocol_when_not_done() -> None:
+    ev = _Evaluator()
+    flow_ctx: dict[str, Any] = {"flow_id": "f1", "skill_name": "test_flow"}
+    state: dict[str, Any] = {}
+    result = ev.evaluate(flow_ctx, state)
+    assert not result.is_done
+    text = _build_evaluation_message(result)
+    assert "流程评估约定" in text
+    assert "阶段守卫" in text
 
 
 def test_build_evaluation_message_completed_minimal() -> None:
@@ -220,12 +242,13 @@ def test_build_evaluation_message_completed_minimal() -> None:
     result = ev.evaluate(flow_ctx, state)
     assert result.is_done
 
-    msg = _build_evaluation_message(result)
-    text = msg["content"]
+    text = _build_evaluation_message(result)
+    assert "<flow_evaluation>" in text
+    assert "流程评估约定" not in text
     assert '"flow_status": "completed"' in text
     assert "stages_overview" not in text
     assert "current_stage" not in text
-    payload = json.loads(text)
+    payload = _parse_flow_evaluation_json(text)
     assert payload["flow_status"] == "completed"
     assert payload["process_name"] == "当前流程执行状态评估"
 
