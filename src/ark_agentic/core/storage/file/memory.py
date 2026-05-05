@@ -16,6 +16,7 @@ from ...memory.user_profile import (
     format_heading_sections,
     parse_heading_sections,
 )
+from ..entries import MemorySummaryEntry
 from ._paginate import paginate
 
 logger = logging.getLogger(__name__)
@@ -168,3 +169,38 @@ class FileMemoryRepository:
         users_with_mtime.sort(key=lambda t: t[1], reverse=order_by_updated_desc)
         names = [name for name, _ in users_with_mtime]
         return paginate(names, limit, offset)
+
+    async def list_memory_summaries(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[MemorySummaryEntry]:
+        return await asyncio.to_thread(
+            self._list_memory_summaries_sync, limit, offset,
+        )
+
+    def _list_memory_summaries_sync(
+        self, limit: int | None, offset: int,
+    ) -> list[MemorySummaryEntry]:
+        if not self._workspace.exists():
+            return []
+        rows: list[MemorySummaryEntry] = []
+        for entry in self._workspace.iterdir():
+            if not entry.is_dir():
+                continue
+            mem = entry / _PROFILE_FILENAME
+            if not mem.exists():
+                continue
+            stat = mem.stat()
+            rows.append(MemorySummaryEntry(
+                user_id=entry.name,
+                size_bytes=stat.st_size,
+                updated_at=int(stat.st_mtime * 1000),
+                file_type="memory",
+                path=f"{entry.name}/MEMORY.md",
+            ))
+        rows.sort(
+            key=lambda r: r.updated_at if r.updated_at is not None else 0,
+            reverse=True,
+        )
+        return paginate(rows, limit, offset)

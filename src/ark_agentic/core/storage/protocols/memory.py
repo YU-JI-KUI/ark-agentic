@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from ..entries import MemorySummaryEntry
+
 
 @runtime_checkable
 class MemoryRepository(Protocol):
@@ -37,6 +39,20 @@ class MemoryRepository(Protocol):
 
         SQLite/PG implementations support ``limit=None`` (returns all).
         PR3 PG: ``limit=None`` must raise on hot paths to force pagination.
+        """
+        ...
+
+    async def list_memory_summaries(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[MemorySummaryEntry]:
+        """Per-user summaries (size + updated_at) for the dashboard listing.
+
+        Resolved in one round-trip — SQLite uses ``length(content)``,
+        the file backend reads each MEMORY.md's ``stat()``. Replaces
+        ``list_users()`` + N ``read(uid)`` on the dashboard hot path.
+        ORDER BY ``updated_at`` DESC.
         """
         ...
 

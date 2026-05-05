@@ -236,6 +236,74 @@ export interface TraceLinkConfig {
     template: string | null
 }
 
+// ── Dashboard summary ─────────────────────────────────────────────
+
+export interface DashboardTrendPoint {
+    label: string
+    short_label: string
+    value: number
+}
+
+export interface DashboardDistributionItem {
+    label: string
+    value: number
+    hint: string | null
+}
+
+export interface DashboardInsightStat {
+    label: string
+    value: string
+    hint: string | null
+}
+
+export interface DashboardActivityItem {
+    ts: string
+    kind: 'skill' | 'tool' | 'session' | 'memory'
+    agent: string
+    agent_label: string
+    text: string
+    status: 'ok' | 'warn' | 'error'
+}
+
+export interface DashboardSummaryResponse {
+    total_agents: number
+    total_users: number
+    total_skills: number
+    total_tools: number
+    total_sessions: number
+    total_memory_files: number
+    total_memory_bytes: number
+    trends: {
+        users: DashboardTrendPoint[]
+        skills: DashboardTrendPoint[]
+        tools: DashboardTrendPoint[]
+        sessions: DashboardTrendPoint[]
+        memory: DashboardTrendPoint[]
+    }
+    skills: {
+        stats: DashboardInsightStat[]
+        groups: DashboardDistributionItem[]
+        tags: DashboardDistributionItem[]
+    }
+    tools: {
+        stats: DashboardInsightStat[]
+        groups: DashboardDistributionItem[]
+        agents: DashboardDistributionItem[]
+    }
+    sessions: {
+        stats: DashboardInsightStat[]
+        agents: DashboardDistributionItem[]
+        message_bands: DashboardDistributionItem[]
+    }
+    memory: {
+        stats: DashboardInsightStat[]
+        file_types: DashboardDistributionItem[]
+        agents: DashboardDistributionItem[]
+    }
+    activity: DashboardActivityItem[]
+    generated_at: string
+}
+
 // ── Mutation Input Types ───────────────────────────────────────────
 
 export interface SkillCreateInput {
@@ -396,4 +464,8 @@ export const api = {
         }
         return res.json()
     },
+
+    // Dashboard
+    getDashboardSummary: () =>
+        fetchJSON<DashboardSummaryResponse>(`${API_BASE}/dashboard/summary`),
 }

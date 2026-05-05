@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -20,6 +20,7 @@ from ....memory.user_profile import (
     format_heading_sections,
     parse_heading_sections,
 )
+from ...entries import MemorySummaryEntry
 
 
 class SqliteMemoryRepository:
@@ -138,3 +139,31 @@ class SqliteMemoryRepository:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt)).all()
         return [r[0] for r in rows]
+
+    async def list_memory_summaries(
+        self,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[MemorySummaryEntry]:
+        stmt = (
+            select(
+                UserMemory.user_id,
+                func.length(UserMemory.content).label("size_bytes"),
+                UserMemory.updated_at,
+            )
+            .order_by(UserMemory.updated_at.desc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit).offset(offset)
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(stmt)).all()
+        return [
+            MemorySummaryEntry(
+                user_id=r.user_id,
+                size_bytes=int(r.size_bytes or 0),
+                updated_at=r.updated_at,
+                file_type="memory",
+                path=f"{r.user_id}/MEMORY.md",
+            )
+            for r in rows
+        ]

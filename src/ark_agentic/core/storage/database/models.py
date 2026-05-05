@@ -7,7 +7,7 @@ holds only the central ones.
 
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -17,7 +17,7 @@ class SessionMeta(Base):
     __tablename__ = "session_meta"
 
     session_id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    user_id: Mapped[str] = mapped_column(String(255), index=True)
+    user_id: Mapped[str] = mapped_column(String(255))
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
     model: Mapped[str] = mapped_column(String(64), default="")
     provider: Mapped[str] = mapped_column(String(32), default="")
@@ -27,6 +27,19 @@ class SessionMeta(Base):
     total_tokens: Mapped[int] = mapped_column(Integer, default=0)
     compaction_count: Mapped[int] = mapped_column(Integer, default=0)
     active_skill_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+
+    # Composite covers both ``WHERE user_id=? ORDER BY updated_at DESC``
+    # (Studio per-user listing) and the dashboard's pure ``ORDER BY
+    # updated_at DESC`` admin scan. SQLite walks DESC indexes natively so
+    # the explicit ``DESC`` declaration matters only for cross-dialect
+    # parity (PG/MySQL).
+    __table_args__ = (
+        Index(
+            "ix_session_meta_user_updated_at",
+            "user_id",
+            text("updated_at DESC"),
+        ),
+    )
 
 
 class SessionMessage(Base):

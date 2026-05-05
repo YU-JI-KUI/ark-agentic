@@ -15,7 +15,7 @@ from .compaction import (
     estimate_message_tokens,
 )
 from .history_merge import InsertOp
-from ..storage.entries import SessionStoreEntry
+from ..storage.entries import SessionStoreEntry, SessionSummaryEntry
 from ..types import AgentMessage, CompactionStats, SessionEntry, TokenUsage
 
 if TYPE_CHECKING:
@@ -199,6 +199,18 @@ class SessionManager:
 
         pairs = await self._repository.list_all_sessions()
         return await self._collect_sessions(pairs)
+
+    async def list_session_summaries(
+        self, user_id: str | None = None,
+    ) -> list[SessionSummaryEntry]:
+        """Return per-session summaries (count + snippet) without loading messages.
+
+        Backed by a single aggregate read on every supported repository;
+        replaces the K+1 ``list_sessions_from_disk`` path on the
+        Studio listing / dashboard hot path. ``user_id=None`` returns
+        an admin cross-user listing.
+        """
+        return await self._repository.list_session_summaries(user_id)
 
     async def _collect_sessions(
         self, pairs: list[tuple[str, str]],

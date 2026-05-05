@@ -8,6 +8,7 @@ Session 仅支持查看与编辑，不支持新建与删除。
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -39,6 +40,11 @@ class SessionListResponse(BaseModel):
     sessions: list[SessionItem]
 
 
+class TurnContextItem(BaseModel):
+    active_skill_id: str | None = None
+    tools_mounted: list[str] = Field(default_factory=list)
+
+
 class MessageItem(BaseModel):
     role: str
     content: str | None
@@ -46,6 +52,8 @@ class MessageItem(BaseModel):
     tool_results: list[dict[str, Any]] | None = None
     thinking: str | None = None
     metadata: dict[str, Any] | None = None
+    finish_reason: str | None = None
+    turn_context: TurnContextItem | None = None
 
 
 class SessionDetailResponse(BaseModel):
@@ -68,6 +76,12 @@ def _message_to_item(msg: Any) -> MessageItem:
         if msg.tool_results
         else None
     )
+    turn_context: TurnContextItem | None = None
+    if msg.turn_context is not None:
+        turn_context = TurnContextItem(
+            active_skill_id=msg.turn_context.active_skill_id,
+            tools_mounted=list(msg.turn_context.tools_mounted),
+        )
     return MessageItem(
         role=role,
         content=content,
@@ -75,6 +89,8 @@ def _message_to_item(msg: Any) -> MessageItem:
         tool_results=tool_results,
         thinking=msg.thinking,
         metadata=msg.metadata or None,
+        finish_reason=msg.finish_reason,
+        turn_context=turn_context,
     )
 
 
@@ -93,22 +109,22 @@ async def list_agent_sessions(
     except KeyError:
         return SessionListResponse(sessions=[])
 
-    sessions = await runner.session_manager.list_sessions_from_disk(user_id=user_id)
+    summaries = await runner.session_manager.list_session_summaries(user_id=user_id)
     items: list[SessionItem] = []
-    for s in sessions:
-        first_user_msg = next(
-            (m for m in s.messages
-             if (m.role.value if hasattr(m.role, "value") else m.role) == "user" and m.content),
-            None,
-        )
+    for s in summaries:
+        ts_iso: str | None = None
+        if s.updated_at:
+            ts_iso = datetime.fromtimestamp(
+                s.updated_at / 1000, tz=timezone.utc,
+            ).isoformat()
         items.append(SessionItem(
             session_id=s.session_id,
             user_id=s.user_id,
-            message_count=len(s.messages),
+            message_count=s.message_count,
             state=s.state,
-            created_at=s.created_at.isoformat() if s.created_at else None,
-            updated_at=s.updated_at.isoformat() if s.updated_at else None,
-            first_message=first_user_msg.content[:80] if first_user_msg else None,
+            created_at=ts_iso,
+            updated_at=ts_iso,
+            first_message=s.first_user_message,
         ))
     return SessionListResponse(sessions=items)
 

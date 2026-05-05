@@ -768,6 +768,11 @@ class AgentRunner:
             model_override or self.config.model,
         )
 
+        turn_context = TurnContext(
+            active_skill_id=session.current_active_skill_id,
+            tools_mounted=tools_mounted,
+        )
+
         model_result = await self._model_phase(
             session_id,
             ls,
@@ -779,16 +784,12 @@ class AgentRunner:
             sampling_override=sampling_override,
             handler=handler,
             cb_ctx=cb_ctx,
+            turn_context=turn_context,
         )
         if isinstance(model_result, RunResult):
             return model_result
 
         response = model_result
-        ctx_session = self.session_manager.get_session(session_id)
-        response.turn_context = TurnContext(
-            active_skill_id=ctx_session.current_active_skill_id if ctx_session else None,
-            tools_mounted=tools_mounted,
-        )
         if response.tool_calls:
             stop = await self._tool_phase(
                 session_id,
@@ -851,6 +852,7 @@ class AgentRunner:
         sampling_override: SamplingConfig | None,
         handler: AgentEventHandler | None,
         cb_ctx: CallbackContext | None,
+        turn_context: TurnContext,
     ) -> AgentMessage | RunResult:
         """before_model → LLM call → after_model → persist → tokens → finish_reason."""
         add_span_attributes({
@@ -952,6 +954,7 @@ class AgentRunner:
         )
 
         session_for_persist = self.session_manager.get_session_required(session_id)
+        response.turn_context = turn_context
         await self.session_manager.add_message(
             session_id, session_for_persist.user_id or "", response,
         )

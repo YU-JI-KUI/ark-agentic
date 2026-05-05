@@ -13,9 +13,9 @@ reads them at the same path.
 Idempotent: source files that no longer exist (or whose target already
 exists) are skipped silently.
 
-The CLI runner lives at ``scripts/migrate_agent_state_dotfiles.py``::
+Run::
 
-    uv run python scripts/migrate_agent_state_dotfiles.py \\
+    uv run python scripts/migrations/dotfiles.py \\
         --memory-root data/ark_memory \\
         --job-runs-dir data/ark_job_runs
 """

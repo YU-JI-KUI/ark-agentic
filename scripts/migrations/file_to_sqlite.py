@@ -5,9 +5,9 @@ through ``FileXxxRepository`` (the same code production runs against) and
 writes through ``SqliteXxxRepository`` so the migration speaks only the
 storage Protocols.
 
-The CLI runner lives at ``scripts/migrate_file_to_sqlite.py``::
+Run::
 
-    uv run python scripts/migrate_file_to_sqlite.py \\
+    uv run python scripts/migrations/file_to_sqlite.py \\
         --sessions-dir data/sessions \\
         --memory-dir data/ark_memory \\
         --notifications-dir data/notifications \\
@@ -27,32 +27,40 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from ..core.storage.database.config import DBConfig
-from ..core.storage.database.engine import (
+from ark_agentic.core.storage.database.config import DBConfig
+from ark_agentic.core.storage.database.engine import (
     get_async_engine,
     init_schema as init_core_schema,
     set_engine_for_testing,
 )
-from ..plugins.jobs.engine import init_schema as init_jobs_schema
-from ..plugins.jobs.storage.models import JobRunRow
-from ..plugins.jobs.storage.sqlite import SqliteJobRunRepository
-from ..plugins.notifications.engine import (
-    init_schema as init_notif_schema,
-)
-from ..plugins.studio.services.auth.engine import (
-    init_schema as init_studio_schema,
-)
-from ..core.storage.database.models import (
+from ark_agentic.core.storage.database.models import (
     SessionMeta,
     UserMemory,
 )
-from ..core.storage.file.memory import FileMemoryRepository
-from ..core.storage.file.session import FileSessionRepository
-from ..core.storage.database.sqlite.memory import SqliteMemoryRepository
-from ..core.storage.database.sqlite.session import SqliteSessionRepository
-from ..plugins.notifications.storage.file import FileNotificationRepository
-from ..plugins.notifications.storage.models import NotificationRow
-from ..plugins.notifications.storage.sqlite import SqliteNotificationRepository
+from ark_agentic.core.storage.database.sqlite.memory import (
+    SqliteMemoryRepository,
+)
+from ark_agentic.core.storage.database.sqlite.session import (
+    SqliteSessionRepository,
+)
+from ark_agentic.core.storage.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.file.session import FileSessionRepository
+from ark_agentic.plugins.jobs.engine import init_schema as init_jobs_schema
+from ark_agentic.plugins.jobs.storage.models import JobRunRow
+from ark_agentic.plugins.jobs.storage.sqlite import SqliteJobRunRepository
+from ark_agentic.plugins.notifications.engine import (
+    init_schema as init_notif_schema,
+)
+from ark_agentic.plugins.notifications.storage.file import (
+    FileNotificationRepository,
+)
+from ark_agentic.plugins.notifications.storage.models import NotificationRow
+from ark_agentic.plugins.notifications.storage.sqlite import (
+    SqliteNotificationRepository,
+)
+from ark_agentic.plugins.studio.services.auth.engine import (
+    init_schema as init_studio_schema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -353,7 +361,7 @@ async def migrate(
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="migrate_file_to_sqlite",
+        prog="file_to_sqlite",
         description="Idempotent migration from file backend to SQLite.",
     )
     p.add_argument("--sessions-dir", type=Path, default=None)

@@ -93,19 +93,23 @@ async def _merge_db_memory_items(
     """Append repository-backed user rows that have no on-disk MEMORY.md."""
     seen = {f.file_path for f in files}
     out = list(files)
-    for uid in await mm.list_user_ids():
-        rel = f"{uid}/MEMORY.md"
+    for summary in await mm.list_memory_summaries():
+        rel = f"{summary.user_id}/MEMORY.md"
         if rel in seen:
             continue
         seen.add(rel)
-        text = await mm.read_memory(uid)
+        modified_at: str | None = None
+        if summary.updated_at:
+            modified_at = datetime.fromtimestamp(
+                summary.updated_at / 1000, tz=timezone.utc,
+            ).isoformat()
         out.append(
             MemoryFileItem(
-                user_id=uid,
+                user_id=summary.user_id,
                 file_path=rel,
                 file_type="memory",
-                size_bytes=len(text.encode("utf-8")),
-                modified_at=None,
+                size_bytes=summary.size_bytes,
+                modified_at=modified_at,
             )
         )
     return out

@@ -66,11 +66,17 @@ class Bootstrap:
         # protocol package, so a top-level import would cycle.
         from ..observability.tracing_lifecycle import TracingLifecycle
         from ..runtime.agents_lifecycle import AgentsLifecycle
+        from ..storage.storage_lifecycle import CoreStorageLifecycle
 
+        self._storage: Lifecycle | None = CoreStorageLifecycle()
         self._agents: "_AgentsLifecycle | None" = AgentsLifecycle()
         self._tracing: Lifecycle | None = TracingLifecycle()
+        # Storage runs first so the central session / user-memory tables
+        # exist before agents warm up or plugin init() touches the DB.
         components: list[Lifecycle] = (
-            [self._agents] + list(plugins or []) + [self._tracing]
+            [self._storage, self._agents]
+            + list(plugins or [])
+            + [self._tracing]
         )
         self._components: list[Lifecycle] = [
             c for c in components if c.is_enabled()
@@ -85,6 +91,7 @@ class Bootstrap:
         code MUST go through the public constructor.
         """
         self = cls.__new__(cls)
+        self._storage = None
         self._agents = None  # type: ignore[assignment]
         self._tracing = None  # type: ignore[assignment]
         self._components = [c for c in components if c.is_enabled()]
