@@ -9,8 +9,8 @@ import asyncio
 
 import json
 
-from ark_agentic.core.agent.callbacks import CallbackContext, CallbackResult, RunnerCallbacks
-from ark_agentic.core.agent.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.callbacks import CallbackContext, CallbackResult, RunnerCallbacks
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.tools.registry import ToolRegistry

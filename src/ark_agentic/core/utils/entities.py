@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from flashtext import KeywordProcessor
 
 if TYPE_CHECKING:
-    from ..agent.validation import ExtractedClaim
+    from ..runtime.validation import ExtractedClaim
 
 
 class EntityTrie:
@@ -84,7 +84,7 @@ class EntityClaimExtractor:
         self._trie = trie
 
     def extract_claims(self, text: str) -> list[ExtractedClaim]:
-        from ..agent.validation import ExtractedClaim
+        from ..runtime.validation import ExtractedClaim
 
         return [
             ExtractedClaim(value=entity, type="ENTITY", normalized_values=[entity])

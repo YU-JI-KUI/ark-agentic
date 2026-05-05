@@ -3,10 +3,9 @@
 Public API surface — 外部项目应仅使用此模块及子模块 __all__ 中列出的符号。
 
 子模块:
-    core.agent   — AgentRunner, AgentRegistry, RunnerCallbacks 等
-    core.session — SessionManager, JSONL 编解码, 上下文压缩
+    core.runtime  — AgentRunner, AgentRegistry, RunnerCallbacks, AgentsRuntime, TracingRuntime …
+    core.session  — SessionManager, JSONL 编解码, 上下文压缩
     core.protocol — Lifecycle / Plugin / Bootstrap / AppContext
-    core.runtime — AgentsRuntime / TracingRuntime（强制 Lifecycle 组件）
     core.tools   — AgentTool, ToolRegistry 等
     core.memory  — MemoryManager, Dream 等
     core.skills  — SkillLoader, SkillMatcher 等
@@ -34,7 +33,7 @@ from .types import (
     StepToolEvent,
     RunOptions,
 )
-from .agent.callbacks import (
+from .runtime.callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
@@ -50,8 +49,8 @@ from .agent.callbacks import (
     RunnerCallbacks,
     merge_runner_callbacks,
 )
-from .agent.runner import AgentRunner, RunnerConfig, RunResult
-from .agent.factory import AgentDef, build_standard_agent
+from .runtime.runner import AgentRunner, RunnerConfig, RunResult
+from .runtime.factory import AgentDef, build_standard_agent
 from .session.manager import SessionManager
 from .session.compaction import (
     ContextCompactor,

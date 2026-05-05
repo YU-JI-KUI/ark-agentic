@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ark_agentic.core.agent.registry import AgentRegistry
+    from ark_agentic.core.runtime.registry import AgentRegistry
 
 
 def register_proactive_jobs(

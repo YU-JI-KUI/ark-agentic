@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..agent.validation import ExtractedClaim
+    from ..runtime.validation import ExtractedClaim
 
 # ============ Regex 常量 ============
 
@@ -205,7 +205,7 @@ class DateClaimExtractor:
     """从 answer 中提取日期类 claim，并对事实来源做日期格式归一化。"""
 
     def extract_claims(self, text: str) -> list[ExtractedClaim]:
-        from ..agent.validation import ExtractedClaim
+        from ..runtime.validation import ExtractedClaim
 
         claims: list[ExtractedClaim] = []
         seen: set[str] = set()

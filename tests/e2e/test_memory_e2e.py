@@ -23,7 +23,7 @@ from ark_agentic.core.memory.extractor import FlushResult, MemoryFlusher
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.llm.caller import LLMCaller
-from ark_agentic.core.agent.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.tools.registry import ToolRegistry

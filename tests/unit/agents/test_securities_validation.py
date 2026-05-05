@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.agent.callbacks import CallbackContext, HookAction
+from ark_agentic.core.runtime.callbacks import CallbackContext, HookAction
 from ark_agentic.core.types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
-from ark_agentic.core.agent.validation import EntityTrie, create_citation_validation_hook
+from ark_agentic.core.runtime.validation import EntityTrie, create_citation_validation_hook
 
 
 def _inject_tool_turn(

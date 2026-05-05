@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.agent.factory import AgentDef, build_standard_agent
+from ark_agentic.core.runtime.factory import AgentDef, build_standard_agent
 from ark_agentic.core.skills.router import (
     LLMSkillRouter,
     RouteContext,

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from ark_agentic.core.agent.registry import AgentRegistry
-from ark_agentic.core.agent.runner import AgentRunner
+from ark_agentic.core.runtime.registry import AgentRegistry
+from ark_agentic.core.runtime.runner import AgentRunner
 
 # 由 app.py 在启动时调用 init_registry() 设置一次
 _registry: AgentRegistry | None = None

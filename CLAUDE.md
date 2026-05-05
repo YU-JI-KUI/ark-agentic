@@ -19,8 +19,8 @@ Python ≥3.12 (uv, hatchling) · FastAPI + SQLAlchemy + APScheduler · React 19
 src/ark_agentic/
   core/                  engine — must not import from plugins/agents/portal/app
     protocol/            Lifecycle/Plugin Protocols, Bootstrap, AppContext
-    runtime/             always-on Lifecycle impls (AgentsRuntime, TracingRuntime)
-    agent/               agent execution (Runner, Registry, Callbacks, Guard, …)
+    runtime/             agent execution + always-on Lifecycle impls
+                         (Runner, Registry, Callbacks, Guard, AgentsRuntime, TracingRuntime …)
     session/             SessionManager, JSONL format, compaction, history merge
     storage/ ...         storage backends, db, etc.
   agents/                auto-discovered agent implementations

@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from ark_agentic.core.agent.callbacks import (
+from ark_agentic.core.runtime.callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
     RunnerCallbacks,
 )
-from ark_agentic.core.agent.runner import AgentRunner, RunnerConfig, RunResult, _LoopState
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult, _LoopState
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.types import AgentMessage, SessionEntry, SkillLoadMode, ToolCall
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ark_agentic.core.agent.callbacks import (
+from ark_agentic.core.runtime.callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,

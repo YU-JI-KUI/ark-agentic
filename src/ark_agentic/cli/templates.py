@@ -87,7 +87,7 @@ from pathlib import Path
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ark_agentic import AgentDef, AgentRunner, build_standard_agent
-from ark_agentic.core.agent.callbacks import RunnerCallbacks
+from ark_agentic.core.runtime.callbacks import RunnerCallbacks
 
 from .tools import create_{agent_name_snake}_tools
 
@@ -224,7 +224,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from ark_agentic.core.agent.registry import AgentRegistry
+from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.plugins.api import chat as chat_api
 from ark_agentic.plugins.api import deps as api_deps
 from ark_agentic.plugins.studio import setup_studio_from_env

@@ -16,9 +16,9 @@ from unittest.mock import patch
 import pytest
 
 from ark_agentic.core.types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
-from ark_agentic.core.agent.callbacks import CallbackContext, HookAction
+from ark_agentic.core.runtime.callbacks import CallbackContext, HookAction
 from ark_agentic.core.utils.grounding_cache import FactSnapshot, GroundingCache
-from ark_agentic.core.agent.validation import (
+from ark_agentic.core.runtime.validation import (
     ExtractedClaim,
     _fallback_match_ungrounded,
     _recompute_result,
