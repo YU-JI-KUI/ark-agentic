@@ -13,12 +13,12 @@ version = "0.1.0"
 description = "{project_name} - Built with ark-agentic"
 requires-python = ">=3.10"
 dependencies = [
-    {ark_dep}
-    "python-dotenv>=1.0.0",{api_deps}
+    "ark-agentic[server]>=0.5.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
-{project_name} = "{package_name}.main:main_sync"
+{project_name} = "{package_name}.app:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -34,20 +34,22 @@ testpaths = ["tests"]
 
 MAIN_MODULE_TEMPLATE = '''\
 """
-{project_name} - 基于 ark-agentic 框架的智能体应用
+{project_name} - 基于 ark-agentic 框架的智能体应用（无 HTTP 入口）
+
+适合 CLI / 脚本场景；HTTP + Studio 入口请用 ``{package_name}.app``。
 """
 
 import asyncio
 
 from dotenv import load_dotenv
 
-from .agents.default.agent import create_default_agent
+from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
 
 load_dotenv()
 
 
 async def main():
-    agent = create_default_agent()
+    agent = create_{agent_name_snake}_agent()
     user_id = "default"
     session_id = await agent.create_session(user_id=user_id)
 
@@ -157,46 +159,35 @@ def create_{agent_name_snake}_tools() -> list[AgentTool]:
 '''
 
 ENV_SAMPLE_TEMPLATE = """\
-# LLM Configuration
-{provider_block}
+# ---- LLM ----
+LLM_PROVIDER=openai
+MODEL_NAME=gpt-4o
+API_KEY=
 
-# Common options
-# DEFAULT_TEMPERATURE=0.7
+# ---- API server ----
+# API_HOST=0.0.0.0
+# API_PORT=8080
 
-# ---- 可观测性 (OpenTelemetry tracing) ----
-# TRACING controls which monitoring backends receive spans.
-# Comma-separated list of: phoenix, langfuse, console, otlp
-# Special value "auto" enables every provider whose credentials are set.
-# Leave unset (or empty) to disable tracing entirely (NoOp tracer, zero cost).
-TRACING=console
-
-# Phoenix (set TRACING=phoenix to enable)
-# PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006/v1/traces
-
-# Langfuse (set TRACING=langfuse + provide credentials)
-# LANGFUSE_PUBLIC_KEY=
-# LANGFUSE_SECRET_KEY=
-# LANGFUSE_HOST=https://cloud.langfuse.com
-
-# Generic OTLP (set TRACING=otlp + endpoint)
-# OTEL_EXPORTER_OTLP_ENDPOINT=
-# OTEL_EXPORTER_OTLP_HEADERS=
-
-# Studio configuration (optional)
+# ---- Plugins (opt-in via ENABLE_*) ----
 # ENABLE_STUDIO=true
-# AGENTS_ROOT=./src/{package_name}/agents
-# 默认使用 SQLite；PostgreSQL 可设置为 postgresql+psycopg://user:pass@host:5432/db
-# STUDIO_DATABASE_URL=sqlite:///data/ark_studio.db
-# 逗号分隔的登录认证 provider；当前内置支持 internal，未知 provider 会跳过并记录 warning
-# STUDIO_AUTH_PROVIDERS=internal
-# 生产环境必须设置稳定密钥；未设置时进程内临时生成，重启后 token 失效
-# STUDIO_AUTH_TOKEN_SECRET=
-# STUDIO_AUTH_TOKEN_TTL_SECONDS=43200
+# ENABLE_NOTIFICATIONS=true
+# ENABLE_JOB_MANAGER=true
+# ENABLE_MEMORY=true
+
+# ---- Tracing (off by default) ----
+# TRACING=console
 """
 
 API_APP_TEMPLATE = '''\
 """
-{project_name} API Server
+{project_name} - 框架装配入口
+
+仅做装配工作: 把项目自带的 Agent 注册到 ``AgentRegistry``，再交给
+``Bootstrap`` 驱动 ``DEFAULT_PLUGINS`` (API / Notifications / Jobs /
+Studio / Tracing) 完成 init / install_routes / start / stop。
+
+启用具体插件由环境变量决定（如 ``ENABLE_STUDIO=true``）；不需要的插件
+保持默认即可，``Bootstrap`` 会跳过。
 """
 
 from __future__ import annotations
@@ -204,9 +195,9 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 _log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
@@ -216,70 +207,50 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     force=True,
 )
-for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
-    logging.getLogger(_lib).setLevel(logging.WARNING)
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
+from ark_agentic.bootstrap import DEFAULT_PLUGINS
+from ark_agentic.core.bootstrap import Bootstrap
+from ark_agentic.core.lifecycle import Lifecycle
 from ark_agentic.core.registry import AgentRegistry
-from ark_agentic.plugins.api import chat as chat_api
-from ark_agentic.plugins.api import deps as api_deps
-from ark_agentic.plugins.studio import setup_studio_from_env
+from ark_agentic.core.runtime.agents import AgentsRuntime
+from ark_agentic.plugins.api.context import AppContext
 
 from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
 
 logger = logging.getLogger(__name__)
 
+# 1) 预先把项目自带的 agent 注册进 registry
 _registry = AgentRegistry()
+_registry.register("{agent_name_snake}", create_{agent_name_snake}_agent())
+
+# 2) 用绑定到该 registry 的 AgentsRuntime 替换 DEFAULT_PLUGINS 中默认那一份
+_components: list[Lifecycle] = [
+    AgentsRuntime(registry=_registry) if c.name == "registry" else c
+    for c in DEFAULT_PLUGINS
+]
+_bootstrap = Bootstrap(_components)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    runner = create_{agent_name_snake}_agent()
-    _registry.register("{agent_name_snake}", runner)
-    api_deps.init_registry(_registry)
-    logger.info("{project_name} API started")
-    yield
-    logger.info("{project_name} API shutting down")
+    ctx = AppContext()
+    await _bootstrap.start(ctx)
+    app.state.ctx = ctx
+    try:
+        yield
+    finally:
+        await _bootstrap.stop()
 
 
 app = FastAPI(
     title="{project_name}",
-    description="{project_name} Agent API",
+    description="{project_name} - Built with ark-agentic",
     version="0.1.0",
     lifespan=lifespan,
 )
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(chat_api.router)
-setup_studio_from_env(app, registry=_registry)
-
-_STATIC_DIR = Path(__file__).parent / "static"
-if _STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-
-@app.get("/", include_in_schema=False)
-async def root():
-    index = _STATIC_DIR / "index.html"
-    if index.is_file():
-        return FileResponse(str(index), media_type="text/html")
-    return {{"message": "{project_name} API", "docs": "/docs"}}
-
-
-@app.get("/health")
-async def health_check():
-    return {{"status": "ok"}}
+_bootstrap.install_routes(app)
 
 
 def main() -> None:
