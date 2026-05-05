@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ark_agentic.app import app
-from ark_agentic.core.runner import AgentRunner, RunResult
+from ark_agentic.core.runtime.runner import AgentRunner, RunResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 
@@ -20,7 +20,7 @@ def client() -> TestClient:
 @pytest.fixture(autouse=True)
 def init_agent_registry():
     from ark_agentic.plugins.api import deps
-    from ark_agentic.core.registry import AgentRegistry
+    from ark_agentic.core.runtime.registry import AgentRegistry
     # 初始化一个临时的空的 registry
     deps.init_registry(AgentRegistry())
     yield
@@ -140,13 +140,13 @@ class TestChatRunOptionsIntegration:
 
 
 @pytest.mark.asyncio
-async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> None:
-    """``AgentsRuntime.start`` walks the registry warming up every runner;
+async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> None:
+    """``AgentsLifecycle.start`` walks the registry warming up every runner;
     ``stop`` closes every runner's memory backend."""
     from types import SimpleNamespace
 
-    from ark_agentic.core.bootstrap import Bootstrap
-    from ark_agentic.core.runtime.agents import AgentsRuntime
+    from ark_agentic.core.protocol.bootstrap import Bootstrap
+    from ark_agentic.core.runtime.agents_lifecycle import AgentsLifecycle
 
     runner = AsyncMock()
     registry = MagicMock()
@@ -157,7 +157,9 @@ async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> No
         patch("ark_agentic.agents.register_all"),
         patch("ark_agentic.plugins.api.deps.init_registry"),
     ):
-        bootstrap = Bootstrap([AgentsRuntime(registry=registry)])
+        bootstrap = Bootstrap(
+            [AgentsLifecycle(registry=registry)], with_defaults=False,
+        )
         await bootstrap.start(SimpleNamespace())
         await bootstrap.stop()
 

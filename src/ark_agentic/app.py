@@ -34,11 +34,9 @@ logging.basicConfig(
 
 from fastapi import FastAPI
 
-from ark_agentic.core.bootstrap import Bootstrap
-from ark_agentic.core.lifecycle import Lifecycle
-from ark_agentic.core.runtime.agents import AgentsRuntime
-from ark_agentic.core.runtime.tracing import TracingRuntime
-from ark_agentic.plugins.api.context import AppContext
+from ark_agentic.core.protocol.bootstrap import Bootstrap
+from ark_agentic.core.protocol.app_context import AppContext
+from ark_agentic.core.protocol.lifecycle import Lifecycle
 from ark_agentic.plugins.api.plugin import APIPlugin
 from ark_agentic.plugins.jobs.plugin import JobsPlugin
 from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
@@ -47,16 +45,18 @@ from ark_agentic.portal import Portal
 
 logger = logging.getLogger(__name__)
 
-_components: list[Lifecycle] = [
-    AgentsRuntime(),
+# Mandatory AgentsLifecycle + TracingLifecycle are auto-loaded by Bootstrap.
+# Portal is framework-internal (not in wheel) — passed alongside plugins
+# because it sits in the same registration order slot (before APIPlugin
+# so its ``/`` route wins in Starlette's first-match routing).
+_plugins: list[Lifecycle] = [
     Portal(),
     APIPlugin(),
     NotificationsPlugin(),
     JobsPlugin(),
     StudioPlugin(),
-    TracingRuntime(),
 ]
-_bootstrap = Bootstrap(_components)
+_bootstrap = Bootstrap(_plugins)
 
 
 @asynccontextmanager

@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..core.lifecycle import BaseLifecycle
+from ..core.protocol.lifecycle import BaseLifecycle
 
 _STATIC_DIR = Path(__file__).parent / "static"
 

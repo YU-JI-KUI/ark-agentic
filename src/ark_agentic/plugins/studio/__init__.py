@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 if TYPE_CHECKING:
-    from ark_agentic.core.registry import AgentRegistry
+    from ark_agentic.core.runtime.registry import AgentRegistry
 
 logger = logging.getLogger(__name__)
 

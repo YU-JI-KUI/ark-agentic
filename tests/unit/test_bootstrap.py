@@ -1,29 +1,31 @@
 """Bootstrap orchestrator tests.
 
 Validates the lifecycle phases (``init`` / ``start`` / ``stop``) and
-their ordering / idempotency. Exercised against the canonical
-``DEFAULT_PLUGINS`` list to confirm schema init succeeds in both DB modes.
+their ordering / idempotency. Uses ``with_defaults=False`` for tests
+exercising arbitrary recorder components; the always-on lifecycle
+defaults (AgentsLifecycle + TracingLifecycle) are covered by separate
+integration tests.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from ark_agentic.core.bootstrap import Bootstrap
 from ark_agentic.core.db.engine import reset_engine_cache
-from ark_agentic.core.lifecycle import BaseLifecycle
+from ark_agentic.core.protocol.bootstrap import Bootstrap
+from ark_agentic.core.protocol.lifecycle import BaseLifecycle
 
 
-async def test_bootstrap_runs_default_plugins_in_file_mode(monkeypatch):
-    from ark_agentic.bootstrap import DEFAULT_PLUGINS as PLUGINS
+async def test_bootstrap_runs_with_defaults_in_file_mode(monkeypatch):
     monkeypatch.setenv("DB_TYPE", "file")
-    bootstrap = Bootstrap(list(PLUGINS))
+    bootstrap = Bootstrap()
     # init() must succeed without exceptions in file mode.
     await bootstrap.init()
 
 
-async def test_bootstrap_runs_default_plugins_in_sqlite_mode(monkeypatch, tmp_path):
-    from ark_agentic.bootstrap import DEFAULT_PLUGINS as PLUGINS
+async def test_bootstrap_runs_with_defaults_in_sqlite_mode(
+    monkeypatch, tmp_path,
+):
     reset_engine_cache()
     try:
         monkeypatch.setenv("DB_TYPE", "sqlite")
@@ -31,7 +33,7 @@ async def test_bootstrap_runs_default_plugins_in_sqlite_mode(monkeypatch, tmp_pa
             "DB_CONNECTION_STR",
             f"sqlite+aiosqlite:///{tmp_path}/boot.db",
         )
-        bootstrap = Bootstrap(list(PLUGINS))
+        bootstrap = Bootstrap()
         await bootstrap.init()
     finally:
         reset_engine_cache()
@@ -63,7 +65,10 @@ class _Recorder(BaseLifecycle):
 
 async def test_start_attaches_return_value_to_ctx_by_name():
     log: list[str] = []
-    bootstrap = Bootstrap([_Recorder("alpha", log), _Recorder("beta", log)])
+    bootstrap = Bootstrap(
+        [_Recorder("alpha", log), _Recorder("beta", log)],
+        with_defaults=False,
+    )
 
     class Ctx:
         pass
@@ -77,7 +82,10 @@ async def test_start_attaches_return_value_to_ctx_by_name():
 
 async def test_start_runs_init_first_then_start_in_order():
     log: list[str] = []
-    bootstrap = Bootstrap([_Recorder("a", log), _Recorder("b", log), _Recorder("c", log)])
+    bootstrap = Bootstrap(
+        [_Recorder("a", log), _Recorder("b", log), _Recorder("c", log)],
+        with_defaults=False,
+    )
 
     class Ctx:
         pass
@@ -92,7 +100,10 @@ async def test_start_runs_init_first_then_start_in_order():
 
 async def test_stop_runs_in_reverse_start_order():
     log: list[str] = []
-    bootstrap = Bootstrap([_Recorder("a", log), _Recorder("b", log), _Recorder("c", log)])
+    bootstrap = Bootstrap(
+        [_Recorder("a", log), _Recorder("b", log), _Recorder("c", log)],
+        with_defaults=False,
+    )
 
     class Ctx:
         pass
@@ -105,7 +116,7 @@ async def test_stop_runs_in_reverse_start_order():
 
 async def test_init_is_idempotent():
     log: list[str] = []
-    bootstrap = Bootstrap([_Recorder("only", log)])
+    bootstrap = Bootstrap([_Recorder("only", log)], with_defaults=False)
 
     await bootstrap.init()
     await bootstrap.init()  # second call is no-op
@@ -115,7 +126,7 @@ async def test_init_is_idempotent():
 
 async def test_start_does_not_double_init_when_init_was_called_first():
     log: list[str] = []
-    bootstrap = Bootstrap([_Recorder("only", log)])
+    bootstrap = Bootstrap([_Recorder("only", log)], with_defaults=False)
 
     class Ctx:
         pass
@@ -130,11 +141,14 @@ async def test_start_does_not_double_init_when_init_was_called_first():
 
 async def test_stop_failure_does_not_block_others():
     log: list[str] = []
-    bootstrap = Bootstrap([
-        _Recorder("a", log),
-        _Recorder("b", log, fail_stop=True),
-        _Recorder("c", log),
-    ])
+    bootstrap = Bootstrap(
+        [
+            _Recorder("a", log),
+            _Recorder("b", log, fail_stop=True),
+            _Recorder("c", log),
+        ],
+        with_defaults=False,
+    )
 
     class Ctx:
         pass
@@ -159,7 +173,32 @@ async def test_disabled_components_are_skipped():
         async def init(self) -> None:
             log.append("disabled.init")
 
-    bootstrap = Bootstrap([Disabled(), _Recorder("kept", log)])
+    bootstrap = Bootstrap(
+        [Disabled(), _Recorder("kept", log)], with_defaults=False,
+    )
     await bootstrap.init()
 
     assert log == ["kept.init"]
+
+
+# ── default-components contract ──────────────────────────────────────
+
+
+async def test_default_components_include_agents_and_tracing():
+    """Bootstrap with defaults always loads AgentsLifecycle first and
+    TracingLifecycle last — they're framework-mandatory."""
+    bootstrap = Bootstrap()
+    names = [c.name for c in bootstrap.components]
+
+    assert names[0] == "registry"
+    assert names[-1] == "tracing"
+
+
+async def test_user_plugins_sit_between_defaults():
+    plugin = _Recorder("custom", [])
+    bootstrap = Bootstrap([plugin])
+    names = [c.name for c in bootstrap.components]
+
+    assert names[0] == "registry"
+    assert "custom" in names
+    assert names[-1] == "tracing"

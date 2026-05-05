@@ -7,7 +7,7 @@ Agent 注册表
 
 from __future__ import annotations
 
-from ark_agentic.core.runner import AgentRunner
+from .runner import AgentRunner
 
 
 class AgentRegistry:

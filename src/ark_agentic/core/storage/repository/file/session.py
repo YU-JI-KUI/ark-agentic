@@ -5,10 +5,11 @@ Owns all file I/O for session storage:
 - ``{sessions_dir}/{user_id}/sessions.json``       — per-user meta map
 
 JSONL serialisation primitives (``SessionHeader``, ``MessageEntry``,
-``serialize_message``, ``deserialize_message``, ``FileLock``,
-``RawJsonlValidationError``) live in ``core.persistence`` because the
-SQLite backend's ``put_raw_transcript`` / ``get_raw_transcript`` reuse
-them — they are JSONL utilities, not file-backend internals.
+``serialize_message``, ``deserialize_message``, ``RawJsonlValidationError``)
+live in ``core.session.format`` because the SQLite backend's
+``put_raw_transcript`` / ``get_raw_transcript`` reuse them — they are
+JSONL utilities, not file-backend internals. ``FileLock`` is local to
+this backend (``._lock``).
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ....session_format import (
+from ....session.format import (
     MessageEntry,
     RawJsonlValidationError,
     SessionHeader,

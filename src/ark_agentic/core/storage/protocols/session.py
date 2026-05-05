@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from ...persistence import SessionStoreEntry
+from ..entries import SessionStoreEntry
 from ...types import AgentMessage
 
 

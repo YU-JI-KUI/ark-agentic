@@ -115,7 +115,7 @@ async def read_recent_sessions(
     stays one layer above storage — memory subsystem doesn't know whether
     sessions live in files or SQLite.
     """
-    from ..compaction import estimate_tokens
+    from ..session.compaction import estimate_tokens
 
     metas = await session_manager.list_user_session_metas(user_id)
     recent = [m for m in metas if m.updated_at / 1000 > since_ts]
@@ -235,7 +235,7 @@ class MemoryDreamer:
         if not memory_content.strip() and not session_summaries.strip():
             return DreamResult(changes="Empty memory and no sessions, nothing to distill")
 
-        from ..compaction import estimate_tokens
+        from ..session.compaction import estimate_tokens
 
         prompt = _DREAM_PROMPT.format(
             current_date=datetime.now().isoformat()[:10],

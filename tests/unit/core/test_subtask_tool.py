@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ark_agentic.core.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.subtask.tool import SpawnSubtasksTool, SubtaskConfig, _SUBTASK_SESSION_MARKER
 from ark_agentic.core.tools.base import AgentTool

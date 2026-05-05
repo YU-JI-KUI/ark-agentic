@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from .types import AgentMessage
+    from ..types import AgentMessage
 
 
 class GuardResult(BaseModel):

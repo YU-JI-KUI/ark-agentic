@@ -114,8 +114,8 @@ def test_agent_module_template_uses_build_standard_agent():
     assert "PromptConfig(" not in rendered
 
 
-def test_api_app_template_uses_bootstrap_default_plugins():
-    """API_APP_TEMPLATE 应该体现 Bootstrap + DEFAULT_PLUGINS + AppContext 的装配方式，
+def test_api_app_template_uses_bootstrap_with_injected_agents_lifecycle():
+    """API_APP_TEMPLATE 应该体现 Bootstrap + 注入 AgentsLifecycle + AppContext 的装配方式，
     而不是手挂 chat_api / setup_studio_from_env。"""
     fmt = {
         "project_name": "TestProj",
@@ -127,13 +127,13 @@ def test_api_app_template_uses_bootstrap_default_plugins():
     rendered = API_APP_TEMPLATE.format(**fmt)
 
     # 新装配方式
-    assert "from ark_agentic.bootstrap import DEFAULT_PLUGINS" in rendered
-    assert "from ark_agentic.core.bootstrap import Bootstrap" in rendered
-    assert "from ark_agentic.core.runtime.agents import AgentsRuntime" in rendered
-    assert "from ark_agentic.plugins.api.context import AppContext" in rendered
+    assert "from ark_agentic.core.protocol.bootstrap import Bootstrap" in rendered
+    assert "from ark_agentic.core.protocol.app_context import AppContext" in rendered
+    assert "from ark_agentic.core.runtime.agents_lifecycle import AgentsLifecycle" in rendered
+    assert "from ark_agentic.core.runtime.registry import AgentRegistry" in rendered
     assert "AgentRegistry" in rendered
     assert "_registry.register(\"default\", create_default_agent())" in rendered
-    assert "Bootstrap(_components)" in rendered
+    assert "agents_lifecycle=AgentsLifecycle(registry=_registry)" in rendered
     assert "_bootstrap.install_routes(app)" in rendered
     assert "_bootstrap.start(ctx)" in rendered
     assert "_bootstrap.stop()" in rendered
@@ -201,9 +201,8 @@ def test_cmd_init_creates_project_structure(tmp_path: Path):
     assert "ark-agentic[server]" in pyproject
 
     app_py = (pkg / "app.py").read_text(encoding="utf-8")
-    assert "DEFAULT_PLUGINS" in app_py
     assert "Bootstrap" in app_py
-    assert "AgentsRuntime(registry=_registry)" in app_py
+    assert "AgentsLifecycle(registry=_registry)" in app_py
 
 
 def test_cmd_init_no_api_skips_app_py(tmp_path: Path):

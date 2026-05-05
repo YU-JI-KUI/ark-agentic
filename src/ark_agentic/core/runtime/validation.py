@@ -26,16 +26,15 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from .callbacks import BeforeLoopEndCallback, CallbackContext, CallbackResult
-    from .types import AgentMessage
+    from ..types import AgentMessage
 
-# 向后兼容 re-export：外部 import 路径保持 from ark_agentic.core.validation import ...
-from .utils.entities import EntityTrie, EntityClaimExtractor  # noqa: F401
-from .utils.dates import (  # noqa: F401
+from ..utils.entities import EntityTrie, EntityClaimExtractor  # noqa: F401
+from ..utils.dates import (  # noqa: F401
     DateClaimExtractor,
     resolve_relative_time,
     relative_time_to_forms as _relative_time_to_forms,
 )
-from .utils.numbers import (  # noqa: F401
+from ..utils.numbers import (  # noqa: F401
     NumberClaimExtractor,
     extract_numbers_from_text,
 )
@@ -443,7 +442,7 @@ def _build_context_from_session(
     context_turns: int = 3,
 ) -> str:
     """从 session.messages 提取最近 N 轮用户消息，拼接为 context 字符串。"""
-    from .types import MessageRole
+    from ..types import MessageRole
 
     user_contents = [
         msg.content
@@ -460,8 +459,8 @@ def _build_tool_sources_from_session(session: Any) -> dict[str, str]:
     按 tool_call_id 将 ASSISTANT.tool_calls 的 name 与 TOOL.tool_results 的 content 配对，
     同名工具多次调用用 ``\\n---\\n`` 拼接。返回 ``{tool_<name>: normalized_text}``。
     """
-    from .types import MessageRole
-    from .utils.dates import normalize_tool_source
+    from ..types import MessageRole
+    from ..utils.dates import normalize_tool_source
 
     last_user_idx = -1
     for i, msg in enumerate(session.messages):
@@ -514,7 +513,7 @@ def create_citation_validation_hook(
     Returns:
         BeforeLoopEndCallback — 注入 RunnerCallbacks.before_loop_end
     """
-    from .utils.grounding_cache import FactSnapshot, _CACHE as _grounding_cache
+    from ..utils.grounding_cache import FactSnapshot, _CACHE as _grounding_cache
 
     _extractors = extractors if extractors is not None else _default_extractors(entity_trie)
     _REFLECT_FLAG = "temp:grounding_reflect_used"
@@ -525,7 +524,7 @@ def create_citation_validation_hook(
         response: "AgentMessage",
     ) -> "CallbackResult | None":
         from .callbacks import CallbackResult
-        from .types import AgentMessage as _AgentMessage
+        from ..types import AgentMessage as _AgentMessage
 
         if ctx.session.state.get(_REFLECT_FLAG):
             logger.info(

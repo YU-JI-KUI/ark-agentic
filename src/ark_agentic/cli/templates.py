@@ -89,7 +89,7 @@ from pathlib import Path
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ark_agentic import AgentDef, AgentRunner, build_standard_agent
-from ark_agentic.core.callbacks import RunnerCallbacks
+from ark_agentic.core.runtime.callbacks import RunnerCallbacks
 
 from .tools import create_{agent_name_snake}_tools
 
@@ -183,8 +183,9 @@ API_APP_TEMPLATE = '''\
 {project_name} - 框架装配入口
 
 仅做装配工作: 把项目自带的 Agent 注册到 ``AgentRegistry``，再交给
-``Bootstrap`` 驱动 ``DEFAULT_PLUGINS`` (API / Notifications / Jobs /
-Studio / Tracing) 完成 init / install_routes / start / stop。
+``Bootstrap`` 驱动选定的 plugin (API / Notifications / Jobs / Studio)
+完成 init / install_routes / start / stop。框架自动加载强制 lifecycle
+组件 (``AgentsLifecycle`` / ``TracingLifecycle``)。
 
 启用具体插件由环境变量决定（如 ``ENABLE_STUDIO=true``）；不需要的插件
 保持默认即可，``Bootstrap`` 会跳过。
@@ -210,12 +211,14 @@ logging.basicConfig(
 
 from fastapi import FastAPI
 
-from ark_agentic.bootstrap import DEFAULT_PLUGINS
-from ark_agentic.core.bootstrap import Bootstrap
-from ark_agentic.core.lifecycle import Lifecycle
-from ark_agentic.core.registry import AgentRegistry
-from ark_agentic.core.runtime.agents import AgentsRuntime
-from ark_agentic.plugins.api.context import AppContext
+from ark_agentic.core.protocol.app_context import AppContext
+from ark_agentic.core.protocol.bootstrap import Bootstrap
+from ark_agentic.core.runtime.agents_lifecycle import AgentsLifecycle
+from ark_agentic.core.runtime.registry import AgentRegistry
+from ark_agentic.plugins.api.plugin import APIPlugin
+from ark_agentic.plugins.jobs.plugin import JobsPlugin
+from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
+from ark_agentic.plugins.studio.plugin import StudioPlugin
 
 from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
 
@@ -225,12 +228,13 @@ logger = logging.getLogger(__name__)
 _registry = AgentRegistry()
 _registry.register("{agent_name_snake}", create_{agent_name_snake}_agent())
 
-# 2) 用绑定到该 registry 的 AgentsRuntime 替换 DEFAULT_PLUGINS 中默认那一份
-_components: list[Lifecycle] = [
-    AgentsRuntime(registry=_registry) if c.name == "registry" else c
-    for c in DEFAULT_PLUGINS
-]
-_bootstrap = Bootstrap(_components)
+# 2) Bootstrap 自动加载 AgentsLifecycle + TracingLifecycle；
+#    通过 agents_lifecycle 注入绑定本项目 registry 的实例。
+#    Plugin 是否启用由各自的 ENABLE_* 环境变量决定。
+_bootstrap = Bootstrap(
+    plugins=[APIPlugin(), NotificationsPlugin(), JobsPlugin(), StudioPlugin()],
+    agents_lifecycle=AgentsLifecycle(registry=_registry),
+)
 
 
 @asynccontextmanager

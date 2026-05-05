@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 
 from ark_agentic.app import app
 from ark_agentic.plugins.api import deps
-from ark_agentic.core.registry import AgentRegistry
-from ark_agentic.core.runner import RunResult
+from ark_agentic.core.runtime.registry import AgentRegistry
+from ark_agentic.core.runtime.runner import RunResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 

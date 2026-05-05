@@ -1,8 +1,9 @@
-"""TracingRuntime — OpenTelemetry tracing as a Lifecycle component.
+"""TracingLifecycle — OpenTelemetry tracing as a Lifecycle component.
 
 Pairs ``setup_tracing_from_env`` (start) with ``shutdown_tracing`` (stop)
-so they cannot get out of sync. Service name is read from env so the
-runtime can also be reused by CLI / worker hosts.
+so they cannot get out of sync. Service name is read from env so this
+component can be reused by CLI / worker hosts. Auto-loaded by
+``Bootstrap`` as one of the always-on framework lifecycle components.
 """
 
 from __future__ import annotations
@@ -11,13 +12,13 @@ import logging
 import os
 from typing import Any
 
-from ..lifecycle import BaseLifecycle
-from ..observability import setup_tracing_from_env, shutdown_tracing
+from ..protocol.lifecycle import BaseLifecycle
+from .tracing import setup_tracing_from_env, shutdown_tracing
 
 logger = logging.getLogger(__name__)
 
 
-class TracingRuntime(BaseLifecycle):
+class TracingLifecycle(BaseLifecycle):
     """OTLP tracing setup + shutdown."""
 
     name = "tracing"

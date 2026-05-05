@@ -5,9 +5,9 @@ import time
 import pytest
 from pathlib import Path
 
-from ark_agentic.core.session import SessionManager
-from ark_agentic.core.compaction import CompactionConfig
-from ark_agentic.core.persistence import SessionStoreEntry
+from ark_agentic.core.session.manager import SessionManager
+from ark_agentic.core.session.compaction import CompactionConfig
+from ark_agentic.core.storage.entries import SessionStoreEntry
 from ark_agentic.core.types import AgentMessage, MessageRole, SessionEntry
 
 

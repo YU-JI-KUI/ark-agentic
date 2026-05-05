@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
-from .types import AgentMessage, AgentToolResult, MessageRole, ToolCall, ToolResultType
+from ..types import AgentMessage, AgentToolResult, MessageRole, ToolCall, ToolResultType
 
 logger = logging.getLogger(__name__)
 

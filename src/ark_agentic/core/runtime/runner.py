@@ -23,28 +23,28 @@ from .callbacks import (
     HookAction,
     RunnerCallbacks,
 )
-from .llm.caller import LLMCaller
-from .llm.errors import LLMError, LLMErrorReason
-from .llm.sampling import SamplingConfig
-from .prompt.builder import SystemPromptBuilder, PromptConfig
-from .session import SessionManager
-from .skills.base import SkillConfig
-from .skills.loader import SkillLoader
-from .skills.matcher import SkillMatcher
-from .skills.router import RouteContext, SkillRouter
-from .stream.event_bus import AgentEventHandler
-from .tools.base import AgentTool
-from .tools.executor import ToolExecutor
-from .tools.registry import ToolRegistry
-from .tools.memory import create_memory_tools
-from .observability.decorators import (
+from ..llm.caller import LLMCaller
+from ..llm.errors import LLMError, LLMErrorReason
+from ..llm.sampling import SamplingConfig
+from ..prompt.builder import SystemPromptBuilder, PromptConfig
+from ..session.manager import SessionManager
+from ..skills.base import SkillConfig
+from ..skills.loader import SkillLoader
+from ..skills.matcher import SkillMatcher
+from ..skills.router import RouteContext, SkillRouter
+from ..stream.event_bus import AgentEventHandler
+from ..tools.base import AgentTool
+from ..tools.executor import ToolExecutor
+from ..tools.registry import ToolRegistry
+from ..tools.memory import create_memory_tools
+from ..observability.decorators import (
     add_span_attributes,
     add_span_input,
     add_span_output,
     traced_agent,
     traced_chain,
 )
-from .types import (
+from ..types import (
     AgentMessage,
     AgentToolResult,
     MessageRole,
@@ -57,7 +57,7 @@ from .types import (
     ToolResultType,
 )
 if TYPE_CHECKING:
-    from .memory.manager import MemoryManager
+    from ..memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +229,7 @@ class AgentRunner:
         )
 
         if memory_manager is not None:
-            from .memory.extractor import MemoryFlusher
+            from ..memory.extractor import MemoryFlusher
 
             # Memory flush 是结构化 JSON 抽取任务，需要低温度 + 可复现 seed
             extraction_sampling = SamplingConfig.for_extraction()
@@ -244,7 +244,7 @@ class AgentRunner:
 
         if skill_loader is not None:
             if self.config.skill_config.load_mode != SkillLoadMode.full:
-                from .tools.read_skill import ReadSkillTool
+                from ..tools.read_skill import ReadSkillTool
 
                 self.tool_registry.register(ReadSkillTool(skill_loader))
                 logger.info("Registered read_skill tool for dynamic skill loading")
@@ -259,7 +259,7 @@ class AgentRunner:
         self._skill_router: SkillRouter | None = self.config.skill_router
 
         if self.config.enable_subtasks:
-            from .subtask import create_subtask_tool
+            from ..subtask import create_subtask_tool
             self.tool_registry.register(
                 create_subtask_tool(self, self.session_manager)
             )
@@ -489,7 +489,7 @@ class AgentRunner:
         self._merge_input_context(session, input_context)
 
         if history and self.config.accept_external_history and use_history:
-            from .history_merge import merge_external_history
+            from ..session.history_merge import merge_external_history
 
             ops = merge_external_history(session.messages, history)
             if ops:
@@ -592,7 +592,7 @@ class AgentRunner:
         effect 阻断整轮）。
         """
         from pydantic import ValidationError
-        from .types import SessionEffect
+        from ..types import SessionEffect
 
         for tr in tool_results:
             effects = tr.metadata.get("session_effects")
@@ -951,7 +951,7 @@ class AgentRunner:
             response = am.response
 
         # Display-only assistant metadata (Studio session-detail UI). See spec §4.2.
-        from .observability import current_trace_id_or_none
+        from ..observability import current_trace_id_or_none
         session_for_meta = self.session_manager.get_session(session_id)
         if session_for_meta is not None and session_for_meta.active_skill_ids:
             response.metadata["active_skill_ids"] = list(
@@ -1359,7 +1359,7 @@ class AgentRunner:
         if self._memory_manager:
             user_id = state.get("user:id")
             if user_id:
-                from .memory.user_profile import truncate_profile
+                from ..memory.user_profile import truncate_profile
                 try:
                     profile_content = truncate_profile(
                         await self._memory_manager.read_memory(str(user_id))
@@ -1440,7 +1440,7 @@ class AgentRunner:
         通过 FlowEvaluatorRegistry 反查 evaluator，使用 StageDefinition.reference_file
         （而非直接拼接 stage.id），避免文件名与 stage.id 不一致导致静默失败。
         """
-        from .flow.base_evaluator import FlowEvaluatorRegistry
+        from ..flow.base_evaluator import FlowEvaluatorRegistry
 
         enriched = []
         for skill in skills:

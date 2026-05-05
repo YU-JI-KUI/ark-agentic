@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
 
-from .types import AgentMessage, MessageRole
+from ..types import AgentMessage, MessageRole
 
 
 @dataclass

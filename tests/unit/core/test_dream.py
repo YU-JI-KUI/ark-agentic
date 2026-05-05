@@ -299,7 +299,7 @@ class TestShouldDream:
                 await session_repo.create(
                     f"s{i}", "U001", model="m", provider="p", state={},
                 )
-                from ark_agentic.core.persistence import SessionStoreEntry
+                from ark_agentic.core.storage.entries import SessionStoreEntry
                 await session_repo.update_meta(
                     f"s{i}", "U001",
                     SessionStoreEntry(

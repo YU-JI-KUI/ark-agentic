@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ark_agentic.core.lifecycle import BaseLifecycle, Lifecycle
-from ark_agentic.core.plugin import BasePlugin, Plugin
+from ark_agentic.core.protocol.lifecycle import BaseLifecycle, Lifecycle
+from ark_agentic.core.protocol.plugin import BasePlugin, Plugin
 
 
 def test_base_plugin_satisfies_plugin_protocol() -> None:

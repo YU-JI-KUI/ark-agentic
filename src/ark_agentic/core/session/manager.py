@@ -15,11 +15,11 @@ from .compaction import (
     estimate_message_tokens,
 )
 from .history_merge import InsertOp
-from .persistence import SessionStoreEntry
-from .types import AgentMessage, CompactionStats, SessionEntry, TokenUsage
+from ..storage.entries import SessionStoreEntry
+from ..types import AgentMessage, CompactionStats, SessionEntry, TokenUsage
 
 if TYPE_CHECKING:
-    from .storage.protocols import SessionRepository
+    from ..storage.protocols import SessionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class SessionManager:
         )
         self.sessions_dir = Path(sessions_dir)
         if repository is None:
-            from .storage.factory import build_session_repository
+            from ..storage.factory import build_session_repository
 
             repository = build_session_repository(sessions_dir=sessions_dir)
         self._repository = repository

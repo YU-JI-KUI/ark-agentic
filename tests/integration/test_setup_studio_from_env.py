@@ -4,7 +4,7 @@ Acceptance tests for setup_studio_from_env() and the CLI scaffold's Studio integ
 Covers:
   - setup_studio_from_env: env=false skips, env=true delegates to setup_studio
   - setup_studio_from_env: ImportError and generic Exception are handled gracefully
-  - API_APP_TEMPLATE: Studio enablement happens via Bootstrap + DEFAULT_PLUGINS
+  - API_APP_TEMPLATE: Studio enablement happens via Bootstrap + plugin list
     (StudioPlugin gates itself on ENABLE_STUDIO), not via a hand-rolled
     setup_studio_from_env call inside the scaffold.
   - CLI add-agent: generates agent.json for Studio discovery.
@@ -110,25 +110,25 @@ def test_api_template_uvicorn_entry_point():
     assert '"test_proj.app:app"' in rendered
 
 
-def test_api_template_studio_arrives_via_default_plugins():
-    """模板里不应再手挂 setup_studio_from_env；Studio 通过 DEFAULT_PLUGINS 自动接入。"""
+def test_api_template_studio_arrives_via_bootstrap_plugin_list():
+    """模板里不应再手挂 setup_studio_from_env；Studio 通过 Bootstrap 的 plugin 列表接入。"""
     rendered = _render_api_template()
     assert "setup_studio_from_env" not in rendered
-    assert "DEFAULT_PLUGINS" in rendered
+    assert "StudioPlugin()" in rendered
     assert "Bootstrap" in rendered
 
 
 # ── CLI generates app.py + agent.json ────────────────────────────────────────
 
 def test_cmd_init_default_creates_app_py_with_studio_via_bootstrap(tmp_path: Path):
-    """默认 init 装配 server: app.py 通过 Bootstrap + DEFAULT_PLUGINS 接入 Studio。"""
+    """默认 init 装配 server: app.py 通过 Bootstrap + plugin 列表接入 Studio。"""
     from ark_agentic.cli.main import _cmd_init
     args = type("Args", (), {"project_name": "myproj", "no_api": False})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
 
     app_py = (tmp_path / "myproj" / "src" / "myproj" / "app.py").read_text(encoding="utf-8")
-    assert "DEFAULT_PLUGINS" in app_py
+    assert "StudioPlugin()" in app_py
     assert "Bootstrap" in app_py
     assert "AgentRegistry" in app_py
     # 旧的手挂方式不应再出现

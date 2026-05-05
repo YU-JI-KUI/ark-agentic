@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.persistence import SessionStoreEntry
+from ark_agentic.core.storage.entries import SessionStoreEntry
 from ark_agentic.core.storage.repository.file.session import FileSessionRepository
 from ark_agentic.core.storage.protocols import SessionRepository
 from ark_agentic.core.types import AgentMessage, MessageRole

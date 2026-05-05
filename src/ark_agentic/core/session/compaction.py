@@ -6,8 +6,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol, TYPE_CHECKING
 
-from .llm.sampling import SamplingConfig
-from .types import AgentMessage, MessageRole, ToolResultType
+from ..llm.sampling import SamplingConfig
+from ..types import AgentMessage, MessageRole, ToolResultType
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel

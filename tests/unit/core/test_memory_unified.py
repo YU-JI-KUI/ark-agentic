@@ -140,7 +140,7 @@ class TestFlushWritesSinglePath:
 
 class TestSystemPromptReadsWorkspace:
     def test_no_profiles_import(self) -> None:
-        from ark_agentic.core.runner import AgentRunner
+        from ark_agentic.core.runtime.runner import AgentRunner
         import inspect
         source = inspect.getsource(AgentRunner._build_system_prompt)
         assert "load_user_profile" not in source

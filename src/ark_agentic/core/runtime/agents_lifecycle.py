@@ -1,4 +1,4 @@
-"""AgentsRuntime — core agents subsystem as a Lifecycle component.
+"""AgentsLifecycle — core agents subsystem as a Lifecycle component.
 
 Agents are a **core capability**, not a plugin: every ark-agentic deployment
 needs them. The component nature is purely about lifecycle orchestration —
@@ -20,8 +20,8 @@ import logging
 import os
 from typing import Any
 
-from ..lifecycle import BaseLifecycle
-from ..registry import AgentRegistry
+from .registry import AgentRegistry
+from ..protocol.lifecycle import BaseLifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def _enable_dream_default() -> bool:
     return True
 
 
-class AgentsRuntime(BaseLifecycle):
+class AgentsLifecycle(BaseLifecycle):
     """Core agent registry orchestration."""
 
     name = "registry"

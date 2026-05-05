@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ...core.plugin import BasePlugin
+from ...core.protocol.plugin import BasePlugin
 
 if TYPE_CHECKING:
     from .manager import JobManager
@@ -83,7 +83,7 @@ class JobsPlugin(BasePlugin):
         set_job_manager(manager)
 
         # Per-agent proactive job bindings: wired once the registry is
-        # populated. AgentsRuntime starts before JobsPlugin in the
+        # populated. AgentsLifecycle starts before JobsPlugin in the
         # default component list so ctx.registry is ready here.
         if getattr(ctx, "registry", None) is not None:
             from ..notifications.paths import get_notifications_base_dir

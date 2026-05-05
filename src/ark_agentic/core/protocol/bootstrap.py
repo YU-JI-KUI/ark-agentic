@@ -1,8 +1,11 @@
 """Bootstrap — drives a list of Lifecycle components through init/start/stop.
 
 Stateful orchestrator. Hosts (FastAPI ``app.py``, CLI scaffolds, tests)
-construct a Bootstrap with their chosen component list and drive it
-through three idempotent phases:
+build a Bootstrap with their chosen plugins; the always-on lifecycle
+components (``AgentsLifecycle``, ``TracingLifecycle``) are auto-loaded by
+this module and cannot be deselected by callers.
+
+Phases:
 
 - ``init`` — one-time setup (schema creation, dirs). Re-callable; only
   runs once per Bootstrap instance.
@@ -41,11 +44,54 @@ from .lifecycle import Lifecycle
 logger = logging.getLogger(__name__)
 
 
+def default_lifecycle_components() -> list[Lifecycle]:
+    """Always-on framework components — agents registry + tracing.
+
+    Returns a fresh list of new instances on each call. Order matters:
+    agents first (registry must be ready before any plugin's ``start``
+    runs), tracing last (so a tracing failure can't block earlier
+    components from starting / stopping).
+
+    Imported lazily to keep the protocol package free of concrete-
+    runtime imports at module load time.
+    """
+    from ..observability.tracing_lifecycle import TracingLifecycle
+    from ..runtime.agents_lifecycle import AgentsLifecycle
+    return [AgentsLifecycle(), TracingLifecycle()]
+
+
 class Bootstrap:
     """Filters disabled components at construction; remembers which ones
-    successfully started so ``stop`` only tears down what really started."""
+    successfully started so ``stop`` only tears down what really started.
 
-    def __init__(self, components: list[Lifecycle]) -> None:
+    Public API: pass ``plugins`` (the user-selectable lifecycle list).
+    The mandatory defaults (``AgentsLifecycle`` + ``TracingLifecycle``)
+    are prepended / appended automatically. Tests that need to exercise
+    Bootstrap mechanics with arbitrary recorders can pass
+    ``with_defaults=False``.
+
+    Third-party hosts that need to seed the agent registry before start
+    (e.g. CLI scaffolds registering their own agent module) can inject
+    a custom ``agents_lifecycle``; it replaces the default
+    ``AgentsLifecycle`` while ``TracingLifecycle`` is still auto-loaded.
+    """
+
+    def __init__(
+        self,
+        plugins: list[Lifecycle] | None = None,
+        *,
+        with_defaults: bool = True,
+        agents_lifecycle: Lifecycle | None = None,
+    ) -> None:
+        if with_defaults:
+            defaults = default_lifecycle_components()
+            agents = agents_lifecycle if agents_lifecycle is not None else defaults[0]
+            tracing = defaults[-1]
+            components: list[Lifecycle] = [agents] + list(plugins or []) + [tracing]
+        else:
+            components = list(plugins or [])
+            if agents_lifecycle is not None:
+                components.insert(0, agents_lifecycle)
         self._components: list[Lifecycle] = [
             c for c in components if c.is_enabled()
         ]

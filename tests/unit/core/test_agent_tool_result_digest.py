@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from ark_agentic.core.persistence import (
+from ark_agentic.core.session.format import (
     deserialize_tool_result,
     serialize_tool_result,
 )
