@@ -6,13 +6,13 @@ import asyncio
 
 import pytest
 
-from ark_agentic.core.db.config import DBConfig
-from ark_agentic.core.db.engine import (
+from ark_agentic.core.storage.database.config import DBConfig
+from ark_agentic.core.storage.database.engine import (
     get_async_engine,
     init_schema,
     reset_engine_cache,
 )
-from ark_agentic.core.storage.repository.sqlite.memory import (
+from ark_agentic.core.storage.database.sqlite.memory import (
     SqliteMemoryRepository,
 )
 from ark_agentic.core.storage.protocols import MemoryRepository

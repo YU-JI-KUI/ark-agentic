@@ -20,8 +20,8 @@ from ark_agentic.core.memory.dream import (
 from ark_agentic.core.memory.manager import MemoryManager
 from ark_agentic.core.memory.user_profile import parse_heading_sections
 from ark_agentic.core.session import SessionManager
-from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
-from ark_agentic.core.storage.repository.file.session import FileSessionRepository
+from ark_agentic.core.storage.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.file.session import FileSessionRepository
 
 
 def _make_session_manager(sessions_dir: Path) -> SessionManager:

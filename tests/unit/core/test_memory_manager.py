@@ -16,7 +16,7 @@ from ark_agentic.core.memory.manager import (
     MemoryManager,
     build_memory_manager,
 )
-from ark_agentic.core.storage.repository.file.memory import FileMemoryRepository
+from ark_agentic.core.storage.file.memory import FileMemoryRepository
 
 
 @pytest.fixture
@@ -180,7 +180,7 @@ async def test_list_user_ids_delegates_to_repo() -> None:
 
 def test_build_memory_manager_no_longer_takes_engine(tmp_path: Path) -> None:
     """``engine`` kwarg removed — engine ownership is encapsulated by
-    ``core.db.engine``, not plumbed through public signatures."""
+    ``core.storage.database.engine``, not plumbed through public signatures."""
     import inspect
 
     sig = inspect.signature(build_memory_manager)
@@ -223,7 +223,7 @@ async def test_maybe_consolidate_delegates_to_internal_dreamer(
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
     from ark_agentic.core.session import SessionManager
-    from ark_agentic.core.storage.repository.file.session import (
+    from ark_agentic.core.storage.file.session import (
         FileSessionRepository,
     )
 

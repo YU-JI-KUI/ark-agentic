@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ...core.protocol.plugin import BasePlugin
+from ...core.storage import mode
 
 if TYPE_CHECKING:
     from .manager import JobManager
@@ -23,10 +24,6 @@ logger = logging.getLogger(__name__)
 
 def _env_flag(name: str) -> bool:
     return os.getenv(name, "").lower() in ("true", "1")
-
-
-def _db_is_sqlite() -> bool:
-    return os.getenv("DB_TYPE", "file").strip().lower() == "sqlite"
 
 
 @dataclass
@@ -49,7 +46,7 @@ class JobsPlugin(BasePlugin):
         return _env_flag("ENABLE_JOB_MANAGER")
 
     async def init(self) -> None:
-        if not _db_is_sqlite():
+        if not mode.is_database():
             return
         from .engine import init_schema
         await init_schema()

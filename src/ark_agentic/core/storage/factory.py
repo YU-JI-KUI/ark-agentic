@@ -1,32 +1,21 @@
-"""Core repository factories — env-driven backend dispatch.
+"""Core repository factories — mode-driven backend dispatch.
 
-Tier 0 (default ``DB_TYPE=file``) → file implementations.
-Tier 1 (``DB_TYPE=sqlite``) → SQLite implementations sharing one engine.
-
-``AsyncEngine`` is fully encapsulated by ``core.db.engine``: the sqlite
+``mode.current()`` decides whether the file or database backend is active.
+``AsyncEngine`` is fully encapsulated by ``database.engine``: the database
 branch asks ``get_engine()`` itself, the file branch only needs paths.
 Business code never sees an engine.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from .repository.file.memory import FileMemoryRepository
-from .repository.file.session import FileSessionRepository
-from .repository.sqlite.memory import SqliteMemoryRepository
-from .repository.sqlite.session import SqliteSessionRepository
+from . import mode
+from .file.memory import FileMemoryRepository
+from .file.session import FileSessionRepository
+from .database.sqlite.memory import SqliteMemoryRepository
+from .database.sqlite.session import SqliteSessionRepository
 from .protocols import MemoryRepository, SessionRepository
-
-
-def _resolve_db_type() -> str:
-    raw = os.environ.get("DB_TYPE", "file").strip().lower()
-    if raw not in ("file", "sqlite"):
-        raise ValueError(
-            f"Unsupported DB_TYPE={raw!r}; expected 'file' or 'sqlite'"
-        )
-    return raw
 
 
 def _require_path(path: str | Path | None, what: str, param: str) -> Path:
@@ -41,44 +30,38 @@ def _require_path(path: str | Path | None, what: str, param: str) -> Path:
 def build_session_repository(
     sessions_dir: str | Path | None = None,
 ) -> SessionRepository:
-    """Build the session repository for the active backend.
+    """Build the session repository for the active storage mode.
 
     SessionManager keeps an in-memory mirror of active sessions, so a
     process cache layer here would be redundant in single-worker mode.
     Multi-worker / Redis is deferred to the PG/Redis milestone.
     """
-    db_type = _resolve_db_type()
-    if db_type == "file":
+    active = mode.current()
+    if active == "file":
         return FileSessionRepository(
             _require_path(sessions_dir, "SessionRepository", "sessions_dir")
         )
-    if db_type == "sqlite":
-        from ..db.engine import get_engine
+    if active == "sqlite":
+        from .database.engine import get_engine
         return SqliteSessionRepository(get_engine())
-    raise ValueError(
-        f"Unsupported DB_TYPE for session repository: {db_type!r}"
-    )
+    raise ValueError(f"Unsupported storage mode: {active!r}")
 
 
 def build_memory_repository(
     workspace_dir: str | Path | None = None,
 ) -> MemoryRepository:
-    """Build the memory repository for the active backend.
+    """Build the memory repository for the active storage mode.
 
     MemoryManager keeps an in-memory mirror of recently-read user memory,
     same shape as SessionManager._sessions; the repo layer is straight
     pass-through to file/sqlite.
     """
-    db_type = _resolve_db_type()
-    if db_type == "file":
+    active = mode.current()
+    if active == "file":
         return FileMemoryRepository(
             _require_path(workspace_dir, "MemoryRepository", "workspace_dir")
         )
-    if db_type == "sqlite":
-        from ..db.engine import get_engine
+    if active == "sqlite":
+        from .database.engine import get_engine
         return SqliteMemoryRepository(get_engine())
-    raise ValueError(
-        f"Unsupported DB_TYPE for memory repository: {db_type!r}"
-    )
-
-
+    raise ValueError(f"Unsupported storage mode: {active!r}")

@@ -1,6 +1,6 @@
 """Studio user-grants engine accessor.
 
-When ``DB_TYPE=sqlite`` Studio rides on the central ``core.db`` engine so
+When ``DB_TYPE=sqlite`` Studio rides on the central ``core.storage.database`` engine so
 ``studio_users`` lives in the same DB file as business tables. Otherwise
 a dedicated SQLite engine is created against ``data/ark_studio.db``.
 
@@ -10,7 +10,6 @@ never see it.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -26,9 +25,9 @@ _test_engine: AsyncEngine | None = None
 
 
 def _build_engine() -> AsyncEngine:
-    db_type = os.environ.get("DB_TYPE", "file").strip().lower()
-    if db_type == "sqlite":
-        from .....core.db.engine import get_engine as _core_get_engine
+    from .....core.storage import mode
+    if mode.is_database():
+        from .....core.storage.database.engine import get_engine as _core_get_engine
         return _core_get_engine()
 
     DEFAULT_STUDIO_DB_PATH.parent.mkdir(parents=True, exist_ok=True)

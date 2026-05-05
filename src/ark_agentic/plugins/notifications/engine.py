@@ -1,8 +1,8 @@
 """Notifications engine accessor + schema initialiser.
 
-Notifications currently shares the central ``core.db`` engine — but the
-feature's tables live on its own ``NotificationsBase.metadata``, so
-``init_schema()`` here truly creates only the notifications schema. A
+Notifications currently shares the central ``core.storage.database`` engine
+— but the feature's tables live on its own ``NotificationsBase.metadata``,
+so ``init_schema()`` here truly creates only the notifications schema. A
 future split (dedicated DB, sharded engine) is a one-file change.
 """
 
@@ -16,7 +16,7 @@ from .storage.models import NotificationsBase
 
 
 def get_engine() -> AsyncEngine:
-    from ...core.db.engine import get_engine as _core_get_engine
+    from ...core.storage.database.engine import get_engine as _core_get_engine
     return _core_get_engine()
 
 

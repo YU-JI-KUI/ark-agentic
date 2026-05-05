@@ -26,7 +26,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from ....db.models import SessionMessage, SessionMeta
+from ..models import SessionMessage, SessionMeta
 from ....session.format import (
     MessageEntry,
     RawJsonlValidationError,
@@ -34,7 +34,7 @@ from ....session.format import (
     deserialize_message,
     serialize_message,
 )
-from ....storage.entries import SessionStoreEntry
+from ...entries import SessionStoreEntry
 from ....types import AgentMessage
 
 

@@ -1,12 +1,11 @@
 """AsyncEngine factory + schema bootstrap for the core domain.
 
-The engine is owned by this module — business code never sees it. Each
-storage domain (core / notifications / studio) has its own ``engine.py``
-that exposes ``get_engine()`` and ``init_schema()``; factories internally
-ask their domain accessor and never accept ``engine=`` in public APIs.
+The engine is owned by this module — business code never sees it. Plugins
+share this engine by calling ``get_engine()``; their own engine.py wrappers
+delegate here so a future split (per-feature DB) is a one-file change.
 
-PR2: process-wide ``AsyncEngine`` cached per (URL, pool_size) via
-``@lru_cache``. SQLite enables WAL pragma for file-backed DBs.
+Process-wide ``AsyncEngine`` cached per (URL, pool_size) via ``@lru_cache``.
+SQLite enables WAL pragma for file-backed DBs.
 """
 
 from __future__ import annotations
@@ -108,31 +107,21 @@ _test_engine: AsyncEngine | None = None
 def get_engine() -> AsyncEngine:
     """Return the process-wide AsyncEngine resolved from the environment.
 
-    Raises ``RuntimeError`` if ``DB_TYPE=file`` — the file backend has no
-    engine. Tests can swap the singleton via ``set_engine_for_testing``.
+    Caller must verify ``mode.is_database()`` is true; the file backend has
+    no engine. Tests can swap the singleton via ``set_engine_for_testing``.
     """
     if _test_engine is not None:
         return _test_engine
     cfg = load_db_config_from_env()
-    if cfg.db_type == "file":
-        raise RuntimeError(
-            "get_engine() called with DB_TYPE=file; the file backend "
-            "does not use a SQLAlchemy engine."
-        )
     return _build_engine(cfg.connection_str, cfg.pool_size)
 
 
 def get_async_engine(config: DBConfig | None = None) -> AsyncEngine:
-    """Backward-compat shim; prefer ``get_engine()``."""
+    """Build/fetch the engine; pass ``config`` to override the env path."""
     if config is None:
         return get_engine()
     if _test_engine is not None:
         return _test_engine
-    if config.db_type == "file":
-        raise RuntimeError(
-            "get_async_engine() called with DB_TYPE=file; the file backend "
-            "does not use a SQLAlchemy engine."
-        )
     return _build_engine(config.connection_str, config.pool_size)
 
 
@@ -156,13 +145,8 @@ def set_engine_for_testing(engine: AsyncEngine) -> None:
     _test_engine = engine
 
 
-def reset_engine_for_testing() -> None:
-    """Drop the per-test engine + clear the cache. Test cleanup helper."""
+def reset_engine_cache() -> None:
+    """Drop the per-test engine + clear the build cache. Test cleanup helper."""
     global _test_engine
     _test_engine = None
     _build_engine.cache_clear()
-
-
-def reset_engine_cache() -> None:
-    """Backward-compat alias of ``reset_engine_for_testing``."""
-    reset_engine_for_testing()

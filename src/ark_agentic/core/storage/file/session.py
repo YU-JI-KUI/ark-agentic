@@ -22,7 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ....session.format import (
+from ...session.format import (
     MessageEntry,
     RawJsonlValidationError,
     SessionHeader,
@@ -30,8 +30,8 @@ from ....session.format import (
     serialize_message,
 )
 from ._lock import FileLock
-from ....types import AgentMessage
-from ...entries import SessionStoreEntry
+from ...types import AgentMessage
+from ..entries import SessionStoreEntry
 
 logger = logging.getLogger(__name__)
 

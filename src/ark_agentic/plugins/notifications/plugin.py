@@ -6,14 +6,11 @@ import os
 from typing import Any
 
 from ...core.protocol.plugin import BasePlugin
+from ...core.storage import mode
 
 
 def _env_flag(name: str) -> bool:
     return os.getenv(name, "").lower() in ("true", "1")
-
-
-def _db_is_sqlite() -> bool:
-    return os.getenv("DB_TYPE", "file").strip().lower() == "sqlite"
 
 
 class NotificationsPlugin(BasePlugin):
@@ -28,7 +25,7 @@ class NotificationsPlugin(BasePlugin):
         return _env_flag("ENABLE_NOTIFICATIONS") or _env_flag("ENABLE_JOB_MANAGER")
 
     async def init(self) -> None:
-        if not _db_is_sqlite():
+        if not mode.is_database():
             return
         from .engine import init_schema
         await init_schema()

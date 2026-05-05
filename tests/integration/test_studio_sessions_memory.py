@@ -369,7 +369,7 @@ async def test_list_memory_files_merges_sqlite_user_without_disk_md(
     studio_auth_context,
 ):
     """SQLite user_memory has rows but workspace has no U001/MEMORY.md — Studio still lists them."""
-    from ark_agentic.core.db.engine import get_async_engine, init_schema, reset_engine_cache
+    from ark_agentic.core.storage.database.engine import get_async_engine, init_schema, reset_engine_cache
     from ark_agentic.core.memory.manager import build_memory_manager
 
     db_path = tmp_path / "central.db"

@@ -33,9 +33,9 @@ class SessionMessage(Base):
     __tablename__ = "session_messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # ON DELETE CASCADE pairs with PRAGMA foreign_keys=ON in core.db.engine
-    # so that direct DELETEs of session_meta rows (migrations, admin tools)
-    # do not leave orphaned message rows behind.
+    # ON DELETE CASCADE pairs with PRAGMA foreign_keys=ON in
+    # core.storage.database.engine so that direct DELETEs of session_meta rows
+    # (migrations, admin tools) do not leave orphaned message rows behind.
     session_id: Mapped[str] = mapped_column(
         String(128),
         ForeignKey("session_meta.session_id", ondelete="CASCADE"),

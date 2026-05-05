@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from ....db.models import UserMemory
+from ..models import UserMemory
 from ....memory.user_profile import (
     format_heading_sections,
     parse_heading_sections,

@@ -6,9 +6,9 @@ feature's tables. The previously-shared ``Base.metadata`` was a hidden
 coupling: deleting a feature would have left orphan tables behind.
 
 - Core tables (this Base): SessionMeta, SessionMessage, UserMemory.
-- Jobs: ``services.jobs.storage.models.JobsBase``.
-- Notifications: ``services.notifications.storage.models.NotificationsBase``.
-- Studio user grants: ``studio.services.auth.storage.models.AuthBase``.
+- Jobs: ``plugins.jobs.storage.models.JobsBase``.
+- Notifications: ``plugins.notifications.storage.models.NotificationsBase``.
+- Studio user grants: ``plugins.studio.services.auth.storage.models.AuthBase``.
 """
 
 from __future__ import annotations

@@ -12,7 +12,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from ....memory.user_profile import (
+from ...memory.user_profile import (
     format_heading_sections,
     parse_heading_sections,
 )
