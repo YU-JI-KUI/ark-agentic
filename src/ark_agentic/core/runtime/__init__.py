@@ -14,7 +14,7 @@ exists so Bootstrap can drive registration / warmup uniformly
 alongside plugins.
 """
 
-from .lifecycle import AgentsLifecycle
+from .agents_lifecycle import AgentsLifecycle
 from .callbacks import (
     AfterAgentCallback,
     AfterModelCallback,

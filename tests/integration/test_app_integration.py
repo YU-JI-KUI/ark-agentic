@@ -146,7 +146,7 @@ async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> 
     from types import SimpleNamespace
 
     from ark_agentic.core.protocol.bootstrap import Bootstrap
-    from ark_agentic.core.runtime.lifecycle import AgentsLifecycle
+    from ark_agentic.core.runtime.agents_lifecycle import AgentsLifecycle
 
     runner = AsyncMock()
     registry = MagicMock()

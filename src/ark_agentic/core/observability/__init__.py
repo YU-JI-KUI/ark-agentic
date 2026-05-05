@@ -9,7 +9,7 @@ from .decorators import (
     traced_chain,
     traced_tool,
 )
-from .lifecycle import TracingLifecycle
+from .tracing_lifecycle import TracingLifecycle
 from .links import current_trace_id_or_none, resolve_trace_link_template
 from .tracing import (
     get_tracer,
