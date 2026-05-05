@@ -16,13 +16,17 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ark_agentic.plugins.api.context import AppContext, get_ctx
+from ark_agentic.core.context import AppContext
 from .service import NotificationsService
+
+if TYPE_CHECKING:
+    from .setup import NotificationsContext
 
 router = APIRouter(prefix="/api", tags=["notifications"])
 logger = logging.getLogger(__name__)
@@ -33,17 +37,28 @@ _KEEPALIVE_INTERVAL = 30.0
 # ── Typed dependencies ──────────────────────────────────────────────
 
 
+def _get_ctx(request: Request) -> AppContext:
+    """FastAPI dependency: resolve the AppContext attached by Bootstrap."""
+    ctx = getattr(request.app.state, "ctx", None)
+    if ctx is None:
+        raise RuntimeError("AppContext is not initialised — did lifespan run?")
+    return ctx
+
+
 def get_notifications_service(
-    ctx: AppContext = Depends(get_ctx),
+    ctx: AppContext = Depends(_get_ctx),
 ) -> NotificationsService:
-    if ctx.notifications is None:
+    notifications: "NotificationsContext | None" = getattr(
+        ctx, "notifications", None,
+    )
+    if notifications is None:
         raise HTTPException(
             status_code=503, detail="Notifications feature not enabled",
         )
-    return ctx.notifications.service
+    return notifications.service
 
 
-def get_job_manager(ctx: AppContext = Depends(get_ctx)):
+def get_job_manager(ctx: AppContext = Depends(_get_ctx)):
     """Resolve JobManager from the global singleton (jobs feature owns it)."""
     from ark_agentic.plugins.jobs import get_job_manager as _get
     jm = _get()

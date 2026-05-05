@@ -1,9 +1,13 @@
-"""APIPlugin — built-in HTTP transport.
+"""APIPlugin — built-in HTTP transport for the chat API.
 
-Owns the always-on chat router, /health, the AppContext infrastructure,
-the global HTTP middleware (CORS + a windows-probe drop), and a default
-``/`` chat-demo page so end-users get something usable as soon as they
-enable the plugin.
+Owns the always-on chat router plus the surrounding HTTP plumbing it
+needs to be usable: ``/health``, the global middleware (CORS +
+a windows-probe drop), and a default ``/`` chat-demo page so end-users
+get something usable as soon as they enable the plugin.
+
+Scope is intentionally narrow — chat transport only. App-level state
+(``AppContext``) lives in ``core``; other plugins own their own routes
+and do not depend on this one.
 
 Headless (CLI / worker) deployments simply omit this plugin and get no
 FastAPI plumbing.

@@ -35,10 +35,10 @@ logging.basicConfig(
 from fastapi import FastAPI
 
 from ark_agentic.core.bootstrap import Bootstrap
+from ark_agentic.core.context import AppContext
 from ark_agentic.core.lifecycle import Lifecycle
 from ark_agentic.core.runtime.agents import AgentsRuntime
 from ark_agentic.core.runtime.tracing import TracingRuntime
-from ark_agentic.plugins.api.context import AppContext
 from ark_agentic.plugins.api.plugin import APIPlugin
 from ark_agentic.plugins.jobs.plugin import JobsPlugin
 from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
