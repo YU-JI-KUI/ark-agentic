@@ -1,14 +1,13 @@
-"""ORM models — single source of truth for the SQLite (and future PG) schema.
+"""Core ORM models — sessions, user memory.
 
-Note: ``studio_users`` is moved into this module by Task 11 so all tables share
-``Base.metadata`` and a single ``init_schema`` call creates everything.
+Independent feature tables (notifications, jobs, studio_users, …) live in
+their own feature packages with their own ``DeclarativeBase``; this Base
+holds only the central ones.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -62,47 +61,9 @@ class UserMemory(Base):
 
     user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     content: Mapped[str] = mapped_column(Text, default="")
+    # Timestamp (epoch seconds) of the user's last memory consolidation pass.
+    # NULL until the dreamer first marks the user.
+    last_dream_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class AgentState(Base):
-    __tablename__ = "agent_state"
-
-    user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    key: Mapped[str] = mapped_column(String(128), primary_key=True)
-    value: Mapped[str] = mapped_column(Text)
-    updated_at: Mapped[int] = mapped_column(Integer, default=0)
-
-
-class NotificationRow(Base):
-    __tablename__ = "notifications"
-
-    notification_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    agent_id: Mapped[str] = mapped_column(String(64), default="")
-    user_id: Mapped[str] = mapped_column(String(255))
-    payload_json: Mapped[str] = mapped_column(Text)
-    read: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[float]
-
-    __table_args__ = (
-        Index("ix_notif_agent_user_read", "agent_id", "user_id", "read"),
-    )
-
-
-class StudioUser(Base):
-    """Studio user role grants.
-
-    Migrated here from ``studio.services.authz_service`` (Task 11) so the
-    table joins the global metadata and gets created by the unified
-    ``init_schema(engine)`` call. The Table object surfaces for legacy
-    SQLAlchemy Core queries via ``StudioUser.__table__``.
-    """
-
-    __tablename__ = "studio_users"
-
-    user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
-    role: Mapped[str] = mapped_column(String(32))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -42,7 +42,7 @@ flowchart TB
     Api --> SqliteDB
 ```
 
-- `DB_TYPE=file` 时，会话 / Memory / AgentState 等主要落在 **本地目录**（约定路径如 `data/ark_sessions`、`data/ark_memory`）。
+- `DB_TYPE=file` 时，会话 / Memory / Job-runs 等主要落在 **本地目录**（约定路径如 `data/ark_sessions`、`data/ark_memory`、`data/ark_job_runs`）。
 - `DB_TYPE=sqlite` 时，业务表与 Studio 用户等落在 **同一 SQLite 文件**（由 `DB_CONNECTION_STR` 指定，默认 `data/ark.db`），由 `AsyncEngine` 访问。
 
 ---
@@ -90,18 +90,16 @@ flowchart LR
     subgraph protocols_pkg [core.storage.protocols]
         SR[SessionRepository]
         MR[MemoryRepository]
-        AR[AgentStateRepository]
         NR[NotificationRepository]
         SU[StudioUserRepository]
-        Cache[Cache]
+        JR[JobRunRepository_in_services_jobs]
     end
     subgraph factory_mod [core.storage.factory]
         BSR[build_session_repository]
         BMR[build_memory_repository]
-        BAR[build_agent_state_repository]
         BNR[build_notification_repository]
-        BC[build_cache]
         BSU[build_studio_user_repository]
+        BJR[build_job_run_repository_in_services_jobs]
     end
     subgraph repo_impl [core.storage.repository]
         F[file_pkg]
@@ -109,9 +107,9 @@ flowchart LR
     end
     BSR --> SR
     BMR --> MR
-    BAR --> AR
     BNR --> NR
     BSU --> SU
+    BJR --> JR
     BC --> Cache
     BSR --> F
     BSR --> S

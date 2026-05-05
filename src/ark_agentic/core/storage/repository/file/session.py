@@ -39,6 +39,13 @@ _META_LOCK_FILENAME = "sessions.json.lock"
 _META_CACHE_TTL_SECONDS = 45.0
 
 
+def _paginate(items: list, limit: int | None, offset: int) -> list:
+    start = max(offset, 0)
+    if limit is None:
+        return items[start:]
+    return items[start:start + limit]
+
+
 class FileSessionRepository:
     """File-backed implementation of SessionRepository."""
 
@@ -124,10 +131,10 @@ class FileSessionRepository:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[AgentMessage]:
-        # File 实现忽略 limit/offset; PR3 PG 实现下 limit=None 必须 raise。
-        return await asyncio.to_thread(
+        messages = await asyncio.to_thread(
             self._load_messages_sync, session_id, user_id,
         )
+        return _paginate(messages, limit, offset)
 
     async def get_raw_transcript(
         self,
@@ -184,7 +191,8 @@ class FileSessionRepository:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[str]:
-        return await asyncio.to_thread(self._list_session_ids_sync, user_id)
+        ids = await asyncio.to_thread(self._list_session_ids_sync, user_id)
+        return _paginate(ids, limit, offset)
 
     async def list_session_metas(
         self,
@@ -193,16 +201,18 @@ class FileSessionRepository:
         offset: int = 0,
     ) -> list[SessionStoreEntry]:
         store = await asyncio.to_thread(self._load_meta_store, user_id, False)
-        return sorted(
+        ordered = sorted(
             store.values(), key=lambda e: e.updated_at, reverse=True,
         )
+        return _paginate(ordered, limit, offset)
 
     async def list_all_sessions(
         self,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[tuple[str, str]]:
-        return await asyncio.to_thread(self._list_all_sessions_sync)
+        rows = await asyncio.to_thread(self._list_all_sessions_sync)
+        return _paginate(rows, limit, offset)
 
     # ── Sync helpers (run via asyncio.to_thread) ────────────────────
 

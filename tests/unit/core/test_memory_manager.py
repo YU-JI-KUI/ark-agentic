@@ -70,10 +70,9 @@ def test_build_memory_manager_wires_file_repository(tmp_path: Path) -> None:
     mgr = build_memory_manager(tmp_path)
 
     assert isinstance(mgr, MemoryManager)
-    # Internal repo is the file backend in default DB_TYPE=file mode.
+    # No decorator wrapping any more: the in-memory mirror lives on the
+    # MemoryManager itself, the repo is the raw file backend.
     assert isinstance(mgr._repo, FileMemoryRepository)
-    # MemoryConfig kept for back-compat; surface workspace_dir for callers
-    # that read it (e.g. scanner / dream).
     assert mgr.config.workspace_dir == str(tmp_path)
 
 
@@ -86,6 +85,80 @@ async def test_memory_manager_round_trip_through_real_file_repo(tmp_path: Path) 
 
     assert "Profile" in content
     assert "Alice" in content
+
+
+# ── In-memory mirror (parallels SessionManager._sessions) ─────────
+
+
+async def test_read_memory_caches_in_memory(tmp_path: Path) -> None:
+    """Second read for the same user hits the in-memory mirror, not the repo."""
+    mgr = build_memory_manager(tmp_path)
+    await mgr.write_memory("u1", "## A\n1\n")
+
+    first = await mgr.read_memory("u1")
+    assert "A" in first
+
+    # Replace the repo with a stub that raises if read is called.
+    class _Boom:
+        async def read(self, *a, **kw):
+            raise AssertionError("read should be served from in-memory mirror")
+    mgr._repo = _Boom()  # type: ignore[assignment]
+
+    second = await mgr.read_memory("u1")
+    assert second == first
+
+
+async def test_read_memory_caches_empty_string_for_cold_user(tmp_path: Path) -> None:
+    """Cold users (no MEMORY.md) cache the empty string so subsequent reads
+    don't re-hit the file system every chat turn."""
+    mgr = build_memory_manager(tmp_path)
+
+    first = await mgr.read_memory("u-cold")
+    assert first == ""
+
+    class _Boom:
+        async def read(self, *a, **kw):
+            raise AssertionError("empty string must be cached")
+    mgr._repo = _Boom()  # type: ignore[assignment]
+
+    assert await mgr.read_memory("u-cold") == ""
+
+
+async def test_write_memory_invalidates_in_memory_mirror(tmp_path: Path) -> None:
+    mgr = build_memory_manager(tmp_path)
+    await mgr.write_memory("u1", "## A\n1\n")
+    await mgr.read_memory("u1")  # populate mirror
+
+    await mgr.write_memory("u1", "## B\n2\n")
+
+    # Mirror invalidated; next read computes the merged content from disk.
+    content = await mgr.read_memory("u1")
+    assert "A" in content and "B" in content
+
+
+async def test_overwrite_eagerly_populates_mirror(tmp_path: Path) -> None:
+    """overwrite() knows the exact new content; mirror is set directly,
+    no extra disk read on the next read_memory call."""
+    mgr = build_memory_manager(tmp_path)
+    await mgr.read_memory("u1")  # cold read populates with ""
+
+    await mgr.overwrite("u1", "fresh\n")
+
+    class _Boom:
+        async def read(self, *a, **kw):
+            raise AssertionError("overwrite should populate the mirror")
+    mgr._repo = _Boom()  # type: ignore[assignment]
+
+    assert await mgr.read_memory("u1") == "fresh\n"
+
+
+def test_evict_user_drops_mirror(tmp_path: Path) -> None:
+    mgr = build_memory_manager(tmp_path)
+    mgr._memory["u1"] = "cached"
+
+    mgr.evict_user("u1")
+
+    assert "u1" not in mgr._memory
 
 
 def test_memory_config_keeps_workspace_dir() -> None:
@@ -105,14 +178,69 @@ async def test_list_user_ids_delegates_to_repo() -> None:
     mock_repo.list_users.assert_called_once()
 
 
-def test_build_memory_manager_accepts_engine_injection(tmp_path: Path) -> None:
-    """build_memory_manager must accept an engine kwarg without re-parsing DB_TYPE."""
-    from unittest.mock import MagicMock, patch
+def test_build_memory_manager_no_longer_takes_engine(tmp_path: Path) -> None:
+    """``engine`` kwarg removed — engine ownership is encapsulated by
+    ``core.db.engine``, not plumbed through public signatures."""
+    import inspect
 
-    mock_engine = MagicMock()
-    with patch("ark_agentic.core.storage.factory.build_memory_repository") as mock_factory:
-        mock_factory.return_value = AsyncMock()
-        build_memory_manager(memory_dir=tmp_path, engine=mock_engine)
-        mock_factory.assert_called_once()
-        _, kwargs = mock_factory.call_args
-        assert kwargs.get("engine") is mock_engine
+    sig = inspect.signature(build_memory_manager)
+    assert "engine" not in sig.parameters
+    assert "db_engine" not in sig.parameters
+
+
+# ---------------------------------------------------------------------------
+# Dreaming control: enable_dream config + maybe_consolidate behaviour
+# ---------------------------------------------------------------------------
+
+
+async def test_maybe_consolidate_is_noop_when_dreaming_disabled(
+    tmp_path: Path,
+) -> None:
+    """Default config has enable_dream=False; manager must not construct a
+    dreamer and maybe_consolidate is a silent no-op."""
+    mgr = build_memory_manager(tmp_path)
+
+    assert mgr._dreamer is None
+    await mgr.maybe_consolidate("anyone")  # must not raise
+
+
+def test_enable_dream_requires_session_manager_and_llm_factory(
+    tmp_path: Path,
+) -> None:
+    """Memory subsystem is the SSOT for dreamer wiring — building it without
+    the inputs it needs must fail loudly, not silently disable dreaming."""
+    with pytest.raises(ValueError, match="enable_dream"):
+        build_memory_manager(tmp_path, enable_dream=True)
+
+
+async def test_maybe_consolidate_delegates_to_internal_dreamer(
+    tmp_path: Path,
+) -> None:
+    """When enabled, maybe_consolidate forwards to the internal dreamer's
+    maybe_run; the dreamer itself stays internal to the memory subsystem."""
+    from unittest.mock import MagicMock
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    from ark_agentic.core.session import SessionManager
+    from ark_agentic.core.storage.repository.file.session import (
+        FileSessionRepository,
+    )
+
+    session_manager = SessionManager(
+        sessions_dir=sessions_dir,
+        repository=FileSessionRepository(sessions_dir),
+    )
+    mgr = build_memory_manager(
+        tmp_path / "ws",
+        enable_dream=True,
+        session_manager=session_manager,
+        llm_factory=lambda: MagicMock(),
+    )
+
+    assert mgr._dreamer is not None
+    mgr._dreamer.maybe_run = AsyncMock()  # type: ignore[method-assign]
+
+    await mgr.maybe_consolidate("u1")
+
+    mgr._dreamer.maybe_run.assert_called_once_with("u1")

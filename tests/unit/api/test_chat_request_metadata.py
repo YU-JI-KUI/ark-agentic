@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ark_agentic.api.chat import build_chat_request_meta
-from ark_agentic.api.models import ChatRequest, HistoryMessage
+from ark_agentic.plugins.api.chat import build_chat_request_meta
+from ark_agentic.plugins.api.models import ChatRequest, HistoryMessage
 from ark_agentic.core.types import RunOptions
 
 

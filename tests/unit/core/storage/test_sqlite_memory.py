@@ -118,3 +118,45 @@ async def test_overwrite_concurrent_no_integrity_error(
     final = await repo.read("racey")
     # one of the two writes wins; both are valid — neither must raise
     assert final in ("first\n", "second\n")
+
+
+async def test_get_last_dream_at_missing_returns_none(
+    repo: SqliteMemoryRepository,
+):
+    assert await repo.get_last_dream_at("nobody") is None
+
+
+async def test_set_then_get_last_dream_at_roundtrip(
+    repo: SqliteMemoryRepository,
+):
+    await repo.set_last_dream_at("u1", 1234567.5)
+
+    assert await repo.get_last_dream_at("u1") == 1234567.5
+
+
+async def test_set_last_dream_at_creates_row_for_new_user(
+    repo: SqliteMemoryRepository,
+):
+    """First set on a brand-new user must succeed; row is created with
+    empty content + the timestamp set."""
+    await repo.set_last_dream_at("newuser", 42.0)
+
+    assert await repo.read("newuser") == ""
+    assert await repo.get_last_dream_at("newuser") == 42.0
+
+
+async def test_set_last_dream_at_overwrites(repo: SqliteMemoryRepository):
+    await repo.set_last_dream_at("u2", 100.0)
+    await repo.set_last_dream_at("u2", 200.0)
+
+    assert await repo.get_last_dream_at("u2") == 200.0
+
+
+async def test_overwrite_preserves_last_dream_at(
+    repo: SqliteMemoryRepository,
+):
+    """Overwriting content must not clobber an existing last_dream_at marker."""
+    await repo.set_last_dream_at("u3", 999.0)
+    await repo.overwrite("u3", "## X\nbody\n")
+
+    assert await repo.get_last_dream_at("u3") == 999.0

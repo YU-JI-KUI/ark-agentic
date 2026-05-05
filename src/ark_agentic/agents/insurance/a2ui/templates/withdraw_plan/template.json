@@ -1,0 +1,607 @@
+{
+  "event": "beginRendering",
+  "version": "1.0.0",
+  "surfaceId": "",
+  "rootComponentId": "root",
+  "style": "default",
+  "hideVoteRecorder": true,
+  "data": {},
+  "components": [
+    {
+      "id": "root",
+      "component": {
+        "Column": {
+          "width": 100,
+          "backgroundColor": "#F5F5F5",
+          "padding": [16, 32, 16, 16],
+          "gap": 16,
+          "children": {
+            "explicitList": [
+              "card-plan-1",
+              "card-plan-2",
+              "card-plan-3"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "card-plan-1",
+      "component": {
+        "Card": {
+          "hide": { "path": "plan_1_hide" },
+          "width": 100,
+          "backgroundColor": "#FFFFFF",
+          "borderRadius": "middle",
+          "padding": 16,
+          "children": { "explicitList": ["p1-col"] }
+        }
+      }
+    },
+    {
+      "id": "p1-col",
+      "component": {
+        "Column": {
+          "gap": 12,
+          "children": {
+            "explicitList": [
+              "p1-title-row", "p1-tag", "p1-total", "p1-reason", "p1-divider",
+              "p1-items-list", "p1-btn-col"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "p1-title-row",
+      "component": {
+        "Row": {
+          "alignment": "middle",
+          "gap": 8,
+          "children": { "explicitList": ["p1-marker", "p1-title"] }
+        }
+      }
+    },
+    {
+      "id": "p1-marker",
+      "component": {
+        "Text": {
+          "text": { "path": "section_marker" },
+          "color": "#FF6600",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p1-title",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_1_title" },
+          "color": "#333333",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p1-tag",
+      "component": {
+        "Text": {
+          "hide": { "path": "plan_1_tag_hide" },
+          "text": { "path": "plan_1_tag" },
+          "color": "#52C41A",
+          "fontSize": "12px"
+        }
+      }
+    },
+    {
+      "id": "p1-total",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_1_total" },
+          "color": "#FF6600",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p1-reason",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_1_reason" },
+          "color": "#999999",
+          "fontSize": "13px"
+        }
+      }
+    },
+    {
+      "id": "p1-divider",
+      "component": {
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "p1-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "plan-item-tpl",
+          "dataSource": { "path": "plan_1_policies" }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-col",
+      "component": {
+        "Column": {
+          "gap": 8,
+          "children": { "explicitList": ["p1-btn-1", "p1-btn-2", "p1-btn-3", "p1-btn-4"] }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-1",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_1_btn_1_hide" },
+          "width": 100,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_1_btn_1_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_1_btn_1_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-2",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_1_btn_2_hide" },
+          "width": 100,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_1_btn_2_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_1_btn_2_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-3",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_1_btn_3_hide" },
+          "width": 100,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_1_btn_3_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_1_btn_3_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p1-btn-4",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_1_btn_4_hide" },
+          "width": 100,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_1_btn_4_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_1_btn_4_action" }
+          }
+        }
+      }
+    },
+
+    {
+      "id": "card-plan-2",
+      "component": {
+        "Card": {
+          "hide": { "path": "plan_2_hide" },
+          "width": 100,
+          "backgroundColor": "#FFFFFF",
+          "borderRadius": "middle",
+          "padding": 16,
+          "children": { "explicitList": ["p2-col"] }
+        }
+      }
+    },
+    {
+      "id": "p2-col",
+      "component": {
+        "Column": {
+          "gap": 12,
+          "children": {
+            "explicitList": [
+              "p2-title-row", "p2-tag", "p2-total", "p2-reason", "p2-divider",
+              "p2-items-list", "p2-btn-col"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "p2-title-row",
+      "component": {
+        "Row": {
+          "alignment": "middle",
+          "gap": 8,
+          "children": { "explicitList": ["p2-marker", "p2-title"] }
+        }
+      }
+    },
+    {
+      "id": "p2-marker",
+      "component": {
+        "Text": {
+          "text": { "path": "section_marker" },
+          "color": "#FF6600",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p2-title",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_2_title" },
+          "color": "#333333",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p2-tag",
+      "component": {
+        "Text": {
+          "hide": { "path": "plan_2_tag_hide" },
+          "text": { "path": "plan_2_tag" },
+          "color": "#FA8C16",
+          "fontSize": "12px"
+        }
+      }
+    },
+    {
+      "id": "p2-total",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_2_total" },
+          "color": "#FF6600",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p2-reason",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_2_reason" },
+          "color": "#999999",
+          "fontSize": "13px"
+        }
+      }
+    },
+    {
+      "id": "p2-divider",
+      "component": {
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "p2-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "plan-item-tpl",
+          "dataSource": { "path": "plan_2_policies" }
+        }
+      }
+    },
+    {
+      "id": "p2-btn-col",
+      "component": {
+        "Column": {
+          "gap": 8,
+          "children": { "explicitList": ["p2-btn-1", "p2-btn-2", "p2-btn-3", "p2-btn-4"] }
+        }
+      }
+    },
+    {
+      "id": "p2-btn-1",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_2_btn_1_hide" },
+          "width": 100,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_2_btn_1_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_2_btn_1_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p2-btn-2",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_2_btn_2_hide" },
+          "width": 100,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_2_btn_2_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_2_btn_2_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p2-btn-3",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_2_btn_3_hide" },
+          "width": 100,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_2_btn_3_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_2_btn_3_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p2-btn-4",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_2_btn_4_hide" },
+          "width": 100,
+          "type": "secondary",
+          "size": "small",
+          "text": { "path": "plan_2_btn_4_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_2_btn_4_action" }
+          }
+        }
+      }
+    },
+
+    {
+      "id": "card-plan-3",
+      "component": {
+        "Card": {
+          "hide": { "path": "plan_3_hide" },
+          "width": 100,
+          "backgroundColor": "#FFFFFF",
+          "borderRadius": "middle",
+          "padding": 16,
+          "children": { "explicitList": ["p3-col"] }
+        }
+      }
+    },
+    {
+      "id": "p3-col",
+      "component": {
+        "Column": {
+          "gap": 12,
+          "children": {
+            "explicitList": [
+              "p3-title-row", "p3-tag", "p3-total", "p3-reason", "p3-divider",
+              "p3-items-list", "p3-btn-col"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "p3-title-row",
+      "component": {
+        "Row": {
+          "alignment": "middle",
+          "gap": 8,
+          "children": { "explicitList": ["p3-marker", "p3-title"] }
+        }
+      }
+    },
+    {
+      "id": "p3-marker",
+      "component": {
+        "Text": {
+          "text": { "path": "section_marker" },
+          "color": "#FF6600",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p3-title",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_3_title" },
+          "color": "#333333",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p3-tag",
+      "component": {
+        "Text": {
+          "hide": { "path": "plan_3_tag_hide" },
+          "text": { "path": "plan_3_tag" },
+          "color": "#FA8C16",
+          "fontSize": "12px"
+        }
+      }
+    },
+    {
+      "id": "p3-total",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_3_total" },
+          "color": "#FF6600",
+          "fontSize": "16px",
+          "bold": true
+        }
+      }
+    },
+    {
+      "id": "p3-reason",
+      "component": {
+        "Text": {
+          "text": { "path": "plan_3_reason" },
+          "color": "#999999",
+          "fontSize": "13px"
+        }
+      }
+    },
+    {
+      "id": "p3-divider",
+      "component": {
+        "Divider": { "borderColor": "#F5F5F5", "hairline": true }
+      }
+    },
+    {
+      "id": "p3-items-list",
+      "component": {
+        "List": {
+          "direction": "vertical",
+          "gap": 8,
+          "child": "plan-item-tpl",
+          "dataSource": { "path": "plan_3_policies" }
+        }
+      }
+    },
+    {
+      "id": "p3-btn-col",
+      "component": {
+        "Column": {
+          "gap": 8,
+          "children": { "explicitList": ["p3-btn-1", "p3-btn-2", "p3-btn-3", "p3-btn-4"] }
+        }
+      }
+    },
+    {
+      "id": "p3-btn-1",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_3_btn_1_hide" },
+          "width": 100,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_3_btn_1_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_3_btn_1_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p3-btn-2",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_3_btn_2_hide" },
+          "width": 100,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_3_btn_2_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_3_btn_2_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p3-btn-3",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_3_btn_3_hide" },
+          "width": 100,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_3_btn_3_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_3_btn_3_action" }
+          }
+        }
+      }
+    },
+    {
+      "id": "p3-btn-4",
+      "component": {
+        "Button": {
+          "hide": { "path": "plan_3_btn_4_hide" },
+          "width": 100,
+          "type": "primary",
+          "size": "small",
+          "text": { "path": "plan_3_btn_4_text" },
+          "action": {
+            "name": "query",
+            "args": { "path": "plan_3_btn_4_action" }
+          }
+        }
+      }
+    },
+
+    {
+      "id": "plan-item-tpl",
+      "component": {
+        "Row": {
+          "width": 100,
+          "distribution": "spaceBetween",
+          "children": {
+            "explicitList": ["plan-item-label", "plan-item-value"]
+          }
+        }
+      }
+    },
+    {
+      "id": "plan-item-label",
+      "component": {
+        "Text": {
+          "text": { "path": "label" },
+          "color": "#333333",
+          "fontSize": "14px"
+        }
+      }
+    },
+    {
+      "id": "plan-item-value",
+      "component": {
+        "Text": {
+          "text": { "path": "value" },
+          "color": "#333333",
+          "fontSize": "14px"
+        }
+      }
+    }
+  ]
+}

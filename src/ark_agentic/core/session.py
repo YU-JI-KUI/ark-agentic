@@ -19,8 +19,6 @@ from .persistence import SessionStoreEntry
 from .types import AgentMessage, CompactionStats, SessionEntry, TokenUsage
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncEngine
-
     from .storage.protocols import SessionRepository
 
 logger = logging.getLogger(__name__)
@@ -41,7 +39,6 @@ class SessionManager:
         compaction_config: CompactionConfig | None = None,
         summarizer: SummarizerProtocol | None = None,
         repository: "SessionRepository | None" = None,
-        db_engine: "AsyncEngine | None" = None,
     ) -> None:
         self._sessions: dict[str, SessionEntry] = {}
         self._compaction_config = compaction_config or CompactionConfig()
@@ -52,14 +49,45 @@ class SessionManager:
         if repository is None:
             from .storage.factory import build_session_repository
 
-            repository = build_session_repository(
-                sessions_dir=sessions_dir, engine=db_engine,
-            )
+            repository = build_session_repository(sessions_dir=sessions_dir)
         self._repository = repository
 
-    @property
-    def repository(self) -> "SessionRepository":
-        return self._repository
+    # ── Narrow read API for in-process consumers ─────────────────────
+    # MemoryDreamer needs (user → recent session metas) + (sid → messages)
+    # to consolidate. Exposing these two pass-throughs lets the memory
+    # subsystem depend on SessionManager (high-level), not SessionRepository
+    # (storage layer) — restoring one-way layering.
+
+    async def list_user_session_metas(
+        self, user_id: str,
+    ) -> list[SessionStoreEntry]:
+        """Return the user's session metadata, newest first by ``updated_at``."""
+        return await self._repository.list_session_metas(user_id)
+
+    async def load_session_messages(
+        self, session_id: str, user_id: str,
+    ) -> list[AgentMessage]:
+        """Return the verbatim message list for a single session."""
+        return await self._repository.load_messages(session_id, user_id)
+
+    # ── Raw transcript I/O (Studio raw editor) ────────────
+
+    async def get_raw_transcript(
+        self, session_id: str, user_id: str,
+    ) -> str | None:
+        """Return the JSONL transcript verbatim. Admin / debug only."""
+        return await self._repository.get_raw_transcript(session_id, user_id)
+
+    async def put_raw_transcript(
+        self,
+        session_id: str,
+        user_id: str,
+        jsonl_content: str,
+    ) -> None:
+        """Validate and atomically replace the transcript. Admin only."""
+        await self._repository.put_raw_transcript(
+            session_id, user_id, jsonl_content,
+        )
 
     # ============ 会话生命周期 ============
 

@@ -96,3 +96,38 @@ async def test_upsert_drops_heading_when_body_empty(
     assert "A" not in current
     assert "B" in current  # untouched headings preserved
     assert "A" in dropped
+
+
+async def test_get_last_dream_at_missing_returns_none(
+    repo: FileMemoryRepository,
+):
+    assert await repo.get_last_dream_at("nobody") is None
+
+
+async def test_set_then_get_last_dream_at_roundtrip(
+    repo: FileMemoryRepository, workspace: Path,
+):
+    ts = time.time()
+    await repo.set_last_dream_at("u1", ts)
+
+    assert (workspace / "u1" / ".last_dream").exists()
+    got = await repo.get_last_dream_at("u1")
+    assert got is not None
+    assert abs(got - ts) < 1e-3
+
+
+async def test_get_last_dream_at_corrupt_returns_none(
+    repo: FileMemoryRepository, workspace: Path,
+):
+    user_dir = workspace / "u2"
+    user_dir.mkdir(parents=True)
+    (user_dir / ".last_dream").write_text("not-a-number", encoding="utf-8")
+
+    assert await repo.get_last_dream_at("u2") is None
+
+
+async def test_set_last_dream_at_overwrites(repo: FileMemoryRepository):
+    await repo.set_last_dream_at("u3", 100.0)
+    await repo.set_last_dream_at("u3", 200.0)
+
+    assert await repo.get_last_dream_at("u3") == 200.0

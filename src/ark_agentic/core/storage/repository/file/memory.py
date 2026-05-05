@@ -20,6 +20,7 @@ from ....memory.user_profile import (
 logger = logging.getLogger(__name__)
 
 _PROFILE_FILENAME = "MEMORY.md"
+_LAST_DREAM_FILENAME = ".last_dream"
 
 
 class FileMemoryRepository:
@@ -27,6 +28,7 @@ class FileMemoryRepository:
 
     def __init__(self, workspace_dir: str | Path) -> None:
         self._workspace = Path(workspace_dir)
+        self._workspace.mkdir(parents=True, exist_ok=True)
 
     def _memory_path(self, user_id: str) -> Path:
         return self._workspace / user_id / _PROFILE_FILENAME
@@ -97,15 +99,61 @@ class FileMemoryRepository:
             tmp_path = tmp.name
         os.replace(tmp_path, target)
 
+    def _last_dream_path(self, user_id: str) -> Path:
+        return self._workspace / user_id / _LAST_DREAM_FILENAME
+
+    async def get_last_dream_at(self, user_id: str) -> float | None:
+        return await asyncio.to_thread(self._get_last_dream_at_sync, user_id)
+
+    def _get_last_dream_at_sync(self, user_id: str) -> float | None:
+        path = self._last_dream_path(user_id)
+        if not path.exists():
+            return None
+        try:
+            return float(path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return None
+
+    async def set_last_dream_at(
+        self, user_id: str, timestamp: float,
+    ) -> None:
+        await asyncio.to_thread(
+            self._set_last_dream_at_sync, user_id, timestamp,
+        )
+
+    def _set_last_dream_at_sync(
+        self, user_id: str, timestamp: float,
+    ) -> None:
+        target = self._last_dream_path(user_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=str(target.parent),
+            prefix=".last_dream_",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp.write(str(timestamp))
+            tmp_path = tmp.name
+        os.replace(tmp_path, target)
+
     async def list_users(
         self,
         limit: int | None = None,
         offset: int = 0,
         order_by_updated_desc: bool = True,
     ) -> list[str]:
-        return await asyncio.to_thread(self._list_users_sync, order_by_updated_desc)
+        return await asyncio.to_thread(
+            self._list_users_sync, limit, offset, order_by_updated_desc,
+        )
 
-    def _list_users_sync(self, order_by_updated_desc: bool) -> list[str]:
+    def _list_users_sync(
+        self,
+        limit: int | None,
+        offset: int,
+        order_by_updated_desc: bool,
+    ) -> list[str]:
         if not self._workspace.exists():
             return []
         users_with_mtime: list[tuple[str, float]] = []
@@ -117,4 +165,12 @@ class FileMemoryRepository:
                 continue
             users_with_mtime.append((entry.name, mem.stat().st_mtime))
         users_with_mtime.sort(key=lambda t: t[1], reverse=order_by_updated_desc)
-        return [name for name, _ in users_with_mtime]
+        names = [name for name, _ in users_with_mtime]
+        return _paginate(names, limit, offset)
+
+
+def _paginate(items: list, limit: int | None, offset: int) -> list:
+    start = max(offset, 0)
+    if limit is None:
+        return items[start:]
+    return items[start:start + limit]

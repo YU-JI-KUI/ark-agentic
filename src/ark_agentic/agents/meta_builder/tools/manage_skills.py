@@ -13,7 +13,7 @@ from typing import Any
 from ark_agentic.core.tools.base import AgentTool, ToolParameter, read_string_param
 from ark_agentic.core.types import AgentToolResult, ToolCall
 from ark_agentic.core.utils.env import get_agents_root
-from ark_agentic.studio.services.skill_service import (
+from ark_agentic.plugins.studio.services.skill_service import (
     create_skill as svc_create_skill,
     update_skill as svc_update_skill,
     delete_skill as svc_delete_skill,

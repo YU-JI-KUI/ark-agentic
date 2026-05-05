@@ -22,9 +22,9 @@ from fastapi import FastAPI
 
 def test_setup_studio_from_env_disabled_by_default(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("ENABLE_STUDIO", raising=False)
-    from ark_agentic.studio import setup_studio_from_env
+    from ark_agentic.plugins.studio import setup_studio_from_env
     app = FastAPI()
-    with patch("ark_agentic.studio.setup_studio") as mock_setup:
+    with patch("ark_agentic.plugins.studio.setup_studio") as mock_setup:
         result = setup_studio_from_env(app)
     assert result is False
     mock_setup.assert_not_called()
@@ -32,9 +32,9 @@ def test_setup_studio_from_env_disabled_by_default(monkeypatch: pytest.MonkeyPat
 
 def test_setup_studio_from_env_disabled_explicitly(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENABLE_STUDIO", "false")
-    from ark_agentic.studio import setup_studio_from_env
+    from ark_agentic.plugins.studio import setup_studio_from_env
     app = FastAPI()
-    with patch("ark_agentic.studio.setup_studio") as mock_setup:
+    with patch("ark_agentic.plugins.studio.setup_studio") as mock_setup:
         result = setup_studio_from_env(app)
     assert result is False
     mock_setup.assert_not_called()
@@ -42,10 +42,10 @@ def test_setup_studio_from_env_disabled_explicitly(monkeypatch: pytest.MonkeyPat
 
 def test_setup_studio_from_env_enabled_delegates_to_setup_studio(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENABLE_STUDIO", "true")
-    from ark_agentic.studio import setup_studio_from_env
+    from ark_agentic.plugins.studio import setup_studio_from_env
     app = FastAPI()
     registry = MagicMock()
-    with patch("ark_agentic.studio.setup_studio") as mock_setup:
+    with patch("ark_agentic.plugins.studio.setup_studio") as mock_setup:
         result = setup_studio_from_env(app, registry=registry)
     assert result is True
     mock_setup.assert_called_once_with(app, registry=registry)
@@ -53,9 +53,9 @@ def test_setup_studio_from_env_enabled_delegates_to_setup_studio(monkeypatch: py
 
 def test_setup_studio_from_env_enabled_no_registry(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENABLE_STUDIO", "true")
-    from ark_agentic.studio import setup_studio_from_env
+    from ark_agentic.plugins.studio import setup_studio_from_env
     app = FastAPI()
-    with patch("ark_agentic.studio.setup_studio") as mock_setup:
+    with patch("ark_agentic.plugins.studio.setup_studio") as mock_setup:
         result = setup_studio_from_env(app)
     assert result is True
     mock_setup.assert_called_once_with(app, registry=None)
@@ -65,18 +65,18 @@ def test_setup_studio_from_env_enabled_no_registry(monkeypatch: pytest.MonkeyPat
 
 def test_setup_studio_from_env_import_error_is_caught(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENABLE_STUDIO", "true")
-    from ark_agentic.studio import setup_studio_from_env
+    from ark_agentic.plugins.studio import setup_studio_from_env
     app = FastAPI()
-    with patch("ark_agentic.studio.setup_studio", side_effect=ImportError("no module")):
+    with patch("ark_agentic.plugins.studio.setup_studio", side_effect=ImportError("no module")):
         result = setup_studio_from_env(app)
     assert result is True
 
 
 def test_setup_studio_from_env_generic_exception_is_caught(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENABLE_STUDIO", "true")
-    from ark_agentic.studio import setup_studio_from_env
+    from ark_agentic.plugins.studio import setup_studio_from_env
     app = FastAPI()
-    with patch("ark_agentic.studio.setup_studio", side_effect=RuntimeError("boom")):
+    with patch("ark_agentic.plugins.studio.setup_studio", side_effect=RuntimeError("boom")):
         result = setup_studio_from_env(app)
     assert result is True
 
@@ -96,7 +96,7 @@ def _render_api_template() -> str:
 
 def test_api_template_imports_setup_studio_from_env():
     rendered = _render_api_template()
-    assert "from ark_agentic.studio import setup_studio_from_env" in rendered
+    assert "from ark_agentic.plugins.studio import setup_studio_from_env" in rendered
 
 
 def test_api_template_calls_setup_studio_from_env_at_module_level():

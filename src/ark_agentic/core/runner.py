@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, NamedTuple, TYPE_CHECKING
@@ -100,12 +101,6 @@ class RunnerConfig:
 
     # 子任务（启用后自动注册 spawn_subtasks 工具）
     enable_subtasks: bool = False
-
-    # Dream 开关：False 时不创建 MemoryDreamer，即使 memory 系统已启用也不会执行后台蒸馏
-    enable_dream: bool = True
-
-    # Dream 触发：最少 session 数（OR 语义：时间够 或 session 数够）
-    dream_min_sessions: int = 5
 
     # 外部历史合并（agent 级开关）
     accept_external_history: bool = True
@@ -205,7 +200,6 @@ class AgentRunner:
         config: RunnerConfig | None = None,
         memory_manager: MemoryManager | None = None,
         callbacks: RunnerCallbacks | None = None,
-        dreamer: Any | None = None,
     ) -> None:
         self.llm = llm
         self.tool_registry = tool_registry or ToolRegistry()
@@ -219,9 +213,9 @@ class AgentRunner:
 
         self._memory_manager = memory_manager
         self._flusher = None
-        # Dreamer is fully constructed by the factory and injected here.
-        # The runner never builds repositories itself.
-        self._dreamer = dreamer
+        # Warmup hooks are appended by services (jobs / future bindings)
+        # via add_warmup_hook(); runner just runs them on warmup().
+        self._warmup_hooks: list[Callable[[], Awaitable[None]]] = []
 
         # LLMCaller / ToolExecutor (SRP)
         self._llm_caller = LLMCaller(
@@ -243,9 +237,6 @@ class AgentRunner:
                 lambda: self._llm_caller.get_llm(sampling_override=extraction_sampling)
             )
 
-            # Dreamer is injected by the agent factory (see ``core.agent_factory``).
-            # When None, dreaming is simply skipped — the runner does not
-            # know how to build storage repositories.
             memory_tools = create_memory_tools(self._get_memory_for_user)
             for tool in memory_tools:
                 self.tool_registry.register(tool)
@@ -278,17 +269,24 @@ class AgentRunner:
         """返回共享 MemoryManager（所有用户共用一个实例）。"""
         return self._memory_manager
 
-    async def warmup(self) -> None:
-        """Warmup hook — 执行 services 模块附加的 _warmup_tasks。
+    def add_warmup_hook(
+        self, hook: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Register an async hook to run on ``warmup()``.
 
-        runner 本身不感知具体任务(job 注册、资源预热等);services 层通过
-        apply_*_bindings() 在构造后追加任务,此处仅负责依次触发。
+        Public hook point: services (e.g. jobs/bindings) register
+        startup tasks here without reaching into runner internals.
         """
-        tasks = getattr(self, "_warmup_tasks", None)
-        if not tasks:
-            return
-        for task in tasks:
-            await task()
+        self._warmup_hooks.append(hook)
+
+    async def warmup(self) -> None:
+        """Run every hook registered via ``add_warmup_hook``.
+
+        The runner stays unaware of what each hook does (job registration,
+        cache priming, …) — services attach behaviour from outside.
+        """
+        for hook in self._warmup_hooks:
+            await hook()
 
     @property
     def memory_manager(self) -> "MemoryManager | None":
@@ -564,9 +562,9 @@ class AgentRunner:
         await self._maybe_trigger_dream(user_id)
 
     async def _maybe_trigger_dream(self, user_id: str) -> None:
-        """Delegate to MemoryDreamer; the runner owns no dream state itself."""
-        if self._dreamer is not None:
-            await self._dreamer.maybe_run(user_id)
+        """Delegate to memory subsystem; runner owns no dream state itself."""
+        if self._memory_manager is not None:
+            await self._memory_manager.maybe_consolidate(user_id)
 
     @staticmethod
     def _merge_tool_state_deltas(

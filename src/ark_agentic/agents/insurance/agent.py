@@ -14,7 +14,6 @@ import logging
 from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ark_agentic.core.agent_factory import AgentDef, build_standard_agent
 from ark_agentic.core.callbacks import RunnerCallbacks
@@ -50,7 +49,6 @@ def create_insurance_agent(
     *,
     enable_memory: bool = False,
     enable_dream: bool = True,
-    db_engine: AsyncEngine | None = None,
 ) -> AgentRunner:
     """创建保险智能体
 
@@ -73,5 +71,4 @@ def create_insurance_agent(
         enable_memory=enable_memory,
         enable_dream=enable_dream,
         callbacks=callbacks,
-        db_engine=db_engine,
     )

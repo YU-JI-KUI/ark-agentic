@@ -49,17 +49,17 @@ exclude = [
     "src/ark_agentic/agents/insurance",
     "src/ark_agentic/agents/securities",
     "src/ark_agentic/app.py",
-    "src/ark_agentic/static",
-    "src/ark_agentic/studio/frontend/node_modules",
-    "src/ark_agentic/studio/frontend/src",
+    "src/ark_agentic/portal",
+    "src/ark_agentic/plugins/studio/frontend/node_modules",
+    "src/ark_agentic/plugins/studio/frontend/src",
 ]
 
 [tool.hatch.build.targets.sdist.force-include]
-"src/ark_agentic/studio/frontend/dist" = "src/ark_agentic/studio/frontend/dist"
+"src/ark_agentic/plugins/studio/frontend/dist" = "src/ark_agentic/plugins/studio/frontend/dist"
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/ark_agentic/studio/frontend/dist"       = "ark_agentic/studio/frontend/dist"
-"src/ark_agentic/agents/meta_builder/skills" = "ark_agentic/agents/meta_builder/skills"
+"src/ark_agentic/plugins/studio/frontend/dist" = "ark_agentic/plugins/studio/frontend/dist"
+"src/ark_agentic/agents/meta_builder/skills"   = "ark_agentic/agents/meta_builder/skills"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

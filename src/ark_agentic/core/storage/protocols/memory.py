@@ -33,8 +33,23 @@ class MemoryRepository(Protocol):
         offset: int = 0,
         order_by_updated_desc: bool = True,
     ) -> list[str]:
-        """File 实现忽略 limit/offset。
-        SQLite 实现支持 ``limit=None`` (返回全量)。
-        PR3 PG 实现下 limit=None 必须 raise ValueError。
+        """All backends must honour ``limit/offset``.
+
+        SQLite/PG implementations support ``limit=None`` (returns all).
+        PR3 PG: ``limit=None`` must raise on hot paths to force pagination.
         """
+        ...
+
+    async def get_last_dream_at(self, user_id: str) -> float | None:
+        """Epoch seconds when this user's memory was last consolidated.
+
+        Returns ``None`` when no dream has been recorded for the user.
+        Internal to the memory subsystem — only ``MemoryDreamer`` reads it.
+        """
+        ...
+
+    async def set_last_dream_at(
+        self, user_id: str, timestamp: float,
+    ) -> None:
+        """Record the time at which this user's memory was consolidated."""
         ...

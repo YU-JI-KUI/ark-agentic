@@ -9,14 +9,16 @@ import pytest
 from ark_agentic.core.db.config import DBConfig
 from ark_agentic.core.db.engine import (
     get_async_engine,
-    init_schema,
     reset_engine_cache,
 )
-from ark_agentic.core.storage.repository.sqlite.notification import (
+from ark_agentic.plugins.notifications.engine import (
+    init_schema as init_notif_schema,
+)
+from ark_agentic.plugins.notifications.models import Notification
+from ark_agentic.plugins.notifications.protocol import NotificationRepository
+from ark_agentic.plugins.notifications.storage.sqlite import (
     SqliteNotificationRepository,
 )
-from ark_agentic.core.storage.protocols import NotificationRepository
-from ark_agentic.services.notifications.models import Notification
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +34,10 @@ async def repo() -> SqliteNotificationRepository:
         db_type="sqlite", connection_str="sqlite+aiosqlite:///:memory:",
     )
     engine = get_async_engine(cfg)
-    await init_schema(engine)
+    # Inject as the process engine so notifications' init_schema picks it up.
+    from ark_agentic.core.db.engine import set_engine_for_testing
+    set_engine_for_testing(engine)
+    await init_notif_schema()
     return SqliteNotificationRepository(engine)
 
 

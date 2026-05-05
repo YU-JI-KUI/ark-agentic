@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ark_agentic.core.callbacks import RunnerCallbacks
 from ark_agentic.core.compaction import CompactionConfig, LLMSummarizer
@@ -69,7 +68,6 @@ def build_standard_agent(
     sampling: SamplingConfig | None = None,
     compaction_config: CompactionConfig | None = None,
     skill_router: SkillRouter | None = None,
-    db_engine: AsyncEngine | None = None,
 ) -> AgentRunner:
     """Build an AgentRunner from an AgentDef with convention-derived defaults.
 
@@ -94,9 +92,6 @@ def build_standard_agent(
                 using the agent's main LLM.
             <SkillRouter instance> → use it verbatim (custom strategies).
             Passing a router in full mode raises ValueError.
-        db_engine: When ``DB_TYPE=sqlite``, pass the app's shared ``AsyncEngine``
-            (e.g. ``app.state.db_engine`` from lifespan) so ``SessionManager`` can
-            construct ``SqliteSessionRepository``. Ignored when ``DB_TYPE=file``.
     """
     if llm is None:
         llm = create_chat_model_from_env()
@@ -137,45 +132,35 @@ def build_standard_agent(
     compaction = compaction_config or CompactionConfig(
         context_window=128_000, preserve_recent=4
     )
+    # SessionManager constructs its own backend repository internally based
+    # on DB_TYPE. Composition root only knows about the high-level manager.
     session_manager = SessionManager(
         sessions_dir=sessions_dir,
         compaction_config=compaction,
         summarizer=LLMSummarizer(llm),
-        db_engine=db_engine,
     )
 
     tool_registry = ToolRegistry()
     tool_registry.register_all(tools)
 
     memory_manager = None
-    dreamer = None
     if enable_memory:
         memory_dir = get_memory_base_dir() / defn.agent_id
-        memory_manager = build_memory_manager(memory_dir, engine=db_engine)
-
-        if enable_dream:
-            from .memory.dream import MemoryDreamer
-            from .storage.factory import build_agent_state_repository
-
-            state_repo = build_agent_state_repository(
-                workspace_dir=memory_dir, engine=db_engine,
-            )
-            # Dream calls use the agent's default sampling; previously the
-            # runner-side LLMCaller applied a summarization override, but
-            # putting that wiring here would re-leak runner internals.
-            # Dream output quality is fine with the chat sampling.
-            dreamer = MemoryDreamer(
-                lambda: llm,
-                memory_manager=memory_manager,
-                session_repo=session_manager.repository,
-                state_repo=state_repo,
-            )
+        # Dreaming is part of the memory subsystem; the manager builds and
+        # owns the dreamer internally when enable_dream=True. The factory
+        # supplies the ingredients (session_manager, llm) but never sees
+        # the dreamer or any storage repositories.
+        memory_manager = build_memory_manager(
+            memory_dir,
+            enable_dream=enable_dream,
+            session_manager=session_manager,
+            llm_factory=(lambda: llm) if enable_dream else None,
+        )
 
     runner_config = RunnerConfig(
         sampling=sampling or SamplingConfig.for_chat(),
         max_turns=defn.max_turns,
         enable_subtasks=defn.enable_subtasks,
-        enable_dream=enable_dream,
         prompt_config=PromptConfig(
             agent_name=defn.agent_name,
             agent_description=defn.agent_description,
@@ -194,5 +179,4 @@ def build_standard_agent(
         config=runner_config,
         memory_manager=memory_manager,
         callbacks=callbacks,
-        dreamer=dreamer,
     )

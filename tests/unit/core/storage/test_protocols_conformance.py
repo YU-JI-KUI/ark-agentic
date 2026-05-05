@@ -8,12 +8,11 @@ from __future__ import annotations
 import inspect
 
 from ark_agentic.core.storage.protocols import (
-    AgentStateRepository,
-    Cache,
     MemoryRepository,
-    NotificationRepository,
     SessionRepository,
 )
+from ark_agentic.plugins.jobs.protocol import JobRunRepository
+from ark_agentic.plugins.notifications.protocol import NotificationRepository
 
 
 def _public_methods(proto: type) -> set[str]:
@@ -45,17 +44,16 @@ def test_session_repository_method_set():
 
 
 def test_memory_repository_method_set():
-    expected = {"read", "upsert_headings", "overwrite", "list_users"}
+    expected = {
+        "read",
+        "upsert_headings",
+        "overwrite",
+        "list_users",
+        "get_last_dream_at",
+        "set_last_dream_at",
+    }
 
     actual = _public_methods(MemoryRepository)
-
-    assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"
-
-
-def test_agent_state_repository_method_set():
-    expected = {"get", "set", "list_users_with_key"}
-
-    actual = _public_methods(AgentStateRepository)
 
     assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"
 
@@ -68,9 +66,9 @@ def test_notification_repository_method_set():
     assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"
 
 
-def test_cache_method_set():
-    expected = {"get", "set", "delete", "exists"}
+def test_job_run_repository_method_set():
+    expected = {"get_last_run", "set_last_run"}
 
-    actual = _public_methods(Cache)
+    actual = _public_methods(JobRunRepository)
 
     assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"

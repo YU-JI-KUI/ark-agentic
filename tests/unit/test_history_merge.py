@@ -449,7 +449,7 @@ class TestInjectMessages:
         await sm.inject_messages(sid, uid, [InsertOp(message=new_msg, anchor_message_id=None, insert_before=True)])
 
         # Repository must have the message on disk now (no pending buffer).
-        loaded = await sm.repository.load_messages(sid, uid)
+        loaded = await sm._repository.load_messages(sid, uid)
         assert any(m.content == "persisted" for m in loaded)
 
     async def test_inject_preserves_order_multiple_ops(self):
