@@ -1,4 +1,4 @@
-"""AsyncEngine factory + schema bootstrap for the core domain.
+"""AsyncEngine factory for the core domain.
 
 The engine is owned by this module — business code never sees it. Plugins
 share this engine by calling ``get_engine()``; their own engine.py wrappers
@@ -6,6 +6,9 @@ delegate here so a future split (per-feature DB) is a one-file change.
 
 Process-wide ``AsyncEngine`` cached per (URL, pool_size) via ``@lru_cache``.
 SQLite enables WAL pragma for file-backed DBs.
+
+Schema bootstrap lives in ``core.storage.database.migrate`` (alembic);
+``Base.metadata.create_all`` is no longer used at runtime.
 """
 
 from __future__ import annotations
@@ -17,12 +20,10 @@ from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from .base import Base
 from .config import DBConfig, load_db_config_from_env
 
-# Import core ORM models so they register on this domain's
-# ``Base.metadata`` before ``init_schema()`` runs. Each feature owns
-# its own ``DeclarativeBase`` and registers its tables independently.
+# Import core ORM models so they register on the shared ``Base.metadata``
+# before alembic's autogenerate / ``init_for_testing`` reads it.
 from . import models  # noqa: F401
 
 
@@ -126,17 +127,27 @@ def get_async_engine(config: DBConfig | None = None) -> AsyncEngine:
 
 
 async def init_schema(engine: AsyncEngine | None = None) -> None:
-    """Create core tables (sessions / user memory). Idempotent.
-
-    Each independent feature has its own ``init_schema()`` against its
-    own ``DeclarativeBase.metadata`` — they are NOT created here.
+    """Run alembic ``upgrade head`` for core tables. Idempotent.
 
     Without arguments, uses the domain engine via ``get_engine()``.
     Passing an explicit engine is supported for tests / migration tools.
+
+    Each independent feature has its own alembic data directory + version
+    table; running this only touches core's session / user-memory tables.
     """
+    from pathlib import Path
+
+    from .base import Base
+    from .migrate import upgrade_to_head
+
     target = engine if engine is not None else get_engine()
-    async with target.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    migrations_dir = Path(__file__).parent / "migrations"
+    await upgrade_to_head(
+        metadata=Base.metadata,
+        migrations_dir=migrations_dir,
+        engine=target,
+        version_table="alembic_version_core",
+    )
 
 
 def set_engine_for_testing(engine: AsyncEngine) -> None:
