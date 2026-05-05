@@ -69,6 +69,11 @@ class Bootstrap:
     are prepended / appended automatically. Tests that need to exercise
     Bootstrap mechanics with arbitrary recorders can pass
     ``with_defaults=False``.
+
+    Third-party hosts that need to seed the agent registry before start
+    (e.g. CLI scaffolds registering their own agent module) can inject
+    a custom ``agents_lifecycle``; it replaces the default
+    ``AgentsLifecycle`` while ``TracingLifecycle`` is still auto-loaded.
     """
 
     def __init__(
@@ -76,13 +81,17 @@ class Bootstrap:
         plugins: list[Lifecycle] | None = None,
         *,
         with_defaults: bool = True,
+        agents_lifecycle: Lifecycle | None = None,
     ) -> None:
         if with_defaults:
             defaults = default_lifecycle_components()
-            agents, tracing = defaults[0], defaults[-1]
+            agents = agents_lifecycle if agents_lifecycle is not None else defaults[0]
+            tracing = defaults[-1]
             components: list[Lifecycle] = [agents] + list(plugins or []) + [tracing]
         else:
             components = list(plugins or [])
+            if agents_lifecycle is not None:
+                components.insert(0, agents_lifecycle)
         self._components: list[Lifecycle] = [
             c for c in components if c.is_enabled()
         ]
