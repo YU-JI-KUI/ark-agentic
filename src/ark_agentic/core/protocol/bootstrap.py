@@ -27,7 +27,7 @@ module-load time (before lifespan starts).
 CLI scaffolds with their own agents seed the framework registry through
 ``Bootstrap.agent_registry`` before ``start()`` runs::
 
-    bootstrap = Bootstrap(plugins=[APIPlugin(), ...])
+    bootstrap = Bootstrap(components=[APIPlugin(), ...])
     bootstrap.agent_registry.register("default", create_default_agent())
 """
 
@@ -49,10 +49,10 @@ class Bootstrap:
     """Filters disabled components at construction; remembers which ones
     successfully started so ``stop`` only tears down what really started.
 
-    Public API: pass the user-selectable ``plugins`` list. The framework
+    Public API: pass the user-selectable ``components`` list. The framework
     defaults — ``AgentsLifecycle`` (first) and ``TracingLifecycle``
     (last) — are added unconditionally; their ordering matters and is
-    not configurable. Plugins sit between them.
+    not configurable. User components sit between them.
 
     Hosts that need to seed agents before start populate
     ``Bootstrap.agent_registry`` directly.
@@ -60,7 +60,7 @@ class Bootstrap:
 
     def __init__(
         self,
-        plugins: list[Lifecycle] | None = None,
+        components: list[Lifecycle] | None = None,
     ) -> None:
         # Lazy import: runtime + observability transitively import the
         # protocol package, so a top-level import would cycle.
@@ -72,14 +72,14 @@ class Bootstrap:
         self._agents: "_AgentsLifecycle | None" = AgentsLifecycle()
         self._tracing: Lifecycle | None = TracingLifecycle()
         # Storage runs first so the central session / user-memory tables
-        # exist before agents warm up or plugin init() touches the DB.
-        components: list[Lifecycle] = (
+        # exist before agents warm up or component init() touches the DB.
+        _all: list[Lifecycle] = (
             [self._storage, self._agents]
-            + list(plugins or [])
+            + list(components or [])
             + [self._tracing]
         )
         self._components: list[Lifecycle] = [
-            c for c in components if c.is_enabled()
+            c for c in _all if c.is_enabled()
         ]
         self._started: list[Lifecycle] = []
         self._inited = False

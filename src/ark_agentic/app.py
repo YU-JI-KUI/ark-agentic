@@ -43,18 +43,15 @@ from ark_agentic.portal import Portal
 
 logger = logging.getLogger(__name__)
 
-# Mandatory AgentsLifecycle + TracingLifecycle are auto-loaded by Bootstrap.
-# Portal is framework-internal (not in wheel) — passed alongside plugins
-# because it sits in the same registration order slot (before APIPlugin
-# so its ``/`` route wins in Starlette's first-match routing).
-_plugins: list[Lifecycle] = [
+
+_components: list[Lifecycle] = [
     Portal(),
     APIPlugin(),
     NotificationsPlugin(),
     JobsPlugin(),
     StudioPlugin(),
 ]
-_bootstrap = Bootstrap(_plugins)
+_bootstrap = Bootstrap(_components)
 
 
 @asynccontextmanager

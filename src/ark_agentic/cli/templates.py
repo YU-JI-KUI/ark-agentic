@@ -226,7 +226,7 @@ logger = logging.getLogger(__name__)
 # Plugin 是否启用由各自的 ENABLE_* 环境变量决定。
 # 把项目自带的 agent 注册到框架 registry（``start()`` 之前完成即可）。
 _bootstrap = Bootstrap(
-    plugins=[APIPlugin(), NotificationsPlugin(), JobsPlugin(), StudioPlugin()],
+    components=[APIPlugin(), NotificationsPlugin(), JobsPlugin(), StudioPlugin()],
 )
 _bootstrap.agent_registry.register(
     "{agent_name_snake}", create_{agent_name_snake}_agent(),
