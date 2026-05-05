@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ark_agentic.app import app
-from ark_agentic.core.runner import AgentRunner, RunResult
+from ark_agentic.core.runtime.runner import AgentRunner, RunResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 
@@ -19,8 +19,8 @@ def client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def init_agent_registry():
-    from ark_agentic.api import deps
-    from ark_agentic.core.registry import AgentRegistry
+    from ark_agentic.plugins.api import deps
+    from ark_agentic.core.runtime.registry import AgentRegistry
     # 初始化一个临时的空的 registry
     deps.init_registry(AgentRegistry())
     yield
@@ -30,7 +30,7 @@ def init_agent_registry():
 def mock_agent_runner():
     """Mock the insurance agent runner."""
     from ark_agentic.core.types import SessionEntry
-    with patch("ark_agentic.api.chat.get_agent") as mock_get:
+    with patch("ark_agentic.plugins.api.chat.get_agent") as mock_get:
         runner = AsyncMock(spec=AgentRunner)
         # Mock session manager with proper SessionEntry
         runner.session_manager = MagicMock()
@@ -138,22 +138,27 @@ class TestChatRunOptionsIntegration:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_warms_up_registered_agents() -> None:
-    """Phoenix hooks are optional/commented in app; lifespan still registers agents and warms up."""
-    from ark_agentic import app as app_module
+async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> None:
+    """``AgentsLifecycle.start`` walks the registry warming up every runner;
+    ``stop`` closes every runner's memory backend."""
+    from types import SimpleNamespace
+
+    from ark_agentic.core.protocol.bootstrap import Bootstrap
+    from ark_agentic.core.runtime.agents_lifecycle import AgentsLifecycle
 
     runner = AsyncMock()
     registry = MagicMock()
     registry.list_ids.return_value = ["insurance", "securities"]
     registry.get.return_value = runner
 
-    with (
-        patch.object(app_module, "create_insurance_agent", return_value=runner),
-        patch.object(app_module, "create_securities_agent", return_value=runner),
-        patch.object(app_module, "_registry", registry),
-        patch.object(app_module.api_deps, "init_registry"),
+    with patch(
+        "ark_agentic.core.runtime.agents_lifecycle.discover_and_register_agents"
     ):
-        async with app_module.lifespan(app_module.app):
-            pass
+        bootstrap = Bootstrap._from_components(
+            [AgentsLifecycle(registry=registry)],
+        )
+        await bootstrap.start(SimpleNamespace())
+        await bootstrap.stop()
 
     assert runner.warmup.await_count == 2
+    assert runner.close_memory.await_count == 2

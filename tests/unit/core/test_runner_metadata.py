@@ -8,15 +8,14 @@ from typing import Any, AsyncIterator
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
-from ark_agentic.core.callbacks import (
+from ark_agentic.core.runtime.callbacks import (
     CallbackContext,
     CallbackResult,
     HookAction,
     RunnerCallbacks,
 )
-from ark_agentic.core.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
-from ark_agentic.core.skills.router import RouteDecision
 from ark_agentic.core.tools.base import AgentTool
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import AgentToolResult, ToolCall
@@ -31,17 +30,6 @@ class _DummyTool(AgentTool):
         self, tool_call: ToolCall, context: dict[str, Any] | None = None
     ) -> AgentToolResult:
         return AgentToolResult.text_result(tool_call.id, "ok")
-
-
-class _RecordingRouter:
-    history_window = 4
-    timeout = 5.0
-
-    def __init__(self, decision: RouteDecision) -> None:
-        self.decision = decision
-
-    async def route(self, ctx: Any) -> RouteDecision:
-        return self.decision
 
 
 class _StubLLM:
@@ -232,6 +220,6 @@ async def test_assistant_omits_tools_mounted_when_no_tools(
     assert asst_msgs[-1].turn_context.tools_mounted == []
 
 
-# router_decision was removed entirely — the router outcome is reflected in
-# session.active_skill_ids (SSOT) and captured in turn_context.active_skill_id.
-# No per-message stash is needed.
+# memory_used and router_decision were removed entirely. The router outcome
+# is reflected in session.active_skill_ids (SSOT) and captured in
+# turn_context.active_skill_id; no per-message stash is needed.

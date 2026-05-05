@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from ark_agentic.core.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import (
@@ -49,7 +49,7 @@ def _tool_msg_for(messages: list[dict[str, Any]], tc_id: str) -> dict[str, Any]:
     return matches[0]
 
 
-def test_build_messages_uses_llm_digest_for_tool_role(tmp_sessions_dir: Path) -> None:
+async def test_build_messages_uses_llm_digest_for_tool_role(tmp_sessions_dir: Path) -> None:
     runner = _make_runner(tmp_sessions_dir)
     session = runner.session_manager.create_session_sync()
 
@@ -62,12 +62,12 @@ def test_build_messages_uses_llm_digest_for_tool_role(tmp_sessions_dir: Path) ->
         ])
     )
 
-    messages = runner._build_messages(session.session_id, session.state)
+    messages = await runner._build_messages(session.session_id, session.state)
     tool_msg = _tool_msg_for(messages, "tc_json_1")
     assert json.loads(tool_msg["content"]) == {"key": "保单值"}
 
 
-def test_build_messages_uses_explicit_digest_when_set(tmp_sessions_dir: Path) -> None:
+async def test_build_messages_uses_explicit_digest_when_set(tmp_sessions_dir: Path) -> None:
     runner = _make_runner(tmp_sessions_dir)
     session = runner.session_manager.create_session_sync()
 
@@ -84,12 +84,12 @@ def test_build_messages_uses_explicit_digest_when_set(tmp_sessions_dir: Path) ->
         ])
     )
 
-    messages = runner._build_messages(session.session_id, session.state)
+    messages = await runner._build_messages(session.session_id, session.state)
     tool_msg = _tool_msg_for(messages, "tc_dig_1")
     assert tool_msg["content"] == "[business] 1 result"
 
 
-def test_build_messages_a2ui_uses_factory_default_digest(tmp_sessions_dir: Path) -> None:
+async def test_build_messages_a2ui_uses_factory_default_digest(tmp_sessions_dir: Path) -> None:
     runner = _make_runner(tmp_sessions_dir)
     session = runner.session_manager.create_session_sync()
 
@@ -105,13 +105,13 @@ def test_build_messages_a2ui_uses_factory_default_digest(tmp_sessions_dir: Path)
         ])
     )
 
-    messages = runner._build_messages(session.session_id, session.state)
+    messages = await runner._build_messages(session.session_id, session.state)
     tool_msg = _tool_msg_for(messages, "tc_a2ui_1")
     assert tool_msg["content"] == "[已向用户展示卡片]"
     assert "99999" not in tool_msg["content"]
 
 
-def test_build_messages_a2ui_error_not_swallowed(tmp_sessions_dir: Path) -> None:
+async def test_build_messages_a2ui_error_not_swallowed(tmp_sessions_dir: Path) -> None:
     runner = _make_runner(tmp_sessions_dir)
     session = runner.session_manager.create_session_sync()
 
@@ -127,14 +127,14 @@ def test_build_messages_a2ui_error_not_swallowed(tmp_sessions_dir: Path) -> None
         ])
     )
 
-    messages = runner._build_messages(session.session_id, session.state)
+    messages = await runner._build_messages(session.session_id, session.state)
     tool_msg = _tool_msg_for(messages, "tc_a2ui_err")
     assert "Template not found" in tool_msg["content"]
     assert "withdraw_summary.json" in tool_msg["content"]
     assert "[已向用户展示卡片" not in tool_msg["content"]
 
 
-def test_build_messages_a2ui_tool_call_args_preserved(tmp_sessions_dir: Path) -> None:
+async def test_build_messages_a2ui_tool_call_args_preserved(tmp_sessions_dir: Path) -> None:
     runner = _make_runner(tmp_sessions_dir)
     session = runner.session_manager.create_session_sync()
 
@@ -152,7 +152,7 @@ def test_build_messages_a2ui_tool_call_args_preserved(tmp_sessions_dir: Path) ->
         ])
     )
 
-    messages = runner._build_messages(session.session_id, session.state)
+    messages = await runner._build_messages(session.session_id, session.state)
     assistant_msgs = [
         m for m in messages
         if m["role"] == "assistant" and m.get("tool_calls")

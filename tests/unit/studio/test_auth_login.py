@@ -11,15 +11,15 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 
-from ark_agentic.studio.api import auth as auth_api
-from ark_agentic.studio.services import auth_service
-from ark_agentic.studio.services.auth import (
+from ark_agentic.plugins.studio.api import auth as auth_api
+from ark_agentic.plugins.studio.services import auth_service
+from ark_agentic.plugins.studio.services.auth import (
     AuthCredentials,
     AuthProvider,
     InternalAuthProvider,
     StudioUser,
 )
-from ark_agentic.studio.services.authz_service import get_studio_user_store
+from ark_agentic.plugins.studio.services.authz_service import get_studio_user_repo
 
 
 @pytest.fixture
@@ -84,7 +84,7 @@ async def test_login_default_viewer_ok(monkeypatch: pytest.MonkeyPatch, auth_app
     r = await _post_login(auth_app, username="viewer", password="viewer123")
     assert r.status_code == 200
     assert r.json()["role"] == "viewer"
-    assert get_studio_user_store().get_user("viewer") is not None
+    assert await get_studio_user_repo().get_user("viewer") is not None
 
 
 @pytest.mark.asyncio

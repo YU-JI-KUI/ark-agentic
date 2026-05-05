@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from ark_agentic.core.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
@@ -96,7 +96,7 @@ def test_runner_stores_injected_router_verbatim(tmp_sessions_dir: Path) -> None:
 
 # ============ _route_skill_phase ============
 
-from ark_agentic.core.callbacks import CallbackContext
+from ark_agentic.core.runtime.callbacks import CallbackContext
 
 
 class _RecordingRouter:

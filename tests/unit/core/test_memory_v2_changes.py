@@ -223,86 +223,90 @@ class TestEnableMemoryGuard:
 
 
 class TestDreamRetryCounter:
-    def _make_runner_with_memory(self, tmp_path: Path):
-        """Build a minimal AgentRunner with memory enabled for retry testing."""
+    """Retry counter lives on MemoryDreamer; runner has no dream state of its own."""
+
+    def _make_dreamer(self, tmp_path: Path):
+        """Build a MemoryDreamer wrapping a failing run() so the retry path runs."""
         from ark_agentic.core.memory.dream import MemoryDreamer
-        from ark_agentic.core.memory.manager import MemoryConfig, MemoryManager
+        from ark_agentic.core.memory.manager import build_memory_manager
+        from ark_agentic.core.session import SessionManager
+        from ark_agentic.core.storage.file.memory import (
+            FileMemoryRepository,
+        )
+        from ark_agentic.core.storage.file.session import (
+            FileSessionRepository,
+        )
 
         ws = tmp_path / "ws"
         ws.mkdir(parents=True)
-        mm = MemoryManager(MemoryConfig(workspace_dir=str(ws)))
-
-        dreamer_mock = MagicMock(spec=MemoryDreamer)
-        dreamer_mock.run = AsyncMock(side_effect=RuntimeError("LLM timeout"))
-
-        runner = MagicMock()
-        runner._dreamer = dreamer_mock
-        runner._memory_manager = mm
-        runner._dream_failures = {}
-        runner._DREAM_FAILURE_THRESHOLD = 3
-        return runner, ws
-
-    @pytest.mark.asyncio
-    async def test_first_failure_does_not_advance_timestamp(self, tmp_path: Path) -> None:
-        from ark_agentic.core.runner import AgentRunner
-
-        runner, ws = self._make_runner_with_memory(tmp_path)
-        user_id = "U001"
-        mem_path = ws / user_id / "MEMORY.md"
-        mem_path.parent.mkdir(parents=True, exist_ok=True)
+        mm = build_memory_manager(ws)
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
 
-        await AgentRunner._run_dream(runner, user_id, mem_path, sessions_dir)
+        dreamer = MemoryDreamer(
+            lambda: MagicMock(),
+            memory_manager=mm,
+            session_manager=SessionManager(
+                sessions_dir=sessions_dir,
+                repository=FileSessionRepository(sessions_dir),
+            ),
+            memory_repo=FileMemoryRepository(ws),
+        )
+        # Force run() to fail so we exercise the retry-counter path.
+        dreamer.run = AsyncMock(side_effect=RuntimeError("LLM timeout"))
+        return dreamer, ws
 
-        assert runner._dream_failures[user_id] == 1
+    @pytest.mark.asyncio
+    async def test_first_failure_does_not_advance_timestamp(self, tmp_path: Path) -> None:
+        dreamer, ws = self._make_dreamer(tmp_path)
+        user_id = "U001"
+
+        await dreamer._run_with_retry_protection(user_id)
+
+        assert dreamer._failures[user_id] == 1
         assert not (ws / user_id / ".last_dream").exists()
 
     @pytest.mark.asyncio
     async def test_threshold_advances_timestamp(self, tmp_path: Path) -> None:
-        from ark_agentic.core.runner import AgentRunner
-
-        runner, ws = self._make_runner_with_memory(tmp_path)
+        dreamer, ws = self._make_dreamer(tmp_path)
         user_id = "U001"
-        mem_path = ws / user_id / "MEMORY.md"
-        mem_path.parent.mkdir(parents=True, exist_ok=True)
-        sessions_dir = tmp_path / "sessions"
-        sessions_dir.mkdir()
+        dreamer._failures[user_id] = 2
 
-        runner._dream_failures[user_id] = 2
-
-        await AgentRunner._run_dream(runner, user_id, mem_path, sessions_dir)
+        await dreamer._run_with_retry_protection(user_id)
 
         assert (ws / user_id / ".last_dream").exists()
-        assert user_id not in runner._dream_failures
+        assert user_id not in dreamer._failures
 
     @pytest.mark.asyncio
     async def test_success_clears_counter(self, tmp_path: Path) -> None:
         from ark_agentic.core.memory.dream import DreamResult, MemoryDreamer
-        from ark_agentic.core.memory.manager import MemoryConfig, MemoryManager
-        from ark_agentic.core.runner import AgentRunner
+        from ark_agentic.core.memory.manager import build_memory_manager
+        from ark_agentic.core.session import SessionManager
+        from ark_agentic.core.storage.file.memory import (
+            FileMemoryRepository,
+        )
+        from ark_agentic.core.storage.file.session import (
+            FileSessionRepository,
+        )
 
         ws = tmp_path / "ws"
         ws.mkdir(parents=True)
-        mm = MemoryManager(MemoryConfig(workspace_dir=str(ws)))
-
-        dreamer_mock = MagicMock(spec=MemoryDreamer)
-        dreamer_mock.run = AsyncMock(
-            return_value=DreamResult(distilled="## 偏好\n简洁", changes="ok")
-        )
-
-        runner = MagicMock()
-        runner._dreamer = dreamer_mock
-        runner._memory_manager = mm
-        runner._dream_failures = {"U001": 2}
-        runner._DREAM_FAILURE_THRESHOLD = 3
-
-        user_id = "U001"
-        mem_path = ws / user_id / "MEMORY.md"
-        mem_path.parent.mkdir(parents=True, exist_ok=True)
         sessions_dir = tmp_path / "sessions"
         sessions_dir.mkdir()
+        dreamer = MemoryDreamer(
+            lambda: MagicMock(),
+            memory_manager=build_memory_manager(ws),
+            session_manager=SessionManager(
+                sessions_dir=sessions_dir,
+                repository=FileSessionRepository(sessions_dir),
+            ),
+            memory_repo=FileMemoryRepository(ws),
+        )
+        dreamer.run = AsyncMock(
+            return_value=DreamResult(distilled="## 偏好\n简洁", changes="ok")
+        )
+        dreamer._failures["U001"] = 2
 
-        await AgentRunner._run_dream(runner, user_id, mem_path, sessions_dir)
+        await dreamer._run_with_retry_protection("U001")
 
-        assert user_id not in runner._dream_failures
+        assert "U001" not in dreamer._failures

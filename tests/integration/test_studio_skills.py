@@ -7,8 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
-from ark_agentic.studio.api.skills import router as skills_router
-from ark_agentic.studio.services.skill_service import parse_skill_dir
+from ark_agentic.plugins.studio.api.skills import router as skills_router
+from ark_agentic.plugins.studio.services.skill_service import parse_skill_dir
 
 app = FastAPI()
 app.include_router(skills_router)
@@ -25,7 +25,7 @@ def mock_agents_root(tmp_path, monkeypatch):
     """Mock the _agents_root function to return a temp directory."""
     def mock_root(*args, **kwargs):
         return tmp_path
-    monkeypatch.setattr("ark_agentic.studio.api.skills.get_agents_root", mock_root)
+    monkeypatch.setattr("ark_agentic.plugins.studio.api.skills.get_agents_root", mock_root)
     return tmp_path
 
 

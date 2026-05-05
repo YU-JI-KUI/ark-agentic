@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.memory.manager import MemoryManager, MemoryConfig
+from ark_agentic.core.memory.manager import MemoryManager, build_memory_manager
 from ark_agentic.core.tools.memory import (
     MemoryWriteTool,
     create_memory_tools,
@@ -15,7 +15,7 @@ from ark_agentic.core.types import ToolCall
 
 
 def _make_manager(workspace_dir: str) -> MemoryManager:
-    return MemoryManager(MemoryConfig(workspace_dir=workspace_dir))
+    return build_memory_manager(workspace_dir)
 
 
 def _provider(mgr: MemoryManager) -> MemoryProvider:

@@ -9,7 +9,7 @@ import tempfile
 
 import pytest
 
-from ark_agentic.core.history_merge import (
+from ark_agentic.core.session.history_merge import (
     InsertOp,
     _build_external_pairs,
     _build_session_pairs,
@@ -18,7 +18,7 @@ from ark_agentic.core.history_merge import (
     merge_external_history,
     normalize_content,
 )
-from ark_agentic.core.session import SessionManager
+from ark_agentic.core.session.manager import SessionManager
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 
@@ -165,7 +165,7 @@ class TestBuildSessionPairs:
 
 class TestPairsMatch:
     def test_exact_match(self):
-        from ark_agentic.core.history_merge import _ExternalPair, _SessionPair
+        from ark_agentic.core.session.history_merge import _ExternalPair, _SessionPair
         ep = _ExternalPair(
             user={"role": "user", "content": "hello"},
             assistant={"role": "assistant", "content": "world"},
@@ -174,7 +174,7 @@ class TestPairsMatch:
         assert _pairs_match(ep, sp)
 
     def test_user_match_assistant_mismatch(self):
-        from ark_agentic.core.history_merge import _ExternalPair, _SessionPair
+        from ark_agentic.core.session.history_merge import _ExternalPair, _SessionPair
         ep = _ExternalPair(
             user={"role": "user", "content": "你好"},
             assistant={"role": "assistant", "content": "你有什么事？请问需要什么帮助？"},
@@ -388,26 +388,26 @@ class TestInjectMessages:
     def setup(self, tmp_sessions_dir: Path) -> None:
         self.sessions_dir = tmp_sessions_dir
 
-    def _make_sm(self) -> tuple[SessionManager, str]:
+    def _make_sm(self) -> tuple[SessionManager, str, str]:
         sm = SessionManager(self.sessions_dir)
-        session = sm.create_session_sync()
-        return sm, session.session_id
+        session = sm.create_session_sync(user_id="u1")
+        return sm, session.session_id, "u1"
 
-    def test_inject_appends_at_end(self):
-        sm, sid = self._make_sm()
+    async def test_inject_appends_at_end(self):
+        sm, sid, uid = self._make_sm()
         existing = _user("existing", 0)
         sm.add_message_sync(sid, existing)
 
         new_msg = _user("new", 10)
         new_msg.metadata["source"] = "external"
-        sm.inject_messages(sid, [InsertOp(message=new_msg, anchor_message_id=None, insert_before=True)])
+        await sm.inject_messages(sid, uid, [InsertOp(message=new_msg, anchor_message_id=None, insert_before=True)])
 
         messages = sm.get_messages(sid, include_system=False)
         assert len(messages) == 2
         assert messages[-1].content == "new"
 
-    def test_inject_before_anchor(self):
-        sm, sid = self._make_sm()
+    async def test_inject_before_anchor(self):
+        sm, sid, uid = self._make_sm()
         anchor = _user("anchor", 5)
         sm.add_message_sync(sid, anchor)
 
@@ -418,14 +418,14 @@ class TestInjectMessages:
             anchor_message_id=anchor.timestamp.isoformat(),
             insert_before=True,
         )
-        sm.inject_messages(sid, [op])
+        await sm.inject_messages(sid, uid, [op])
 
         messages = sm.get_messages(sid, include_system=False)
         assert messages[0].content == "before anchor"
         assert messages[1].content == "anchor"
 
-    def test_inject_after_anchor(self):
-        sm, sid = self._make_sm()
+    async def test_inject_after_anchor(self):
+        sm, sid, uid = self._make_sm()
         anchor = _user("anchor", 5)
         sm.add_message_sync(sid, anchor)
 
@@ -436,24 +436,24 @@ class TestInjectMessages:
             anchor_message_id=anchor.timestamp.isoformat(),
             insert_before=False,
         )
-        sm.inject_messages(sid, [op])
+        await sm.inject_messages(sid, uid, [op])
 
         messages = sm.get_messages(sid, include_system=False)
         assert messages[0].content == "anchor"
         assert messages[1].content == "after anchor"
 
-    def test_inject_marks_pending(self):
-        sm, sid = self._make_sm()
-        new_msg = _user("pending", 10)
+    async def test_inject_persists_immediately(self):
+        sm, sid, uid = self._make_sm()
+        new_msg = _user("persisted", 10)
         new_msg.metadata["source"] = "external"
-        sm.inject_messages(sid, [InsertOp(message=new_msg, anchor_message_id=None, insert_before=True)])
+        await sm.inject_messages(sid, uid, [InsertOp(message=new_msg, anchor_message_id=None, insert_before=True)])
 
-        session = sm.get_session_required(sid)
-        assert hasattr(session, "_pending_messages")
-        assert any(m.content == "pending" for m in session._pending_messages)
+        # Repository must have the message on disk now (no pending buffer).
+        loaded = await sm._repository.load_messages(sid, uid)
+        assert any(m.content == "persisted" for m in loaded)
 
-    def test_inject_preserves_order_multiple_ops(self):
-        sm, sid = self._make_sm()
+    async def test_inject_preserves_order_multiple_ops(self):
+        sm, sid, uid = self._make_sm()
         anchor = _user("anchor", 5)
         sm.add_message_sync(sid, anchor)
 
@@ -466,7 +466,7 @@ class TestInjectMessages:
             InsertOp(message=msg_a, anchor_message_id=anchor.timestamp.isoformat(), insert_before=True),
             InsertOp(message=msg_b, anchor_message_id=anchor.timestamp.isoformat(), insert_before=False),
         ]
-        sm.inject_messages(sid, ops)
+        await sm.inject_messages(sid, uid, ops)
 
         messages = sm.get_messages(sid, include_system=False)
         contents = [m.content for m in messages]
@@ -478,44 +478,44 @@ class TestInjectMessages:
 
 class TestEnsureTrailingNewline:
     def test_adds_newline_when_missing(self, tmp_path: Path):
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text('{"line":1}', encoding="utf-8")  # no trailing \n
-        TranscriptManager._ensure_trailing_newline(f)
+        FileSessionRepository._ensure_trailing_newline(f)
         raw = f.read_bytes()
         assert raw.endswith(b"\n")
 
     def test_noop_when_newline_exists(self, tmp_path: Path):
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text('{"line":1}\n', encoding="utf-8")
         size_before = f.stat().st_size
-        TranscriptManager._ensure_trailing_newline(f)
+        FileSessionRepository._ensure_trailing_newline(f)
         assert f.stat().st_size == size_before
 
     def test_noop_on_empty_file(self, tmp_path: Path):
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text("", encoding="utf-8")
-        TranscriptManager._ensure_trailing_newline(f)
+        FileSessionRepository._ensure_trailing_newline(f)
         assert f.stat().st_size == 0
 
     def test_noop_on_nonexistent_file(self, tmp_path: Path):
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.file.session import FileSessionRepository
 
         f = tmp_path / "nonexistent.jsonl"
-        TranscriptManager._ensure_trailing_newline(f)  # should not raise
+        FileSessionRepository._ensure_trailing_newline(f)  # should not raise
 
     def test_concatenated_lines_prevented(self, tmp_path: Path):
         """Simulate the bug: file without trailing \\n, then append."""
-        from ark_agentic.core.persistence import TranscriptManager
+        from ark_agentic.core.storage.file.session import FileSessionRepository
 
         f = tmp_path / "test.jsonl"
         f.write_text('{"first":"msg"}', encoding="utf-8")
-        TranscriptManager._ensure_trailing_newline(f)
+        FileSessionRepository._ensure_trailing_newline(f)
         with open(f, "a", encoding="utf-8") as fh:
             fh.write('{"second":"msg"}\n')
 

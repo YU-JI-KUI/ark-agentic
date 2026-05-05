@@ -6,7 +6,7 @@ import pytest
 import tempfile
 from pathlib import Path
 
-from ark_agentic.studio.services.skill_service import (
+from ark_agentic.plugins.studio.services.skill_service import (
     create_skill,
     update_skill,
     delete_skill,

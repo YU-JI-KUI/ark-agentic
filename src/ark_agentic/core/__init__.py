@@ -3,6 +3,10 @@
 Public API surface — 外部项目应仅使用此模块及子模块 __all__ 中列出的符号。
 
 子模块:
+    core.runtime  — AgentRunner, AgentRegistry, RunnerCallbacks, AgentsLifecycle …
+    core.observability — OTel decorators, tracing setup, TracingLifecycle
+    core.session  — SessionManager, JSONL 编解码, 上下文压缩
+    core.protocol — Lifecycle / Plugin / Bootstrap / AppContext
     core.tools   — AgentTool, ToolRegistry 等
     core.memory  — MemoryManager, Dream 等
     core.skills  — SkillLoader, SkillMatcher 等
@@ -30,7 +34,7 @@ from .types import (
     StepToolEvent,
     RunOptions,
 )
-from .callbacks import (
+from .runtime.callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
@@ -46,10 +50,10 @@ from .callbacks import (
     RunnerCallbacks,
     merge_runner_callbacks,
 )
-from .runner import AgentRunner, RunnerConfig, RunResult
-from .agent_factory import AgentDef, build_standard_agent
-from .session import SessionManager
-from .compaction import (
+from .runtime.runner import AgentRunner, RunnerConfig, RunResult
+from .runtime.factory import AgentDef, build_standard_agent
+from .session.manager import SessionManager
+from .session.compaction import (
     ContextCompactor,
     CompactionConfig,
     CompactionResult,
@@ -57,13 +61,9 @@ from .compaction import (
     estimate_tokens,
     estimate_message_tokens,
 )
-from .persistence import (
-    TranscriptManager,
-    SessionStore,
-    SessionStoreEntry,
-    FileLock,
-    RawJsonlValidationError,
-)
+from .session.format import RawJsonlValidationError
+from .storage.entries import SessionStoreEntry
+from .storage.file._lock import FileLock
 from .llm import (
     PAModel,
     PAModelConfig,
@@ -135,8 +135,6 @@ __all__ = [
     "estimate_tokens",
     "estimate_message_tokens",
     # Persistence
-    "TranscriptManager",
-    "SessionStore",
     "SessionStoreEntry",
     "FileLock",
     "RawJsonlValidationError",

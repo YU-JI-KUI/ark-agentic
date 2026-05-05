@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Any, Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -59,7 +58,6 @@ def _tool_calls_from_lc_raw(raw: list[Any]) -> list[ToolCall]:
             args = {}
         out.append(ToolCall(id=tid, name=name, arguments=args))
     return out
-
 
 
 class LLMCaller:
@@ -125,13 +123,11 @@ class LLMCaller:
         async def _invoke() -> AIMessage:
             return await llm.ainvoke(messages)
 
-        t_start = time.monotonic()
         ai_msg = await with_retry(
             _invoke,
             max_retries=self._max_retries,
             model=model_override,
         )
-        t_end = time.monotonic()
         msg = self._ai_message_to_agent_message(ai_msg)
         return msg
 
@@ -167,12 +163,10 @@ class LLMCaller:
         full_content = ""
         tool_calls_data: dict[int, dict[str, str]] = {}
         finish_reason = "stop"
-        usage: dict[str, int] = {}
 
         def _stream_factory():
             return llm.astream(messages)
 
-        t_start = time.monotonic()
         last_stream_chunk: Any = None
         async for chunk in with_retry_iterator(
             _stream_factory,
@@ -212,11 +206,6 @@ class LLMCaller:
 
             if hasattr(chunk, "response_metadata") and chunk.response_metadata:
                 finish_reason = chunk.response_metadata.get("finish_reason", finish_reason)
-            if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                usage = {
-                    "prompt_tokens": chunk.usage_metadata.get("input_tokens", 0),
-                    "completion_tokens": chunk.usage_metadata.get("output_tokens", 0),
-                }
 
         parsed_tool_calls = None
         if tool_calls_data:
@@ -238,7 +227,6 @@ class LLMCaller:
             if attr_tcs:
                 parsed_tool_calls = _tool_calls_from_lc_raw(attr_tcs)
 
-        t_end = time.monotonic()
         msg = AgentMessage.assistant(content=full_content, tool_calls=parsed_tool_calls)
         msg.finish_reason = finish_reason
 

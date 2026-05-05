@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.agent_factory import AgentDef, build_standard_agent
+from ark_agentic.core.runtime.factory import AgentDef, build_standard_agent
 from ark_agentic.core.skills.router import (
     LLMSkillRouter,
     RouteContext,
@@ -21,6 +21,11 @@ from ark_agentic.core.skills.router import (
     SkillRouter,
 )
 from ark_agentic.core.types import SkillLoadMode
+
+
+@pytest.fixture(autouse=True)
+def _force_file_db_type_router_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DB_TYPE", "file")
 
 
 class _FakeLLM:

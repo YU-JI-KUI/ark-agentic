@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from ark_agentic.core.llm.sampling import SamplingConfig
 from ark_agentic.core.types import AgentMessage, RunOptions, SessionEntry, SkillLoadMode
-from ark_agentic.core.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
 from ark_agentic.core.skills.base import SkillConfig
 
 
@@ -66,9 +66,11 @@ class TestRunnerConfigurationPrecedence:
         
         # Mock session manager sync methods used in run()
         runner.session_manager.add_message_sync = Mock()
+        runner.session_manager.add_message = AsyncMock()
         runner.session_manager.auto_compact_if_needed = AsyncMock()
         runner.session_manager.sync_pending_messages = AsyncMock()
         runner.session_manager.sync_session_state = AsyncMock()
+        runner.session_manager.finalize_session = AsyncMock()
         
         # Prevent lazy init from failing
         runner._memory_manager = None 

@@ -18,7 +18,7 @@ def config_app(monkeypatch) -> FastAPI:
         "LANGFUSE_HOST",
     ):
         monkeypatch.delenv(var, raising=False)
-    from ark_agentic.studio.api import config as config_api
+    from ark_agentic.plugins.studio.api import config as config_api
 
     app = FastAPI()
     app.include_router(config_api.router, prefix="/api/studio")

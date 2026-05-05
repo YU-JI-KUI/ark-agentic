@@ -6,12 +6,26 @@ import os
 from pathlib import Path
 
 
+def env_flag(name: str, *, default: bool = False) -> bool:
+    """Truthy-string env-var read. Empty / unset → ``default``.
+
+    Truthy values (case-insensitive): ``"true"`` / ``"1"``.
+    """
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    return raw.lower() in ("true", "1")
+
+
 def get_agents_root(current_file: str | Path) -> Path:
     """获取 agents/ 根目录路径，解决多文件重复 _agents_root() 的问题。
 
     优先级:
       1. 环境变量 AGENTS_ROOT (明确配置，适合线上部署)
-      2. 从给定的 current_file 向上遍历寻找 pyproject.toml 所在的 src/ark_agentic/agents
+      2. 从给定的 current_file 向上遍历寻找 pyproject.toml 所在的项目根；
+         在 ``src/<pkg>/agents`` 中匹配第一个存在的 ``<pkg>``
+         (按字典序，确定性)。这覆盖框架自身的 ``src/ark_agentic/agents``，
+         也覆盖 wheel 消费者的 ``src/<their_pkg>/agents``。
       3. 回退策略：简单向上找 4 层 (适用于一般源码目录结构)
     """
     if env_root := os.getenv("AGENTS_ROOT"):
@@ -20,9 +34,12 @@ def get_agents_root(current_file: str | Path) -> Path:
     cursor = Path(current_file).resolve().parent
     for _ in range(10):
         if (cursor / "pyproject.toml").exists():
-            project_agents = cursor / "src" / "ark_agentic" / "agents"
-            if project_agents.is_dir():
-                return project_agents
+            src_dir = cursor / "src"
+            if src_dir.is_dir():
+                for pkg_dir in sorted(src_dir.iterdir()):
+                    candidate = pkg_dir / "agents"
+                    if candidate.is_dir():
+                        return candidate
             fallback_agents = cursor / "agents"
             if fallback_agents.is_dir():
                 return fallback_agents
