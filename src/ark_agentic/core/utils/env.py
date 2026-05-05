@@ -6,6 +6,17 @@ import os
 from pathlib import Path
 
 
+def env_flag(name: str, *, default: bool = False) -> bool:
+    """Truthy-string env-var read. Empty / unset → ``default``.
+
+    Truthy values (case-insensitive): ``"true"`` / ``"1"``.
+    """
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    return raw.lower() in ("true", "1")
+
+
 def get_agents_root(current_file: str | Path) -> Path:
     """获取 agents/ 根目录路径，解决多文件重复 _agents_root() 的问题。
 

@@ -27,10 +27,9 @@ async def init_schema() -> None:
     """Run alembic ``upgrade head`` for notifications tables. Idempotent."""
     from ...core.storage.database.migrate import upgrade_to_head
 
-    migrations_dir = Path(__file__).parent / "storage" / "migrations"
     await upgrade_to_head(
         metadata=NotificationsBase.metadata,
-        migrations_dir=migrations_dir,
+        migrations_dir=Path(__file__).parent / "storage" / "migrations",
         engine=get_engine(),
         version_table="alembic_version_notifications",
     )

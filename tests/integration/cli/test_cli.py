@@ -129,11 +129,11 @@ def test_api_app_template_uses_bootstrap_with_injected_agents_lifecycle():
     # 新装配方式
     assert "from ark_agentic.core.protocol.bootstrap import Bootstrap" in rendered
     assert "from ark_agentic.core.protocol.app_context import AppContext" in rendered
-    assert "from ark_agentic.core.runtime.agents_lifecycle import AgentsLifecycle" in rendered
-    assert "from ark_agentic.core.runtime.registry import AgentRegistry" in rendered
-    assert "AgentRegistry" in rendered
-    assert "_registry.register(\"default\", create_default_agent())" in rendered
-    assert "agents_lifecycle=AgentsLifecycle(registry=_registry)" in rendered
+    assert (
+        "_bootstrap.agent_registry.register(\n"
+        "    \"default\", create_default_agent(),\n"
+        ")"
+    ) in rendered
     assert "_bootstrap.install_routes(app)" in rendered
     assert "_bootstrap.start(ctx)" in rendered
     assert "_bootstrap.stop()" in rendered
@@ -202,7 +202,7 @@ def test_cmd_init_creates_project_structure(tmp_path: Path):
 
     app_py = (pkg / "app.py").read_text(encoding="utf-8")
     assert "Bootstrap" in app_py
-    assert "AgentsLifecycle(registry=_registry)" in app_py
+    assert "_bootstrap.agent_registry.register(" in app_py
 
 
 def test_cmd_init_no_api_skips_app_py(tmp_path: Path):

@@ -32,6 +32,7 @@ from ....session.format import (
     RawJsonlValidationError,
     SessionHeader,
     deserialize_message,
+    parse_raw_jsonl,
     serialize_message,
 )
 from ...entries import SessionStoreEntry
@@ -318,47 +319,17 @@ class SqliteSessionRepository:
         jsonl_content: str,
     ) -> None:
         """Validate JSONL then atomically replace messages in one transaction."""
-        lines = [line for line in jsonl_content.splitlines() if line.strip()]
-        if not lines:
-            raise RawJsonlValidationError("至少需要一行（session header）", line_number=1)
-        try:
-            first = json.loads(lines[0])
-        except json.JSONDecodeError as e:
-            raise RawJsonlValidationError(
-                f"首行非法 JSON: {e}", line_number=1,
-            ) from e
-        if first.get("type") != "session":
-            raise RawJsonlValidationError("首行 type 必须为 session", line_number=1)
-        header_id = (first.get("id") or "").strip()
-        if header_id != session_id.strip():
-            raise RawJsonlValidationError(
-                f"首行 id 与 URL session_id 不一致: {header_id!r} vs {session_id!r}",
-                line_number=1,
-            )
-
-        rows: list[dict] = []
-        for i, line in enumerate(lines[1:], start=2):
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError as e:
-                raise RawJsonlValidationError(
-                    f"第 {i} 行非法 JSON: {e}", line_number=i,
-                ) from e
-            if data.get("type") != "message":
-                raise RawJsonlValidationError(
-                    f"第 {i} 行 type 必须为 message", line_number=i,
-                )
-            if "message" not in data or not isinstance(data["message"], dict):
-                raise RawJsonlValidationError(
-                    f"第 {i} 行必须含 message 对象", line_number=i,
-                )
-            rows.append({
+        parsed = parse_raw_jsonl(session_id, jsonl_content)
+        rows: list[dict] = [
+            {
                 "session_id": session_id,
                 "user_id": user_id,
                 "seq": i - 2,
                 "payload_json": json.dumps(data["message"], ensure_ascii=False),
                 "timestamp": int(data.get("timestamp", 0) or 0),
-            })
+            }
+            for (i, data) in parsed
+        ]
 
         async with self._engine.begin() as conn:
             # Confirm ownership before any mutation so a misrouted call

@@ -7,17 +7,17 @@ of DB_TYPE since it has its own ``AuthBase`` independent of core tables.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from ...core.protocol.plugin import BasePlugin
+from ...core.utils.env import env_flag
 
 
 class StudioPlugin(BasePlugin):
     name = "studio"
 
     def is_enabled(self) -> bool:
-        return os.getenv("ENABLE_STUDIO", "").lower() == "true"
+        return env_flag("ENABLE_STUDIO")
 
     async def init(self) -> None:
         from .services.auth.engine import init_schema

@@ -213,8 +213,6 @@ from fastapi import FastAPI
 
 from ark_agentic.core.protocol.app_context import AppContext
 from ark_agentic.core.protocol.bootstrap import Bootstrap
-from ark_agentic.core.runtime.agents_lifecycle import AgentsLifecycle
-from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.plugins.api.plugin import APIPlugin
 from ark_agentic.plugins.jobs.plugin import JobsPlugin
 from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
@@ -224,16 +222,14 @@ from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
 
 logger = logging.getLogger(__name__)
 
-# 1) 预先把项目自带的 agent 注册进 registry
-_registry = AgentRegistry()
-_registry.register("{agent_name_snake}", create_{agent_name_snake}_agent())
-
-# 2) Bootstrap 自动加载 AgentsLifecycle + TracingLifecycle；
-#    通过 agents_lifecycle 注入绑定本项目 registry 的实例。
-#    Plugin 是否启用由各自的 ENABLE_* 环境变量决定。
+# Bootstrap 自动加载 AgentsLifecycle + TracingLifecycle；
+# Plugin 是否启用由各自的 ENABLE_* 环境变量决定。
+# 把项目自带的 agent 注册到框架 registry（``start()`` 之前完成即可）。
 _bootstrap = Bootstrap(
     plugins=[APIPlugin(), NotificationsPlugin(), JobsPlugin(), StudioPlugin()],
-    agents_lifecycle=AgentsLifecycle(registry=_registry),
+)
+_bootstrap.agent_registry.register(
+    "{agent_name_snake}", create_{agent_name_snake}_agent(),
 )
 
 

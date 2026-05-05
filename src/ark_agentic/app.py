@@ -5,11 +5,9 @@ Composition root only: wires this repo's Lifecycle component list into a
 start / stop). All actual work — schema, agents, tracing, HTTP routes,
 middleware — lives in components, not here.
 
-This repo's list mirrors ``DEFAULT_PLUGINS`` in ``ark_agentic.bootstrap``
-plus ``Portal``, the framework's own landing site. Portal sits before
-APIPlugin so its ``/`` route registration wins (Starlette matches in
-registration order). End-user projects installed from the wheel don't
-have ``portal/`` and use ``DEFAULT_PLUGINS`` directly.
+Portal sits before APIPlugin so its ``/`` route registration wins
+(Starlette matches in registration order). End-user projects installed
+from the wheel don't have ``portal/`` and supply their own plugin list.
 """
 
 from __future__ import annotations
