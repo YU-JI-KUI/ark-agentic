@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Any, Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -59,22 +58,6 @@ def _tool_calls_from_lc_raw(raw: list[Any]) -> list[ToolCall]:
             args = {}
         out.append(ToolCall(id=tid, name=name, arguments=args))
     return out
-
-
-def _attach_call_metadata(
-    msg: AgentMessage, llm: Any, t_start: float, t_end: float
-) -> None:
-    """Display-only metadata derived from a single LLM round-trip.
-
-    Records the model used and the per-call latency. Static sampling
-    config (temperature, top_p) is intentionally not stored — it belongs in
-    the Langfuse monitoring dashboard, not in the per-session timeline.
-    """
-    model_attr = getattr(llm, "model", None)
-    if isinstance(model_attr, str) and model_attr:
-        msg.metadata["model_used"] = model_attr
-
-    msg.metadata["latency_ms"] = int((t_end - t_start) * 1000)
 
 
 class LLMCaller:
@@ -140,15 +123,12 @@ class LLMCaller:
         async def _invoke() -> AIMessage:
             return await llm.ainvoke(messages)
 
-        t_start = time.monotonic()
         ai_msg = await with_retry(
             _invoke,
             max_retries=self._max_retries,
             model=model_override,
         )
-        t_end = time.monotonic()
         msg = self._ai_message_to_agent_message(ai_msg)
-        _attach_call_metadata(msg, llm, t_start, t_end)
         return msg
 
     async def call_streaming(
@@ -183,12 +163,10 @@ class LLMCaller:
         full_content = ""
         tool_calls_data: dict[int, dict[str, str]] = {}
         finish_reason = "stop"
-        usage: dict[str, int] = {}
 
         def _stream_factory():
             return llm.astream(messages)
 
-        t_start = time.monotonic()
         last_stream_chunk: Any = None
         async for chunk in with_retry_iterator(
             _stream_factory,
@@ -228,11 +206,6 @@ class LLMCaller:
 
             if hasattr(chunk, "response_metadata") and chunk.response_metadata:
                 finish_reason = chunk.response_metadata.get("finish_reason", finish_reason)
-            if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                usage = {
-                    "prompt_tokens": chunk.usage_metadata.get("input_tokens", 0),
-                    "completion_tokens": chunk.usage_metadata.get("output_tokens", 0),
-                }
 
         parsed_tool_calls = None
         if tool_calls_data:
@@ -254,12 +227,8 @@ class LLMCaller:
             if attr_tcs:
                 parsed_tool_calls = _tool_calls_from_lc_raw(attr_tcs)
 
-        t_end = time.monotonic()
         msg = AgentMessage.assistant(content=full_content, tool_calls=parsed_tool_calls)
-        msg.metadata["finish_reason"] = finish_reason
-        if usage:
-            msg.metadata["usage"] = usage
-        _attach_call_metadata(msg, llm, t_start, t_end)
+        msg.finish_reason = finish_reason
 
         logger.debug(
             "[LLM_STREAM_DONE] content=%dB tools=%d",
@@ -282,13 +251,6 @@ class LLMCaller:
         msg = AgentMessage.assistant(content=content, tool_calls=tool_calls)
 
         rm = getattr(ai_msg, "response_metadata", {}) or {}
-        msg.metadata["finish_reason"] = rm.get("finish_reason", "stop")
-
-        um = getattr(ai_msg, "usage_metadata", None)
-        if um:
-            msg.metadata["usage"] = {
-                "prompt_tokens": um.get("input_tokens", 0),
-                "completion_tokens": um.get("output_tokens", 0),
-            }
+        msg.finish_reason = rm.get("finish_reason", "stop")
 
         return msg

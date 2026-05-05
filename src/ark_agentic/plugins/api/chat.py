@@ -24,36 +24,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def build_chat_request_meta(
-    request: ChatRequest, *, message_id: str
-) -> dict[str, Any]:
-    """Sparse summary of ChatRequest fields for the Studio session-detail UI.
-
-    Keeps only fields that change agent behaviour for this turn. Static config
-    (``stream``, ``protocol``) and observability (``idempotency_key``,
-    ``trace_id``) are intentionally omitted — they belong in the Langfuse
-    monitoring dashboard, not the per-session timeline.
-    """
-    meta: dict[str, Any] = {"message_id": message_id}
-
-    if request.run_options is not None:
-        if request.run_options.model:
-            meta["model"] = request.run_options.model
-        provider = getattr(request.run_options, "provider", None)
-        if provider:
-            meta["provider"] = provider
-
-    if request.source_bu_type:
-        meta["source_bu_type"] = request.source_bu_type
-    if request.app_type:
-        meta["app_type"] = request.app_type
-    if request.use_history is False:
-        meta["use_history"] = False
-    if request.history:
-        meta["external_history_count"] = len(request.history)
-
-    return meta
-
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
@@ -89,9 +59,22 @@ async def chat(
     input_context["temp:message_id"] = message_id
 
     # ── display-only metadata for Studio session-detail UI ──
-    input_context["meta:chat_request"] = build_chat_request_meta(
-        request, message_id=message_id
-    )
+    _chat_req: dict[str, Any] = {"message_id": message_id}
+    if request.run_options is not None:
+        if request.run_options.model:
+            _chat_req["model"] = request.run_options.model
+        provider = getattr(request.run_options, "provider", None)
+        if provider:
+            _chat_req["provider"] = provider
+    if request.source_bu_type:
+        _chat_req["source_bu_type"] = request.source_bu_type
+    if request.app_type:
+        _chat_req["app_type"] = request.app_type
+    if request.use_history is False:
+        _chat_req["use_history"] = False
+    if request.history:
+        _chat_req["external_history_count"] = len(request.history)
+    input_context["meta:chat_request"] = _chat_req
 
     # ── resolve session_id ──
     session_id = request.session_id or x_ark_session_id
@@ -142,10 +125,6 @@ async def chat(
             response=result.response.content or "",
             tool_calls=tool_calls,
             turns=result.turns,
-            usage={
-                "prompt_tokens": result.prompt_tokens,
-                "completion_tokens": result.completion_tokens,
-            },
         )
 
     # ---- 流式响应 ----
@@ -181,10 +160,6 @@ async def chat(
                 message=result.response.content or "",
                 tool_calls=tool_calls if tool_calls else None,
                 turns=result.turns,
-                usage={
-                    "prompt_tokens": result.prompt_tokens,
-                    "completion_tokens": result.completion_tokens,
-                },
             )
         except Exception as exc:
             logger.exception(f"Agent run error: {exc}")

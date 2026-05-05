@@ -89,15 +89,6 @@ class ToolExecutor:
             except Exception as e:
                 logger.error("[TOOL_ERROR] %s: %s", tc.name, e)
                 result = AgentToolResult.error_result(tc.id, str(e))
-        result.metadata["duration_ms"] = int((time.monotonic() - t_start) * 1000)
-
-        # Active skill at call time — derived per-call rather than from a class
-        # attr because tools can be shared across skills (skill X and Y may
-        # both list the same tool in required_tools).
-        active_skill_id = ctx.get("_active_skill_id")
-        if active_skill_id:
-            result.metadata["owning_skill"] = active_skill_id
-
         if handler:
             handler.on_tool_call_result(
                 tc.id,

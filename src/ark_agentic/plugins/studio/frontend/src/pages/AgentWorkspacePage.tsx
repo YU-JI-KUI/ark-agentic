@@ -15,6 +15,7 @@ import {
   type SessionItem,
   type SkillMeta,
   type ToolMeta,
+  type TurnContext,
 } from '../api'
 import { canEditStudio, useAuth } from '../auth'
 import type { StudioShellContextValue } from '../layouts/StudioShell'
@@ -146,8 +147,6 @@ type TimelineItem =
       sub: number
       raw: MessageItem
       preamble?: string
-      owningSkill?: string
-      durationMs?: number
     })
 
 function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
@@ -189,9 +188,6 @@ function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
 
     calls.forEach((call, sub) => {
       const result = resultsByCallId.get(call.id)
-      const md = (result?.metadata ?? {}) as Record<string, unknown>
-      const owningSkill = typeof md.owning_skill === 'string' ? md.owning_skill : undefined
-      const durationMs = typeof md.duration_ms === 'number' ? md.duration_ms : undefined
       items.push({
         kind: 'tool',
         name: call.name,
@@ -205,8 +201,6 @@ function flattenTimeline(detail: SessionDetail | null): TimelineItem[] {
         turn: turnIdx,
         raw: message,
         preamble: sub === 0 && message.content ? message.content : undefined,
-        owningSkill,
-        durationMs,
       })
     })
   }
@@ -396,8 +390,10 @@ function UserDetail({
         <div className="dt-row dt-row-message-id">
           <div className="dt-label">message_id</div>
           <div className="dt-value mono dt-message-id-value" title={messageId}>
-            <code className="dt-message-id-code">{messageId}</code>
-            <CopyButton value={messageId} title="message_id" />
+            <span className="dt-message-id-cluster">
+              <code className="dt-message-id-code">{messageId}</code>
+              <CopyButton value={messageId} title="message_id" />
+            </span>
           </div>
         </div>
       )}
@@ -462,31 +458,27 @@ function UserDetail({
 function AssistantDetail({
   rawThinking,
   metadata,
+  turnContext,
+  finishReason: finishReasonProp,
   traceUrl,
   traceReason,
 }: {
   rawThinking: string | null
   metadata: Record<string, unknown>
+  turnContext?: TurnContext | null
+  finishReason?: string | null
   traceUrl: string | null
   traceReason: string
 }) {
   const [toolsOpen, setToolsOpen] = useState(false)
-  const toolsMounted = (metadata['tools_mounted'] ?? []) as string[]
   const toolsPreviewCount = 5
 
-  const modelUsed = metadata['model_used'] as string | undefined
-  const latencyMs = metadata['latency_ms'] as number | undefined
-  const finishReason = metadata['finish_reason'] as string | undefined
-  const activeSkills = (metadata['active_skill_ids'] ?? []) as string[]
-  const memoryUsedRaw = metadata['memory_used']
-  const memoryLineCount = typeof memoryUsedRaw === 'number' ? memoryUsedRaw : undefined
-  const routerDecision = metadata['router_decision'] as
-    | { skill_id?: string | null; reason?: string }
-    | undefined
+  // Read from typed fields; fall back to legacy metadata for old sessions.
+  const toolsMounted = turnContext?.tools_mounted ?? (metadata['tools_mounted'] ?? []) as string[]
+  const activeSkillId = turnContext?.active_skill_id ?? (metadata['active_skill_ids'] as string[] | undefined)?.[0] ?? null
+  const finishReason = finishReasonProp ?? metadata['finish_reason'] as string | undefined
 
   const runChips: string[] = []
-  if (modelUsed) runChips.push(modelUsed)
-  if (typeof latencyMs === 'number') runChips.push(`${latencyMs}ms`)
   if (finishReason) runChips.push(finishReason)
 
   return (
@@ -495,27 +487,11 @@ function AssistantDetail({
         <TraceLinkButton url={traceUrl} reason={traceReason} />
       </div>
 
-      {activeSkills.length > 0 && (
+      {activeSkillId && (
         <div className="dt-row">
           <div className="dt-label">active skill</div>
           <div className="dt-value">
-            {activeSkills.map(s => (
-              <span className="chip" key={s}>{s}</span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {routerDecision && (
-        <div className="dt-row">
-          <div className="dt-label">router</div>
-          <div className="dt-value">
-            <span className="chip">{routerDecision.skill_id ?? '(no change)'}</span>
-            {routerDecision.reason && (
-              <span className="dt-value mono" style={{ marginLeft: 8 }}>
-                {routerDecision.reason}
-              </span>
-            )}
+            <span className="chip">{activeSkillId}</span>
           </div>
         </div>
       )}
@@ -531,24 +507,6 @@ function AssistantDetail({
         <div className="dt-row">
           <div className="dt-label">run</div>
           <div className="dt-value mono">{runChips.join(' · ')}</div>
-        </div>
-      )}
-
-      {memoryLineCount !== undefined && (
-        <div className="dt-row">
-          <div className="dt-label">memory</div>
-          <div className="dt-value">
-            {memoryLineCount > 0 ? (
-              <span className="mono">
-                {memoryLineCount} {memoryLineCount === 1 ? 'line' : 'lines'} from user profile
-              </span>
-            ) : (
-              <span>None injected this turn (empty or unavailable profile)</span>
-            )}
-            <div className="dt-empty" style={{ marginTop: 4, fontSize: 11.5 }}>
-              Injected text and full prompt: use <strong>View in trace</strong> above.
-            </div>
-          </div>
         </div>
       )}
 
@@ -638,7 +596,7 @@ function ToolDetail({
       </div>
 
       <dl className="tool-meta">
-        <div className="tool-meta-item">
+        <div className="tool-meta-item tool-meta-item-tool-call-id">
           <dt>tool_call_id</dt>
           <dd><code>{item.toolCallId || '—'}</code></dd>
         </div>
@@ -646,18 +604,6 @@ function ToolDetail({
           <dt>turn</dt>
           <dd>{zeropad(item.turn)}</dd>
         </div>
-        {item.owningSkill && (
-          <div className="tool-meta-item">
-            <dt>owning skill</dt>
-            <dd>{item.owningSkill}</dd>
-          </div>
-        )}
-        {typeof item.durationMs === 'number' && (
-          <div className="tool-meta-item">
-            <dt>duration</dt>
-            <dd>{item.durationMs}ms</dd>
-          </div>
-        )}
       </dl>
     </>
   )
@@ -1971,6 +1917,8 @@ function SessionsSection({ agentId }: { agentId: string }) {
                               <AssistantDetail
                                 rawThinking={it.raw.thinking ?? null}
                                 metadata={md}
+                                turnContext={it.raw.turn_context}
+                                finishReason={it.raw.finish_reason}
                                 traceUrl={traceUrl}
                                 traceReason={traceReason}
                               />
