@@ -2,7 +2,7 @@
 ark-agentic CLI entry point.
 
 Subcommands:
-  init <project_name>       Scaffold a new agent project (默认含 server: API + Studio)
+  init <project_name>       Scaffold a new agent project (API + Studio, ready to run)
   add-agent <agent_name>    Add an agent module to an existing project
   version                   Print framework version
 """
@@ -22,7 +22,6 @@ from .templates import (
     AGENT_MODULE_TEMPLATE,
     API_APP_TEMPLATE,
     ENV_SAMPLE_TEMPLATE,
-    MAIN_MODULE_TEMPLATE,
     PIP_CONF_TEMPLATE,
     PYPROJECT_TEMPLATE,
     TOOL_TEMPLATE,
@@ -43,17 +42,11 @@ def _touch(path: Path) -> None:
     path.touch()
 
 
-def _render_env_sample() -> str:
-    """生成默认 .env-sample（保持干净的最小集）。"""
-    return ENV_SAMPLE_TEMPLATE
-
-
 # ── init ─────────────────────────────────────────────────────────────
 
 def _cmd_init(args: argparse.Namespace) -> None:
     project_name: str = args.project_name
     package_name = _to_package_name(project_name)
-    headless: bool = args.no_api
 
     root = Path.cwd() / project_name
     if root.exists():
@@ -74,9 +67,9 @@ def _cmd_init(args: argparse.Namespace) -> None:
 
     _write(root / "pyproject.toml", PYPROJECT_TEMPLATE.format(**fmt))
     _write(root / "pip.conf", PIP_CONF_TEMPLATE)
-    _write(root / ".env-sample", _render_env_sample())
+    _write(root / ".env-sample", ENV_SAMPLE_TEMPLATE)
+    _write(root / ".env", ENV_SAMPLE_TEMPLATE)
     _write(src / "__init__.py", f'"""{project_name}"""\n')
-    _write(src / "main.py", MAIN_MODULE_TEMPLATE.format(**fmt))
     _write(src / "agents" / "__init__.py", "")
 
     _write(default_agent / "__init__.py", AGENT_INIT_TEMPLATE.format(**fmt))
@@ -85,17 +78,16 @@ def _cmd_init(args: argparse.Namespace) -> None:
     _touch(default_agent / "skills" / ".gitkeep")
     _write(default_agent / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
 
-    if not headless:
-        _write(src / "app.py", API_APP_TEMPLATE.format(**fmt))
-        static_dest = src / "static"
-        static_dest.mkdir(parents=True, exist_ok=True)
-        try:
-            import ark_agentic as _ark
-            ark_index = Path(_ark.__file__).parent / "static" / "index.html"
-            if ark_index.is_file():
-                shutil.copy(ark_index, static_dest / "index.html")
-        except Exception:
-            pass
+    _write(src / "app.py", API_APP_TEMPLATE.format(**fmt))
+    static_dest = src / "static"
+    static_dest.mkdir(parents=True, exist_ok=True)
+    try:
+        import ark_agentic as _ark
+        ark_index = Path(_ark.__file__).parent / "static" / "index.html"
+        if ark_index.is_file():
+            shutil.copy(ark_index, static_dest / "index.html")
+    except Exception:
+        pass
 
     _write(tests_dir / "__init__.py", "")
 
@@ -104,12 +96,7 @@ def _cmd_init(args: argparse.Namespace) -> None:
     print("后续步骤:")
     print(f"  cd {project_name}")
     print("  uv pip install -e .")
-    if headless:
-        print(f"  python -m {package_name}.main")
-    else:
-        print(f"  uv run python -m {package_name}.app")
-        print("  # 启用 Studio: 在 .env 中设置 ENABLE_STUDIO=true")
-        print("  # 启用 Notifications + Jobs: ENABLE_NOTIFICATIONS=true / ENABLE_JOB_MANAGER=true")
+    print(f"  uv run {project_name}")
 
 
 # ── add-agent ────────────────────────────────────────────────────────
@@ -185,14 +172,9 @@ def main() -> None:
     # init
     p_init = sub.add_parser(
         "init",
-        help="初始化新的智能体项目（默认装配 ark-agentic[server]: API + Studio）",
+        help="初始化新的智能体项目（API + Studio，开箱即跑）",
     )
     p_init.add_argument("project_name", help="项目名称")
-    p_init.add_argument(
-        "--no-api",
-        action="store_true",
-        help="生成纯 CLI 项目（不包含 app.py / Bootstrap 装配）",
-    )
 
     # add-agent
     p_add = sub.add_parser("add-agent", help="向现有项目添加新智能体")
