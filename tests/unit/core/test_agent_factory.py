@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ark_agentic.core.agent_factory import AgentDef, build_standard_agent
-from ark_agentic.core.runner import AgentRunner
+from ark_agentic.core.agent.factory import AgentDef, build_standard_agent
+from ark_agentic.core.agent.runner import AgentRunner
 from ark_agentic.core.types import SkillLoadMode
 
 
@@ -61,8 +61,8 @@ class TestBuildStandardAgent:
 
     def test_returns_agent_runner(self, tmp_path):
         mock_llm = MagicMock()
-        with patch("ark_agentic.core.agent_factory.prepare_agent_data_dir", return_value=tmp_path), \
-             patch("ark_agentic.core.agent_factory.get_memory_base_dir", return_value=tmp_path):
+        with patch("ark_agentic.core.agent.factory.prepare_agent_data_dir", return_value=tmp_path), \
+             patch("ark_agentic.core.agent.factory.get_memory_base_dir", return_value=tmp_path):
             runner = build_standard_agent(
                 self._make_def(), skills_dir=tmp_path, tools=[], llm=mock_llm
             )
@@ -70,8 +70,8 @@ class TestBuildStandardAgent:
 
     def test_agent_id_propagated_to_skill_config(self, tmp_path):
         mock_llm = MagicMock()
-        with patch("ark_agentic.core.agent_factory.prepare_agent_data_dir", return_value=tmp_path), \
-             patch("ark_agentic.core.agent_factory.get_memory_base_dir", return_value=tmp_path):
+        with patch("ark_agentic.core.agent.factory.prepare_agent_data_dir", return_value=tmp_path), \
+             patch("ark_agentic.core.agent.factory.get_memory_base_dir", return_value=tmp_path):
             runner = build_standard_agent(
                 self._make_def("my_agent"), skills_dir=tmp_path, tools=[], llm=mock_llm
             )
@@ -86,8 +86,8 @@ class TestBuildStandardAgent:
             system_protocol="禁止重复卡片内容",
             custom_instructions="验证规则",
         )
-        with patch("ark_agentic.core.agent_factory.prepare_agent_data_dir", return_value=tmp_path), \
-             patch("ark_agentic.core.agent_factory.get_memory_base_dir", return_value=tmp_path):
+        with patch("ark_agentic.core.agent.factory.prepare_agent_data_dir", return_value=tmp_path), \
+             patch("ark_agentic.core.agent.factory.get_memory_base_dir", return_value=tmp_path):
             runner = build_standard_agent(defn, skills_dir=tmp_path, tools=[], llm=mock_llm)
         assert runner.config.prompt_config.agent_name == "保险助手"
         assert runner.config.prompt_config.system_protocol == "禁止重复卡片内容"
@@ -95,7 +95,7 @@ class TestBuildStandardAgent:
 
     def test_enable_memory_false_means_no_memory_manager(self, tmp_path):
         mock_llm = MagicMock()
-        with patch("ark_agentic.core.agent_factory.prepare_agent_data_dir", return_value=tmp_path):
+        with patch("ark_agentic.core.agent.factory.prepare_agent_data_dir", return_value=tmp_path):
             runner = build_standard_agent(
                 self._make_def(), skills_dir=tmp_path, tools=[], llm=mock_llm, enable_memory=False
             )
@@ -104,9 +104,9 @@ class TestBuildStandardAgent:
     def test_enable_memory_true_creates_memory_manager(self, tmp_path):
         mock_llm = MagicMock()
         mock_memory = MagicMock()
-        with patch("ark_agentic.core.agent_factory.prepare_agent_data_dir", return_value=tmp_path), \
-             patch("ark_agentic.core.agent_factory.get_memory_base_dir", return_value=tmp_path), \
-             patch("ark_agentic.core.agent_factory.build_memory_manager", return_value=mock_memory):
+        with patch("ark_agentic.core.agent.factory.prepare_agent_data_dir", return_value=tmp_path), \
+             patch("ark_agentic.core.agent.factory.get_memory_base_dir", return_value=tmp_path), \
+             patch("ark_agentic.core.agent.factory.build_memory_manager", return_value=mock_memory):
             runner = build_standard_agent(
                 self._make_def(), skills_dir=tmp_path, tools=[], llm=mock_llm, enable_memory=True
             )
@@ -114,9 +114,9 @@ class TestBuildStandardAgent:
 
     def test_llm_none_calls_create_from_env(self, tmp_path):
         mock_llm = MagicMock()
-        with patch("ark_agentic.core.agent_factory.prepare_agent_data_dir", return_value=tmp_path), \
-             patch("ark_agentic.core.agent_factory.get_memory_base_dir", return_value=tmp_path), \
-             patch("ark_agentic.core.agent_factory.create_chat_model_from_env", return_value=mock_llm) as mock_factory:
+        with patch("ark_agentic.core.agent.factory.prepare_agent_data_dir", return_value=tmp_path), \
+             patch("ark_agentic.core.agent.factory.get_memory_base_dir", return_value=tmp_path), \
+             patch("ark_agentic.core.agent.factory.create_chat_model_from_env", return_value=mock_llm) as mock_factory:
             runner = build_standard_agent(self._make_def(), skills_dir=tmp_path, tools=[], llm=None)
         mock_factory.assert_called_once()
         assert runner.llm is mock_llm
@@ -124,8 +124,8 @@ class TestBuildStandardAgent:
     def test_enable_subtasks_propagated(self, tmp_path):
         mock_llm = MagicMock()
         defn = AgentDef(agent_id="x", agent_name="X", agent_description="X.", enable_subtasks=True)
-        with patch("ark_agentic.core.agent_factory.prepare_agent_data_dir", return_value=tmp_path), \
-             patch("ark_agentic.core.agent_factory.get_memory_base_dir", return_value=tmp_path):
+        with patch("ark_agentic.core.agent.factory.prepare_agent_data_dir", return_value=tmp_path), \
+             patch("ark_agentic.core.agent.factory.get_memory_base_dir", return_value=tmp_path):
             runner = build_standard_agent(defn, skills_dir=tmp_path, tools=[], llm=mock_llm)
         assert runner.config.enable_subtasks is True
 
@@ -133,8 +133,8 @@ class TestBuildStandardAgent:
         mock_llm = MagicMock()
         skills_path = tmp_path / "skills"
         skills_path.mkdir()
-        with patch("ark_agentic.core.agent_factory.prepare_agent_data_dir", return_value=tmp_path), \
-             patch("ark_agentic.core.agent_factory.get_memory_base_dir", return_value=tmp_path):
+        with patch("ark_agentic.core.agent.factory.prepare_agent_data_dir", return_value=tmp_path), \
+             patch("ark_agentic.core.agent.factory.get_memory_base_dir", return_value=tmp_path):
             runner = build_standard_agent(
                 self._make_def(), skills_dir=skills_path, tools=[], llm=mock_llm
             )

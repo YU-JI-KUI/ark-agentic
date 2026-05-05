@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from ark_agentic.core.llm.sampling import SamplingConfig
 from ark_agentic.core.types import AgentMessage, RunOptions, SessionEntry, SkillLoadMode
-from ark_agentic.core.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.agent.runner import AgentRunner, RunnerConfig, RunResult
 from ark_agentic.core.skills.base import SkillConfig
 
 

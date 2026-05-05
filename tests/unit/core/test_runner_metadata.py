@@ -8,14 +8,14 @@ from typing import Any, AsyncIterator
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
-from ark_agentic.core.callbacks import (
+from ark_agentic.core.agent.callbacks import (
     CallbackContext,
     CallbackResult,
     HookAction,
     RunnerCallbacks,
 )
 from ark_agentic.core.memory.manager import MemoryManager, build_memory_manager
-from ark_agentic.core.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.agent.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.router import RouteDecision
 from ark_agentic.core.tools.base import AgentTool

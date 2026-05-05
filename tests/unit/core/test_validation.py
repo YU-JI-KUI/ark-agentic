@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.validation import (
+from ark_agentic.core.agent.validation import (
     CitedResponse,
     EntityTrie,
     extract_claims_from_answer,

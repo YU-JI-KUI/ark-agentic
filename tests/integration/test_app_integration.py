@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ark_agentic.app import app
-from ark_agentic.core.runner import AgentRunner, RunResult
+from ark_agentic.core.agent.runner import AgentRunner, RunResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 
@@ -20,7 +20,7 @@ def client() -> TestClient:
 @pytest.fixture(autouse=True)
 def init_agent_registry():
     from ark_agentic.plugins.api import deps
-    from ark_agentic.core.registry import AgentRegistry
+    from ark_agentic.core.agent.registry import AgentRegistry
     # 初始化一个临时的空的 registry
     deps.init_registry(AgentRegistry())
     yield
@@ -146,7 +146,7 @@ async def test_agents_runtime_warms_up_and_closes_every_registered_agent() -> No
     from types import SimpleNamespace
 
     from ark_agentic.core.protocol.bootstrap import Bootstrap
-    from ark_agentic.core.runtime.agents import AgentsRuntime
+    from ark_agentic.core.runtime.agents_runtime import AgentsRuntime
 
     runner = AsyncMock()
     registry = MagicMock()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ark_agentic.core.runner import AgentRunner
+from ark_agentic.core.agent.runner import AgentRunner
 from ark_agentic.core.types import AgentToolResult, SessionEntry
 
 

@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ark_agentic.core.registry import AgentRegistry
-from ark_agentic.core.runner import AgentRunner
+from ark_agentic.core.agent.registry import AgentRegistry
+from ark_agentic.core.agent.runner import AgentRunner
 
 
 @pytest.fixture

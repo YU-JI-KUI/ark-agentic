@@ -16,7 +16,7 @@ from ark_agentic.core.session.compaction import CompactionConfig
 from ark_agentic.core.llm.sampling import SamplingConfig
 from ark_agentic.core.paths import prepare_agent_data_dir
 from ark_agentic.core.prompt.builder import PromptConfig
-from ark_agentic.core.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.agent.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session.manager import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader

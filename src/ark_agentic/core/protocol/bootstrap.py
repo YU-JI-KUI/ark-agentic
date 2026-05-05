@@ -55,8 +55,8 @@ def default_lifecycle_components() -> list[Lifecycle]:
     Imported lazily to keep the protocol package free of concrete-
     runtime imports at module load time.
     """
-    from ..runtime.agents import AgentsRuntime
-    from ..runtime.tracing import TracingRuntime
+    from ..runtime.agents_runtime import AgentsRuntime
+    from ..runtime.tracing_runtime import TracingRuntime
     return [AgentsRuntime(), TracingRuntime()]
 
 

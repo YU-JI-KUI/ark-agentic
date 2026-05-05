@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ark_agentic.core.protocol.context import AppContext
+from ark_agentic.core.protocol.app_context import AppContext
 from .service import NotificationsService
 
 if TYPE_CHECKING:

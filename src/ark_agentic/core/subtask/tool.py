@@ -21,7 +21,7 @@ from ..tools.registry import ToolRegistry
 from ..types import AgentMessage, AgentToolResult, ToolCall
 
 if TYPE_CHECKING:
-    from ..runner import AgentRunner
+    from ..agent.runner import AgentRunner
     from ..session import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -207,7 +207,7 @@ class SpawnSubtasksTool(AgentTool):
         context: dict[str, Any],
         tools_allow: list[str] | None = None,
     ) -> dict[str, Any]:
-        from ..runner import AgentRunner
+        from ..agent.runner import AgentRunner
 
         parent_session = self._session_manager.get_session(parent_session_id)
         initial_state: dict[str, Any] = {}

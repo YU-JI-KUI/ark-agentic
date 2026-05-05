@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ark_agentic.core.runner import AgentRunner
+    from ark_agentic.core.agent.runner import AgentRunner
     from .base import BaseJob
 
 logger = logging.getLogger(__name__)

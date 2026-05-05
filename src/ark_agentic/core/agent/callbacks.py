@@ -32,9 +32,9 @@ from enum import Enum
 from typing import Any, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .llm.errors import LLMError
+    from ..llm.errors import LLMError
     from .runner import RunResult
-    from .types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
+    from ..types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
 
 
 # ============ Result Types ============

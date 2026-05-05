@@ -20,6 +20,7 @@ src/ark_agentic/
   core/                  engine — must not import from plugins/agents/portal/app
     protocol/            Lifecycle/Plugin Protocols, Bootstrap, AppContext
     runtime/             always-on Lifecycle impls (AgentsRuntime, TracingRuntime)
+    agent/               agent execution (Runner, Registry, Callbacks, Guard, …)
     session/             SessionManager, JSONL format, compaction, history merge
     storage/ ...         storage backends, db, etc.
   agents/                auto-discovered agent implementations

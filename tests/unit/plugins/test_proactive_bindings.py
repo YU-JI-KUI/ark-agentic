@@ -103,7 +103,7 @@ async def test_warmup_hook_registers_when_manager_present(
 @pytest.mark.asyncio
 async def test_runner_warmup_runs_every_hook() -> None:
     """AgentRunner.warmup() 调用所有通过 add_warmup_hook 注册的回调。"""
-    from ark_agentic.core.runner import AgentRunner
+    from ark_agentic.core.agent.runner import AgentRunner
 
     runner = MagicMock(spec=AgentRunner)
     runner._warmup_hooks = [AsyncMock(), AsyncMock()]
@@ -116,7 +116,7 @@ async def test_runner_warmup_runs_every_hook() -> None:
 
 @pytest.mark.asyncio
 async def test_runner_warmup_with_no_hooks_is_a_noop() -> None:
-    from ark_agentic.core.runner import AgentRunner
+    from ark_agentic.core.agent.runner import AgentRunner
 
     runner = MagicMock(spec=AgentRunner)
     runner._warmup_hooks = []

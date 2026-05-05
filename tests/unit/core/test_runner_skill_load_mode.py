@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from ark_agentic.core.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.agent.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
