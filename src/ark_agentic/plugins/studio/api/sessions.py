@@ -40,6 +40,11 @@ class SessionListResponse(BaseModel):
     sessions: list[SessionItem]
 
 
+class TurnContextItem(BaseModel):
+    active_skill_id: str | None = None
+    tools_mounted: list[str] = Field(default_factory=list)
+
+
 class MessageItem(BaseModel):
     role: str
     content: str | None
@@ -47,6 +52,8 @@ class MessageItem(BaseModel):
     tool_results: list[dict[str, Any]] | None = None
     thinking: str | None = None
     metadata: dict[str, Any] | None = None
+    finish_reason: str | None = None
+    turn_context: TurnContextItem | None = None
 
 
 class SessionDetailResponse(BaseModel):
@@ -69,6 +76,12 @@ def _message_to_item(msg: Any) -> MessageItem:
         if msg.tool_results
         else None
     )
+    turn_context: TurnContextItem | None = None
+    if msg.turn_context is not None:
+        turn_context = TurnContextItem(
+            active_skill_id=msg.turn_context.active_skill_id,
+            tools_mounted=list(msg.turn_context.tools_mounted),
+        )
     return MessageItem(
         role=role,
         content=content,
@@ -76,6 +89,8 @@ def _message_to_item(msg: Any) -> MessageItem:
         tool_results=tool_results,
         thinking=msg.thinking,
         metadata=msg.metadata or None,
+        finish_reason=msg.finish_reason,
+        turn_context=turn_context,
     )
 
 
