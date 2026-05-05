@@ -2,35 +2,12 @@
 
 `ark-agentic` 是一个面向业务落地的 Agentic 基础框架，同时提供 `ark-agentic` CLI 用来生成业务项目脚手架。
 
-这份 README 不再把“框架开发”和“业务开发”混在一起，而是分成两条明确路径：
+本文分两条路径：
 
-- 业务应用开发者：用 CLI 生成项目，专注写 agent、tools、skills、prompt 和业务逻辑。
-- 框架开发者：维护 `ark-agentic` 本身，包括核心运行时、CLI、API、Studio 和发布流程。
+- **业务应用开发者**：用 CLI 生成项目，专注写 agent、tools、skills、prompt 和业务逻辑。
+- **框架开发者**：维护 `ark-agentic` 本身，包括核心运行时、CLI、内置插件（HTTP / Studio / Jobs / Notifications）和发布流程。
 
-如果你是新人，先判断自己属于哪一类，然后直接看对应章节。
-
-## 你应该看哪一部分
-
-### 业务应用开发者
-
-你关心的是：
-
-- 怎么创建一个新的业务 Agent 项目
-- 生成后的目录分别该改哪里
-- 怎么本地跑起来 CLI / API / Studio
-- 怎么在现有业务项目里继续加 agent
-
-直接看下方的“路径一：业务应用开发者”。
-
-### 框架开发者
-
-你关心的是：
-
-- 如何在这个仓库里开发 `ark-agentic`
-- 哪些目录属于框架代码，哪些只是示例或内部应用
-- 如何运行测试、构建 Studio、发布包
-
-直接看下方的“路径二：框架开发者”。
+如果你是新人，判断自己属于哪一类后，直接跳到对应章节即可。
 
 ## 路径一：业务应用开发者
 
@@ -40,8 +17,8 @@
 
 - 一个可运行的 `default` agent
 - 一个终端交互入口
-- 可选的 FastAPI 服务入口
-- Studio 接入位
+- 默认包含 FastAPI 服务入口（用 `ark-agentic init --no-api` 可仅生成 CLI 项目）
+- Studio 接入位（通过环境变量按需启用）
 - 业务工具、技能目录和基础测试目录
 
 业务团队的职责应该集中在这些事情上：
@@ -53,11 +30,9 @@
 
 而不是从零搭框架运行时。
 
-脚手架生成的 agent 默认走 `AgentDef + build_standard_agent` 这一约定路径 —— 你只需要填三件事（id / name / description）和一个 tools 列表，框架自动补齐 session、skills、compaction、prompt 装配。
-
 ### 2. 先安装 CLI
 
-当前提是你已经能从团队内部源或发布源安装 `ark-agentic` 包，常见方式如下：
+前提是你已经能从团队内部源或发布源安装 `ark-agentic` 包，常见方式如下：
 
 ```bash
 uv tool install ark-agentic
@@ -70,20 +45,18 @@ pip install ark-agentic
 如果你已经安装并发布了 `ark-agentic` 包，直接使用命令：
 
 ```bash
-ark-agentic init my-agent --api --llm-provider openai
+ark-agentic init my-agent
 ```
 
 如果你当前就在这个框架仓库里验证 CLI，可以直接运行：
 
 ```bash
-uv run ark-agentic init my-agent --api --llm-provider openai
+uv run ark-agentic init my-agent
 ```
 
-常用参数：
+可选参数：
 
-- `--api`：生成 FastAPI 服务入口，并预留 Studio 接入
-- `--llm-provider {openai,pa-sx,pa-jt}`：生成对应的 `.env-sample`
-- `--memory`：当前仅保留记忆能力扩展入口；如果只是快速起项目，建议先不使用
+- `--no-api`：生成纯 CLI 项目（不含 `app.py` / Bootstrap 装配）；**默认**生成含 API 的完整项目。
 
 ### 4. 初始化后的第一步
 
@@ -108,7 +81,7 @@ API_KEY=sk-xxx
 
 ### 5. 脚手架目录怎么理解
 
-执行 `ark-agentic init my-agent --api` 后，核心目录大致如下：
+执行 `ark-agentic init my-agent` 后，核心目录大致如下：
 
 ```text
 my-agent/
@@ -140,7 +113,7 @@ my-agent/
 - `src/<package>/main.py`
   终端交互入口，适合快速验证 agent 行为。
 - `src/<package>/app.py`
-  HTTP 服务入口。加了 `--api` 才会生成。
+  HTTP 服务入口。使用 `init --no-api` 时不会生成该文件。
 - `src/<package>/agents/default/agent.json`
   agent 元信息，给 Studio 和管理侧使用。
 - `src/<package>/agents/default/skills/`
@@ -224,7 +197,7 @@ uv run ark-agentic add-agent risk-engine
 1. `ark-agentic init` 创建项目
 2. 先只改 `default/agent.py` 和 `tools/`
 3. 用 `python -m <package>.main` 验证单 agent 行为
-4. 确认业务逻辑后，再打开 `--api` 生成的 HTTP 服务
+4. 确认业务逻辑后，再启动 `app.py` 提供的 HTTP 服务
 5. 最后再考虑 Studio、记忆、可观测性和多 agent
 
 这样能避免一开始就把精力浪费在框架细节上。
@@ -238,8 +211,7 @@ uv run ark-agentic add-agent risk-engine
 - Agent 运行时
 - Tool / Skill / Session / Memory 等基础能力
 - CLI 脚手架生成器
-- FastAPI API 层
-- Studio 接入
+- 内置插件提供的 FastAPI、Studio、Jobs、Notifications 等能力
 - 发布打包流程
 
 业务团队最终应该更多地依赖这个仓库发布出的包和 CLI，而不是直接在本仓库里改业务逻辑。
@@ -249,19 +221,20 @@ uv run ark-agentic add-agent risk-engine
 ```text
 src/ark_agentic/
 ├── cli/             # 脚手架 CLI
-├── core/            # 运行时核心：runner、tools、skills、stream、session、memory...
-├── api/             # FastAPI 路由与协议层
-├── observability/   # Phoenix / Langfuse 等观测集成
-├── studio/          # Studio 后端集成与前端资源
-├── services/        # Job / Notification 等服务能力
-├── agents/          # 仓库内置示例/内部 agent
-├── static/          # 示例页面静态资源
+├── core/            # 运行时骨架：runner、session、tools、skills、memory、llm、stream、observability...
+├── plugins/         # 可选能力层（由 Bootstrap 统一管理生命周期）
+│   ├── api/         # Chat HTTP 传输（ENABLE_API，默认开启）
+│   ├── studio/      # 可视化管理控制台（ENABLE_STUDIO）
+│   ├── jobs/        # 主动任务调度（ENABLE_JOB_MANAGER）
+│   └── notifications/ # 通知与 SSE（ENABLE_NOTIFICATIONS，或与 Jobs 联动）
+├── portal/          # 框架自身展示门户（开发期使用，不随 wheel 发布）
+├── agents/          # 仓库内置示例 / 内部 agent
 └── app.py           # 仓库内统一演示服务入口
 ```
 
 建议这样理解：
 
-- `core/`、`cli/`、`api/`、`studio/` 是框架主干
+- `core/`、`cli/`、`plugins/`（尤其是 `plugins/api/`、`plugins/studio/`）是框架主干
 - `agents/` 更多是示例、内部场景或回归验证资产
 - 发布给业务团队的重点是 CLI + 核心运行时，而不是仓库里的全部示例
 
@@ -300,8 +273,8 @@ uv run pytest
 
 - 改脚手架：`src/ark_agentic/cli/`
 - 改运行时：`src/ark_agentic/core/`
-- 改 HTTP 协议：`src/ark_agentic/api/`
-- 改 Studio：`src/ark_agentic/studio/`
+- 改 HTTP 协议：`src/ark_agentic/plugins/api/`
+- 改 Studio：`src/ark_agentic/plugins/studio/`
 
 ### 5. 发布方式
 
@@ -324,17 +297,63 @@ uv run pytest
 
 也就是说，发布产物是“框架底座”，不是“整个仓库原样打包”。
 
+## 框架架构：Core + Plugin
+
+**Core**（`src/ark_agentic/core/`）是框架骨架：`AgentRunner`、会话、工具与技能、Memory、LLM、流式事件、可观测性等都放在这里。Core **不** import 任何 Plugin。
+
+**Plugin** 是可选能力层：通过 `Bootstrap` 统一注册、初始化、挂载路由、启停。业务项目模板里的 `app.py` 会装配一组内置 Plugin；是否生效由各 `ENABLE_*` 环境变量决定。
+
+脚手架中的典型装配顺序如下（**顺序即依赖顺序**——`JobsPlugin` 依赖 `NotificationsPlugin` 先启动）：
+
+```python
+Bootstrap(
+    plugins=[
+        APIPlugin(),
+        NotificationsPlugin(),
+        JobsPlugin(),
+        StudioPlugin(),
+    ],
+)
+```
+
+### Core 子包（节选）
+
+| 子包 | 职责 |
+|------|------|
+| `runtime/` | `AgentRunner`、ReAct 循环、回调与工厂 |
+| `protocol/` | `Bootstrap`、`BasePlugin`、`AppContext`、生命周期协议 |
+| `session/` | 会话管理、持久化、上下文压缩 |
+| `tools/` / `skills/` | 工具注册与执行、技能加载与路由 |
+| `memory/` | Memory、抽取、用户画像 |
+| `stream/` | 流式事件、AG-UI 相关模型 |
+| `llm/` | 多厂商模型封装、重试、采样 |
+| `observability/` | OTel / Phoenix / Langfuse 等追踪 |
+| `a2ui/` | A2UI 富交互组件 |
+| `storage/` | 存储抽象（文件 / SQLite 等） |
+
+### 内置 Plugin 一览
+
+| Plugin | 环境变量（默认） | 核心职责 | 对外 HTTP（节选） |
+|--------|------------------|----------|-------------------|
+| **APIPlugin** | `ENABLE_API=true` | Chat HTTP 传输、CORS、健康检查、静态 demo；绑定 `AgentRegistry` | `POST /chat`，`GET /health`，`GET /`，`/api/static/*` |
+| **StudioPlugin** | `ENABLE_STUDIO=false` | 管理控制台；独立 SQLite 鉴权；React SPA | `/api/studio/*`，`/studio` |
+| **NotificationsPlugin** | `ENABLE_NOTIFICATIONS=false`（或与 Jobs 联动开启） | 通知仓储、SSE；为 Jobs 提供投递通道 | `/api/notifications/...`，`/api/notifications/.../stream` |
+| **JobsPlugin** | `ENABLE_JOB_MANAGER=false` | APScheduler 主动调度、用户分片扫描；经 Notifications 投递 | `/api/jobs`，`/api/jobs/{id}/dispatch`（路由由 notifications 侧注册） |
+
+Plugin 之间通过 `AppContext` 交换数据（例如 `ctx.notifications.service.delivery` 供 Jobs 使用），而不是在 Core 里硬编码依赖。
+
 ## CLI 参考
 
 ### `ark-agentic init`
 
 ```bash
-ark-agentic init <project_name> [--api] [--memory] [--llm-provider openai|pa-sx|pa-jt]
+ark-agentic init <project_name> [--no-api]
 ```
 
 用途：
 
-- 初始化一个新的业务 Agent 项目
+- 初始化一个新的业务 Agent 项目（默认生成含 API / Bootstrap 装配的完整结构）
+- `--no-api`：仅生成 CLI 项目，不含 `app.py`
 
 ### `ark-agentic add-agent`
 
@@ -406,7 +425,7 @@ AGENTS_ROOT=./src/<package>/agents
 tracing 与 Phoenix / Langfuse provider 已并入 `server` extras，安装服务端即开箱可用：
 
 ```bash
-pip install "ark-agentic[server]"
+uv pip install "ark-agentic[server]"
 ```
 
 ```bash
@@ -422,18 +441,4 @@ PHOENIX_PROJECT_NAME=ark-agentic
 # LANGFUSE_BASE_URL=https://cloud.langfuse.com
 ```
 
-## 新人建议阅读顺序
-
-如果你是业务应用开发者：
-
-1. 先执行 `ark-agentic init`
-2. 只看生成项目里的 `agent.py`、`tools/`、`.env-sample`
-3. 跑通终端模式后，再接 API
-
-如果你是框架开发者：
-
-1. 先看 `src/ark_agentic/cli/` 和 `src/ark_agentic/core/`
-2. 再看 `src/ark_agentic/api/` 和 `src/ark_agentic/studio/`
-3. 最后再去看仓库里的示例 agent
-
-这份 README 的目标不是枚举所有内部机制，而是让新人先找到正确入口、在正确层次上开始工作。
+这份 README 的目标不是枚举所有内部机制，而是让读者先找到正确入口、在正确层次上开始工作。

@@ -2,19 +2,20 @@
 
 <cite>
 **Referenced Files in This Document**
-- [README.md](file://README.md)
 - [pyproject.toml](file://pyproject.toml)
+- [README.md](file://README.md)
 - [src/ark_agentic/cli/main.py](file://src/ark_agentic/cli/main.py)
 - [src/ark_agentic/cli/templates.py](file://src/ark_agentic/cli/templates.py)
 - [src/ark_agentic/app.py](file://src/ark_agentic/app.py)
+- [src/ark_agentic/core/__init__.py](file://src/ark_agentic/core/__init__.py)
+- [src/ark_agentic/core/runtime/factory.py](file://src/ark_agentic/core/runtime/factory.py)
+- [src/ark_agentic/core/llm/factory.py](file://src/ark_agentic/core/llm/factory.py)
+- [src/ark_agentic/plugins/api/plugin.py](file://src/ark_agentic/plugins/api/plugin.py)
+- [.env-sample](file://.env-sample)
 - [src/ark_agentic/agents/insurance/agent.py](file://src/ark_agentic/agents/insurance/agent.py)
 - [src/ark_agentic/agents/securities/agent.py](file://src/ark_agentic/agents/securities/agent.py)
-- [src/ark_agentic/agents/insurance/tools/policy_query.py](file://src/ark_agentic/agents/insurance/tools/policy_query.py)
-- [src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md](file://src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md)
-- [.env-sample](file://.env-sample)
-- [docs/core/memory.md](file://docs/core/memory.md)
-- [docs/a2ui/a2ui-standard.md](file://docs/a2ui/a2ui-standard.md)
-- [tests/integration/cli/test_cli.py](file://tests/integration/cli/test_cli.py)
+- [tests/integration/test_agent_integration.py](file://tests/integration/test_agent_integration.py)
+- [tests/unit/core/test_llm_from_env.py](file://tests/unit/core/test_llm_from_env.py)
 </cite>
 
 ## Table of Contents
@@ -30,389 +31,317 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This guide helps you quickly install, configure, and run the ark-agentic framework using the uv package manager. It covers:
-- Installing the framework and optional extras
-- Environment variables and configuration
-- Creating and running a simple agent
-- Registering tools and running conversations
-- Using the CLI to initialize projects, add agents, and run in different modes
-- Step-by-step tutorials for common scenarios (insurance withdrawal and securities queries)
-- Troubleshooting and links to deeper documentation
+This guide helps you quickly set up Ark Agentic, install dependencies, configure environment variables, scaffold a project, and run your first agent. You will learn how to initialize a project, configure LLM providers, and make API calls to the built-in chat endpoint. Practical examples show how to create a simple chat agent, enable optional plugins, and run the development server.
 
 ## Project Structure
-The framework provides:
-- A core runtime (AgentRunner, SessionManager, ToolRegistry)
-- Example agents (insurance and securities)
-- A unified FastAPI server
-- A CLI for scaffolding projects and agents
-- Optional memory and A2UI capabilities
+Ark Agentic provides a CLI to scaffold a new project with recommended defaults, including a FastAPI entrypoint and optional Studio UI. The framework’s core APIs live under the core package and expose convenient factories for building agents and LLM clients.
 
 ```mermaid
 graph TB
-subgraph "Framework"
-Core["Core Runtime<br/>AgentRunner, SessionManager, ToolRegistry"]
-Agents["Example Agents<br/>Insurance, Securities"]
-API["FastAPI Server<br/>Unified routes"]
-CLI["CLI<br/>init, add-agent, version"]
+subgraph "CLI"
+CLI_MAIN["src/ark_agentic/cli/main.py"]
+TEMPLATES["src/ark_agentic/cli/templates.py"]
 end
-subgraph "Optional Features"
-Memory["Memory System<br/>File-based, heading-based"]
-A2UI["A2UI Rendering<br/>Interactive components"]
+subgraph "Framework Core"
+CORE_INIT["src/ark_agentic/core/__init__.py"]
+RUNTIME_FACTORY["src/ark_agentic/core/runtime/factory.py"]
+LLM_FACTORY["src/ark_agentic/core/llm/factory.py"]
 end
-Core --> Agents
-Core --> API
-Core --> CLI
-Core --> Memory
-Core --> A2UI
+subgraph "Server"
+APP["src/ark_agentic/app.py"]
+API_PLUGIN["src/ark_agentic/plugins/api/plugin.py"]
+end
+CLI_MAIN --> TEMPLATES
+CLI_MAIN --> APP
+APP --> API_PLUGIN
+CORE_INIT --> RUNTIME_FACTORY
+CORE_INIT --> LLM_FACTORY
 ```
 
 **Diagram sources**
-- [README.md: 521-582:521-582](file://README.md#L521-L582)
-- [src/ark_agentic/app.py: 41-101:41-101](file://src/ark_agentic/app.py#L41-L101)
-- [src/ark_agentic/cli/main.py: 212-256:212-256](file://src/ark_agentic/cli/main.py#L212-L256)
+- [src/ark_agentic/cli/main.py:178-222](file://src/ark_agentic/cli/main.py#L178-L222)
+- [src/ark_agentic/cli/templates.py:1-289](file://src/ark_agentic/cli/templates.py#L1-L289)
+- [src/ark_agentic/app.py:1-94](file://src/ark_agentic/app.py#L1-L94)
+- [src/ark_agentic/plugins/api/plugin.py:27-87](file://src/ark_agentic/plugins/api/plugin.py#L27-L87)
+- [src/ark_agentic/core/__init__.py:1-159](file://src/ark_agentic/core/__init__.py#L1-L159)
+- [src/ark_agentic/core/runtime/factory.py:59-183](file://src/ark_agentic/core/runtime/factory.py#L59-L183)
+- [src/ark_agentic/core/llm/factory.py:104-275](file://src/ark_agentic/core/llm/factory.py#L104-L275)
 
 **Section sources**
-- [README.md: 521-582:521-582](file://README.md#L521-L582)
+- [src/ark_agentic/cli/main.py:178-222](file://src/ark_agentic/cli/main.py#L178-L222)
+- [src/ark_agentic/cli/templates.py:9-33](file://src/ark_agentic/cli/templates.py#L9-L33)
+- [src/ark_agentic/app.py:1-94](file://src/ark_agentic/app.py#L1-L94)
+- [src/ark_agentic/core/__init__.py:1-159](file://src/ark_agentic/core/__init__.py#L1-L159)
 
 ## Core Components
-- AgentRunner: Executes ReAct loops, manages turns, and integrates tools and skills.
-- SessionManager: Handles persistent JSONL sessions, compaction, and summarization.
-- ToolRegistry: Central place to register and discover tools.
-- Agent factories: Prebuilt agents (insurance, securities) demonstrate configuration patterns.
-- Memory system: Optional file-based memory with heading-based upsert and periodic distillation.
-- A2UI: Tools can return interactive components for rich front-end experiences.
+- CLI: Initializes a new project, writes starter files, and prints next steps.
+- Core Runtime: Provides AgentDef and build_standard_agent to wire an AgentRunner with skills, tools, memory, and session management.
+- LLM Factory: Creates BaseChatModel instances from environment variables or explicit parameters, supporting OpenAI-compatible endpoints and internal PA models.
+- API Server: FastAPI app bootstrapped with plugins; registers routes and serves the chat API and optional UI.
 
-Key entry points:
-- Programmatic usage: [README.md: 41-62:41-62](file://README.md#L41-L62)
-- API server: [src/ark_agentic/app.py: 84-160:84-160](file://src/ark_agentic/app.py#L84-L160)
-- Insurance agent factory: [src/ark_agentic/agents/insurance/agent.py: 45-123:45-123](file://src/ark_agentic/agents/insurance/agent.py#L45-L123)
-- Securities agent factory: [src/ark_agentic/agents/securities/agent.py: 38-128:38-128](file://src/ark_agentic/agents/securities/agent.py#L38-L128)
+Key entry points and factories:
+- CLI command entrypoint and subcommands: [src/ark_agentic/cli/main.py:178-222](file://src/ark_agentic/cli/main.py#L178-L222)
+- Project scaffolding templates: [src/ark_agentic/cli/templates.py:9-33](file://src/ark_agentic/cli/templates.py#L9-L33)
+- Agent factory and AgentDef: [src/ark_agentic/core/runtime/factory.py:35-183](file://src/ark_agentic/core/runtime/factory.py#L35-L183)
+- LLM factory and environment-based creation: [src/ark_agentic/core/llm/factory.py:104-275](file://src/ark_agentic/core/llm/factory.py#L104-L275)
+- API server bootstrap and plugin wiring: [src/ark_agentic/app.py:35-94](file://src/ark_agentic/app.py#L35-L94), [src/ark_agentic/plugins/api/plugin.py:27-87](file://src/ark_agentic/plugins/api/plugin.py#L27-L87)
 
 **Section sources**
-- [README.md: 41-62:41-62](file://README.md#L41-L62)
-- [src/ark_agentic/app.py: 84-160:84-160](file://src/ark_agentic/app.py#L84-L160)
-- [src/ark_agentic/agents/insurance/agent.py: 45-123:45-123](file://src/ark_agentic/agents/insurance/agent.py#L45-L123)
-- [src/ark_agentic/agents/securities/agent.py: 38-128:38-128](file://src/ark_agentic/agents/securities/agent.py#L38-L128)
+- [src/ark_agentic/cli/main.py:178-222](file://src/ark_agentic/cli/main.py#L178-L222)
+- [src/ark_agentic/cli/templates.py:9-33](file://src/ark_agentic/cli/templates.py#L9-L33)
+- [src/ark_agentic/core/runtime/factory.py:35-183](file://src/ark_agentic/core/runtime/factory.py#L35-L183)
+- [src/ark_agentic/core/llm/factory.py:104-275](file://src/ark_agentic/core/llm/factory.py#L104-L275)
+- [src/ark_agentic/app.py:35-94](file://src/ark_agentic/app.py#L35-L94)
+- [src/ark_agentic/plugins/api/plugin.py:27-87](file://src/ark_agentic/plugins/api/plugin.py#L27-L87)
 
 ## Architecture Overview
-The framework supports:
-- Mock mode for demos without API keys
-- Interactive mode for conversational agents
-- Unified API server exposing chat endpoints
-- CLI scaffolding for new projects and agents
+The framework composes lifecycle plugins and routes around a central Bootstrap. The API plugin installs the chat router and health endpoint. The server loads environment variables, initializes logging, and starts the app.
 
 ```mermaid
 sequenceDiagram
-participant User as "User"
+participant Dev as "Developer"
 participant CLI as "ark-agentic CLI"
-participant Project as "New Project"
-participant Agent as "Agent Factory"
-participant Runner as "AgentRunner"
-User->>CLI : "ark-agentic init my-agent"
-CLI->>Project : "Generate pyproject.toml, main.py, agent skeleton"
-User->>CLI : "cd my-agent && uv run ark-agentic add-agent risk-engine"
-CLI->>Project : "Add agent module"
-User->>Agent : "Create agent (factory)"
-Agent->>Runner : "Build AgentRunner with tools/session/memory"
-User->>Runner : "Create session and run conversation"
-Runner-->>User : "Streamed responses (text/A2UI)"
+participant FS as "Filesystem"
+participant App as "FastAPI App"
+participant Boot as "Bootstrap"
+participant API as "APIPlugin"
+participant Chat as "Chat Router"
+Dev->>CLI : "ark-agentic init <project>"
+CLI->>FS : "Write pyproject.toml, .env-sample, agent files"
+Dev->>App : "uv run python -m <pkg>.app"
+App->>Boot : "Bootstrap.start(ctx)"
+Boot->>API : "Install routes"
+API->>Chat : "include_router(chat.router)"
+Dev->>Chat : "POST /chat"
+Chat-->>Dev : "Streaming or JSON response"
 ```
 
 **Diagram sources**
-- [README.md: 160-181:160-181](file://README.md#L160-L181)
-- [src/ark_agentic/cli/main.py: 84-154:84-154](file://src/ark_agentic/cli/main.py#L84-L154)
-- [src/ark_agentic/cli/templates.py: 9-124:9-124](file://src/ark_agentic/cli/templates.py#L9-L124)
+- [src/ark_agentic/cli/main.py:53-113](file://src/ark_agentic/cli/main.py#L53-L113)
+- [src/ark_agentic/app.py:50-94](file://src/ark_agentic/app.py#L50-L94)
+- [src/ark_agentic/plugins/api/plugin.py:42-87](file://src/ark_agentic/plugins/api/plugin.py#L42-L87)
 
 **Section sources**
-- [README.md: 144-181:144-181](file://README.md#L144-L181)
-- [src/ark_agentic/cli/main.py: 84-154:84-154](file://src/ark_agentic/cli/main.py#L84-L154)
-- [src/ark_agentic/cli/templates.py: 9-124:9-124](file://src/ark_agentic/cli/templates.py#L9-L124)
+- [src/ark_agentic/app.py:35-94](file://src/ark_agentic/app.py#L35-L94)
+- [src/ark_agentic/plugins/api/plugin.py:27-87](file://src/ark_agentic/plugins/api/plugin.py#L27-L87)
 
 ## Detailed Component Analysis
 
-### Installation and Setup
-- Install via uv:
-  - From git: [README.md: 19-24:19-24](file://README.md#L19-L24)
-  - Optional extras: [README.md: 26-37:26-37](file://README.md#L26-L37)
-- Project dependencies and scripts: [pyproject.toml: 1-44:1-44](file://pyproject.toml#L1-L44)
-- Environment variables reference: [README.md: 584-595:584-595](file://README.md#L584-L595)
-- Full environment variable template: [.env-sample: 1-69:1-69](file://.env-sample#L1-L69)
+### Installation and Environment Setup
+- Install the framework and optional server dependencies using the project’s dependency groups.
+- Configure environment variables from the provided sample file.
 
-Quick steps:
-1) Initialize a new project with the CLI:
-   - [README.md: 170-181:170-181](file://README.md#L170-L181)
-   - [src/ark_agentic/cli/main.py: 84-154:84-154](file://src/ark_agentic/cli/main.py#L84-L154)
-2) Configure environment variables using the generated .env-sample:
-   - [src/ark_agentic/cli/templates.py: 144-154:144-154](file://src/ark_agentic/cli/templates.py#L144-L154)
-   - [.env-sample: 16-31:16-31](file://.env-sample#L16-L31)
+Steps:
+1. Install the project in editable mode with server extras.
+2. Copy and edit the environment sample to match your LLM provider and preferences.
+
+What you need to know:
+- The CLI writes a pyproject.toml that depends on the framework and server extras.
+- The server requires FastAPI, Uvicorn, and related packages.
+- The environment sample defines LLM provider settings and optional plugins.
 
 **Section sources**
-- [README.md: 19-37:19-37](file://README.md#L19-L37)
-- [pyproject.toml: 1-44:1-44](file://pyproject.toml#L1-L44)
-- [README.md: 584-595:584-595](file://README.md#L584-L595)
-- [src/ark_agentic/cli/main.py: 84-154:84-154](file://src/ark_agentic/cli/main.py#L84-L154)
-- [src/ark_agentic/cli/templates.py: 144-154:144-154](file://src/ark_agentic/cli/templates.py#L144-L154)
-- [.env-sample: 16-31:16-31](file://.env-sample#L16-L31)
+- [pyproject.toml:19-35](file://pyproject.toml#L19-L35)
+- [src/ark_agentic/cli/templates.py:9-33](file://src/ark_agentic/cli/templates.py#L9-L33)
+- [.env-sample:25-42](file://.env-sample#L25-L42)
 
-### Basic Usage Examples
-- Programmatic agent creation and conversation:
-  - [README.md: 41-62:41-62](file://README.md#L41-L62)
-- Running the unified API server:
-  - [README.md: 64-86:64-86](file://README.md#L64-L86)
-  - [src/ark_agentic/app.py: 142-160:142-160](file://src/ark_agentic/app.py#L142-L160)
-- CLI modes (mock and interactive):
-  - [README.md: 144-158:144-158](file://README.md#L144-L158)
+### Initial Project Scaffolding Using the CLI
+- Initialize a new project with the CLI, generating a minimal FastAPI app and a default agent.
+- The CLI also supports adding additional agents later.
+
+Workflow:
+- Run the init command with a project name.
+- The CLI writes templates for pyproject.toml, .env-sample, main app, agent module, tools, and skills.
+- It prints next steps to install dependencies and run the server.
+
+```mermaid
+flowchart TD
+Start(["Run CLI init"]) --> CheckRoot["Check project root exists"]
+CheckRoot --> WriteFiles["Write project files<br/>pyproject.toml, .env-sample,<br/>agent module, tools, skills"]
+WriteFiles --> Headless{"--no-api?"}
+Headless --> |Yes| NextStepsCLI["Print CLI usage steps"]
+Headless --> |No| NextStepsAPI["Print API usage steps<br/>and optional Studio flags"]
+NextStepsCLI --> End(["Done"])
+NextStepsAPI --> End
+```
+
+**Diagram sources**
+- [src/ark_agentic/cli/main.py:53-113](file://src/ark_agentic/cli/main.py#L53-L113)
+- [src/ark_agentic/cli/templates.py:9-33](file://src/ark_agentic/cli/templates.py#L9-L33)
+
+**Section sources**
+- [src/ark_agentic/cli/main.py:53-113](file://src/ark_agentic/cli/main.py#L53-L113)
+- [src/ark_agentic/cli/templates.py:9-33](file://src/ark_agentic/cli/templates.py#L9-L33)
+
+### Basic Workflow: From Initialization to Running Your First Agent
+- Create a simple agent using the agent factory and run it in a loop.
+- For server mode, start the FastAPI app and send requests to the chat endpoint.
 
 ```mermaid
 sequenceDiagram
 participant Dev as "Developer"
 participant Agent as "AgentRunner"
-participant Tools as "ToolRegistry"
-participant LLM as "LLM Client"
-Dev->>Agent : "Create session"
-Dev->>Agent : "Run with message"
-Agent->>Tools : "Resolve and execute tools"
-Tools-->>Agent : "Results"
-Agent->>LLM : "Final synthesis (if needed)"
-LLM-->>Agent : "Response"
-Agent-->>Dev : "Streamed output"
+participant LLM as "LLM Factory"
+participant API as "Chat Endpoint"
+Dev->>Agent : "create_session()"
+Dev->>Agent : "run(session_id, user_input)"
+Agent->>LLM : "create_chat_model_from_env()"
+LLM-->>Agent : "BaseChatModel"
+Agent-->>Dev : "Response"
+Dev->>API : "POST /chat"
+API-->>Dev : "Response"
 ```
 
 **Diagram sources**
-- [README.md: 41-62:41-62](file://README.md#L41-L62)
-- [src/ark_agentic/agents/insurance/agent.py: 68-121:68-121](file://src/ark_agentic/agents/insurance/agent.py#L68-L121)
+- [src/ark_agentic/core/runtime/factory.py:59-183](file://src/ark_agentic/core/runtime/factory.py#L59-L183)
+- [src/ark_agentic/core/llm/factory.py:215-267](file://src/ark_agentic/core/llm/factory.py#L215-L267)
+- [src/ark_agentic/plugins/api/plugin.py:63-87](file://src/ark_agentic/plugins/api/plugin.py#L63-L87)
 
 **Section sources**
-- [README.md: 41-62:41-62](file://README.md#L41-L62)
-- [src/ark_agentic/agents/insurance/agent.py: 68-121:68-121](file://src/ark_agentic/agents/insurance/agent.py#L68-L121)
+- [src/ark_agentic/core/runtime/factory.py:59-183](file://src/ark_agentic/core/runtime/factory.py#L59-L183)
+- [src/ark_agentic/core/llm/factory.py:215-267](file://src/ark_agentic/core/llm/factory.py#L215-L267)
+- [src/ark_agentic/plugins/api/plugin.py:63-87](file://src/ark_agentic/plugins/api/plugin.py#L63-L87)
 
-### Registering Tools and Running Conversations
-- Tool definition pattern:
-  - [src/ark_agentic/agents/insurance/tools/policy_query.py: 26-93:26-93](file://src/ark_agentic/agents/insurance/tools/policy_query.py#L26-L93)
-- Agent tool registration:
-  - [src/ark_agentic/agents/insurance/agent.py: 68-69:68-69](file://src/ark_agentic/agents/insurance/agent.py#L68-L69)
-- Example skill-driven flow (withdraw money):
-  - [src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md: 1-270:1-270](file://src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md#L1-L270)
+### Creating a Simple Agent
+- Define an AgentDef with identity and description.
+- Build an AgentRunner using the factory, supplying skills and tools.
+- Optionally enable memory and dreaming.
 
-```mermaid
-flowchart TD
-Start(["User message"]) --> Parse["Parse intent"]
-Parse --> MatchSkill{"Matches skill?"}
-MatchSkill --> |Yes| ExecuteSkill["Execute skill steps"]
-MatchSkill --> |No| ResolveTools["Resolve tools"]
-ResolveTools --> CallTool["Call tool(s)"]
-CallTool --> UpdateState["Update session state"]
-ExecuteSkill --> RenderA2UI["Render A2UI components"]
-UpdateState --> NextTurn["Next ReAct turn"]
-RenderA2UI --> NextTurn
-NextTurn --> Done{"Conversation complete?"}
-Done --> |No| Parse
-Done --> |Yes| End(["Return final response"])
-```
-
-**Diagram sources**
-- [src/ark_agentic/agents/insurance/tools/policy_query.py: 62-93:62-93](file://src/ark_agentic/agents/insurance/tools/policy_query.py#L62-L93)
-- [src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md: 25-48:25-48](file://src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md#L25-L48)
+Example references:
+- Agent factory and AgentDef: [src/ark_agentic/core/runtime/factory.py:35-183](file://src/ark_agentic/core/runtime/factory.py#L35-L183)
+- Insurance agent example: [src/ark_agentic/agents/insurance/agent.py:38-75](file://src/ark_agentic/agents/insurance/agent.py#L38-L75)
+- Securities agent example: [src/ark_agentic/agents/securities/agent.py:41-100](file://src/ark_agentic/agents/securities/agent.py#L41-L100)
 
 **Section sources**
-- [src/ark_agentic/agents/insurance/tools/policy_query.py: 26-93:26-93](file://src/ark_agentic/agents/insurance/tools/policy_query.py#L26-L93)
-- [src/ark_agentic/agents/insurance/agent.py: 68-69:68-69](file://src/ark_agentic/agents/insurance/agent.py#L68-L69)
-- [src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md: 1-270:1-270](file://src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md#L1-L270)
+- [src/ark_agentic/core/runtime/factory.py:35-183](file://src/ark_agentic/core/runtime/factory.py#L35-L183)
+- [src/ark_agentic/agents/insurance/agent.py:38-75](file://src/ark_agentic/agents/insurance/agent.py#L38-L75)
+- [src/ark_agentic/agents/securities/agent.py:41-100](file://src/ark_agentic/agents/securities/agent.py#L41-L100)
 
-### CLI Commands
-- Initialize a new project:
-  - [README.md: 170-171:170-171](file://README.md#L170-L171)
-  - [src/ark_agentic/cli/main.py: 84-154:84-154](file://src/ark_agentic/cli/main.py#L84-L154)
-- Add an agent to an existing project:
-  - [README.md: 178-180:178-180](file://README.md#L178-L180)
-  - [src/ark_agentic/cli/main.py: 158-202:158-202](file://src/ark_agentic/cli/main.py#L158-L202)
-- Version:
-  - [README.md: 160-168:160-168](file://README.md#L160-L168)
-  - [src/ark_agentic/cli/main.py: 206-208:206-208](file://src/ark_agentic/cli/main.py#L206-L208)
+### Configuring LLM Providers
+- Choose a provider and model via environment variables.
+- For OpenAI-compatible endpoints, set API key and base URL.
+- For internal PA models, set base URL and required credentials.
 
-Validation of CLI behavior:
-- [tests/integration/cli/test_cli.py: 153-209:153-209](file://tests/integration/cli/test_cli.py#L153-L209)
+Environment variables:
+- Required: MODEL_NAME, LLM_PROVIDER, API_KEY (for non-PA providers), LLM_BASE_URL (for PA models).
+- Optional: DEFAULT_TEMPERATURE, TRACING, and provider-specific keys.
 
-**Section sources**
-- [README.md: 160-181:160-181](file://README.md#L160-L181)
-- [src/ark_agentic/cli/main.py: 84-202:84-202](file://src/ark_agentic/cli/main.py#L84-L202)
-- [tests/integration/cli/test_cli.py: 153-209:153-209](file://tests/integration/cli/test_cli.py#L153-L209)
-
-### Quick Start Tutorials
-
-#### Tutorial 1: Insurance Withdrawal
-Goal: Help a user explore withdrawal options and adjust a plan.
-
-Steps:
-1) Prepare environment:
-   - Use .env-sample to set LLM provider and credentials
-   - Reference: [.env-sample: 16-31:16-31](file://.env-sample#L16-L31)
-2) Create an agent:
-   - Use the insurance agent factory
-   - Reference: [src/ark_agentic/agents/insurance/agent.py: 45-123:45-123](file://src/ark_agentic/agents/insurance/agent.py#L45-L123)
-3) Register tools (if extending):
-   - Reference: [src/ark_agentic/agents/insurance/tools/policy_query.py: 26-93:26-93](file://src/ark_agentic/agents/insurance/tools/policy_query.py#L26-L93)
-4) Run a conversation:
-   - Example prompts: “Show me how much I can withdraw” or “Adjust the plan to X”
-   - Skill-driven flow: [src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md: 25-48:25-48](file://src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md#L25-L48)
-
-```mermaid
-sequenceDiagram
-participant User as "User"
-participant Agent as "Insurance Agent"
-participant Rule as "Rule Engine"
-participant Render as "A2UI Renderer"
-User->>Agent : "What can I withdraw?"
-Agent->>Rule : "list_options(user_id)"
-Rule-->>Agent : "Eligible channels and limits"
-Agent->>Render : "render_a2ui(blocks)"
-Render-->>User : "Interactive summary cards"
-User->>Agent : "Adjust plan"
-Agent->>Rule : "calculate_detail(...)"
-Rule-->>Agent : "Updated plan"
-Agent->>Render : "render_a2ui(blocks)"
-Render-->>User : "Updated cards"
-```
-
-**Diagram sources**
-- [src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md: 78-130:78-130](file://src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md#L78-L130)
-- [src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md: 133-208:133-208](file://src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md#L133-L208)
+References:
+- Environment-based LLM creation: [src/ark_agentic/core/llm/factory.py:215-267](file://src/ark_agentic/core/llm/factory.py#L215-L267)
+- Environment sample: [.env-sample:25-42](file://.env-sample#L25-L42)
+- Unit tests validating environment requirements: [tests/unit/core/test_llm_from_env.py:10-67](file://tests/unit/core/test_llm_from_env.py#L10-L67)
 
 **Section sources**
-- [.env-sample: 16-31:16-31](file://.env-sample#L16-L31)
-- [src/ark_agentic/agents/insurance/agent.py: 45-123:45-123](file://src/ark_agentic/agents/insurance/agent.py#L45-L123)
-- [src/ark_agentic/agents/insurance/tools/policy_query.py: 26-93:26-93](file://src/ark_agentic/agents/insurance/tools/policy_query.py#L26-L93)
-- [src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md: 25-48:25-48](file://src/ark_agentic/agents/insurance/skills/withdraw_money/SKILL.md#L25-L48)
+- [src/ark_agentic/core/llm/factory.py:215-267](file://src/ark_agentic/core/llm/factory.py#L215-L267)
+- [.env-sample:25-42](file://.env-sample#L25-L42)
+- [tests/unit/core/test_llm_from_env.py:10-67](file://tests/unit/core/test_llm_from_env.py#L10-L67)
 
-#### Tutorial 2: Securities Queries
-Goal: Query account overview, holdings, and related analytics.
+### Making API Calls
+- Start the server and send a chat request to the /chat endpoint.
+- The API plugin installs CORS, a health check, and a demo page.
 
-Steps:
-1) Prepare environment:
-   - Set securities service mock and credentials in .env
-   - Reference: [.env-sample: 53-69:53-69](file://.env-sample#L53-L69)
-2) Create a securities agent:
-   - Reference: [src/ark_agentic/agents/securities/agent.py: 38-128:38-128](file://src/ark_agentic/agents/securities/agent.py#L38-L128)
-3) Run queries:
-   - Use tools under securities.tools to fetch data
-   - The agent registers tools and sets up validation hooks
-   - Reference: [src/ark_agentic/agents/securities/agent.py: 66-68:66-68](file://src/ark_agentic/agents/securities/agent.py#L66-L68)
-
-```mermaid
-sequenceDiagram
-participant User as "User"
-participant SecAgent as "Securities Agent"
-participant Tools as "Securities Tools"
-participant Service as "Mock/Real Service"
-User->>SecAgent : "Account overview"
-SecAgent->>Tools : "account_overview()"
-Tools->>Service : "Fetch data"
-Service-->>Tools : "Response"
-Tools-->>SecAgent : "Structured data"
-SecAgent-->>User : "Analytics and summaries"
-```
-
-**Diagram sources**
-- [src/ark_agentic/agents/securities/agent.py: 66-68:66-68](file://src/ark_agentic/agents/securities/agent.py#L66-L68)
+References:
+- Server bootstrap and plugin wiring: [src/ark_agentic/app.py:35-94](file://src/ark_agentic/app.py#L35-L94)
+- API plugin routes: [src/ark_agentic/plugins/api/plugin.py:42-87](file://src/ark_agentic/plugins/api/plugin.py#L42-L87)
 
 **Section sources**
-- [.env-sample: 53-69:53-69](file://.env-sample#L53-L69)
-- [src/ark_agentic/agents/securities/agent.py: 38-128:38-128](file://src/ark_agentic/agents/securities/agent.py#L38-L128)
-- [src/ark_agentic/agents/securities/agent.py: 66-68:66-68](file://src/ark_agentic/agents/securities/agent.py#L66-L68)
+- [src/ark_agentic/app.py:35-94](file://src/ark_agentic/app.py#L35-L94)
+- [src/ark_agentic/plugins/api/plugin.py:42-87](file://src/ark_agentic/plugins/api/plugin.py#L42-L87)
 
-### A2UI and Memory (Optional)
-- A2UI component system:
-  - Reference: [docs/a2ui/a2ui-standard.md: 1-200:1-200](file://docs/a2ui/a2ui-standard.md#L1-L200)
-- Memory system lifecycle:
-  - Reference: [docs/core/memory.md: 24-79:24-79](file://docs/core/memory.md#L24-L79)
+### Practical First-Use Scenarios
+- Basic chat agent:
+  - Initialize a project with the CLI.
+  - Configure .env with MODEL_NAME, LLM_PROVIDER, and API_KEY.
+  - Run the server and call /chat with a simple message.
+- Enabling Studio:
+  - Set ENABLE_STUDIO=true in .env and restart the server.
+- Running the development server:
+  - Use uvicorn with the app module entrypoint.
+
+References:
+- CLI next steps and flags: [src/ark_agentic/cli/main.py:104-113](file://src/ark_agentic/cli/main.py#L104-L113)
+- Server entrypoint and run: [src/ark_agentic/app.py:80-94](file://src/ark_agentic/app.py#L80-L94)
+- Environment sample flags: [.env-sample:9-11](file://.env-sample#L9-L11)
 
 **Section sources**
-- [docs/a2ui/a2ui-standard.md: 1-200:1-200](file://docs/a2ui/a2ui-standard.md#L1-L200)
-- [docs/core/memory.md: 24-79:24-79](file://docs/core/memory.md#L24-L79)
+- [src/ark_agentic/cli/main.py:104-113](file://src/ark_agentic/cli/main.py#L104-L113)
+- [src/ark_agentic/app.py:80-94](file://src/ark_agentic/app.py#L80-L94)
+- [.env-sample:9-11](file://.env-sample#L9-L11)
 
 ## Dependency Analysis
-- Core dependencies and scripts:
-  - [pyproject.toml: 1-44:1-44](file://pyproject.toml#L1-L44)
-- Optional groups:
-  - [pyproject.toml: 23-40:23-40](file://pyproject.toml#L23-L40)
-- CLI entry point:
-  - [pyproject.toml: 42-43:42-43](file://pyproject.toml#L42-L43)
+The project declares core dependencies and optional extras for the server, database, and PA integrations. The CLI writes a pyproject.toml that pins the framework and server extras for new projects.
 
 ```mermaid
 graph LR
-Framework["ark-agentic"] --> Core["core/*"]
-Framework --> Agents["agents/*"]
-Framework --> API["api/*"]
-Framework --> CLI["cli/*"]
-Framework --> Studio["studio/*"]
-Framework --> Static["static/*"]
+P["pyproject.toml"] --> Core["ark-agentic core"]
+P --> Server["Optional server extras"]
+P --> DB["Optional DB extras"]
+P --> PA["Optional PA extras"]
+CLI["CLI templates"] --> P
 ```
 
 **Diagram sources**
-- [pyproject.toml: 49-65:49-65](file://pyproject.toml#L49-L65)
-- [README.md: 521-582:521-582](file://README.md#L521-L582)
+- [pyproject.toml:19-38](file://pyproject.toml#L19-L38)
+- [src/ark_agentic/cli/templates.py:9-33](file://src/ark_agentic/cli/templates.py#L9-L33)
 
 **Section sources**
-- [pyproject.toml: 1-44:1-44](file://pyproject.toml#L1-L44)
-- [pyproject.toml: 23-40:23-40](file://pyproject.toml#L23-L40)
-- [pyproject.toml: 42-43:42-43](file://pyproject.toml#L42-L43)
-- [README.md: 521-582:521-582](file://README.md#L521-L582)
+- [pyproject.toml:19-38](file://pyproject.toml#L19-L38)
+- [src/ark_agentic/cli/templates.py:9-33](file://src/ark_agentic/cli/templates.py#L9-L33)
 
 ## Performance Considerations
-- Parallel tool execution, streaming protocols, zero-DB memory, and context compaction are highlighted in the project documentation.
-- Reference: [README.md: 626-634:626-634](file://README.md#L626-L634)
-
-[No sources needed since this section provides general guidance]
+- Use streaming responses for long-running model calls to improve perceived latency.
+- Keep session and memory directories on fast storage for frequent reads/writes.
+- Tune DEFAULT_TEMPERATURE and model sampling parameters for your workload.
+- Enable tracing selectively to avoid overhead in production.
 
 ## Troubleshooting Guide
 Common setup issues and resolutions:
-- Missing API key or incorrect provider configuration:
-  - Verify environment variables against .env-sample
-  - References: [.env-sample: 16-31:16-31](file://.env-sample#L16-L31), [README.md: 584-595:584-595](file://README.md#L584-L595)
-- CLI initialization fails:
-  - Ensure the project directory does not already exist
-  - Reference: [tests/integration/cli/test_cli.py: 194-209:194-209](file://tests/integration/cli/test_cli.py#L194-L209)
-- API server not starting:
-  - Confirm API_HOST and API_PORT
-  - Reference: [src/ark_agentic/app.py: 142-160:142-160](file://src/ark_agentic/app.py#L142-L160)
-- Mock vs real services:
-  - Toggle mock flags for insurance/securities in environment
-  - References: [.env-sample: 43-51:43-51](file://.env-sample#L43-L51), [.env-sample: 53-69:53-69](file://.env-sample#L53-L69)
+- Missing MODEL_NAME:
+  - Symptom: Environment-based LLM creation raises an error requiring MODEL_NAME.
+  - Fix: Set MODEL_NAME in .env (e.g., a PA model or OpenAI model ID).
+  - Reference: [tests/unit/core/test_llm_from_env.py:10-14](file://tests/unit/core/test_llm_from_env.py#L10-L14)
+- Non-PA provider without API_KEY:
+  - Symptom: Error indicates API_KEY is required for the selected provider.
+  - Fix: Set API_KEY in .env for OpenAI-compatible endpoints.
+  - Reference: [tests/unit/core/test_llm_from_env.py:17-24](file://tests/unit/core/test_llm_from_env.py#L17-L24)
+- PA provider with invalid model:
+  - Symptom: Error mentions invalid MODEL_NAME for LLM_PROVIDER=pa.
+  - Fix: Use a supported PA model (e.g., PA-SX-80B).
+  - Reference: [tests/unit/core/test_llm_from_env.py:49-55](file://tests/unit/core/test_llm_from_env.py#L49-L55)
+- PA model missing base URL:
+  - Symptom: Error indicates LLM_BASE_URL is required for PA models.
+  - Fix: Set LLM_BASE_URL in .env for PA endpoints.
+  - Reference: [src/ark_agentic/core/llm/factory.py:69-74](file://src/ark_agentic/core/llm/factory.py#L69-L74)
+- Server fails to start:
+  - Symptom: Port binding or missing dependencies.
+  - Fix: Verify API_HOST/API_PORT and ensure server extras are installed.
+  - Reference: [src/ark_agentic/app.py:83-89](file://src/ark_agentic/app.py#L83-L89)
 
 **Section sources**
-- [.env-sample: 16-31:16-31](file://.env-sample#L16-L31)
-- [.env-sample: 43-51:43-51](file://.env-sample#L43-L51)
-- [.env-sample: 53-69:53-69](file://.env-sample#L53-L69)
-- [tests/integration/cli/test_cli.py: 194-209:194-209](file://tests/integration/cli/test_cli.py#L194-L209)
-- [src/ark_agentic/app.py: 142-160:142-160](file://src/ark_agentic/app.py#L142-L160)
+- [tests/unit/core/test_llm_from_env.py:10-67](file://tests/unit/core/test_llm_from_env.py#L10-L67)
+- [src/ark_agentic/core/llm/factory.py:69-74](file://src/ark_agentic/core/llm/factory.py#L69-L74)
+- [src/ark_agentic/app.py:83-89](file://src/ark_agentic/app.py#L83-L89)
 
 ## Conclusion
-You now have the essentials to install the framework, configure environment variables, scaffold projects with the CLI, and run agents in mock or interactive modes. Extend agents by registering tools and leveraging skills and A2UI for rich interactions. For deeper dives, consult the linked documentation sections.
-
-[No sources needed since this section summarizes without analyzing specific files]
+You now have the essentials to scaffold a project, configure LLM providers, and run your first agent either in CLI mode or via the built-in API server. Use the CLI to bootstrap quickly, configure .env appropriately, and explore the included examples to extend skills and tools.
 
 ## Appendices
 
 ### Appendix A: Environment Variables Reference
-- Application and LLM settings:
-  - [README.md: 584-595:584-595](file://README.md#L584-L595)
-  - [.env-sample: 5-31:5-31](file://.env-sample#L5-L31)
-- Insurance and securities service toggles:
-  - [.env-sample: 42-69:42-69](file://.env-sample#L42-L69)
+- Application: LOG_LEVEL, API_HOST, API_PORT, ENABLE_STUDIO, AGENTS_ROOT
+- Studio Auth/Users: STUDIO_DATABASE_URL, STUDIO_AUTH_PROVIDERS, STUDIO_AUTH_TOKEN_SECRET, STUDIO_AUTH_TOKEN_TTL_SECONDS
+- Sessions/Memory: SESSIONS_DIR, MEMORY_DIR
+- LLM: LLM_PROVIDER, MODEL_NAME, API_KEY, LLM_BASE_URL, DEFAULT_TEMPERATURE
+- Observability: TRACING, PHOENIX_COLLECTOR_ENDPOINT, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST, OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_HEADERS
+- Insurance data service: DATA_SERVICE_MOCK, DATA_SERVICE_URL, DATA_SERVICE_AUTH_URL, DATA_SERVICE_APP_ID, DATA_SERVICE_CLIENT_TYPE, DATA_SERVICE_REQ_CHANNEL, DATA_SERVICE_CLIENT_ID, DATA_SERVICE_CLIENT_SECRET, DATA_SERVICE_GRANT_TYPE
+- Securities service: SECURITIES_SERVICE_MOCK, SECURITIES_ACCOUNT_TYPE, SECURITIES_ACCOUNT_OVERVIEW_URL, SECURITIES_ETF_HOLDINGS_URL, SECURITIES_HKSC_HOLDINGS_URL, SECURITIES_CASH_ASSETS_URL, SECURITIES_BRANCH_INFO_URL, SECURITIES_FUND_HOLDINGS_URL, SECURITIES_SECURITY_DETAIL_URL, SECURITIES_ACCOUNT_OVERVIEW_AUTH_TYPE, SECURITIES_ACCOUNT_OVERVIEW_AUTH_KEY, SECURITIES_ACCOUNT_OVERVIEW_AUTH_VALUE
 
 **Section sources**
-- [README.md: 584-595:584-595](file://README.md#L584-L595)
-- [.env-sample: 5-31:5-31](file://.env-sample#L5-L31)
-- [.env-sample: 42-69:42-69](file://.env-sample#L42-L69)
+- [.env-sample:1-97](file://.env-sample#L1-L97)
 
-### Appendix B: CLI Templates Contract
-- Template rendering and scaffolding:
-  - [src/ark_agentic/cli/templates.py: 9-124:9-124](file://src/ark_agentic/cli/templates.py#L9-L124)
-  - [src/ark_agentic/cli/templates.py: 144-154:144-154](file://src/ark_agentic/cli/templates.py#L144-L154)
-- CLI behavior tests:
-  - [tests/integration/cli/test_cli.py: 153-209:153-209](file://tests/integration/cli/test_cli.py#L153-L209)
+### Appendix B: Example End-to-End Test Pattern
+- Demonstrates constructing an agent with a mock LLM, creating a session, injecting context, and asserting a final response.
+- Useful for validating your agent’s run loop and tool integration.
 
 **Section sources**
-- [src/ark_agentic/cli/templates.py: 9-124:9-124](file://src/ark_agentic/cli/templates.py#L9-L124)
-- [src/ark_agentic/cli/templates.py: 144-154:144-154](file://src/ark_agentic/cli/templates.py#L144-L154)
-- [tests/integration/cli/test_cli.py: 153-209:153-209](file://tests/integration/cli/test_cli.py#L153-L209)
+- [tests/integration/test_agent_integration.py:258-291](file://tests/integration/test_agent_integration.py#L258-L291)
