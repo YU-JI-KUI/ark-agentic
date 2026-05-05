@@ -9,6 +9,7 @@ revalidating after writes settle. No Redis / no fastapi-cache.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -20,6 +21,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, Response
 from pydantic import BaseModel, Field
 
+from ark_agentic.core.storage.entries import MemorySummaryEntry
 from ark_agentic.core.utils.env import get_agents_root
 from ark_agentic.plugins.api.deps import get_registry
 from ark_agentic.plugins.studio.services import skill_service, tool_service
@@ -128,9 +130,16 @@ def _format_ratio(part: int, total: int) -> str:
 
 
 def _format_compact(value: int) -> str:
-    if abs(value) >= 1000:
-        return f"{value / 1000:.1f}K".replace(".0K", "K")
-    return str(value)
+    """Locale-neutral grouped formatting (e.g. ``12,345``).
+
+    Latin "K/M" abbreviations are not locale-aware (zh-CN expects
+    ``万`` / ``亿`` instead). Top-level totals on the dashboard are
+    formatted client-side via ``Intl.NumberFormat``; the strings this
+    helper produces are only used inside ``InsightStat`` and
+    ``DistributionItem`` hints, where digit grouping reads cleanly in
+    every locale.
+    """
+    return f"{value:,}"
 
 
 def _format_bytes(size: int) -> str:
@@ -269,6 +278,18 @@ async def _collect_sessions(agents: list[Any]) -> list[tuple[Any, Any]]:
 
 
 async def _collect_memory(agents: list[Any]) -> list[tuple[Any, Any]]:
+    """Collect (agent, MemorySummaryEntry) pairs across registered agents.
+
+    Combines two sources to mirror Studio's per-agent memory listing:
+
+    - ``mm.list_memory_summaries()`` — per-user ``{user}/MEMORY.md``
+      rows from the active memory backend (file or DB).
+    - Workspace scan — global ``MEMORY.md`` and ``memory/*.md`` files
+      that live alongside the user dirs but have no DB representation.
+      Without this scan the dashboard's memory totals would miss every
+      non-user-scoped memory file (regression vs the previous client-
+      side aggregator).
+    """
     registry = get_registry()
     pairs: list[tuple[Any, Any]] = []
     for agent in agents:
@@ -281,7 +302,44 @@ async def _collect_memory(agents: list[Any]) -> list[tuple[Any, Any]]:
             continue
         for summary in await mm.list_memory_summaries():
             pairs.append((agent, summary))
+        workspace_dir = Path(getattr(mm.config, "workspace_dir", "") or "")
+        if workspace_dir.is_dir():
+            for entry in _scan_workspace_memory(workspace_dir):
+                pairs.append((agent, entry))
     return pairs
+
+
+def _scan_workspace_memory(workspace: Path) -> list[MemorySummaryEntry]:
+    """Pick up workspace-level MEMORY.md + knowledge/*.md.
+
+    Mirrors ``studio.api.memory._scan_memory_files`` for the categories
+    that have no per-user repository row.
+    """
+    rows: list[MemorySummaryEntry] = []
+    global_md = workspace / "MEMORY.md"
+    if global_md.is_file():
+        st = global_md.stat()
+        rows.append(MemorySummaryEntry(
+            user_id="",
+            size_bytes=st.st_size,
+            updated_at=int(st.st_mtime * 1000),
+            file_type="memory",
+            path="MEMORY.md",
+        ))
+    knowledge_dir = workspace / "memory"
+    if knowledge_dir.is_dir():
+        for md in sorted(knowledge_dir.glob("*.md")):
+            if not md.is_file():
+                continue
+            st = md.stat()
+            rows.append(MemorySummaryEntry(
+                user_id="",
+                size_bytes=st.st_size,
+                updated_at=int(st.st_mtime * 1000),
+                file_type="knowledge",
+                path=f"memory/{md.name}",
+            ))
+    return rows
 
 
 def _build_skills_section(
@@ -464,9 +522,11 @@ def _build_memory_section(
         for _, s in memory_pairs
         if (s.user_id or "").strip()
     }
-    file_types = {"memory": total_files} if total_files else {}
+    file_types: dict[str, int] = {}
     by_agent: dict[str, tuple[str, int, int]] = {}
     for a, s in memory_pairs:
+        kind = (s.file_type or "memory").strip() or "memory"
+        file_types[kind] = file_types.get(kind, 0) + 1
         label = _agent_label(a)
         prev = by_agent.get(a.id)
         by_agent[a.id] = (
@@ -594,10 +654,13 @@ def _build_activity(
     for a, s in memory_pairs:
         if not s.updated_at:
             continue
+        path = s.path or (
+            f"{s.user_id}/MEMORY.md" if s.user_id else "MEMORY.md"
+        )
         items.append((s.updated_at, ActivityItem(
             ts=_ts_to_iso(s.updated_at), kind="memory", agent=a.id,
             agent_label=_agent_label(a),
-            text=f"Memory {s.user_id}/MEMORY.md updated", status="ok",
+            text=f"Memory {path} updated", status="ok",
         )))
 
     items.sort(key=lambda t: t[0], reverse=True)
@@ -645,10 +708,17 @@ async def _build_summary() -> DashboardSummary:
 
 
 _cache: dict[str, Any] = {"payload": None, "etag": None, "at": 0.0}
+_cache_lock = asyncio.Lock()
 
 
 async def _cached_summary() -> tuple[dict[str, Any], str]:
-    """2-second TTL cache shared across all callers in this process."""
+    """2-second TTL cache shared across all callers in this process.
+
+    The lock dedupes the rebuild step: under concurrent first-page
+    loads, only the winning task runs ``_build_summary``; the rest
+    rendezvous on the freshly-cached payload. Reads from a warm cache
+    take the fast path without contending on the lock.
+    """
     now = time.monotonic()
     if (
         _cache["payload"] is not None
@@ -656,28 +726,45 @@ async def _cached_summary() -> tuple[dict[str, Any], str]:
     ):
         return _cache["payload"], _cache["etag"]
 
-    summary = await _build_summary()
-    payload = summary.model_dump(mode="json")
-    body = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
-    etag = '"' + hashlib.sha1(body).hexdigest() + '"'
-    _cache["payload"] = payload
-    _cache["etag"] = etag
-    _cache["at"] = now
-    return payload, etag
+    async with _cache_lock:
+        # Re-check inside the lock — another task may have populated it
+        # while we waited.
+        now = time.monotonic()
+        if (
+            _cache["payload"] is not None
+            and now - _cache["at"] <= _CACHE_TTL_SECONDS
+        ):
+            return _cache["payload"], _cache["etag"]
+
+        summary = await _build_summary()
+        payload = summary.model_dump(mode="json")
+        body = json.dumps(
+            payload, sort_keys=True, ensure_ascii=False,
+        ).encode()
+        etag = '"' + hashlib.sha1(body).hexdigest() + '"'
+        _cache["payload"] = payload
+        _cache["etag"] = etag
+        _cache["at"] = now
+        return payload, etag
 
 
 # ── Endpoint ────────────────────────────────────────────────────────
 
 
-@router.get("/dashboard/summary")
+@router.get(
+    "/dashboard/summary",
+    response_model=DashboardSummary,
+    response_model_exclude_none=False,
+)
 async def get_dashboard_summary(
+    response: Response,
     if_none_match: str | None = Header(default=None, alias="If-None-Match"),
 ):
     payload, etag = await _cached_summary()
     if if_none_match == etag:
+        # 304 is body-less; FastAPI requires a Response object so we
+        # bypass response_model serialisation here.
         return Response(status_code=304, headers={"ETag": etag})
-    return Response(
-        content=json.dumps(payload, ensure_ascii=False),
-        media_type="application/json",
-        headers={"ETag": etag, "Cache-Control": "max-age=2"},
-    )
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "max-age=2"
+    return payload

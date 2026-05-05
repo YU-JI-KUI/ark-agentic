@@ -83,13 +83,21 @@ class SessionSummaryEntry:
 
 @dataclass
 class MemorySummaryEntry:
-    """Per-user memory row for the Studio memory listing.
+    """Per-file memory row for the Studio memory listing.
 
     ``size_bytes`` is the byte length of the markdown blob. Sourced from
     a single aggregate query (SQLite ``length(content)``) or one
     ``stat()`` call (file backend) — never by reading the blob into RAM.
+
+    ``file_type`` distinguishes per-user ``MEMORY.md`` (``"memory"``,
+    default) from workspace-level knowledge files (``"knowledge"``); the
+    dashboard summary surfaces this in its file-type distribution.
+    ``path`` is the workspace-relative file path used by the activity
+    feed; defaults to ``{user_id}/MEMORY.md`` when not explicitly set.
     """
 
     user_id: str
     size_bytes: int
     updated_at: int | None
+    file_type: str = "memory"
+    path: str = ""

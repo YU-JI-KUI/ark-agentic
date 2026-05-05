@@ -196,6 +196,8 @@ class FileMemoryRepository:
                 user_id=entry.name,
                 size_bytes=stat.st_size,
                 updated_at=int(stat.st_mtime * 1000),
+                file_type="memory",
+                path=f"{entry.name}/MEMORY.md",
             ))
         rows.sort(
             key=lambda r: r.updated_at if r.updated_at is not None else 0,

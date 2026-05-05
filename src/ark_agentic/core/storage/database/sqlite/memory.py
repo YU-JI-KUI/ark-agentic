@@ -162,6 +162,8 @@ class SqliteMemoryRepository:
                 user_id=r.user_id,
                 size_bytes=int(r.size_bytes or 0),
                 updated_at=r.updated_at,
+                file_type="memory",
+                path=f"{r.user_id}/MEMORY.md",
             )
             for r in rows
         ]

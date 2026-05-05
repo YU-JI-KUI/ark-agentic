@@ -291,6 +291,12 @@ class SqliteSessionRepository:
         ``payload_json`` of the earliest user-role message. Pulling the
         whole payload (vs ``json_extract($.content)``) keeps the typing
         story simple — Python truncates the content to 80 chars.
+
+        PR3 PG TODO: ``json_extract(... , '$.role')`` is the SQLite
+        spelling of the JSON path operator. PostgreSQL needs
+        ``payload_json::jsonb ->> 'role'`` (or ``json_extract_path_text``)
+        instead — switch via dialect detection on ``self._engine.dialect``
+        when the PG backend lands.
         """
         mc = (
             select(func.count(SessionMessage.id))
