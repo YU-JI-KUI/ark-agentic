@@ -163,14 +163,21 @@ class SessionTranscriptStore(Protocol):
 
 @runtime_checkable
 class SessionAdminStore(Protocol):
-    """Cross-user admin queries (Studio "all users" view)."""
+    """Cross-user admin queries scoped to ONE agent.
+
+    A repository instance is bound to a single agent at construction —
+    the file backend by its workspace path, the SQLite backend by the
+    ``agent_id`` predicate auto-injected on every query. These methods
+    therefore return the bound agent's data only; cross-agent dashboards
+    fan out across the agent registry and aggregate per-agent results.
+    """
 
     async def list_all_sessions(
         self,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[tuple[str, str]]:
-        """Admin-only: list ``(user_id, session_id)`` across every user.
+        """List ``(user_id, session_id)`` for every user under THIS agent.
 
         ORDER BY updated_at DESC. All backends must honour ``limit/offset``.
         PR3 PG: ``limit=None`` must raise — admin full scans require paging.
@@ -192,8 +199,9 @@ class SessionAdminStore(Protocol):
         - SQLite/PG: correlated scalar subqueries in one statement.
         - File:      sequential JSONL scan stopping at first user message.
 
-        ``user_id=None`` returns an admin cross-user listing (all users).
-        ``user_id=<str>`` filters to that user's sessions only.
+        ``user_id=None`` returns every user's sessions under THIS agent.
+        ``user_id=<str>`` filters to that user's sessions only. Neither
+        form crosses agent boundaries.
 
         ORDER BY ``updated_at`` DESC. ``first_user_message`` is
         truncated to 80 characters, or ``None`` when no user message

@@ -34,7 +34,7 @@ def tmp_sessions_dir(tmp_path: Path) -> Path:
 def _make_runner(tmp_sessions_dir: Path) -> AgentRunner:
     return AgentRunner(
         llm=_NoopChatModel(),
-        session_manager=SessionManager(tmp_sessions_dir),
+        session_manager=SessionManager(tmp_sessions_dir, agent_id="test"),
         tool_registry=ToolRegistry(),
         config=RunnerConfig(max_turns=3, auto_compact=False),
     )

@@ -79,6 +79,7 @@ async def test_migrate_copies_all_entities(tmp_path: Path):
     sessions_dir, memory_dir, notifications_dir = await _seed_file_data(tmp_path)
 
     stats = await migrate(
+        agent_id="agent_a",
         sessions_dir=sessions_dir,
         memory_dir=memory_dir,
         notifications_dir=notifications_dir,
@@ -100,6 +101,7 @@ async def test_migrate_round_trips_data_into_sqlite_repos(tmp_path: Path):
     db_path = tmp_path / "ark.db"
     db_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
     await migrate(
+        agent_id="agent_a",
         sessions_dir=sessions_dir,
         memory_dir=memory_dir,
         notifications_dir=notifications_dir,
@@ -113,11 +115,11 @@ async def test_migrate_round_trips_data_into_sqlite_repos(tmp_path: Path):
     cfg = DBConfig(connection_str=db_url)
     engine = get_async_engine(cfg)
 
-    session_repo = SqliteSessionRepository(engine)
+    session_repo = SqliteSessionRepository(engine, agent_id="agent_a")
     msgs = await session_repo.load_messages("s1", "u1")
     assert [m.content for m in msgs] == ["hello"]
 
-    memory_repo = SqliteMemoryRepository(engine)
+    memory_repo = SqliteMemoryRepository(engine, agent_id="agent_a")
     assert "Profile" in await memory_repo.read("u1")
     assert await memory_repo.get_last_dream_at("u1") == 1700000000.0
 
@@ -136,6 +138,7 @@ async def test_migrate_is_idempotent(tmp_path: Path):
     db_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
 
     first = await migrate(
+        agent_id="agent_a",
         sessions_dir=sessions_dir,
         memory_dir=memory_dir,
         notifications_dir=notifications_dir,
@@ -146,6 +149,7 @@ async def test_migrate_is_idempotent(tmp_path: Path):
 
     reset_engine_cache()
     second = await migrate(
+        agent_id="agent_a",
         sessions_dir=sessions_dir,
         memory_dir=memory_dir,
         notifications_dir=notifications_dir,
@@ -166,6 +170,7 @@ async def test_migrate_dry_run_does_not_write(tmp_path: Path):
     db_path = tmp_path / "ark.db"
     db_url = f"sqlite+aiosqlite:///{db_path.as_posix()}"
     stats = await migrate(
+        agent_id="agent_a",
         sessions_dir=sessions_dir,
         memory_dir=memory_dir,
         notifications_dir=notifications_dir,
@@ -179,5 +184,5 @@ async def test_migrate_dry_run_does_not_write(tmp_path: Path):
     assert stats.sessions >= 1
     cfg = DBConfig(connection_str=db_url)
     engine = get_async_engine(cfg)
-    session_repo = SqliteSessionRepository(engine)
+    session_repo = SqliteSessionRepository(engine, agent_id="agent_a")
     assert await session_repo.list_session_ids("u1") == []

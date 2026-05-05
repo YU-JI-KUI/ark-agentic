@@ -57,8 +57,9 @@ def create_meta_builder_from_env(
     sessions_dir = prepare_agent_data_dir("meta_builder")
 
     session_manager = SessionManager(
-        sessions_dir,
+        sessions_dir=sessions_dir,
         compaction_config=CompactionConfig(context_window=64000, preserve_recent=4),
+        agent_id="meta_builder",
     )
 
     # Skill 加载（加载内置 MetaBuilder Guide）

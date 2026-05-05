@@ -17,7 +17,6 @@ import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ...core.storage.protocols import MemoryRepository
     from ..notifications.delivery import NotificationDelivery
     from ..notifications.protocol import NotificationRepository
     from .base import BaseJob, JobRunStats
@@ -62,7 +61,6 @@ class UserShardScanner:
         notification_repo: "NotificationRepository | None" = None,
     ) -> "JobRunStats":
         """Scan all users; for users with intent, run the job's full pipeline."""
-        from ...core.storage.factory import build_memory_repository
         from .base import JobRunStats
         from .factory import build_job_run_repository
         from .paths import get_job_runs_base_dir
@@ -74,18 +72,16 @@ class UserShardScanner:
         # is a test-time injection escape hatch.
         effective_repo = notification_repo or job.notification_repo
 
-        # MemoryRepository is rooted at the job's per-agent memory workspace
-        # (``data/ark_memory/{agent_id}``); job-run timestamps live in the
-        # jobs feature's own location and are partitioned by job_id (which
-        # is globally unique).
-        workspace_dir = job.memory_manager.config.workspace_dir
-        memory_repo: MemoryRepository = build_memory_repository(workspace_dir=workspace_dir)
+        # The job's MemoryManager already owns an agent-bound repository;
+        # listing users through the manager keeps agent isolation
+        # transparent and avoids re-building a second repo.
         job_run_repo: JobRunRepository = build_job_run_repository(
             base_dir=get_job_runs_base_dir(),
         )
 
-        # list_users via MemoryRepository (替代 iterdir + 逐用户 stat 风暴)
-        all_users = await memory_repo.list_users(order_by_updated_desc=True)
+        all_users = await job.memory_manager.list_user_ids(
+            order_by_updated_desc=True,
+        )
         # 分片过滤（水平扩展时每个实例只处理自己的分片）
         if self._total_shards > 1:
             all_users = [

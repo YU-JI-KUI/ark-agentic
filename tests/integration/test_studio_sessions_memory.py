@@ -413,7 +413,7 @@ async def test_list_memory_files_merges_sqlite_user_without_disk_md(
 
         ws = tmp_path / "mem_workspace"
         ws.mkdir()
-        mm = build_memory_manager(ws)
+        mm = build_memory_manager(ws, agent_id="test")
         await mm.overwrite("U001", "## SqliteOnly\ncontent\n")
 
         studio_auth_context(client=client)

@@ -33,7 +33,7 @@ async def repo() -> SqliteSessionRepository:
     )
     engine = get_async_engine(cfg)
     await init_schema(engine)
-    return SqliteSessionRepository(engine)
+    return SqliteSessionRepository(engine, agent_id="agent_a")
 
 
 def _msg(text: str, role: MessageRole = MessageRole.USER) -> AgentMessage:

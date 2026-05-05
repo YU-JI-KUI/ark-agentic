@@ -4,10 +4,16 @@ Schema:
 - ``session_meta``: per (session_id) row with model/provider/state/tokens
 - ``session_messages``: append-only JSONL payloads keyed by (session_id, seq)
 
-Authorisation note:
-- Every method that accepts ``user_id`` enforces it in the WHERE clause so
-  that the SQLite backend has the same ownership semantics as the file
-  backend (which scopes by ``{sessions_dir}/{user_id}/...``).
+Agent isolation:
+- The repository is bound to a single ``agent_id`` at construction. All
+  ORM SELECT/UPDATE/DELETE statements run inside ``agent_scoped_session``
+  which auto-injects ``WHERE agent_id = :bound`` via
+  ``with_loader_criteria``. INSERTs read the same value from the
+  contextvar so they too land under the bound agent without each call
+  site spelling it out.
+- ``user_id`` ownership is still enforced explicitly because the
+  per-agent invariant is not the same as the per-user one — the file
+  backend has identical semantics.
 
 PR3 PG TODO:
 - ``load_messages(limit=None)`` should raise on PG (forces pagination on hot path).
@@ -24,9 +30,10 @@ from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from ..models import SessionMessage, SessionMeta
+from ..scoping import agent_scoped_session
 from ....session.format import (
     MessageEntry,
     RawJsonlValidationError,
@@ -69,10 +76,14 @@ def _extract_first_text(payload_json: str | None) -> str | None:
 
 
 class SqliteSessionRepository:
-    """SessionRepository over a SQLAlchemy AsyncEngine (SQLite/PG)."""
+    """SessionRepository over a SQLAlchemy AsyncEngine, bound to one agent."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: AsyncEngine, agent_id: str) -> None:
+        if not agent_id:
+            raise ValueError("SqliteSessionRepository requires a non-empty agent_id")
         self._engine = engine
+        self._agent_id = agent_id
+        self._sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
 
     # ── SessionRepository methods ───────────────────────────────────
 
@@ -85,7 +96,10 @@ class SqliteSessionRepository:
         state: dict,
     ) -> None:
         # ON CONFLICT DO NOTHING gives "create if missing" in one round-trip
-        # without the SELECT-then-INSERT race window.
+        # without the SELECT-then-INSERT race window. ``agent_id`` is
+        # populated by the column default reading the contextvar; the PK
+        # is composite ``(agent_id, session_id)`` so the conflict target
+        # has to mention both columns.
         stmt = sqlite_insert(SessionMeta).values(
             session_id=session_id,
             user_id=user_id,
@@ -98,9 +112,10 @@ class SqliteSessionRepository:
             total_tokens=0,
             compaction_count=0,
             active_skill_ids_json="[]",
-        ).on_conflict_do_nothing(index_elements=["session_id"])
-        async with self._engine.begin() as conn:
-            await conn.execute(stmt)
+        ).on_conflict_do_nothing(index_elements=["agent_id", "session_id"])
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            await s.execute(stmt)
+            await s.commit()
 
     async def append_message(
         self,
@@ -120,15 +135,15 @@ class SqliteSessionRepository:
         """
         payload = json.dumps(serialize_message(message), ensure_ascii=False)
         ts_ms = int(message.timestamp.timestamp() * 1000)
-        async with self._engine.begin() as conn:
-            next_seq = (await conn.execute(
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            next_seq = await s.scalar(
                 select(func.coalesce(func.max(SessionMessage.seq), -1) + 1)
                 .where(
                     SessionMessage.session_id == session_id,
                     SessionMessage.user_id == user_id,
                 )
-            )).scalar_one()
-            await conn.execute(
+            )
+            await s.execute(
                 sqlite_insert(SessionMessage).values(
                     session_id=session_id,
                     user_id=user_id,
@@ -137,6 +152,7 @@ class SqliteSessionRepository:
                     timestamp=ts_ms,
                 )
             )
+            await s.commit()
 
     async def load_messages(
         self,
@@ -160,8 +176,8 @@ class SqliteSessionRepository:
         )
         if limit is not None:
             stmt = stmt.limit(limit).offset(offset)
-        async with self._engine.connect() as conn:
-            rows = (await conn.execute(stmt)).all()
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            rows = (await s.execute(stmt)).all()
         return [deserialize_message(json.loads(r[0])) for r in rows]
 
     async def update_meta(
@@ -185,28 +201,34 @@ class SqliteSessionRepository:
             ),
         }
         # Single-statement upsert. Concurrent callers can no longer both
-        # see "no row" and race two INSERTs.
+        # see "no row" and race two INSERTs. The composite PK on
+        # ``(agent_id, session_id)`` means cross-agent session_id
+        # collisions stay separate rows; without it, this set_ would
+        # silently rewrite another agent's metadata.
         stmt = sqlite_insert(SessionMeta).values(
-            session_id=session_id, **values,
+            session_id=session_id,
+            agent_id=self._agent_id,
+            **values,
         ).on_conflict_do_update(
-            index_elements=["session_id"],
+            index_elements=["agent_id", "session_id"],
             set_=values,
         )
-        async with self._engine.begin() as conn:
-            await conn.execute(stmt)
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            await s.execute(stmt)
+            await s.commit()
 
     async def load_meta(
         self,
         session_id: str,
         user_id: str,
     ) -> SessionStoreEntry | None:
-        async with self._engine.connect() as conn:
-            row = (await conn.execute(
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            row = (await s.execute(
                 select(SessionMeta).where(
                     SessionMeta.session_id == session_id,
                     SessionMeta.user_id == user_id,
                 )
-            )).first()
+            )).scalar_one_or_none()
         return self._row_to_entry(row) if row is not None else None
 
     async def list_session_ids(
@@ -222,8 +244,8 @@ class SqliteSessionRepository:
         )
         if limit is not None:
             stmt = stmt.limit(limit).offset(offset)
-        async with self._engine.connect() as conn:
-            rows = (await conn.execute(stmt)).all()
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            rows = (await s.execute(stmt)).all()
         return [r[0] for r in rows]
 
     async def list_session_metas(
@@ -239,8 +261,8 @@ class SqliteSessionRepository:
         )
         if limit is not None:
             stmt = stmt.limit(limit).offset(offset)
-        async with self._engine.connect() as conn:
-            rows = (await conn.execute(stmt)).all()
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            rows = (await s.execute(stmt)).scalars().all()
         return [self._row_to_entry(r) for r in rows]
 
     async def list_all_sessions(
@@ -248,14 +270,20 @@ class SqliteSessionRepository:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[tuple[str, str]]:
+        """List ``(user_id, session_id)`` for every user under THIS agent.
+
+        After agent isolation this no longer crosses agents — the
+        ``with_loader_criteria`` filter restricts the scan to the bound
+        agent, which matches the file backend's per-agent semantics.
+        """
         stmt = (
             select(SessionMeta.user_id, SessionMeta.session_id)
             .order_by(SessionMeta.updated_at.desc())
         )
         if limit is not None:
             stmt = stmt.limit(limit).offset(offset)
-        async with self._engine.connect() as conn:
-            rows = (await conn.execute(stmt)).all()
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            rows = (await s.execute(stmt)).all()
         return [(r[0], r[1]) for r in rows]
 
     async def list_session_summaries(
@@ -264,13 +292,19 @@ class SqliteSessionRepository:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[SessionSummaryEntry]:
+        """Per-agent (and optionally per-user) summary scan.
+
+        ``user_id=None`` returns every user's sessions under THIS agent.
+        Cross-agent dashboards fan out across the registry — the
+        repository never sees data outside its bound agent.
+        """
         stmt = self._summary_stmt()
         if user_id is not None:
             stmt = stmt.where(SessionMeta.user_id == user_id)
         if limit is not None:
             stmt = stmt.limit(limit).offset(offset)
-        async with self._engine.connect() as conn:
-            rows = (await conn.execute(stmt)).all()
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            rows = (await s.execute(stmt)).all()
         return [self._row_to_summary(r) for r in rows]
 
     @staticmethod
@@ -281,6 +315,9 @@ class SqliteSessionRepository:
         ``payload_json`` of the earliest user-role message. Pulling the
         whole payload (vs ``json_extract($.content)``) keeps the typing
         story simple — Python truncates the content to 80 chars.
+
+        The correlated subqueries reference ``SessionMessage`` and so
+        also receive the ``with_loader_criteria`` agent filter.
 
         PR3 PG TODO: ``json_extract(... , '$.role')`` is the SQLite
         spelling of the JSON path operator. PostgreSQL needs
@@ -355,29 +392,30 @@ class SqliteSessionRepository:
         session_id: str,
         user_id: str,
     ) -> bool:
-        async with self._engine.begin() as conn:
-            existing = (await conn.execute(
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            existing = (await s.execute(
                 select(SessionMeta.session_id).where(
                     SessionMeta.session_id == session_id,
                     SessionMeta.user_id == user_id,
                 )
             )).first()
             if existing is None:
-                # Nothing owned by this user — leave any other owner's
-                # rows alone.
+                # Nothing owned by this user under this agent — leave any
+                # other owner's rows alone.
                 return False
-            await conn.execute(
+            await s.execute(
                 delete(SessionMessage).where(
                     SessionMessage.session_id == session_id,
                     SessionMessage.user_id == user_id,
                 )
             )
-            await conn.execute(
+            await s.execute(
                 delete(SessionMeta).where(
                     SessionMeta.session_id == session_id,
                     SessionMeta.user_id == user_id,
                 )
             )
+            await s.commit()
         return True
 
     async def get_raw_transcript(
@@ -385,8 +423,8 @@ class SqliteSessionRepository:
         session_id: str,
         user_id: str,
     ) -> str | None:
-        async with self._engine.connect() as conn:
-            meta_row = (await conn.execute(
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
+            meta_row = (await s.execute(
                 select(SessionMeta.session_id).where(
                     SessionMeta.session_id == session_id,
                     SessionMeta.user_id == user_id,
@@ -394,7 +432,7 @@ class SqliteSessionRepository:
             )).first()
             if meta_row is None:
                 return None
-            msg_rows = (await conn.execute(
+            msg_rows = (await s.execute(
                 select(
                     SessionMessage.payload_json,
                     SessionMessage.timestamp,
@@ -437,10 +475,11 @@ class SqliteSessionRepository:
             for (i, data) in parsed
         ]
 
-        async with self._engine.begin() as conn:
+        async with agent_scoped_session(self._sessionmaker, self._agent_id) as s:
             # Confirm ownership before any mutation so a misrouted call
-            # cannot wipe or replace another owner's transcript.
-            owner = (await conn.execute(
+            # cannot wipe or replace another owner's transcript. The agent
+            # filter is automatic; this just guards user_id ownership.
+            owner = (await s.execute(
                 select(SessionMeta.session_id).where(
                     SessionMeta.session_id == session_id,
                     SessionMeta.user_id == user_id,
@@ -451,14 +490,15 @@ class SqliteSessionRepository:
                     f"session {session_id!r} not found for user {user_id!r}",
                     line_number=1,
                 )
-            await conn.execute(
+            await s.execute(
                 delete(SessionMessage).where(
                     SessionMessage.session_id == session_id,
                 )
             )
             if rows:
                 # Single executemany round-trip instead of N INSERTs.
-                await conn.execute(sqlite_insert(SessionMessage), rows)
+                await s.execute(sqlite_insert(SessionMessage), rows)
+            await s.commit()
 
     async def finalize(
         self,
