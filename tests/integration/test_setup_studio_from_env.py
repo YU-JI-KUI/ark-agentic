@@ -1,12 +1,13 @@
 """
-Acceptance tests for setup_studio_from_env() and API_APP_TEMPLATE Studio integration.
+Acceptance tests for setup_studio_from_env() and the CLI scaffold's Studio integration.
 
 Covers:
   - setup_studio_from_env: env=false skips, env=true delegates to setup_studio
   - setup_studio_from_env: ImportError and generic Exception are handled gracefully
-  - API_APP_TEMPLATE: setup_studio_from_env called at module level, no ENABLE_STUDIO in lifespan
-  - CLI --api: generated app.py has Studio support built-in
-  - CLI add-agent: also generates agent.json
+  - API_APP_TEMPLATE: Studio enablement happens via Bootstrap + DEFAULT_PLUGINS
+    (StudioPlugin gates itself on ENABLE_STUDIO), not via a hand-rolled
+    setup_studio_from_env call inside the scaffold.
+  - CLI add-agent: generates agent.json for Studio discovery.
 """
 
 from __future__ import annotations
@@ -94,21 +95,8 @@ def _render_api_template() -> str:
     )
 
 
-def test_api_template_imports_setup_studio_from_env():
-    rendered = _render_api_template()
-    assert "from ark_agentic.plugins.studio import setup_studio_from_env" in rendered
-
-
-def test_api_template_calls_setup_studio_from_env_at_module_level():
-    rendered = _render_api_template()
-    lifespan_end = rendered.index("yield")
-    studio_call_pos = rendered.index("setup_studio_from_env(app")
-    assert studio_call_pos > lifespan_end, (
-        "setup_studio_from_env should be called AFTER lifespan (at module level)"
-    )
-
-
 def test_api_template_no_enable_studio_env_check_in_lifespan():
+    """ENABLE_STUDIO 不应在 lifespan 内被读取——StudioPlugin 自己负责。"""
     rendered = _render_api_template()
     lifespan_start = rendered.index("async def lifespan")
     app_def_start = rendered.index("app = FastAPI(")
@@ -122,36 +110,36 @@ def test_api_template_uvicorn_entry_point():
     assert '"test_proj.app:app"' in rendered
 
 
-# ── CLI --api generates correct app.py ───────────────────────────────────────
+def test_api_template_studio_arrives_via_default_plugins():
+    """模板里不应再手挂 setup_studio_from_env；Studio 通过 DEFAULT_PLUGINS 自动接入。"""
+    rendered = _render_api_template()
+    assert "setup_studio_from_env" not in rendered
+    assert "DEFAULT_PLUGINS" in rendered
+    assert "Bootstrap" in rendered
 
-def test_cmd_init_with_api_creates_app_py_with_studio(tmp_path: Path):
-    """init --api generates app.py with setup_studio_from_env built-in."""
+
+# ── CLI generates app.py + agent.json ────────────────────────────────────────
+
+def test_cmd_init_default_creates_app_py_with_studio_via_bootstrap(tmp_path: Path):
+    """默认 init 装配 server: app.py 通过 Bootstrap + DEFAULT_PLUGINS 接入 Studio。"""
     from ark_agentic.cli.main import _cmd_init
-    args = type("Args", (), {
-        "project_name": "myproj",
-        "api": True,
-        "memory": False,
-        "llm_provider": "openai",
-    })()
+    args = type("Args", (), {"project_name": "myproj", "no_api": False})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
 
     app_py = (tmp_path / "myproj" / "src" / "myproj" / "app.py").read_text(encoding="utf-8")
-    assert "setup_studio_from_env" in app_py
-    assert "ENABLE_STUDIO" not in app_py
+    assert "DEFAULT_PLUGINS" in app_py
+    assert "Bootstrap" in app_py
     assert "AgentRegistry" in app_py
-    assert "chat_api" in app_py
+    # 旧的手挂方式不应再出现
+    assert "setup_studio_from_env" not in app_py
+    assert "include_router(chat_api.router)" not in app_py
 
 
-def test_cmd_init_with_api_has_agent_json(tmp_path: Path):
-    """init --api also creates agent.json for Studio discovery."""
+def test_cmd_init_default_has_agent_json(tmp_path: Path):
+    """init 默认创建 agent.json，供 Studio 发现。"""
     from ark_agentic.cli.main import _cmd_init
-    args = type("Args", (), {
-        "project_name": "myproj",
-        "api": True,
-        "memory": False,
-        "llm_provider": "openai",
-    })()
+    args = type("Args", (), {"project_name": "myproj", "no_api": False})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
 
@@ -159,15 +147,10 @@ def test_cmd_init_with_api_has_agent_json(tmp_path: Path):
     assert agent_json.is_file(), "agent.json must be created for Studio discovery"
 
 
-def test_cmd_init_without_api_also_has_agent_json(tmp_path: Path):
-    """Even without --api, agent.json is generated (for future Studio use)."""
+def test_cmd_init_no_api_also_has_agent_json(tmp_path: Path):
+    """即便 --no-api，agent.json 仍然生成（保证后续启用 server 时直接可用）。"""
     from ark_agentic.cli.main import _cmd_init
-    args = type("Args", (), {
-        "project_name": "myproj",
-        "api": False,
-        "memory": False,
-        "llm_provider": "openai",
-    })()
+    args = type("Args", (), {"project_name": "myproj", "no_api": True})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
 
@@ -179,14 +162,9 @@ def test_cmd_init_without_api_also_has_agent_json(tmp_path: Path):
 
 def test_cmd_add_agent_generates_agent_json(tmp_path: Path):
     """add-agent must also generate agent.json for Studio discovery."""
-    from ark_agentic.cli.main import _cmd_init, _cmd_add_agent
+    from ark_agentic.cli.main import _cmd_add_agent, _cmd_init
 
-    init_args = type("Args", (), {
-        "project_name": "myproj",
-        "api": True,
-        "memory": False,
-        "llm_provider": "openai",
-    })()
+    init_args = type("Args", (), {"project_name": "myproj", "no_api": False})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(init_args)
 
