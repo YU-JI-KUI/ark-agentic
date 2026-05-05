@@ -6,56 +6,69 @@ Lightweight ReAct agent framework. Python backend + embedded React/Vite studio U
 
 - **Backend**: Python ≥3.10, packaging via `hatchling`, deps managed with `uv`
 - **Server (optional)**: FastAPI + uvicorn + SQLAlchemy + APScheduler
-- **Frontend (Studio)**: React 19 + Vite 7 + TypeScript 5.9, at `src/ark_agentic/studio/frontend/`
+- **Frontend (Studio)**: React 19 + Vite 7 + TypeScript 5.9, at `src/ark_agentic/plugins/studio/frontend/`
 - **Tests**: pytest + pytest-asyncio (`asyncio_mode = auto`), 180s timeout, marker `slow` for integration
 - **Lint/Type**: flake8, mypy, pyright (`extraPaths = ["src"]`)
 
 ## Project layout
 
-- `src/ark_agentic/` — main package
-- `src/ark_agentic/cli/main.py` — entrypoint (`ark-agentic` console script)
-- `src/ark_agentic/studio/frontend/` — React studio UI; built into `dist/`, served by FastAPI under `/studio/`
-- `src/ark_agentic/agents/` — agent implementations
-- `tests/` — pytest tests (mirror the source tree: `tests/test_<module>.py`)
+```
+src/ark_agentic/
+  core/                  engine: runner, memory, sessions, storage, llm,
+                         lifecycle, plugin protocol, bootstrap
+  agents/                agent implementations (auto-discovered)
+  plugins/               user-selectable features
+    api/                 chat HTTP + middleware + default index.html
+    jobs/                proactive job scheduler
+    notifications/       notification dispatch
+    studio/              admin console (incl. React frontend/)
+  portal/                framework-internal landing site (NOT in wheel)
+  app.py                 framework composition root (NOT in wheel)
+  bootstrap.py           DEFAULT_PLUGINS for wheel consumers
+  cli/main.py            `ark-agentic` console script
+  migrations/            data migration helpers
+tests/                   mirrors source tree
+scripts/                 thin CLI runners → migrations/
+```
 
 ## Architecture boundaries
 
-The codebase is layered. Imports only flow **downward**:
+Imports flow **downward only**:
 
 ```
 app.py / portal/        ← framework-internal composition (not in wheel)
 agents/ · plugins/      ← user-selectable features (Plugin)
-core/                   ← engine: runner, memory, sessions, storage, llm, lifecycle
+core/                   ← engine (Lifecycle / Plugin protocols live here)
 ```
 
-Rules:
+Hard rules:
 
-- **`core/` is self-contained.** It must never import from `plugins/`, `agents/`,
-  `portal/`, or `app.py`. If core needs something a feature provides, define a
-  `Protocol` in core and let the feature implement it.
-- **Features (`plugins/*`, `agents/*`) depend on core**, not on each other.
-  Cross-feature wiring belongs in the composition root (`app.py`) via the
-  shared `AppContext`.
-- **`portal/` and `app.py` are framework-only** and excluded from the published
-  wheel. Wheel consumers compose their own app from `core` + `plugins` +
-  `bootstrap.DEFAULT_PLUGINS`.
+- **`core/` is self-contained.** It must never import from `plugins/`,
+  `agents/`, `portal/`, or `app.py`. If core needs something a feature
+  provides, define a `Protocol` in core and let the feature implement it.
+- **Features depend on core, not on each other.** Cross-feature wiring
+  belongs in the composition root (`app.py`) via the shared `AppContext`.
+- **`portal/` and `app.py` are framework-only** and excluded from the
+  published wheel. Wheel consumers compose their own app from `core` +
+  `plugins` + `bootstrap.DEFAULT_PLUGINS`.
 
 ### Lifecycle vs Plugin
 
-Both live in `core/`. They are structurally identical Protocols; the distinction
-is **semantic**.
+Both live in `core/`. Structurally identical Protocols; the distinction is
+**semantic**.
 
-- **`Lifecycle`** (`core/lifecycle.py`) — the base contract every long-lived
-  component implements: `name`, `is_enabled()`, `init()`, `install_routes(app)`,
-  `start(ctx)`, `stop()`. Used directly by **core runtime capabilities** that
-  are not optional features (e.g. `AgentsRuntime`, `TracingRuntime`, `Portal`).
+- **`Lifecycle`** (`core/lifecycle.py`) — base contract every long-lived
+  component implements: `name`, `is_enabled()`, `init()`,
+  `install_routes(app)`, `start(ctx)`, `stop()`. Used directly by **core
+  runtime capabilities** that aren't optional features (`AgentsRuntime`,
+  `TracingRuntime`, `Portal`).
 - **`Plugin(Lifecycle)`** (`core/plugin.py`) — marker subtype for
-  **user-selectable features** (`APIPlugin`, `JobsPlugin`, `NotificationsPlugin`,
-  `StudioPlugin`). Picking a different feature set means swapping plugins; you
-  do not swap `Lifecycle` components.
+  **user-selectable features** (`APIPlugin`, `JobsPlugin`,
+  `NotificationsPlugin`, `StudioPlugin`). Picking a different feature set
+  means swapping plugins; you do not swap `Lifecycle` components.
 
-Bootstrap (`core/bootstrap.py`) drives any list of `Lifecycle` — it does not
-care whether a component is a Plugin or a core runtime.
+`Bootstrap` (`core/bootstrap.py`) drives any list of `Lifecycle` — it does
+not care whether a component is a Plugin or a core runtime.
 
 ## Commands
 
@@ -64,177 +77,160 @@ care whether a component is a Plugin or a core runtime.
 - Install dev deps: `uv sync`
 - All tests: `uv run pytest`
 - Fast tests only: `uv run pytest -m "not slow"`
-- Verbose with short traceback: `uv run pytest -v --tb=short`
 - Coverage: `uv run pytest --cov`
 - Lint: `uv run flake8 src tests`
 - Type check: `uv run mypy src` and/or `uv run pyright`
 - Build: `uv build`
 
-### Frontend (from `src/ark_agentic/studio/frontend/`)
+### Frontend (from `src/ark_agentic/plugins/studio/frontend/`)
 
 - Install: `npm install`
 - Dev: `npm run dev` (proxies `/api` and `/chat` to `localhost:8080`)
-- Build: `npm run build` — must succeed; `dist/` ships in the wheel via `force-include`
+- Build: `npm run build` — must succeed; `dist/` ships in the wheel
 - Lint: `npm run lint`
 
 ## Conventions
 
 - Python target 3.10+. Modern type hints (`list[str]`, `X | None`).
-- Async-first; pytest is `asyncio_mode = auto` — no `@pytest.mark.asyncio` needed for plain async tests.
+- Async-first; pytest is `asyncio_mode = auto` — no `@pytest.mark.asyncio`
+  needed for plain async tests.
 - I/O uses `async/await` with `httpx`. Never `requests`.
 - Complex data uses `pydantic.BaseModel`. Avoid bare `dict`.
 - Package manager is `uv` only. Never `pip` or `poetry`.
 - Don't add files under `data/` — gitignored.
-- If you touch frontend, run `npm run build` so `dist/` stays consistent for packaging.
-
-## "Done" criteria for any change
-
-1. `uv run pytest -m "not slow"` passes.
-2. **Tests for new code exist** per "Testing responsibility" below.
-3. If types changed: `uv run mypy src` introduces no new errors.
-4. If frontend changed: `npm run build` succeeds.
-5. Diff is in scope (see "Scope of change" below).
+- If you touch frontend, run `npm run build` so `dist/` stays consistent.
 
 ---
 
-## Behavioral guidelines
+## Workflow by task type
 
-> Core principle: **the right amount of design** — not no design, not over-design.
+Match the ceremony to the change. Don't over-design small fixes; don't
+under-design structural work.
 
-### Design must do (essential)
+### Simple (`bug` / `chore` / docs / config)
 
-- **Module boundaries** — clear responsibility, public interface defined as `Protocol`.
-- **Data flow** — explicit: where validated, where transformed, where it goes.
-- **Error boundaries** — exceptions propagate intentionally, caught at known layers.
-- **Core domain** — business-critical logic deserves real modeling.
+Just fix it. No design pass.
 
-### Design must avoid (accidental complexity)
+- For a bug, write a regression test that **fails before** the fix and
+  **passes after**. For chores/docs, skip new tests.
+- Keep the diff in scope (see "Scope of change" below).
 
-- **Speculative generality** — patterns/generics for futures that may never come.
-- **Premature layering** — Controller/Service/Repo/DTO around one-line logic.
-- **Single-implementer interfaces** — `Protocol` with one impl, kept "for flexibility".
-- **Decoupling for aesthetics** — abstraction that makes code harder to follow, not easier to change.
+### Structural (`feature` / `refactor`)
 
-### Decision tests
+Design top-down through the C4 layers **before writing code**. Each layer
+has its own concern, interface, and abstraction:
 
-- Does this abstraction solve a **current concrete problem** (testability, real reuse), or chase an imagined future?
-- Does this design make code **easier to delete and change** (good), or does one change ripple everywhere (bad)?
-- Would a senior engineer call this overcomplicated? If yes, simplify.
+1. **C1 — System context.** Does this change cross system boundaries
+   (new external dependency, new protocol, new wheel consumer story)?
+   Usually no — note it and move on.
+2. **C2 — Containers.** Which containers does it touch (core engine,
+   a specific plugin, frontend, CLI)? State the layering rule it must
+   respect (see "Architecture boundaries"). Reject any design that pulls
+   `core/` toward a feature.
+3. **C3 — Components.** Define module boundaries and the **public
+   `Protocol`** at each boundary. Identify the composition root that
+   wires implementations to consumers. Apply SOLID here:
+   - **SRP**: one reason to change per module.
+   - **OCP**: extend via Plugin/Strategy, don't edit core for new features.
+   - **LSP**: alternate implementations of a Protocol must be substitutable.
+   - **ISP**: Protocols ≤ ~5 methods; no god-interfaces.
+   - **DIP**: depend on Protocols, inject via `__init__`; no hardcoded
+     `ClassName()` for swappable deps.
+4. **C4 — Code.** Now implement. By this point the boundaries are settled
+   and the diff should be mechanical.
 
-### Operating rules
+For non-trivial refactors, write the design (even briefly) before touching
+code, and confirm with the user when it changes a public Protocol or
+crosses a layer boundary.
 
-- **KISS** — function over class unless you genuinely have cohesive state.
-- **YAGNI** — don't build what isn't needed now; do leave room at real extension points.
-- **Rule of Three** — extract on the third repetition, not the first. Wrong abstraction is worse than duplication.
-- **SRP** — one reason to change per module. Pydantic models stay separate from business logic.
-- **OCP** — extend via Strategy/Plugin/Hook; don't edit core logic for new features.
-- **DIP** — depend on `Protocol`s, inject via `__init__`. No hardcoded `ClassName()` for swappable deps.
-- **ISP** — `Protocol` ≤ 5 methods. No god-interfaces.
-- **Composition > Inheritance** — inheritance depth ≤ 2.
+### Test responsibility by task
+
+| Task tag       | Tests                                                                |
+|----------------|----------------------------------------------------------------------|
+| `feature`      | Required: happy path + ≥1 boundary case. Errors if behavior is non-trivial. |
+| `bug`          | Required: regression test (fails before, passes after).              |
+| `refactor`     | Existing tests must pass before and after. Add new tests only if asked. |
+| `chore`/docs   | Skip new tests. Run existing tests if code paths could be affected.  |
+
+If you can't write a clean test for new code, that's a **design smell** —
+fix the design, not the test.
+
+---
+
+## Design principles (summary)
+
+- **The right amount of design** — not no design, not over-design. Solve
+  current concrete problems, not imagined futures (KISS, YAGNI).
+- **Rule of Three** — extract on the third repetition, not the first.
+  Wrong abstraction is worse than duplication.
+- **Composition > inheritance** — inheritance depth ≤ 2.
 - **Law of Demeter** — no `a.b.c.method()` chains.
-- **Fail fast** — validate at function entry, not in deep call stacks.
-- **Type safety** — full type hints on every signature.
+- **Fail fast** — validate at function entry, not deep in the call stack.
+- **Type safety** — full type hints; no bare `dict`, no `Any` without
+  justification.
+- **Search before adding** — grep for existing similar logic. Reuse,
+  refactor, or extend. Never copy-paste.
 
-### Scope of change
+### Self-check before committing
 
-The rule is: **every changed line should trace back to the task**. Deletions
-are allowed — and sometimes required — as long as they're in scope.
+1. Single responsibility per module/class?
+2. Every abstraction solves a real, current problem?
+3. Function ≤ 40 lines, nesting ≤ 3 levels?
+4. Boundary cases covered (none / empty / zero / error) — code AND tests?
+5. Errors fail fast at entry, not buried?
+6. Types complete?
+7. Tests match the task tag?
+8. Diff is in scope (next section)?
 
-**Required (you must do these):**
+## Scope of change
 
-- Remove imports, variables, helpers, and branches that **your** changes
-  orphaned. If you replaced function A with B, remove A's now-unused imports
-  and any helpers only A called.
+**Every changed line should trace back to the task.** Smaller diff > tidier
+diff.
 
-**Allowed (do these when applicable):**
+- **Required**: remove imports, helpers, and branches **your** changes
+  orphaned.
+- **Allowed**: dead-code cleanup limited to files you're already editing,
+  provably unreferenced (zero grep hits), not a public API — list each
+  deletion in the PR description.
+- **Not allowed**: drive-by renames/reformatting, refactors of working
+  code outside the task, style/lint fixes in untouched files, deleting
+  dead code in modules you're not otherwise touching.
 
-- Whatever the task explicitly asks for, including dead-code cleanup.
-- Remove pre-existing dead code **only when all of these hold**:
-  - it lives in a file you're already editing for this task,
-  - it's provably unreferenced (grep the whole repo: zero hits),
-  - it's not a public API (not in `__all__`, not exported, not imported elsewhere, not a documented entry point),
-  - and you list each deletion explicitly in the PR description so a human can confirm.
-
-**Not allowed (drive-by changes — never do these):**
-
-- "Improving" code adjacent to your change (renaming, reordering, reformatting).
-- Refactoring working code outside the task scope.
-- Style/lint fixes in files you didn't otherwise have to edit.
-- Deleting dead code you stumbled on in a module you're not touching for this task. Instead, list it under "Notes for human reviewer" in the PR.
-- Changing something just because you'd write it differently.
-
-When in doubt: smaller diff > "tidier" diff. Match existing style even if you'd do it differently.
-
-### Search before adding
-
-Before writing new code, grep for existing similar logic. If found:
-reuse, refactor, or extend. Never copy-paste.
+When in doubt, ask. Match existing style.
 
 ---
 
 ## Testing
 
-> Start simple: cover the happy path first, then edges, then errors.
-> Don't chase 100% coverage — chase confidence in the change.
+- **AAA pattern** — Arrange / Act / Assert, separated by blank lines.
+- **One behavior per test** — name `test_<function>_<scenario>`.
+- **Independent & order-free** — no shared mutable state.
+- **Mock the boundary** (LLM, DB, network), not the unit under test. Use
+  `unittest.mock.AsyncMock` for async deps.
+- **Specific assertions** — `assert result.status == "success"`, not
+  `assert result`.
+- **Fixtures** when setup repeats 3+ times (Rule of Three).
 
-### Testing responsibility (matched to task type)
+### Test pyramid
 
-| Task tag | Test responsibility |
-|---|---|
-| `feature` (new code) | **Required**: happy path + at least one boundary case. Errors if behavior is non-trivial. |
-| `bug` (fix)          | **Required**: write a regression test that **fails before** the fix and **passes after**. |
-| `refactor`           | **Required**: existing tests pass before and after. Add new tests only if the task asks. |
-| `chore` / docs / config | Skip new tests. Run existing tests if code paths could be affected. |
-
-If you can't write a clean test for new code (e.g. it depends on something
-hard to mock), that's a **design smell** — fix the design, not the test.
-
-### Test design principles
-
-- **AAA pattern** — Arrange / Act / Assert, in that order, separated by blank lines.
-- **One behavior per test** — naming: `test_<function>_<scenario>` (e.g. `test_run_with_empty_input`).
-- **Independent & order-free** — no shared mutable state across tests.
-- **Fast** — unit tests are seconds, not minutes. Mock external I/O.
-- **Specific assertions** — `assert result.status == "success"`, not `assert result`.
-  Add a message when context helps: `assert len(items) == 3, f"got {len(items)}"`.
-- **Mock the boundary, not the unit** — mock LLM APIs, DBs, network. Never mock the code under test.
-- **Async mocks** — use `unittest.mock.AsyncMock` for async dependencies.
-- **Fixtures over duplication** — share setup via `@pytest.fixture`, but only once it appears 3+ times (Rule of Three applies here too).
-
-### Test pyramid (write more of the smaller ones)
-
-1. **Unit** (most): single function/method behavior with mocked deps.
+1. **Unit** (most): single function/method with mocked deps.
 2. **Integration** (some): module collaboration, real deps where cheap.
-3. **E2E** (few, focused): full user flow — API endpoints via `httpx.AsyncClient` / FastAPI `TestClient`, or full agent chains.
+3. **E2E** (few): full flow via FastAPI `TestClient` / `httpx.AsyncClient`.
 
-### When unattended (routine runs)
+## "Done" criteria
 
-- After implementing, run the right test scope (see `routine` workflow).
-- If a new test fails, attempt **one** focused fix. Still failing → mark the
-  task ⚠️ partial, leave the test in place (skipped or xfailed with reason),
-  continue.
+1. `uv run pytest -m "not slow"` passes.
+2. Tests for new code exist (per the table above).
+3. If types changed: `uv run mypy src` introduces no new errors.
+4. If frontend changed: `npm run build` succeeds.
+5. Diff is in scope.
+
+## Unattended runs (routine)
+
+- Attempt **one** focused fix on a failing new test. Still failing → mark
+  the task ⚠️ partial, leave the test in place (skipped/xfailed with
+  reason), continue.
 - State assumptions in the PR description rather than guessing silently.
-- If a task is ambiguous or risky, mark it ⚠️ partial and leave a note for
-  the human reviewer instead of forcing it through.
 - Never push to `main` / `master` / `develop`. Only `claude/*` branches.
 - Never modify CI configs, `pyproject.toml [build-system]`, `.env*`, or
   anything under `data/` without an explicit task instruction.
-
-### Self-check before committing
-
-1. **Single responsibility?** One reason to change per module/class.
-2. **Necessary complexity?** Every abstraction solves a real, current problem.
-3. **No premature DRY?** Repetition only extracted if it appeared 3+ times.
-4. **Function ≤ 40 lines, nesting ≤ 3 levels?** Otherwise extract or early-return.
-5. **Boundary conditions covered?** None / empty / zero / error paths — both in code AND in tests.
-6. **Errors fail fast?** Validated at entry, not buried.
-7. **Types complete?** No bare `dict`, no `Any` unless justified.
-8. **Tests match the task tag?** See "Testing responsibility".
-9. **Diff in scope?** Every changed line is either implementing the task or is a direct, required consequence of it (orphan cleanup, regression test). Anything else belongs in a separate PR.
-
----
-
-For deeper workflows, see:
-- `.claude/commands/architect.md` — full architecture pass
-- `.claude/commands/review.md` — full code review
-- `.claude/commands/test.md` — full test authoring workflow
