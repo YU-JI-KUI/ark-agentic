@@ -7,10 +7,16 @@ the rest of the application without app.py hand-rolling those calls.
 
 Phases:
   init    — no-op (agents have no schema; storage is per-agent dirs)
-  start   — agents.register_all + per-runner warmup; publishes the
-            registry as ``ctx.agent_registry``. Plugins that need the
-            registry read it from there.
+  start   — filesystem-rooted agent discovery via ``AGENTS_ROOT`` (or
+            its auto-detect fallback) + per-runner warmup; publishes
+            the registry as ``ctx.agent_registry``. Plugins that need
+            the registry read it from there.
   stop    — per-runner ``close_memory`` (release memory backends)
+
+Discovery is filesystem-driven (see ``core.runtime.discovery``) so core
+holds zero knowledge of any specific agents package — wheel consumers'
+``src/<their_pkg>/agents`` is picked up the same way as the framework's
+own ``src/ark_agentic/agents``.
 """
 
 from __future__ import annotations
@@ -19,9 +25,10 @@ import logging
 import os
 from typing import Any
 
+from .discovery import discover_and_register_agents
 from .registry import AgentRegistry
 from ..protocol.lifecycle import BaseLifecycle
-from ..utils.env import env_flag
+from ..utils.env import env_flag, get_agents_root
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +54,10 @@ class AgentsLifecycle(BaseLifecycle):
         return self._registry
 
     async def start(self, ctx: Any) -> AgentRegistry:
-        from ...agents import register_all
-
-        register_all(
+        agents_root = get_agents_root(__file__)
+        discover_and_register_agents(
             self._registry,
+            agents_root,
             enable_memory=env_flag("ENABLE_MEMORY"),
             enable_dream=_enable_dream_default(),
         )
