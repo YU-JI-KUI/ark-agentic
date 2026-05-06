@@ -304,7 +304,7 @@ async def test_run_ephemeral_does_not_invoke_router(
     with _make_runner_with_llm_mock(
         tmp_sessions_dir, skill_router=router,
     ) as runner:
-        session_id = runner.create_session_sync()
+        session_id = runner.session_manager.create_session_sync().session_id
         await runner.run_ephemeral(session_id, "ephemeral input")
         assert router.call_count == 0, "Ephemeral runs must skip router"
 

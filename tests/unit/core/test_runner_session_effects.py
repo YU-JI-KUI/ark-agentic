@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ark_agentic.core.runtime.base_agent import BaseAgent
+from ark_agentic.core.runtime._runner_helpers import apply_session_effects
 from ark_agentic.core.types import AgentToolResult, SessionEntry
 
 
@@ -25,7 +25,7 @@ def test_apply_session_effects_activates_skill() -> None:
             },
         ),
     ]
-    BaseAgent._apply_session_effects(session, tool_results)
+    apply_session_effects(session, tool_results)
     assert session.active_skill_ids == ["foo"]
 
 
@@ -43,7 +43,7 @@ def test_apply_session_effects_does_not_touch_state() -> None:
             },
         ),
     ]
-    BaseAgent._apply_session_effects(session, tool_results)
+    apply_session_effects(session, tool_results)
     assert "_active_skill_id" not in session.state
     assert "_active_skill_ids" not in session.state
 
@@ -64,7 +64,7 @@ def test_apply_session_effects_skips_malformed_silently() -> None:
         ),
     ]
     # No exception raised; valid effect still applied.
-    BaseAgent._apply_session_effects(session, tool_results)
+    apply_session_effects(session, tool_results)
     assert session.active_skill_ids == ["good"]
 
 
@@ -73,7 +73,7 @@ def test_apply_session_effects_no_effects_field_is_noop() -> None:
     tool_results = [
         AgentToolResult.text_result("tc1", "no metadata", metadata={}),
     ]
-    BaseAgent._apply_session_effects(session, tool_results)
+    apply_session_effects(session, tool_results)
     assert session.active_skill_ids == []
 
 
@@ -97,5 +97,5 @@ def test_apply_session_effects_multiple_results_replace_in_order() -> None:
             ]},
         ),
     ]
-    BaseAgent._apply_session_effects(session, tool_results)
+    apply_session_effects(session, tool_results)
     assert session.active_skill_ids == ["b"]

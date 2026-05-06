@@ -97,14 +97,22 @@ class Bootstrap:
         """Three-tier resolution: explicit > AGENTS_ROOT env > caller convention.
 
         Convention: caller's source file directory + ``/agents``. The
-        caller is the frame that invoked ``Bootstrap(...)`` directly —
-        typically the user's ``app.py``. If a wrapper (factory function)
-        instantiates Bootstrap, the convention will resolve relative to
-        the wrapper's file; pass ``agents_root=`` explicitly in that case.
+        "caller" is the *first* non-bootstrap frame on the stack —
+        typically the user's ``app.py`` invoking ``Bootstrap(...)``
+        directly.
+
+        ⚠️ If a wrapper / factory function instantiates ``Bootstrap`` on
+        the user's behalf (e.g. ``def make_app(): return Bootstrap(...)``),
+        the convention resolves relative to **the wrapper's** file, not
+        the caller's project root. In that case pass ``agents_root=``
+        explicitly — only the explicit arg is wrapper-safe; both
+        convention and ``AGENTS_ROOT`` work for direct callers.
 
         Sets ``AGENTS_ROOT`` env var (only if unset) so downstream
         runtime code that needs the path (Studio's filesystem CRUD,
-        meta_builder tools) sees the same value the lifecycle uses.
+        meta_builder tools) sees the same value the lifecycle uses. The
+        resolved path is logged at INFO with its source so misroutes are
+        visible.
         """
         if explicit is not None:
             resolved = explicit.resolve()

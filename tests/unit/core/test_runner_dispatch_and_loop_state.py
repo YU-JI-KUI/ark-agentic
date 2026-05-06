@@ -12,6 +12,7 @@ from ark_agentic.core.runtime.callbacks import (
     CallbackResult,
     RunnerCallbacks,
 )
+from ark_agentic.core.runtime._runner_helpers import dispatch_event
 from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig, RunResult, _LoopState
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.types import AgentMessage, SessionEntry, SkillLoadMode, ToolCall
@@ -22,7 +23,7 @@ class TestDispatchEvent:
 
     def test_step_routes_to_on_step_with_text(self) -> None:
         handler = MagicMock()
-        BaseAgent._dispatch_event(
+        dispatch_event(
             handler, CallbackEvent(type="step", data={"text": "doing work"}),
         )
         handler.on_step.assert_called_once_with("doing work")
@@ -31,13 +32,13 @@ class TestDispatchEvent:
 
     def test_step_empty_string_when_text_missing(self) -> None:
         handler = MagicMock()
-        BaseAgent._dispatch_event(handler, CallbackEvent(type="step", data={}))
+        dispatch_event(handler, CallbackEvent(type="step", data={}))
         handler.on_step.assert_called_once_with("")
 
     def test_ui_component_routes_to_on_ui_component(self) -> None:
         handler = MagicMock()
         payload = {"source_type": "x", "query_msg": "y"}
-        BaseAgent._dispatch_event(
+        dispatch_event(
             handler, CallbackEvent(type="ui_component", data=payload),
         )
         handler.on_ui_component.assert_called_once_with(payload)
@@ -45,7 +46,7 @@ class TestDispatchEvent:
 
     def test_other_types_route_to_on_custom_event(self) -> None:
         handler = MagicMock()
-        BaseAgent._dispatch_event(
+        dispatch_event(
             handler, CallbackEvent(type="intake_rejected", data={"relevant": 0}),
         )
         handler.on_custom_event.assert_called_once_with("intake_rejected", {"relevant": 0})

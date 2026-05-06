@@ -26,6 +26,7 @@ the registration contract.
 
 from __future__ import annotations
 
+import importlib.resources
 import logging
 from pathlib import Path
 from typing import Any
@@ -37,10 +38,15 @@ from ..protocol.lifecycle import BaseLifecycle
 
 logger = logging.getLogger(__name__)
 
-# Framework-bundled agents live next to this package: <ark_agentic>/agents
-# Always scanned regardless of the user's agents_root, so wheel consumers
-# get the built-in meta_builder agent automatically.
-_FRAMEWORK_AGENTS_ROOT = Path(__file__).resolve().parent.parent.parent / "agents"
+
+def _framework_agents_root() -> Path:
+    """Return the framework-bundled ``ark_agentic/agents`` directory.
+
+    Uses ``importlib.resources`` so the path tracks the installed package
+    location regardless of where ``agents_lifecycle.py`` itself sits on
+    disk — robust against future module reshuffles within ``core/``.
+    """
+    return Path(str(importlib.resources.files("ark_agentic"))) / "agents"
 
 
 class AgentsLifecycle(BaseLifecycle):
@@ -64,8 +70,9 @@ class AgentsLifecycle(BaseLifecycle):
 
     async def start(self, ctx: Any) -> AgentRegistry:
         # Framework-bundled agents (always available)
-        if _FRAMEWORK_AGENTS_ROOT.is_dir():
-            discover_agents(self._registry, _FRAMEWORK_AGENTS_ROOT)
+        framework_root = _framework_agents_root()
+        if framework_root.is_dir():
+            discover_agents(self._registry, framework_root)
 
         # User project agents
         if self._user_agents_root is not None:

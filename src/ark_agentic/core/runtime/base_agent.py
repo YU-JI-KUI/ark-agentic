@@ -23,23 +23,32 @@ import json
 import logging
 from abc import ABC
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, ClassVar, NamedTuple, TYPE_CHECKING, final
+from typing import Any, ClassVar, TYPE_CHECKING, final
 from uuid import uuid4
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from ._runner_helpers import (
+    apply_session_effects,
+    apply_state_delta,
+    augment_user_metadata,
+    dispatch_event,
+    enrich_skills_with_stage_reference,
+    merge_input_context,
+    merge_tool_state_deltas,
+    user_friendly_error_message,
+)
+from ._runner_types import _LoopState, _RunParams, RunResult, RunnerConfig
 from .callbacks import (
     CallbackContext,
-    CallbackEvent,
     CallbackResult,
     HookAction,
     RunnerCallbacks,
 )
 from ..llm import create_chat_model_from_env
 from ..llm.caller import LLMCaller
-from ..llm.errors import LLMError, LLMErrorReason
+from ..llm.errors import LLMError
 from ..llm.sampling import SamplingConfig
 from ..memory.manager import build_memory_manager
 from ..paths import get_memory_base_dir, prepare_agent_data_dir
@@ -64,83 +73,21 @@ from ..observability.decorators import (
 )
 from ..types import (
     AgentMessage,
-    AgentToolResult,
     MessageRole,
     RunOptions,
     SessionEntry,
     SkillEntry,
     SkillLoadMode,
-    ToolCall,
     ToolLoopAction,
     TurnContext,
 )
 from ..utils.env import env_flag
 
 if TYPE_CHECKING:
+    from ..memory.extractor import MemoryFlusher
     from ..memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
-
-
-# ============ Runner Config / Result ============
-
-
-@dataclass
-class RunnerConfig:
-    """Per-call execution knobs. Identity / tools / skills live on BaseAgent."""
-
-    model: str | None = None
-    sampling: SamplingConfig = field(default_factory=SamplingConfig.for_chat)
-    max_retries: int = 3
-    max_turns: int = 10
-    max_tool_calls_per_turn: int = 5
-    tool_timeout: float = 30.0
-    auto_compact: bool = True
-    prompt_config: PromptConfig = field(default_factory=PromptConfig)
-    skill_config: SkillConfig = field(default_factory=SkillConfig)
-    enable_subtasks: bool = False
-    accept_external_history: bool = True
-    skill_router: SkillRouter | None = None
-
-
-@dataclass
-class RunResult:
-    """ReAct loop result returned to callers."""
-
-    response: AgentMessage
-    turns: int = 0
-    tool_calls_count: int = 0
-    tool_calls: list[ToolCall] = field(default_factory=list)
-    tool_results: list[AgentToolResult] = field(default_factory=list)
-    stopped_by_limit: bool = False
-
-
-class _RunParams(NamedTuple):
-    """Resolved per-run parameters (pure computation result)."""
-
-    model: str | None
-    sampling_override: SamplingConfig | None
-    skill_load_mode: str
-
-
-@dataclass
-class _LoopState:
-    """ReAct loop accumulator (private)."""
-
-    turns: int = 0
-    total_tool_calls: int = 0
-    all_tool_calls: list[ToolCall] = field(default_factory=list)
-    all_tool_results: list[AgentToolResult] = field(default_factory=list)
-
-    def make_result(self, response: AgentMessage, **overrides: Any) -> RunResult:
-        return RunResult(
-            response=response,
-            turns=self.turns,
-            tool_calls_count=self.total_tool_calls,
-            tool_calls=self.all_tool_calls,
-            tool_results=self.all_tool_results,
-            **overrides,
-        )
 
 
 # ============ Base Agent ============
@@ -282,7 +229,7 @@ class BaseAgent(ABC):
         self.tool_registry = ToolRegistry()
         self.tool_registry.register_all(self.build_tools())
 
-        # Phase 5: memory (registers more tools into the registry)
+        # Phase 5: memory manager (tools + flusher are wired in _finish_wiring)
         self._memory_manager: "MemoryManager | None" = None
         if self.enable_memory:
             self._memory_manager = build_memory_manager(
@@ -292,19 +239,12 @@ class BaseAgent(ABC):
                 session_manager=self.session_manager,
                 llm_factory=(lambda: self.llm) if self.enable_dream else None,
             )
-            for tool in create_memory_tools(self._get_memory_for_user):
-                self.tool_registry.register(tool)
 
-        # Phase 6: dynamic-mode read_skill tool
-        if self.skill_load_mode != SkillLoadMode.full:
-            from ..tools.read_skill import ReadSkillTool
-            self.tool_registry.register(ReadSkillTool(self.skill_loader))
-
-        # Phase 7: callbacks + skill router
+        # Phase 6: callbacks + skill router
         self._callbacks = self.build_callbacks() or RunnerCallbacks()
         self._skill_router: SkillRouter | None = self.build_skill_router()
 
-        # Phase 8: assembled config (per-call execution knobs)
+        # Phase 7: assembled config (per-call execution knobs)
         self.config = RunnerConfig(
             sampling=sampling,
             max_turns=self.max_turns,
@@ -319,31 +259,32 @@ class BaseAgent(ABC):
             skill_router=self._skill_router,
         )
 
-        # Phase 9: engine internals (LLMCaller / ToolExecutor)
+        # Phase 8: engine internals (LLMCaller / ToolExecutor)
         self._llm_caller = LLMCaller(self.llm, max_retries=self.config.max_retries)
         self._tool_executor = ToolExecutor(
             self.tool_registry,
             timeout=self.config.tool_timeout,
             max_calls_per_turn=self.config.max_tool_calls_per_turn,
         )
+        self._flusher: "MemoryFlusher | None" = None
 
-        # Phase 10: memory flusher (needs llm_caller for extraction sampling)
-        self._flusher = None
-        if self._memory_manager is not None:
-            from ..memory.extractor import MemoryFlusher
-            extraction_sampling = SamplingConfig.for_extraction()
-            self._flusher = MemoryFlusher(
-                lambda: self._llm_caller.get_llm(sampling_override=extraction_sampling)
-            )
+        # Phase 9: shared post-wire — read_skill tool, memory tools, flusher.
+        # Centralised so ``_construct`` (subtask / test path) and the public
+        # declarative path stay in sync.
+        self._finish_wiring(
+            skill_loader=self.skill_loader,
+            skill_load_mode=self.skill_load_mode,
+            memory_manager=self._memory_manager,
+        )
 
-        # Phase 11: subtask tool (needs self for recursive spawn)
+        # Phase 10: subtask tool (needs self for recursive spawn)
         if self.enable_subtasks:
             from ..subtask import create_subtask_tool
             self.tool_registry.register(
                 create_subtask_tool(self, self.session_manager)
             )
 
-        # Phase 12: warmup hooks (registered later by jobs / external services)
+        # Phase 11: warmup hooks (registered later by jobs / external services)
         self._warmup_hooks: list[Callable[[], Awaitable[None]]] = []
 
     # ── Internal explicit-args constructor ──────────────────────────────
@@ -405,33 +346,46 @@ class BaseAgent(ABC):
             max_calls_per_turn=cfg.max_tool_calls_per_turn,
         )
         instance._warmup_hooks = []
+        instance._finish_wiring(
+            skill_loader=skill_loader,
+            skill_load_mode=cfg.skill_config.load_mode,
+            memory_manager=memory_manager,
+        )
+        return instance
 
-        # Mirror __init__: auto-register read_skill in dynamic mode when a
-        # skill_loader exists and the registry doesn't already have one
-        # (e.g. inherited from a parent agent's already-populated registry).
+    def _finish_wiring(
+        self,
+        *,
+        skill_loader: SkillLoader | None,
+        skill_load_mode: SkillLoadMode,
+        memory_manager: "MemoryManager | None",
+    ) -> None:
+        """Auto-register read_skill (dynamic mode) + memory tools/flusher.
+
+        Idempotent: skips tools whose name is already in the registry.
+        Single source of truth for the post-wire step shared between the
+        declarative path (``__init__``) and the explicit-args path
+        (``_construct``).
+        """
         if (
             skill_loader is not None
-            and cfg.skill_config.load_mode != SkillLoadMode.full
-            and not instance.tool_registry.has("read_skill")
+            and skill_load_mode != SkillLoadMode.full
+            and not self.tool_registry.has("read_skill")
         ):
             from ..tools.read_skill import ReadSkillTool
-            instance.tool_registry.register(ReadSkillTool(skill_loader))
+            self.tool_registry.register(ReadSkillTool(skill_loader))
 
-        # Mirror __init__: when a MemoryManager is supplied, auto-register
-        # memory tools + wire MemoryFlusher so caller can use the full
-        # memory subsystem without re-implementing the wiring.
         if memory_manager is not None:
             from ..memory.extractor import MemoryFlusher
             extraction_sampling = SamplingConfig.for_extraction()
-            instance._flusher = MemoryFlusher(
-                lambda: instance._llm_caller.get_llm(
+            self._flusher = MemoryFlusher(
+                lambda: self._llm_caller.get_llm(
                     sampling_override=extraction_sampling
                 )
             )
-            for tool in create_memory_tools(instance._get_memory_for_user):
-                if not instance.tool_registry.has(tool.name):
-                    instance.tool_registry.register(tool)
-        return instance
+            for tool in create_memory_tools(self._get_memory_for_user):
+                if not self.tool_registry.has(tool.name):
+                    self.tool_registry.register(tool)
 
     # ── Public API ──────────────────────────────────────────────────────
     def add_warmup_hook(
@@ -625,9 +579,9 @@ class BaseAgent(ABC):
             handler=handler,
         )
         if r and r.action == HookAction.ABORT:
-            self._merge_input_context(session, input_context)
+            merge_input_context(session, input_context)
             user_message = AgentMessage.user(user_input, metadata=input_context)
-            self._augment_user_metadata(user_message, chat_request_meta)
+            augment_user_metadata(user_message, chat_request_meta)
             await self.session_manager.add_message(session_id, user_id, user_message)
             resp = r.response or AgentMessage.assistant("")
             await self.session_manager.add_message(session_id, user_id, resp)
@@ -645,7 +599,7 @@ class BaseAgent(ABC):
             return result
 
         input_context = cb_ctx.input_context
-        self._merge_input_context(session, input_context)
+        merge_input_context(session, input_context)
 
         if history and self.config.accept_external_history and use_history:
             from ..session.history_merge import merge_external_history
@@ -656,7 +610,7 @@ class BaseAgent(ABC):
                 logger.info("Merged %d external history message(s)", len(ops))
 
         user_message = AgentMessage.user(user_input, metadata=input_context)
-        self._augment_user_metadata(user_message, chat_request_meta)
+        augment_user_metadata(user_message, chat_request_meta)
         await self.session_manager.add_message(session_id, user_id, user_message)
 
         if self.config.auto_compact:
@@ -678,15 +632,6 @@ class BaseAgent(ABC):
         session.state["temp:user_input"] = user_input
 
         return cb_ctx
-
-    @staticmethod
-    def _augment_user_metadata(
-        msg: AgentMessage,
-        chat_request: dict[str, Any] | None,
-    ) -> None:
-        """Display-only metadata for the Studio user-message panel."""
-        if chat_request:
-            msg.metadata["chat_request"] = chat_request
 
     async def _finalize_run(
         self,
@@ -718,92 +663,6 @@ class BaseAgent(ABC):
         if self._memory_manager is not None:
             await self._memory_manager.maybe_consolidate(user_id)
 
-    @staticmethod
-    def _merge_tool_state_deltas(
-        session: SessionEntry,
-        tool_results: list[AgentToolResult],
-    ) -> None:
-        for tr in tool_results:
-            state_delta = tr.state_delta if tr.state_delta is not None else tr.metadata.get("state_delta")
-            if state_delta and isinstance(state_delta, dict):
-                BaseAgent._apply_state_delta(session.state, state_delta)
-                session.updated_at = __import__("datetime").datetime.now()
-
-    @staticmethod
-    def _apply_session_effects(
-        session: SessionEntry,
-        tool_results: list[AgentToolResult],
-    ) -> None:
-        """Dispatch typed ``session_effects`` from tool results."""
-        from pydantic import ValidationError
-        from ..types import SessionEffect
-
-        for tr in tool_results:
-            effects = tr.session_effects if tr.session_effects is not None else tr.metadata.get("session_effects", [])
-            if not isinstance(effects, list):
-                continue
-            for raw in effects:
-                try:
-                    effect = SessionEffect.model_validate(raw)
-                except ValidationError as exc:
-                    logger.warning("invalid session_effect %r: %s", raw, exc)
-                    continue
-                if effect.op == "activate_skill":
-                    session.set_active_skill_ids(effect.skill_ids)
-
-    @staticmethod
-    def _apply_state_delta(state: dict[str, Any], delta: dict[str, Any]) -> None:
-        """Dot-path-aware deep merge into session.state."""
-        for key, value in delta.items():
-            if "." in key:
-                parts = key.split(".")
-                obj = state
-                for part in parts[:-1]:
-                    if not isinstance(obj.get(part), dict):
-                        obj[part] = {}
-                    obj = obj[part]
-                obj[parts[-1]] = value
-            else:
-                state[key] = value
-
-    @staticmethod
-    def _merge_input_context(
-        session: SessionEntry, input_context: dict[str, Any]
-    ) -> None:
-        """Merge input_context into session.state (always overwrite)."""
-        for k, v in input_context.items():
-            session.state[k] = v
-
-    def _get_user_friendly_error_message(self, error: LLMError) -> str:
-        if error.reason == LLMErrorReason.AUTH:
-            return "抱歉，模型认证失败，请检查 API 配置。如需帮助，请联系技术支持。"
-        elif error.reason == LLMErrorReason.QUOTA:
-            return "抱歉，当前 API 账户余额不足，服务暂时不可用，请联系技术支持充值后重试。"
-        elif error.reason == LLMErrorReason.RATE_LIMIT:
-            return "抱歉，当前请求较多，请稍后再试。"
-        elif error.reason == LLMErrorReason.TIMEOUT:
-            return "抱歉，请求超时，请检查网络连接后重试。"
-        elif error.reason == LLMErrorReason.CONTEXT_OVERFLOW:
-            return "抱歉，对话内容过长，系统将自动压缩历史消息后重试。如问题持续，请新建会话。"
-        elif error.reason == LLMErrorReason.CONTENT_FILTER:
-            return "抱歉，您的输入包含不适当内容，请修改后重试。"
-        elif error.reason == LLMErrorReason.SERVER_ERROR:
-            return "抱歉，服务暂时不可用，请稍后重试。"
-        elif error.reason == LLMErrorReason.NETWORK:
-            return "抱歉，网络连接出现问题，请检查网络后重试。"
-        else:
-            return "抱歉，处理您的请求时出现了问题，请稍后重试。"
-
-    @staticmethod
-    def _dispatch_event(handler: AgentEventHandler, event: CallbackEvent) -> None:
-        """Route CallbackEvent to the appropriate handler method."""
-        if event.type == "step":
-            handler.on_step(event.data.get("text", ""))
-        elif event.type == "ui_component":
-            handler.on_ui_component(event.data)
-        else:
-            handler.on_custom_event(event.type, event.data)
-
     async def _run_hooks(
         self,
         hooks: list,
@@ -824,7 +683,7 @@ class BaseAgent(ABC):
             if r.context_updates and context is not None:
                 context.update(r.context_updates)
             if r.event and handler:
-                self._dispatch_event(handler, r.event)
+                dispatch_event(handler, r.event)
             last = r
             if r.action != HookAction.PASS:
                 return r
@@ -1058,7 +917,7 @@ class BaseAgent(ABC):
                     e.reason.value,
                     e.retryable,
                 )
-                user_message = self._get_user_friendly_error_message(e)
+                user_message = user_friendly_error_message(e)
                 error_response = AgentMessage.assistant(content=user_message)
                 error_response.metadata["error"] = {
                     "reason": e.reason.value,
@@ -1179,8 +1038,8 @@ class BaseAgent(ABC):
         ls.total_tool_calls += len(tool_calls)
         ls.all_tool_results.extend(tool_results)
 
-        self._merge_tool_state_deltas(session, tool_results)
-        self._apply_session_effects(session, tool_results)
+        merge_tool_state_deltas(session, tool_results)
+        apply_session_effects(session, tool_results)
 
         at = await self._run_hooks(
             self._callbacks.after_tool,
@@ -1192,8 +1051,8 @@ class BaseAgent(ABC):
         )
         if at and at.tool_results is not None:
             tool_results = at.tool_results
-            self._merge_tool_state_deltas(session, tool_results)
-            self._apply_session_effects(session, tool_results)
+            merge_tool_state_deltas(session, tool_results)
+            apply_session_effects(session, tool_results)
 
         tool_message = AgentMessage.tool(tool_results)
         await self.session_manager.add_message(
@@ -1429,7 +1288,7 @@ class BaseAgent(ABC):
 
         current_stage_id = state.get("_flow_stage")
         if current_stage_id and current_stage_id != "__completed__" and skills:
-            skills = self._enrich_skills_with_stage_reference(skills, current_stage_id)
+            skills = enrich_skills_with_stage_reference(skills, current_stage_id)
 
         prompt_config = self.config.prompt_config
 
@@ -1497,58 +1356,6 @@ class BaseAgent(ABC):
         """Build API tools schema (thin wrapper over ``_filter_tools``)."""
         return [t.get_json_schema() for t in self._filter_tools(state, session=session)]
 
-    @staticmethod
-    def _enrich_skills_with_stage_reference(
-        skills: list, current_stage_id: str
-    ) -> list:
-        """Inject stage-specific reference content into matching SkillEntries."""
-        from ..flow.base_evaluator import FlowEvaluatorRegistry
-
-        enriched = []
-        for skill in skills:
-            skill_short = skill.id.split(".")[-1]
-            evaluator = FlowEvaluatorRegistry.get(skill.id) or FlowEvaluatorRegistry.get(skill_short)
-
-            ref_filename: str | None = None
-            if evaluator:
-                stage_def = next(
-                    (s for s in evaluator.stages if s.id == current_stage_id), None
-                )
-                ref_filename = stage_def.reference_file if stage_def else None
-
-            if ref_filename:
-                ref_path = Path(skill.path) / "references" / ref_filename
-                if ref_path.exists():
-                    ref_content = ref_path.read_text(encoding="utf-8")
-                    enriched.append(replace(
-                        skill,
-                        content=(
-                            skill.content
-                            + f"\n\n---\n### 当前阶段参考: {current_stage_id}\n\n"
-                            + ref_content
-                        ),
-                    ))
-                    continue
-                else:
-                    import warnings
-                    warnings.warn(
-                        f"[FlowEvaluator] reference file not found: {ref_path}",
-                        stacklevel=4,
-                    )
-            enriched.append(skill)
-        return enriched
-
-    def _get_llm(
-        self,
-        model_override: str | None = None,
-        sampling_override: SamplingConfig | None = None,
-    ) -> BaseChatModel:
-        """Delegate to LLMCaller.get_llm (model / sampling overrides)."""
-        return self._llm_caller.get_llm(
-            model_override=model_override,
-            sampling_override=sampling_override,
-        )
-
     # ============ Session conveniences ============
 
     async def create_session(
@@ -1564,22 +1371,6 @@ class BaseAgent(ABC):
         )
         return session.session_id
 
-    def create_session_sync(
-        self,
-        model: str = "Qwen3-80B-Instruct",
-        provider: str = "ark",
-        state: dict[str, Any] | None = None,
-    ) -> str:
-        """Create a new session and return its ID (sync, no persistence)."""
-        session = self.session_manager.create_session_sync(
-            model=model, provider=provider, state=state
-        )
-        return session.session_id
-
     def register_tool(self, tool: AgentTool) -> None:
         """Register a single tool."""
         self.tool_registry.register(tool)
-
-    def register_tools(self, tools: list[AgentTool]) -> None:
-        """Register multiple tools."""
-        self.tool_registry.register_all(tools)
