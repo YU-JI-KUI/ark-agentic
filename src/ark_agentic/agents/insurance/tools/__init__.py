@@ -22,6 +22,7 @@ from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
 from .customer_info import CustomerInfoTool
 from .submit_withdrawal import SubmitWithdrawalTool
+from .channel_flow import ChannelFlowTool
 from .flow_evaluator import withdrawal_flow_evaluator  # noqa: F401 — import 触发 FlowEvaluatorRegistry 注册
 from ark_agentic.core.flow.commit_flow_stage import CommitFlowStageTool
 
@@ -42,6 +43,7 @@ _INSURANCE_STATE_KEYS = (
     "_rule_engine_result",
     "_policy_query_result",
     "_customer_info_result",
+    "_channel_flows",
 )
 
 
@@ -58,6 +60,10 @@ def _create_render_a2ui_tool() -> RenderA2UITool:
     )
 
 
+def _create_channel_flow_tool() -> ChannelFlowTool:
+    return ChannelFlowTool(theme=INSURANCE_THEME, components=_THEMED_COMPONENTS)
+
+
 __all__ = [
     "DataServiceClient",
     "MockDataServiceClient",
@@ -67,6 +73,7 @@ __all__ = [
     "CustomerInfoTool",
     "RenderA2UITool",
     "SubmitWithdrawalTool",
+    "ChannelFlowTool",
     "CommitFlowStageTool",
     "withdrawal_flow_evaluator",
     "create_insurance_tools",
@@ -91,6 +98,7 @@ def create_insurance_tools(
         CustomerInfoTool(client=client),
         _create_render_a2ui_tool(),
         SubmitWithdrawalTool(),
+        _create_channel_flow_tool(),
         CommitFlowStageTool(),
         withdrawal_flow_evaluator,
         ResumeTaskTool(sessions_dir=_sessions_dir),
