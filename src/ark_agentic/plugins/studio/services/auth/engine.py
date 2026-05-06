@@ -1,24 +1,17 @@
-"""Studio user-grants engine accessor.
+"""Studio user-grants SQL engine accessor.
 
-When ``DB_TYPE=sqlite`` Studio rides on the central ``core.storage.database`` engine so
-``studio_users`` lives in the same DB file as business tables. Otherwise
-a dedicated SQLite engine is created against ``data/ark_studio.db``.
-
-``AsyncEngine`` is fully encapsulated here — repo_singleton / factory
-never see it.
+When ``DB_TYPE=sqlite`` Studio rides on the central
+``core.storage.database`` engine, so ``studio_users`` lives in the same
+DB file selected by ``DB_CONNECTION_STR``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 # Importing the storage package registers ``StudioUserRow`` on
 # the feature-local ``AuthBase.metadata``.
 from . import storage  # noqa: F401
-
-DEFAULT_STUDIO_DB_PATH = Path("data/ark_studio.db")
 
 _engine: AsyncEngine | None = None
 _test_engine: AsyncEngine | None = None
@@ -26,20 +19,17 @@ _test_engine: AsyncEngine | None = None
 
 def _build_engine() -> AsyncEngine:
     from .....core.storage import mode
-    if mode.is_database():
-        from .....core.storage.database.engine import get_engine as _core_get_engine
-        return _core_get_engine()
+    from .....core.storage.database.engine import get_engine as _core_get_engine
 
-    DEFAULT_STUDIO_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return create_async_engine(
-        f"sqlite+aiosqlite:///{DEFAULT_STUDIO_DB_PATH.as_posix()}",
-        future=True,
-        connect_args={"check_same_thread": False},
-    )
+    if not mode.is_database():
+        raise RuntimeError(
+            "Studio SQL engine is only available when DB_TYPE=sqlite."
+        )
+    return _core_get_engine()
 
 
 def get_engine() -> AsyncEngine:
-    """Return the Studio AsyncEngine; cached for the process lifetime."""
+    """Return the shared Studio AsyncEngine; cached for the process lifetime."""
     global _engine
     if _test_engine is not None:
         return _test_engine
