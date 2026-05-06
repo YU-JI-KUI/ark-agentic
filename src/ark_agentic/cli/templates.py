@@ -32,47 +32,6 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 """
 
-MAIN_MODULE_TEMPLATE = '''\
-"""
-{project_name} - 基于 ark-agentic 框架的智能体应用（无 HTTP 入口）
-
-适合 CLI / 脚本场景；HTTP + Studio 入口请用 ``{package_name}.app``。
-"""
-
-import asyncio
-
-from dotenv import load_dotenv
-
-from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
-
-load_dotenv()
-
-
-async def main():
-    agent = create_{agent_name_snake}_agent()
-    user_id = "default"
-    session_id = await agent.create_session(user_id=user_id)
-
-    print("智能体已启动，输入 'quit' 退出")
-    while True:
-        user_input = input("[用户] ").strip()
-        if user_input.lower() in ("quit", "exit", "q"):
-            break
-        if not user_input:
-            continue
-        result = await agent.run(session_id=session_id, user_input=user_input, user_id=user_id)
-        print(f"[助手] {{result.response.content}}")
-        print()
-
-
-def main_sync():
-    asyncio.run(main())
-
-
-if __name__ == "__main__":
-    main_sync()
-'''
-
 AGENT_MODULE_TEMPLATE = '''\
 """
 {agent_display_name} 智能体
@@ -169,7 +128,7 @@ API_KEY=
 # API_PORT=8080
 
 # ---- Plugins (opt-in via ENABLE_*) ----
-# ENABLE_STUDIO=true
+ENABLE_STUDIO=true
 # ENABLE_NOTIFICATIONS=true
 # ENABLE_JOB_MANAGER=true
 # ENABLE_MEMORY=true
