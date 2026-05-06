@@ -60,6 +60,10 @@ def _create_render_a2ui_tool() -> RenderA2UITool:
     )
 
 
+def _create_channel_flow_tool() -> ChannelFlowTool:
+    return ChannelFlowTool(theme=INSURANCE_THEME, components=_THEMED_COMPONENTS)
+
+
 __all__ = [
     "DataServiceClient",
     "MockDataServiceClient",
@@ -94,7 +98,7 @@ def create_insurance_tools(
         CustomerInfoTool(client=client),
         _create_render_a2ui_tool(),
         SubmitWithdrawalTool(),
-        ChannelFlowTool(),
+        _create_channel_flow_tool(),
         CommitFlowStageTool(),
         withdrawal_flow_evaluator,
         ResumeTaskTool(sessions_dir=_sessions_dir),

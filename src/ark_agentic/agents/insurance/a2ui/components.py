@@ -634,7 +634,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "width": 100,
             "type": "secondary",
             "size": "small",
-            "text": {"literalString": "中断，先办其他"},
+            "text": {"literalString": "暂停办理"},
             "action": {"name": "query", "args": {
                 "literalString": f"__channel_step__:{channel}:interrupt",
             }},
@@ -660,8 +660,10 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "children": {"explicitList": [col_id]},
         })
 
+        active_channel = raw_data.get("active_channel") or "none"
         digest = (
-            f"[卡片:渠道步骤 channel={channel} step={step} status={status}]"
+            f"[卡片:渠道步骤 channel={channel} step={step} status={status} "
+            f"active_channel={active_channel}]"
             f" {ch_label}·{step_title}·{field_value}"
         )
         return A2UIOutput(components=[card, col] + comps, llm_digest=digest)

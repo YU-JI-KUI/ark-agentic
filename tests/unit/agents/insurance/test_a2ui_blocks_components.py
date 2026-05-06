@@ -458,7 +458,10 @@ class TestChannelStepCard:
         assert any("红利领取" in t and "确认金额" in t for t in texts)
         assert "领取金额" in texts
         assert "¥ 3,000.00" in texts
-        assert "[卡片:渠道步骤 channel=bonus step=amount status=active]" in output.llm_digest
+        assert "channel=bonus" in output.llm_digest
+        assert "step=amount" in output.llm_digest
+        assert "status=active" in output.llm_digest
+        assert "active_channel=bonus" in output.llm_digest
 
     def test_step_policy_renders_policy_no(self):
         output = build_channel_step_card(
