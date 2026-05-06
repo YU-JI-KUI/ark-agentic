@@ -68,7 +68,6 @@ def build_standard_agent(
     sampling: SamplingConfig | None = None,
     compaction_config: CompactionConfig | None = None,
     skill_router: SkillRouter | None = None,
-    skill_loader: SkillLoader | None = None,
 ) -> AgentRunner:
     """Build an AgentRunner from an AgentDef with convention-derived defaults.
 
@@ -93,9 +92,6 @@ def build_standard_agent(
                 using the agent's main LLM.
             <SkillRouter instance> → use it verbatim (custom strategies).
             Passing a router in full mode raises ValueError.
-        skill_loader: When set, this loader is used as-is (caller must have loaded
-            skills); must match ``skills_dir`` / ``defn.agent_id`` / load_mode. When
-            ``None``, the factory constructs and loads ``SkillLoader(skill_config)``.
     """
     if llm is None:
         llm = create_chat_model_from_env()
@@ -122,19 +118,17 @@ def build_standard_agent(
         enable_eligibility_check=True,
         load_mode=defn.skill_load_mode,
     )
-    if skill_loader is None:
-        skill_loader = SkillLoader(skill_config)
-        try:
-            skill_loader.load_from_directories()
-            logger.info(
-                "Loaded %d skills for agent '%s'",
-                len(skill_loader.list_skills()),
-                defn.agent_id,
-            )
-        except Exception as exc:
-            logger.warning("Failed to load skills for agent '%s': %s", defn.agent_id, exc)
-    else:
-        logger.debug("Using caller-provided SkillLoader for agent '%s'", defn.agent_id)
+    
+    skill_loader = SkillLoader(skill_config)
+    try:
+        skill_loader.load_from_directories()
+        logger.info(
+            "Loaded %d skills for agent '%s'",
+            len(skill_loader.list_skills()),
+            defn.agent_id,
+        )
+    except Exception as exc:
+        logger.warning("Failed to load skills for agent '%s': %s", defn.agent_id, exc)
 
     compaction = compaction_config or CompactionConfig(
         context_window=128_000, preserve_recent=4

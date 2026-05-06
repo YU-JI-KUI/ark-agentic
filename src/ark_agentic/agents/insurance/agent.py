@@ -81,14 +81,12 @@ def create_insurance_agent(
         logger.warning("Failed to load insurance skills: %s", exc)
 
     flow_callbacks = FlowCallbacks(sessions_dir=sessions_dir, skill_loader=skill_loader)
-    callbacks = merge_runner_callbacks(
-        RunnerCallbacks(),
-        RunnerCallbacks(
+    callbacks = RunnerCallbacks(
             before_model=[flow_callbacks.before_model_flow_eval],
             before_tool=[flow_callbacks.before_tool_stage_guard],
             after_agent=[flow_callbacks.persist_flow_context],
-        ),
     )
+    
     return build_standard_agent(
         _DEF,
         skills_dir=_AGENT_DIR / "skills",
@@ -97,5 +95,4 @@ def create_insurance_agent(
         enable_memory=enable_memory,
         enable_dream=enable_dream,
         callbacks=callbacks,
-        skill_loader=skill_loader,
     )

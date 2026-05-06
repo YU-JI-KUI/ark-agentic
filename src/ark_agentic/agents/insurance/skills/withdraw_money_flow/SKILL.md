@@ -1,4 +1,5 @@
 ---
+enabled: True
 name: 保险取款流程（Flow）
 description: 当用户表达取款意图时使用：询问可取金额、查询总览、指定金额/渠道取款、调整已有方案。 通过 5 阶段 SOP 处理保险取款：身份核验 → 方案查询 → 方案确认 → 二次确认 → 执行取款。支持跨会话中断恢复。
 version: "1.0.0"
@@ -18,7 +19,6 @@ required_tools:
   - render_a2ui
   - submit_withdrawal
   - resume_task
-enabled: False
 ---
 
 # 保险取款流程（Flow）
