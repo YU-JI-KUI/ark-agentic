@@ -250,6 +250,50 @@ class TestInterrupt:
         assert result.is_error
 
     @pytest.mark.asyncio
+    async def test_back_amount_to_policy(self, tool):
+        ctx = _plan_ctx()
+        _commit(ctx, await tool.execute(_tc("bonus", "start"), context=ctx))
+        _commit(ctx, await tool.execute(_tc("bonus", "confirm_policy"), context=ctx))
+
+        result = await tool.execute(_tc("bonus", "back"), context=ctx)
+        bonus = _flows(result)["channel_flows"]["bonus"]
+        assert bonus["step"] == "policy"
+        assert result.llm_digest == "[渠道流:回退 channel=bonus step=policy]"
+
+    @pytest.mark.asyncio
+    async def test_back_bank_card_to_amount_clears_bank_card(self, tool):
+        ctx = _plan_ctx()
+        for action in ("start", "confirm_policy", "confirm_amount"):
+            _commit(ctx, await tool.execute(_tc("bonus", action), context=ctx))
+
+        result = await tool.execute(_tc("bonus", "back"), context=ctx)
+        bonus = _flows(result)["channel_flows"]["bonus"]
+        assert bonus["step"] == "amount"
+        assert bonus["bank_card"] is None
+
+    @pytest.mark.asyncio
+    async def test_back_at_policy_rejected(self, tool):
+        ctx = _plan_ctx()
+        _commit(ctx, await tool.execute(_tc("bonus", "start"), context=ctx))
+
+        result = await tool.execute(_tc("bonus", "back"), context=ctx)
+        assert result.is_error
+        assert "无法后退" in result.content
+
+    @pytest.mark.asyncio
+    async def test_back_then_forward_refills_bank_card(self, tool):
+        """back 清掉 bank_card 后再 confirm_amount 必须重新填入。"""
+        ctx = _plan_ctx()
+        for action in ("start", "confirm_policy", "confirm_amount"):
+            _commit(ctx, await tool.execute(_tc("bonus", action), context=ctx))
+        _commit(ctx, await tool.execute(_tc("bonus", "back"), context=ctx))
+
+        result = await tool.execute(_tc("bonus", "confirm_amount"), context=ctx)
+        bonus = _flows(result)["channel_flows"]["bonus"]
+        assert bonus["step"] == "bank_card"
+        assert bonus["bank_card"] is not None
+
+    @pytest.mark.asyncio
     async def test_interrupt_preserves_step_for_later_resume(self, tool):
         """中断后再 start = 接着上次 step 走。"""
         ctx = _plan_ctx()

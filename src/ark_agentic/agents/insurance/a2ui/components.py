@@ -54,7 +54,7 @@ _STEP_TITLES: dict[str, str] = {
 
 _STEP_NEXT_BTN: dict[str, str] = {
     "policy": "下一步",
-    "amount": "确认金额",
+    "amount": "下一步",
     "bank_card": "确认提交",
 }
 
@@ -63,6 +63,8 @@ _STEP_NEXT_ACTION: dict[str, str] = {
     "amount": "confirm_amount",
     "bank_card": "confirm_bank",
 }
+
+_STEP_HAS_BACK: frozenset[str] = frozenset({"amount", "bank_card"})
 
 logger = logging.getLogger(__name__)
 
@@ -600,27 +602,48 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
         )
         comps.extend(item_comps)
 
-        next_btn_id, intr_btn_id = g("button"), g("button")
-        btn_col_id = g("column")
-        next_query = f"__channel_step__:{channel}:{_STEP_NEXT_ACTION[step]}"
-        intr_query = f"__channel_step__:{channel}:interrupt"
-        comps.append(_comp(next_btn_id, "Button", {
+        btn_ids: list[str] = []
+        if step in _STEP_HAS_BACK:
+            back_id = g("button")
+            btn_ids.append(back_id)
+            comps.append(_comp(back_id, "Button", {
+                "width": 100,
+                "type": "secondary",
+                "size": "small",
+                "text": {"literalString": "上一步"},
+                "action": {"name": "query", "args": {
+                    "literalString": f"__channel_step__:{channel}:back",
+                }},
+            }))
+
+        next_id = g("button")
+        btn_ids.append(next_id)
+        comps.append(_comp(next_id, "Button", {
             "width": 100,
             "type": "primary",
             "size": "small",
             "text": {"literalString": _STEP_NEXT_BTN[step]},
-            "action": {"name": "query", "args": {"literalString": next_query}},
+            "action": {"name": "query", "args": {
+                "literalString": f"__channel_step__:{channel}:{_STEP_NEXT_ACTION[step]}",
+            }},
         }))
-        comps.append(_comp(intr_btn_id, "Button", {
+
+        intr_id = g("button")
+        btn_ids.append(intr_id)
+        comps.append(_comp(intr_id, "Button", {
             "width": 100,
             "type": "secondary",
             "size": "small",
             "text": {"literalString": "中断，先办其他"},
-            "action": {"name": "query", "args": {"literalString": intr_query}},
+            "action": {"name": "query", "args": {
+                "literalString": f"__channel_step__:{channel}:interrupt",
+            }},
         }))
+
+        btn_col_id = g("column")
         comps.append(_comp(btn_col_id, "Column", {
             "gap": t.header_gap,
-            "children": {"explicitList": [next_btn_id, intr_btn_id]},
+            "children": {"explicitList": btn_ids},
         }))
 
         col = _comp(col_id, "Column", {

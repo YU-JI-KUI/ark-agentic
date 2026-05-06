@@ -483,17 +483,41 @@ class TestChannelStepCard:
         assert "6225 **** 9876" in texts
         assert "step=bank_card" in output.llm_digest
 
-    def test_buttons_carry_channel_step_query(self):
+    def test_step_policy_has_no_back_button(self):
+        output = build_channel_step_card(
+            {"channel": "survival_fund"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        queries = [b["action"]["args"]["literalString"] for b in _buttons_of(output)]
+
+        assert "__channel_step__:survival_fund:back" not in queries
+        assert "__channel_step__:survival_fund:confirm_policy" in queries
+        assert "__channel_step__:survival_fund:interrupt" in queries
+
+    def test_step_amount_has_back_next_interrupt(self):
         output = build_channel_step_card(
             {"channel": "bonus"}, _id_gen(), _CHANNEL_FLOWS_RAW,
         )
         buttons = _buttons_of(output)
+        queries = [b["action"]["args"]["literalString"] for b in buttons]
 
-        assert len(buttons) == 2
-        primary = next(b for b in buttons if b["type"] == "primary")
-        secondary = next(b for b in buttons if b["type"] == "secondary")
-        assert primary["action"]["args"]["literalString"] == "__channel_step__:bonus:confirm_amount"
-        assert secondary["action"]["args"]["literalString"] == "__channel_step__:bonus:interrupt"
+        assert len(buttons) == 3
+        assert "__channel_step__:bonus:back" in queries
+        assert "__channel_step__:bonus:confirm_amount" in queries
+        assert "__channel_step__:bonus:interrupt" in queries
+
+    def test_step_bank_card_has_back_confirm_interrupt(self):
+        output = build_channel_step_card(
+            {"channel": "policy_loan"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        buttons = _buttons_of(output)
+        queries = [b["action"]["args"]["literalString"] for b in buttons]
+        texts = [b["text"]["literalString"] for b in buttons]
+
+        assert len(buttons) == 3
+        assert "__channel_step__:policy_loan:back" in queries
+        assert "__channel_step__:policy_loan:confirm_bank" in queries
+        assert "__channel_step__:policy_loan:interrupt" in queries
+        assert "确认提交" in texts
 
     def test_explicit_step_overrides_state(self):
         output = build_channel_step_card(

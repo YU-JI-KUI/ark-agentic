@@ -49,17 +49,34 @@ required_tools:
 
 ### STEP 0 — 按钮 query 快速路径
 
-用户消息形如 `__channel_step__:<channel>:<action>`：
+用户消息形如 `__channel_step__:<channel>:<action>`，action 直接传入工具：
 
-| action | 调用 |
+| action | 含义 |
 |---|---|
-| `confirm_policy` / `confirm_amount` / `confirm_bank` | `channel_flow(channel, <action>)` |
-| `interrupt` | `channel_flow(channel, interrupt)` |
+| `confirm_policy` / `confirm_amount` / `confirm_bank` | 推进到下一步 |
+| `back` | 后退一步（amount→policy；bank_card→amount，自动清掉 bank_card） |
+| `interrupt` | 暂停当前 active 渠道 |
 
-执行完工具后：
-- 非 `confirm_bank` → `render_a2ui` 渲染 `ChannelStepCard`（同 channel）
+执行完 `channel_flow` 后：
+- 非 `confirm_bank` → `render_a2ui` 渲染 `ChannelStepCard`（同 channel）显示新状态
 - `confirm_bank` → 不再出该渠道卡片；如 digest `remaining=[…]` 非空，一句引导
   「还有红利和贷款待办，继续吗？」（≤25 字）
+
+### STEP 0.5 — 自然语言推进 / 后退（聊天驱动）
+
+用户没有点按钮，而是直接打字，从最近 `[卡片:渠道步骤 channel=X step=Y]` 或
+`[渠道流:… channel=X step=Y]` digest 读出当前 X 和 Y，按下表映射：
+
+| 用户消息 | 当前 step=Y | 调用 |
+|---|---|---|
+| 下一步 / 继续 / 好 / 嗯 / OK | policy | `channel_flow(X, confirm_policy)` |
+| 下一步 / 继续 / 确认 / 好 | amount | `channel_flow(X, confirm_amount)` |
+| 确认 / 确认提交 / 提交 / 好 | bank_card | `channel_flow(X, confirm_bank)` |
+| 上一步 / 返回 / 改一下 | amount / bank_card | `channel_flow(X, back)` |
+| 上一步 | policy | 拒绝；回复「这是第 1 步，没有上一步」（不调工具） |
+
+执行后**仍然 `render_a2ui` ChannelStepCard(channel=X)**，因为「聊天每一步都要出新卡显示
+最新状态」。例外仍是 `confirm_bank`——状态变 done 后不再出卡。
 
 ### STEP 1 — 中断 / 暂停意图
 
@@ -161,6 +178,43 @@ digest: [卡片:渠道步骤 channel=bonus step=amount status=active]
 用户: "等会儿"（没有指明要办其他渠道）
 助手 → channel_flow(bonus, interrupt)
      回复: "已暂停红利办理，需要时随时回来。"
+```
+
+### 例 4：聊天驱动「下一步」「上一步」
+
+```
+digest: [卡片:渠道步骤 channel=bonus step=amount status=active]
+
+用户: "下一步"   # 聊天，没有点按钮
+助手:
+  → channel_flow(bonus, confirm_amount)
+  → render_a2ui ChannelStepCard(channel=bonus)   # 出新卡显示 step=bank_card
+
+用户: "上一步"   # 聊天
+助手:
+  → channel_flow(bonus, back)                    # bank_card → amount，bank_card 字段被清
+  → render_a2ui ChannelStepCard(channel=bonus)   # 出新卡显示 step=amount
+
+用户: "确认"
+助手（当前 step=amount，"确认" 在该 step 等同 "下一步"）:
+  → channel_flow(bonus, confirm_amount)
+  → render_a2ui ChannelStepCard(channel=bonus)   # step=bank_card
+
+用户: "确认提交"
+助手（当前 step=bank_card）:
+  → channel_flow(bonus, confirm_bank)
+  ↳ digest: [渠道流:已提交 channel=bonus remaining=[]]
+  回复: "红利领取已完成。"
+```
+
+### 例 5：在 step=policy 时说「上一步」
+
+```
+digest: [卡片:渠道步骤 channel=bonus step=policy status=active]
+用户: "上一步"
+助手（按 STEP 0.5 规则，policy 没有上一步）:
+  回复: "这是第 1 步，没有上一步。"
+  # 不调 channel_flow，不重渲染卡片
 ```
 
 ---

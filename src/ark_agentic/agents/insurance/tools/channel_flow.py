@@ -37,8 +37,20 @@ _ACTIONS: tuple[str, ...] = (
     "confirm_policy",   # step: policy → amount
     "confirm_amount",   # step: amount → bank_card，自动填 bank_card
     "confirm_bank",     # step: bank_card → done，status=submitted
+    "back",             # step: amount→policy；bank_card→amount（清 bank_card）
     "interrupt",        # 暂停当前 active；保留 step
 )
+
+_BACK_TRANSITIONS: dict[str, str] = {
+    "amount": "policy",
+    "bank_card": "amount",
+}
+
+_STEP_TITLES_CN: dict[str, str] = {
+    "policy": "保单确认",
+    "amount": "金额确认",
+    "bank_card": "银行卡确认",
+}
 
 _CHANNEL_CN: dict[str, str] = {
     "survival_fund": "生存金领取",
@@ -168,6 +180,9 @@ class ChannelFlowTool(AgentTool):
         if action == "interrupt":
             return self._handle_interrupt(tool_call, state, channel, existing)
 
+        if action == "back":
+            return self._handle_back(tool_call, state, channel, existing)
+
         return self._handle_confirm(
             tool_call, ctx, state, channel, action, existing,
         )
@@ -233,6 +248,34 @@ class ChannelFlowTool(AgentTool):
         )
         content = f"已暂停{_CHANNEL_CN[channel]}办理，可继续办理其他渠道。"
         return _ok(tool_call.id, state, content, digest)
+
+    def _handle_back(
+        self,
+        tool_call: ToolCall,
+        state: dict[str, Any],
+        channel: str,
+        existing: dict[str, Any] | None,
+    ) -> AgentToolResult:
+        if not existing:
+            return AgentToolResult.error_result(
+                tool_call.id,
+                f"{_CHANNEL_CN[channel]} 流程未启动，请先 action=start。",
+            )
+        cur_step = existing.get("step")
+        prev = _BACK_TRANSITIONS.get(cur_step or "")
+        if prev is None:
+            return AgentToolResult.error_result(
+                tool_call.id,
+                f"{_CHANNEL_CN[channel]} 当前 step={cur_step}，无法后退。",
+            )
+        existing["step"] = prev
+        if cur_step == "bank_card":
+            existing["bank_card"] = None
+        return _ok(
+            tool_call.id, state,
+            f"已返回上一步：{_STEP_TITLES_CN[prev]}。",
+            f"[渠道流:回退 channel={channel} step={prev}]",
+        )
 
     def _handle_confirm(
         self,
