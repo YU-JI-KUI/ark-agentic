@@ -42,6 +42,7 @@ _INSURANCE_STATE_KEYS = (
     "_rule_engine_result",
     "_policy_query_result",
     "_customer_info_result",
+    "_channel_flows",
 )
 
 

@@ -31,11 +31,38 @@ from ark_agentic.core.a2ui.theme import A2UITheme
 from .withdraw_a2ui_utils import (
     _ALL_CHANNELS,
     _CHANNEL_LABELS,
+    _OPTION_NAMES,
     _allocate_to_target,
     _allocs_to_plan_parts,
     _channel_available,
     _fmt,
 )
+
+CHANNEL_STEPS: tuple[str, ...] = ("policy", "amount", "bank_card")
+"""渠道办理三步：选保单 → 确认金额 → 确认银行卡。"""
+
+_VALID_CHANNELS_FOR_STEP: frozenset[str] = frozenset({
+    "survival_fund", "bonus", "policy_loan",
+})
+"""支持三步办理流程的渠道。partial_withdrawal / surrender 走原有 RPA 流程。"""
+
+_STEP_TITLES: dict[str, str] = {
+    "policy": "选择保单",
+    "amount": "确认金额",
+    "bank_card": "确认收款银行卡",
+}
+
+_STEP_NEXT_BTN: dict[str, str] = {
+    "policy": "下一步",
+    "amount": "确认金额",
+    "bank_card": "确认提交",
+}
+
+_STEP_NEXT_ACTION: dict[str, str] = {
+    "policy": "confirm_policy",
+    "amount": "confirm_amount",
+    "bank_card": "confirm_bank",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -510,10 +537,117 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             },
         )
 
+    def build_channel_step_card(
+        data: dict[str, Any],
+        g: IdGen,
+        raw_data: dict[str, Any],
+    ) -> A2UIOutput:
+        """渠道办理三步卡片（policy / amount / bank_card）。
+
+        LLM 只传 ``{"channel": "<id>"}``，step 与字段值从
+        ``raw_data["channel_flows"][channel]`` 读取，避免 LLM 抄错。
+        """
+        channel = data.get("channel", "")
+        if channel not in _VALID_CHANNELS_FOR_STEP:
+            return A2UIOutput()
+
+        flows = raw_data.get("channel_flows") or {}
+        flow = flows.get(channel) or {}
+        step = data.get("step") or flow.get("step")
+        if step not in _STEP_TITLES:
+            return A2UIOutput()
+
+        ch_label = _OPTION_NAMES.get(channel, channel)
+        step_title = _STEP_TITLES[step]
+        status = flow.get("status", "active")
+
+        if step == "policy":
+            field_label = "保单号"
+            field_value = str(flow.get("policy_no") or "—")
+        elif step == "amount":
+            field_label = "领取金额"
+            amt = flow.get("amount")
+            field_value = _fmt(float(amt)) if amt is not None else "—"
+        else:
+            field_label = "收款银行卡"
+            field_value = str(flow.get("bank_card") or "—")
+
+        card_id, col_id = g("card"), g("column")
+        head_row_id = g("row")
+        marker_id, title_id, sub_id = g("text"), g("text"), g("text")
+        div_id = g("divider")
+        comps: list[dict[str, Any]] = []
+
+        comps.append(_text(marker_id, "|", color=t.accent, fontSize="16px", bold=True))
+        comps.append(_text(title_id, f"{ch_label} · {step_title}",
+                           color=t.title_color, fontSize="16px", bold=True))
+        comps.append(_comp(head_row_id, "Row", {
+            "alignment": "middle",
+            "gap": t.header_gap,
+            "children": {"explicitList": [marker_id, title_id]},
+        }))
+
+        sub_text = f"第 {CHANNEL_STEPS.index(step) + 1} 步 / 共 3 步"
+        comps.append(_text(sub_id, sub_text, color=t.hint_color, fontSize="12px"))
+
+        comps.append(_comp(div_id, "Divider", {
+            "borderColor": t.divider_color,
+            "hairline": True,
+        }))
+
+        items_col_id, item_comps = _item_rows(
+            [{"label": field_label, "value": field_value}], g,
+        )
+        comps.extend(item_comps)
+
+        next_btn_id, intr_btn_id = g("button"), g("button")
+        btn_col_id = g("column")
+        next_query = f"__channel_step__:{channel}:{_STEP_NEXT_ACTION[step]}"
+        intr_query = f"__channel_step__:{channel}:interrupt"
+        comps.append(_comp(next_btn_id, "Button", {
+            "width": 100,
+            "type": "primary",
+            "size": "small",
+            "text": {"literalString": _STEP_NEXT_BTN[step]},
+            "action": {"name": "query", "args": {"literalString": next_query}},
+        }))
+        comps.append(_comp(intr_btn_id, "Button", {
+            "width": 100,
+            "type": "secondary",
+            "size": "small",
+            "text": {"literalString": "中断，先办其他"},
+            "action": {"name": "query", "args": {"literalString": intr_query}},
+        }))
+        comps.append(_comp(btn_col_id, "Column", {
+            "gap": t.header_gap,
+            "children": {"explicitList": [next_btn_id, intr_btn_id]},
+        }))
+
+        col = _comp(col_id, "Column", {
+            "gap": t.section_gap,
+            "children": {
+                "explicitList": [head_row_id, sub_id, div_id, items_col_id, btn_col_id],
+            },
+        })
+        card = _comp(card_id, "Card", {
+            "width": 100,
+            "backgroundColor": t.card_bg,
+            "borderRadius": t.card_radius,
+            "padding": t.card_padding,
+            "children": {"explicitList": [col_id]},
+        })
+
+        digest = (
+            f"[卡片:渠道步骤 channel={channel} step={step} status={status}]"
+            f" {ch_label}·{step_title}·{field_value}"
+        )
+        return A2UIOutput(components=[card, col] + comps, llm_digest=digest)
+
     return {
         "WithdrawSummaryHeader": build_withdraw_summary_header,
         "WithdrawSummarySection": build_withdraw_summary_section,
         "WithdrawPlanCard": build_withdraw_plan_card,
+        "ChannelStepCard": build_channel_step_card,
     }
 
 
@@ -523,6 +657,10 @@ COMPONENT_SCHEMAS: dict[str, str] = {
     "WithdrawSummaryHeader": "总览头：合计所选板块的可领金额",
     "WithdrawSummarySection": "板块卡：列出单板块各保单可领明细",
     "WithdrawPlanCard": "方案卡：按目标金额在候选渠道自动分配",
+    "ChannelStepCard": (
+        "渠道办理三步卡片（policy/amount/bank_card）。"
+        "LLM 仅传 channel；step 与字段值从 _channel_flows 读取。"
+    ),
 }
 
 BLOCK_DATA_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -553,6 +691,26 @@ BLOCK_DATA_SCHEMAS: dict[str, dict[str, Any]] = {
             "exclude_policies": {
                 "type": "array",
                 "items": {"type": "string"},
+            },
+        },
+        "additionalProperties": True,
+    },
+    "ChannelStepCard": {
+        "type": "object",
+        "required": ["channel"],
+        "properties": {
+            "channel": {
+                "type": "string",
+                "description": "办理渠道。",
+                "enum": sorted(_VALID_CHANNELS_FOR_STEP),
+            },
+            "step": {
+                "type": "string",
+                "description": (
+                    "可选；不传时由 _channel_flows[channel].step 决定。"
+                    "显式传入用于强制渲染某一步（如恢复时）。"
+                ),
+                "enum": list(CHANNEL_STEPS),
             },
         },
         "additionalProperties": True,
