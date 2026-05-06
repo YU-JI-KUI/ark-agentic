@@ -129,9 +129,13 @@ class TestChatRunOptionsIntegration:
 
 
 @pytest.mark.asyncio
-async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> None:
-    """``AgentsLifecycle.start`` walks the registry warming up every runner;
-    ``stop`` closes every runner's memory backend."""
+async def test_agents_lifecycle_closes_every_registered_agent_on_stop() -> None:
+    """``AgentsLifecycle.stop`` calls ``close()`` on every registered agent.
+
+    Per-agent startup tasks (proactive job registration etc.) are owned
+    by the consuming plugin (``JobsPlugin``) and tested separately —
+    agents themselves no longer carry warmup-hook machinery.
+    """
     from types import SimpleNamespace
 
     from ark_agentic.core.protocol.bootstrap import Bootstrap
@@ -151,5 +155,4 @@ async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> 
         await bootstrap.start(SimpleNamespace())
         await bootstrap.stop()
 
-    assert runner.warmup.await_count == 2
     assert runner.close.await_count == 2

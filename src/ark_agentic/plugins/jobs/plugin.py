@@ -78,11 +78,14 @@ class JobsPlugin(BasePlugin):
 
         # Per-agent proactive job bindings: AgentsLifecycle starts before
         # JobsPlugin in the default component list so ctx.agent_registry
-        # is always populated by the time JobsPlugin.start runs.
+        # is always populated by the time JobsPlugin.start runs. We
+        # register jobs into the manager directly — no warmup-hook
+        # indirection through individual agents.
         from ..notifications.paths import get_notifications_base_dir
         from .proactive_setup import register_proactive_jobs
         register_proactive_jobs(
             ctx.agent_registry,
+            manager,
             notifications_base_dir=get_notifications_base_dir(),
         )
 

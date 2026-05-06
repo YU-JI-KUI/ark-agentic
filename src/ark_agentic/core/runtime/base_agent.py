@@ -22,7 +22,6 @@ import inspect
 import json
 import logging
 from abc import ABC
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, ClassVar, TYPE_CHECKING, final
 from uuid import uuid4
@@ -284,9 +283,6 @@ class BaseAgent(ABC):
                 create_subtask_tool(self, self.session_manager)
             )
 
-        # Phase 11: warmup hooks (registered later by jobs / external services)
-        self._warmup_hooks: list[Callable[[], Awaitable[None]]] = []
-
     # ── Internal explicit-args constructor ──────────────────────────────
     @classmethod
     def _construct(
@@ -345,7 +341,6 @@ class BaseAgent(ABC):
             timeout=cfg.tool_timeout,
             max_calls_per_turn=cfg.max_tool_calls_per_turn,
         )
-        instance._warmup_hooks = []
         instance._finish_wiring(
             skill_loader=skill_loader,
             skill_load_mode=cfg.skill_config.load_mode,
@@ -388,21 +383,6 @@ class BaseAgent(ABC):
                     self.tool_registry.register(tool)
 
     # ── Public API ──────────────────────────────────────────────────────
-    def add_warmup_hook(
-        self, hook: Callable[[], Awaitable[None]],
-    ) -> None:
-        """Register an async hook to run on ``warmup()``.
-
-        Public hook point: services (jobs / bindings / future) attach
-        startup tasks here without reaching into agent internals.
-        """
-        self._warmup_hooks.append(hook)
-
-    async def warmup(self) -> None:
-        """Run every hook registered via ``add_warmup_hook``."""
-        for hook in self._warmup_hooks:
-            await hook()
-
     async def close(self) -> None:
         """Release per-agent resources. Called once at lifecycle stop.
 

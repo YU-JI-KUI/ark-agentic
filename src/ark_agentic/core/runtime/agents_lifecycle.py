@@ -2,9 +2,9 @@
 
 Agents are a **core capability**, not a plugin: every ark-agentic
 deployment needs them. The component nature is purely about lifecycle
-orchestration — it lets Bootstrap drive agent registration, warmup and
-shutdown alongside the rest of the application without app.py
-hand-rolling those calls.
+orchestration — it lets Bootstrap drive agent registration and shutdown
+alongside the rest of the application without app.py hand-rolling
+those calls.
 
 Phases:
   init    — no-op (agents have no schema; storage is per-agent dirs)
@@ -14,14 +14,17 @@ Phases:
                  stays available to third-party deployments.
               2. User project's ``agents_root``             — resolved
                  by ``Bootstrap`` (explicit / env / convention).
-            Then ``warmup()`` every registered agent and publish the
-            registry as ``ctx.agent_registry``.
+            Publishes the registry as ``ctx.agent_registry``.
   stop    — ``close()`` every agent (release resources).
 
 Discovery scans for ``BaseAgent`` subclasses (see
 ``core.runtime.discovery``) — no per-agent ``register()`` hook is
 required, no ``register_all`` shim exists. Subclassing the base IS
 the registration contract.
+
+Per-agent startup tasks that depend on other plugins (e.g. proactive
+job scheduling) are owned by those plugins and run in their own
+``start()`` phase — agents themselves expose no warmup hook surface.
 """
 
 from __future__ import annotations
@@ -31,7 +34,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .base_agent import BaseAgent
 from .discovery import discover_agents
 from .registry import AgentRegistry
 from ..protocol.lifecycle import BaseLifecycle
@@ -69,12 +71,10 @@ class AgentsLifecycle(BaseLifecycle):
         return self._registry
 
     async def start(self, ctx: Any) -> AgentRegistry:
-        # Framework-bundled agents (always available)
         framework_root = _framework_agents_root()
         if framework_root.is_dir():
             discover_agents(self._registry, framework_root)
 
-        # User project agents
         if self._user_agents_root is not None:
             discover_agents(self._registry, self._user_agents_root)
         else:
@@ -83,11 +83,6 @@ class AgentsLifecycle(BaseLifecycle):
                 "agents loaded. Set AGENTS_ROOT or pass agents_root= to "
                 "Bootstrap to enable user agent discovery."
             )
-
-        for agent_id in self._registry.list_ids():
-            agent: BaseAgent = self._registry.get(agent_id)
-            await agent.warmup()
-            logger.info("Agent '%s' warmed up", agent_id)
 
         logger.info("Agents started: %s", self._registry.list_ids())
         return self._registry
