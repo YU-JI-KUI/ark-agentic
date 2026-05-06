@@ -22,11 +22,7 @@ from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
 from .customer_info import CustomerInfoTool
 from .submit_withdrawal import SubmitWithdrawalTool
-from .channel_flow import (
-    ChannelFlowAdvanceTool,
-    ChannelFlowResumeTool,
-    ChannelFlowStartTool,
-)
+from .channel_flow import ChannelFlowTool
 from .flow_evaluator import withdrawal_flow_evaluator  # noqa: F401 — import 触发 FlowEvaluatorRegistry 注册
 from ark_agentic.core.flow.commit_flow_stage import CommitFlowStageTool
 
@@ -73,9 +69,7 @@ __all__ = [
     "CustomerInfoTool",
     "RenderA2UITool",
     "SubmitWithdrawalTool",
-    "ChannelFlowStartTool",
-    "ChannelFlowAdvanceTool",
-    "ChannelFlowResumeTool",
+    "ChannelFlowTool",
     "CommitFlowStageTool",
     "withdrawal_flow_evaluator",
     "create_insurance_tools",
@@ -100,9 +94,7 @@ def create_insurance_tools(
         CustomerInfoTool(client=client),
         _create_render_a2ui_tool(),
         SubmitWithdrawalTool(),
-        ChannelFlowStartTool(),
-        ChannelFlowAdvanceTool(),
-        ChannelFlowResumeTool(),
+        ChannelFlowTool(),
         CommitFlowStageTool(),
         withdrawal_flow_evaluator,
         ResumeTaskTool(sessions_dir=_sessions_dir),
