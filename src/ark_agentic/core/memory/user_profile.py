@@ -97,7 +97,7 @@ def truncate_profile(content: str, max_tokens: int = 2000) -> str:
     """Heading-aware truncation: 按优先级保留完整 section，不会截断半句话。"""
     if not content:
         return content
-    from ..compaction import estimate_tokens
+    from ..session.compaction import estimate_tokens
 
     tokens = estimate_tokens(content)
     if tokens <= max_tokens:

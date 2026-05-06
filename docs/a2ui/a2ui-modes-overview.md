@@ -33,12 +33,14 @@ Dynamic 块注册表和 JSON 模板（`template.json`）是同一个概念的两
 
 | 参数 | 说明 | 互斥 |
 |------|------|------|
-| `blocks` | 块描述 JSON 数组（内联 transform specs） | 与 card_type 二选一 |
+| `blocks` | 块描述数组；`items` 为 `oneOf` per type 的严格 schema（`type` 用 `const`，`data` 按 type 独立 schema，内联 transform specs） | 与 card_type 二选一 |
 | `card_type` | 预定义卡片类型（如 withdraw_summary） | 与 blocks 二选一 |
 | `card_args` | card_type 的可选 JSON 参数 | 仅 card_type 路径 |
 | `surface_id` | 可选，有则更新已有画布，无则创建新画布 | 通用 |
 
-- `blocks` → BlockComposer 管线
+- `blocks` → BlockComposer 管线；tool schema 为 `{type: array, items: {oneOf: [...]}}`，LLM 直接输出 JSON 数组，无需字符串包裹
+- 可用 type 由 agent factory 决定：`agent_blocks ∪ {"Card"} ∪ agent_components`；未声明 `block_data_schemas` 的 type 退化为 `{type:object, additionalProperties:true}`
+- `Card.children` 由框架层自动注入；业务只声明自己的 data schema（DIP 分层）
 - `card_type` → render_from_template + 提取器
 - `surface_id` 有则 `surfaceUpdate`，无则 `beginRendering`
 

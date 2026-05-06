@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ark_agentic.core.jobs.proactive_service import ProactiveServiceJob
+from ark_agentic.plugins.jobs.proactive_service import ProactiveServiceJob
 from ark_agentic.core.types import ToolCall
 
 if TYPE_CHECKING:

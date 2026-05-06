@@ -27,7 +27,7 @@ $Version = $Version.Trim()
 Write-Host "[Version] $Version"
 
 # Build Studio frontend (dist/ force-included in wheel via pyproject.toml)
-$FrontendDir = Join-Path $RepoRoot "src/ark_agentic/studio/frontend"
+$FrontendDir = Join-Path $RepoRoot "src/ark_agentic/plugins/studio/frontend"
 if (Test-Path (Join-Path $FrontendDir "package.json")) {
     Write-Host "[Building] Studio frontend..."
     Set-Location $FrontendDir

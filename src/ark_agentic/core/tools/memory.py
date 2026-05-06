@@ -40,6 +40,7 @@ class MemoryWriteTool(AgentTool):
     """Memory 写入工具 — Agent 增量更新用户记忆"""
 
     name = "memory_write"
+    visibility = "always"
     thinking_hint = "正在保存记忆…"
     description = (
         "[持久写入] 增量更新长期记忆。只写变化的标题，其他自动保留。"
@@ -78,7 +79,7 @@ class MemoryWriteTool(AgentTool):
         try:
             user_id = _get_user_id(context)
             memory = _resolve_memory(self._provider, context)
-            current_headings, dropped = memory.write_memory(user_id, content)
+            current_headings, dropped = await memory.write_memory(user_id, content)
 
             if not current_headings and not dropped:
                 return AgentToolResult.json_result(

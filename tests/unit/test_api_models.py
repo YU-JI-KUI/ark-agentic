@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from ark_agentic.api.models import (
+from ark_agentic.plugins.api.models import (
     ChatRequest,
     ChatResponse,
     HistoryMessage,
@@ -121,7 +121,6 @@ class TestChatResponse:
             message_id="msg-001",
             response="Hello!",
             turns=1,
-            usage={"prompt_tokens": 10, "completion_tokens": 5},
         )
         data = resp.model_dump()
         assert data["session_id"] == "sess-001"

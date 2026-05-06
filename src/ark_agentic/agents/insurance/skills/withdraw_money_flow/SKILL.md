@@ -18,6 +18,7 @@ required_tools:
   - render_a2ui
   - submit_withdrawal
   - resume_task
+enabled: False
 ---
 
 # 保险取款流程（Flow）

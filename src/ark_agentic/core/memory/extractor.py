@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from .rules import MEMORY_FILTER_RULES
-from .user_profile import upsert_profile_by_heading
-from ..compaction import estimate_tokens
+from ..session.compaction import estimate_tokens
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -142,12 +140,16 @@ class MemoryFlusher:
         memory = str(data.get("memory", "")).strip()
         return FlushResult(memory=memory)
 
-    async def save(self, result: FlushResult, memory_path: Path) -> None:
-        """Write flush result to user's MEMORY.md with heading upsert."""
+    async def save(
+        self,
+        result: FlushResult,
+        memory_manager: "MemoryManager",
+        user_id: str,
+    ) -> None:
+        """Persist flush result via the memory manager (heading upsert)."""
         if result.memory:
-            memory_path.parent.mkdir(parents=True, exist_ok=True)
-            upsert_profile_by_heading(memory_path, result.memory)
-            logger.info("Flushed memory to %s", memory_path)
+            await memory_manager.write_memory(user_id, result.memory)
+            logger.info("Flushed memory for user %s", user_id)
 
     def make_pre_compact_callback(
         self,
@@ -159,8 +161,7 @@ class MemoryFlusher:
 
         async def _flush(session_id: str, messages: list["AgentMessage"]) -> None:
             try:
-                current_memory = memory_manager.read_memory(user_id)
-                memory_path = memory_manager.memory_path(user_id)
+                current_memory = await memory_manager.read_memory(user_id)
 
                 agent_name = prompt_config.agent_name or "assistant"
                 agent_desc = prompt_config.agent_description or ""
@@ -177,7 +178,7 @@ class MemoryFlusher:
                 )
 
                 if result.has_content:
-                    await self.save(result, memory_path)
+                    await self.save(result, memory_manager, user_id)
                     logger.info("Pre-compaction memory flush completed for user %s", user_id)
 
             except Exception as e:

@@ -30,7 +30,7 @@ COPY --from=frontend /frontend/dist ./src/ark_agentic/studio/frontend/dist
 # Create virtual environment and install dependencies
 RUN uv venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN uv pip install --no-cache ".[memory]"
+RUN uv pip install --no-cache ".[server,jobs,postgres]"
 
 # ============ Runtime Stage ============
 FROM python:3.11-slim AS runtime

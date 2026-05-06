@@ -5,14 +5,8 @@ import pytest
 import tempfile
 from pathlib import Path
 
-from ark_agentic.core.persistence import (
-    FileLock,
-    MessageEntry,
-    RawJsonlValidationError,
+from ark_agentic.core.session.format import (
     SessionHeader,
-    SessionStore,
-    SessionStoreEntry,
-    TranscriptManager,
     deserialize_message,
     deserialize_tool_call,
     deserialize_tool_result,
@@ -20,6 +14,8 @@ from ark_agentic.core.persistence import (
     serialize_tool_call,
     serialize_tool_result,
 )
+from ark_agentic.core.storage.entries import SessionStoreEntry
+from ark_agentic.core.storage.file._lock import FileLock
 from ark_agentic.core.types import (
     AgentMessage,
     AgentToolResult,
@@ -198,292 +194,6 @@ class TestFileLock:
             assert not lock_path.exists()
 
 
-class TestTranscriptManager:
-    """Tests for TranscriptManager."""
-
-    USER_ID = "test_user"
-
-    @pytest.mark.asyncio
-    async def test_ensure_header(self) -> None:
-        """Test header creation."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            await manager.ensure_header("session-123", self.USER_ID)
-
-            session_file = Path(tmpdir) / self.USER_ID / "session-123.jsonl"
-            assert session_file.exists()
-
-            content = session_file.read_text()
-            first_line = json.loads(content.strip().split("\n")[0])
-            assert first_line["type"] == "session"
-            assert first_line["id"] == "session-123"
-
-    @pytest.mark.asyncio
-    async def test_append_message(self) -> None:
-        """Test message appending."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            await manager.append_message("session-123", self.USER_ID, AgentMessage.user("Hello"))
-
-            session_file = Path(tmpdir) / self.USER_ID / "session-123.jsonl"
-            lines = session_file.read_text().strip().split("\n")
-            assert len(lines) == 2  # header + message
-
-            msg_data = json.loads(lines[1])
-            assert msg_data["type"] == "message"
-            assert msg_data["message"]["role"] == "user"
-
-    @pytest.mark.asyncio
-    async def test_append_messages_batch(self) -> None:
-        """Test batch message appending."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            messages = [
-                AgentMessage.user("Message 1"),
-                AgentMessage.user("Message 2"),
-                AgentMessage.user("Message 3"),
-            ]
-            await manager.append_messages("session-123", self.USER_ID, messages)
-
-            session_file = Path(tmpdir) / self.USER_ID / "session-123.jsonl"
-            lines = session_file.read_text().strip().split("\n")
-            assert len(lines) == 4  # header + 3 messages
-
-    def test_load_messages(self) -> None:
-        """Test message loading."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            user_dir = Path(tmpdir) / self.USER_ID
-            user_dir.mkdir(parents=True, exist_ok=True)
-            session_file = user_dir / "session-123.jsonl"
-
-            # Write test data
-            header = {"type": "session", "version": 1, "id": "session-123"}
-            msg1 = {"type": "message", "message": {"role": "user", "content": "Hello"}}
-            msg2 = {"type": "message", "message": {"role": "assistant", "content": "Hi"}}
-
-            with open(session_file, "w") as f:
-                f.write(json.dumps(header) + "\n")
-                f.write(json.dumps(msg1) + "\n")
-                f.write(json.dumps(msg2) + "\n")
-
-            messages = manager.load_messages("session-123", self.USER_ID)
-            assert len(messages) == 2
-            assert messages[0].content == "Hello"
-            assert messages[1].content == "Hi"
-
-    def test_load_header(self) -> None:
-        """Test header loading."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            user_dir = Path(tmpdir) / self.USER_ID
-            user_dir.mkdir(parents=True, exist_ok=True)
-            session_file = user_dir / "session-123.jsonl"
-
-            header_data = {
-                "type": "session",
-                "version": 1,
-                "id": "session-123",
-                "timestamp": "2024-01-01T00:00:00Z"
-            }
-            with open(session_file, "w") as f:
-                f.write(json.dumps(header_data) + "\n")
-
-            header = manager.load_header("session-123", self.USER_ID)
-            assert header is not None
-            assert header.id == "session-123"
-
-    def test_get_recent_content(self) -> None:
-        """Test getting recent content."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            user_dir = Path(tmpdir) / self.USER_ID
-            user_dir.mkdir(parents=True, exist_ok=True)
-            session_file = user_dir / "session-123.jsonl"
-
-            # Write test data
-            header = {"type": "session", "version": 1, "id": "session-123"}
-            messages = [
-                {"type": "message", "message": {"role": "user", "content": "Question 1"}},
-                {"type": "message", "message": {"role": "assistant", "content": "Answer 1"}},
-                {"type": "message", "message": {"role": "user", "content": "Question 2"}},
-            ]
-
-            with open(session_file, "w") as f:
-                f.write(json.dumps(header) + "\n")
-                for msg in messages:
-                    f.write(json.dumps(msg) + "\n")
-
-            content = manager.get_recent_content("session-123", self.USER_ID, message_count=10)
-            assert content is not None
-            assert "Question 1" in content
-            assert "Answer 1" in content
-
-    def test_list_sessions(self) -> None:
-        """Test listing sessions."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-
-            # Create user dir and session files
-            user_dir = Path(tmpdir) / self.USER_ID
-            user_dir.mkdir(parents=True, exist_ok=True)
-            for i in range(3):
-                (user_dir / f"session-{i}.jsonl").touch()
-
-            sessions = manager.list_sessions(self.USER_ID)
-            assert len(sessions) == 3
-
-    def test_list_all_sessions(self) -> None:
-        """Test listing all sessions across users (admin)."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            for user_id in ("user_a", "user_b"):
-                user_dir = Path(tmpdir) / user_id
-                user_dir.mkdir(parents=True, exist_ok=True)
-                (user_dir / "s1.jsonl").touch()
-                (user_dir / "s2.jsonl").touch()
-            all_pairs = manager.list_all_sessions()
-            assert len(all_pairs) == 4
-            user_ids = {p[0] for p in all_pairs}
-            session_ids = {p[1] for p in all_pairs}
-            assert user_ids == {"user_a", "user_b"}
-            assert session_ids == {"s1", "s2"}
-
-    def test_delete_session(self) -> None:
-        """Test session deletion."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            user_dir = Path(tmpdir) / self.USER_ID
-            user_dir.mkdir(parents=True, exist_ok=True)
-            session_file = user_dir / "session-123.jsonl"
-            session_file.touch()
-
-            assert manager.delete_session("session-123", self.USER_ID)
-            assert not session_file.exists()
-
-    def test_session_exists(self) -> None:
-        """Test session existence check."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-
-            assert not manager.session_exists("session-123", self.USER_ID)
-
-            user_dir = Path(tmpdir) / self.USER_ID
-            user_dir.mkdir(parents=True, exist_ok=True)
-            (user_dir / "session-123.jsonl").touch()
-            assert manager.session_exists("session-123", self.USER_ID)
-
-    def test_read_raw(self) -> None:
-        """Test read_raw returns file content or None."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            assert manager.read_raw("s1", self.USER_ID) is None
-            user_dir = Path(tmpdir) / self.USER_ID
-            user_dir.mkdir(parents=True, exist_ok=True)
-            (user_dir / "s1.jsonl").write_text('{"type":"session","id":"s1"}\n', encoding="utf-8")
-            assert manager.read_raw("s1", self.USER_ID) == '{"type":"session","id":"s1"}\n'
-
-    @pytest.mark.asyncio
-    async def test_write_raw_valid(self) -> None:
-        """Test write_raw with valid JSONL."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            content = '{"type":"session","id":"s1","timestamp":"","cwd":""}\n'
-            await manager.write_raw("s1", self.USER_ID, content)
-            assert (Path(tmpdir) / self.USER_ID / "s1.jsonl").read_text(encoding="utf-8") == content
-
-    @pytest.mark.asyncio
-    async def test_write_raw_validation_error(self) -> None:
-        """Test write_raw raises RawJsonlValidationError for invalid content."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = TranscriptManager(tmpdir)
-            with pytest.raises(RawJsonlValidationError) as exc_info:
-                await manager.write_raw("s1", self.USER_ID, '{"type":"message"}\n')
-            assert exc_info.value.line_number == 1
-            with pytest.raises(RawJsonlValidationError):
-                await manager.write_raw("s1", self.USER_ID, '{"type":"session","id":"other"}\n')
-
-
-class TestSessionStore:
-    """Tests for SessionStore."""
-
-    USER_ID = "test_user"
-
-    def test_load_empty(self) -> None:
-        """Test loading empty store."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            store = SessionStore(sessions_dir=tmpdir)
-            data = store.load(self.USER_ID)
-            assert data == {}
-
-    @pytest.mark.asyncio
-    async def test_save_and_load(self) -> None:
-        """Test saving and loading."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            store = SessionStore(sessions_dir=tmpdir)
-
-            entry = SessionStoreEntry(
-                session_id="session-123",
-                updated_at=1234567890,
-                model="test-model"
-            )
-            await store.save(self.USER_ID, {"session-123": entry})
-
-            loaded = store.load(self.USER_ID, skip_cache=True)
-            assert "session-123" in loaded
-            assert loaded["session-123"].model == "test-model"
-
-    @pytest.mark.asyncio
-    async def test_update_entry(self) -> None:
-        """Test updating single entry."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            store = SessionStore(sessions_dir=tmpdir)
-
-            entry = SessionStoreEntry(
-                session_id="session-123",
-                updated_at=1234567890,
-                model="test-model"
-            )
-            await store.update(self.USER_ID, "session-123", entry)
-
-            loaded = store.get(self.USER_ID, "session-123")
-            assert loaded is not None
-            assert loaded.session_id == "session-123"
-
-    @pytest.mark.asyncio
-    async def test_delete_entry(self) -> None:
-        """Test deleting entry."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            store = SessionStore(sessions_dir=tmpdir)
-
-            entry = SessionStoreEntry(
-                session_id="session-123",
-                updated_at=1234567890
-            )
-            await store.update(self.USER_ID, "session-123", entry)
-            assert await store.delete(self.USER_ID, "session-123")
-            assert store.get(self.USER_ID, "session-123") is None
-
-    def test_list_keys(self) -> None:
-        """Test listing keys."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Write test data under user dir
-            user_dir = Path(tmpdir) / self.USER_ID
-            user_dir.mkdir(parents=True, exist_ok=True)
-            store_path = user_dir / "sessions.json"
-
-            data = {
-                "session-1": {"sessionId": "session-1", "updatedAt": 0},
-                "session-2": {"sessionId": "session-2", "updatedAt": 0},
-            }
-            with open(store_path, "w") as f:
-                json.dump(data, f)
-
-            store = SessionStore(sessions_dir=tmpdir)
-            keys = store.list_keys(self.USER_ID)
-            assert set(keys) == {"session-1", "session-2"}
-
-
 class TestSessionStoreEntry:
     """Tests for SessionStoreEntry."""
 
@@ -510,3 +220,26 @@ class TestSessionStoreEntry:
         entry = SessionStoreEntry.from_dict(data)
         assert entry.session_id == "session-123"
         assert entry.model == "test-model"
+
+    def test_dto_lives_in_storage_entries_module(self) -> None:
+        """SessionStoreEntry is the backend-neutral DTO under
+        ``core.storage.entries`` — sole canonical home."""
+        from ark_agentic.core.storage import entries as storage_entries
+
+        assert SessionStoreEntry is storage_entries.SessionStoreEntry
+
+
+    def test_dto_round_trip_does_not_carry_file_paths(self) -> None:
+        """Backend-neutral: the DTO no longer exposes ``session_ref`` /
+        ``sessionFile`` keys. ``to_dict`` -> ``from_dict`` round-trips
+        without any file-system reference."""
+        entry = SessionStoreEntry(
+            session_id="s1", updated_at=1, model="m", provider="p",
+            state={"k": "v"},
+        )
+        as_dict = entry.to_dict()
+        assert "sessionFile" not in as_dict
+        assert "session_ref" not in as_dict
+
+        loaded = SessionStoreEntry.from_dict(as_dict)
+        assert loaded == entry

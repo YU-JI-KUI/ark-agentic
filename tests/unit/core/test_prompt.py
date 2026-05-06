@@ -139,28 +139,66 @@ class TestSystemPromptBuilder:
         assert "Test Skill" in prompt
         assert "Use this skill when testing." in prompt
 
-    def test_add_skills_metadata_only(self) -> None:
-        """dynamic mode: metadata list + load-one-skill instructions, no full content."""
+    def test_dynamic_no_active_renders_menu_only(self) -> None:
+        """Dynamic mode without an active skill: menu only, no body, no protocol."""
         builder = SystemPromptBuilder()
         skills = [
             SkillEntry(
                 id="test_skill",
                 path="/test",
-                content="Full skill body must not appear in prompt.",
+                content="Full body hidden in dynamic.",
                 metadata=SkillMetadata(
                     name="Test Skill",
                     description="A test skill. When to use: When user asks for X",
                 ),
             )
         ]
-        builder.add_skills(skills, skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic))
+        builder.add_skills(
+            skills,
+            skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic),
+        )
         prompt = builder.build()
-
-        assert "test_skill" in prompt
-        assert "Test Skill" in prompt
+        assert "<available_skills>" in prompt
         assert "When user asks for X" in prompt
-        assert "read_skill" in prompt
-        assert "Full skill body must not appear in prompt." not in prompt
+        assert "Full body hidden in dynamic." not in prompt
+        assert "<skill_loading_protocol>" not in prompt
+        assert "mandatory" not in prompt
+
+    def test_dynamic_with_active_injects_body(self) -> None:
+        """Dynamic mode with active skill: menu + <active_skill> body, no protocol."""
+        builder = SystemPromptBuilder()
+        active = SkillEntry(
+            id="s1", path="/", content="ACTIVE_BODY",
+            metadata=SkillMetadata(name="S1", description="alpha"),
+        )
+        builder.add_skills(
+            [active],
+            skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic),
+        )
+        builder.add_active_skill(active)
+        prompt = builder.build()
+        assert "<available_skills>" in prompt
+        assert "<active_skill" in prompt
+        assert "ACTIVE_BODY" in prompt
+        assert "<skill_loading_protocol>" not in prompt
+
+    def test_full_mode_inlines_skill_bodies(self) -> None:
+        """Full mode: bodies live in <skills>, no protocol section ever."""
+        builder = SystemPromptBuilder()
+        skills = [
+            SkillEntry(
+                id="s1", path="/", content="full body content",
+                metadata=SkillMetadata(name="S1", description="alpha"),
+            )
+        ]
+        builder.add_skills(
+            skills,
+            skill_config=SkillConfig(load_mode=SkillLoadMode.full),
+        )
+        prompt = builder.build()
+        assert "<skill_loading_protocol>" not in prompt
+        assert "<skills>" in prompt
+        assert "full body content" in prompt
 
     def test_add_custom_instructions(self) -> None:
         """Test adding custom instructions."""
@@ -243,6 +281,42 @@ class TestSystemPromptBuilder:
         assert "</instructions>" in prompt
 
 
+class TestMemoryContext:
+    """Tests for add_memory_context and backward-compat alias."""
+
+    def test_memory_context_adds_isolation_declaration(self) -> None:
+        builder = SystemPromptBuilder()
+        builder.add_memory_context("## 风险偏好\n保守型")
+        prompt = builder.build()
+
+        assert "<memory_context>" in prompt
+        assert "NOT current user input" in prompt
+        assert "background reference only" in prompt
+        assert "保守型" in prompt
+
+    def test_memory_context_empty_content_skipped(self) -> None:
+        builder = SystemPromptBuilder()
+        builder.add_memory_context("   ")
+        assert len(builder._sections) == 0
+
+    def test_add_user_profile_is_alias(self) -> None:
+        assert SystemPromptBuilder.add_user_profile is SystemPromptBuilder.add_memory_context
+
+    def test_alias_produces_same_output(self) -> None:
+        b1 = SystemPromptBuilder()
+        b1.add_memory_context("## 偏好\nA")
+        b2 = SystemPromptBuilder()
+        b2.add_user_profile("## 偏好\nA")
+        assert b1.build() == b2.build()
+
+    def test_quick_build_uses_memory_context_section(self) -> None:
+        prompt = SystemPromptBuilder.quick_build(user_profile_content="## 身份\n张三")
+        assert "<memory_context>" in prompt
+        assert "<user_profile>" not in prompt
+        assert "NOT current user input" in prompt
+        assert "张三" in prompt
+
+
 class TestQuickBuild:
     """Tests for quick_build class method."""
 
@@ -292,7 +366,7 @@ class TestQuickBuild:
             skill_config=SkillConfig(load_mode=SkillLoadMode.dynamic),
         )
         assert "s1" in prompt and "S1" in prompt and "When A" in prompt
-        assert "read_skill" in prompt
+        assert "<available_skills>" in prompt
         assert "Secret body" not in prompt
 
     def test_quick_build_with_context(self) -> None:

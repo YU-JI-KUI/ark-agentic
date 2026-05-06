@@ -6,8 +6,9 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from pydantic import ValidationError
 
+from ark_agentic.core.llm.sampling import SamplingConfig
 from ark_agentic.core.types import AgentMessage, RunOptions, SessionEntry, SkillLoadMode
-from ark_agentic.core.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
 from ark_agentic.core.skills.base import SkillConfig
 
 
@@ -43,8 +44,8 @@ class TestRunnerConfigurationPrecedence:
         """Create a runner with known default config."""
         config = RunnerConfig(
             model="default-model",
-            temperature=0.5,
-            skill_config=SkillConfig(load_mode=SkillLoadMode.full)
+            sampling=SamplingConfig.for_chat(temperature=0.5),
+            skill_config=SkillConfig(load_mode=SkillLoadMode.full),
         )
         
         # Mock ALL required dependencies
@@ -65,9 +66,11 @@ class TestRunnerConfigurationPrecedence:
         
         # Mock session manager sync methods used in run()
         runner.session_manager.add_message_sync = Mock()
+        runner.session_manager.add_message = AsyncMock()
         runner.session_manager.auto_compact_if_needed = AsyncMock()
         runner.session_manager.sync_pending_messages = AsyncMock()
         runner.session_manager.sync_session_state = AsyncMock()
+        runner.session_manager.finalize_session = AsyncMock()
         
         # Prevent lazy init from failing
         runner._memory_manager = None 
@@ -90,7 +93,8 @@ class TestRunnerConfigurationPrecedence:
         assert call_args is not None
         _, kwargs = call_args
         assert kwargs["model_override"] == "override-model"
-        assert kwargs["temperature_override"] == 0.1
+        assert kwargs["sampling_override"] is not None
+        assert kwargs["sampling_override"].temperature == 0.1
 
     @pytest.mark.asyncio
     async def test_run_options_partial_override(self, runner: AgentRunner) -> None:
@@ -106,7 +110,7 @@ class TestRunnerConfigurationPrecedence:
         
         _, kwargs = runner._run_loop.call_args
         assert kwargs["model_override"] == "override-model"
-        assert kwargs["temperature_override"] == 0.5
+        assert kwargs["sampling_override"] is None
 
     @pytest.mark.asyncio
     async def test_no_options_uses_defaults(self, runner: AgentRunner) -> None:
@@ -120,7 +124,7 @@ class TestRunnerConfigurationPrecedence:
         
         _, kwargs = runner._run_loop.call_args
         assert kwargs["model_override"] == "default-model"
-        assert kwargs["temperature_override"] == 0.5
+        assert kwargs["sampling_override"] is None
 
     @pytest.mark.asyncio
     async def test_skill_load_mode_precedence(self, runner: AgentRunner) -> None:

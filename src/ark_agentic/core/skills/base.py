@@ -283,10 +283,14 @@ def render_skill_section(
     skills: list[SkillEntry],
     config: SkillConfig | None = None,
 ) -> str:
-    """根据 config.load_mode 渲染 skill 系统提示段落。
+    """渲染 skill 系统提示段落（向后兼容）。
 
     full  → build_skill_prompt（全文注入）
     其它  → LOAD_ONE_SKILL_INSTRUCTIONS + format_skills_metadata_for_prompt（元数据 + read_skill）
+
+    Note: SystemPromptBuilder.add_skills 是推荐入口，它会将 dynamic 模式的
+    行为指令和元数据拆成独立 section，避免名词标签淹没指令。
+    本函数保留给直接拼 prompt 字符串的场景。
     """
     if not skills:
         return ""
@@ -319,3 +323,21 @@ def build_skill_prompt(skills: list[SkillEntry]) -> str:
         sections.append("</skill>\n")
 
     return "\n".join(sections)
+
+
+def render_active_skill_section(skill: SkillEntry) -> str:
+    """将当前激活的单个 skill 正文渲染为 <active_skill> XML 段。
+
+    用于 dynamic 模式：与 <available_skills>（仅元数据）并存，
+    形成 "可选项列表 → 当前激活正文 → 切换指引" 的自然顺序。
+
+    切换 skill 时，此段跟随 session.active_skill_ids[-1]（newest-wins）每轮重建，
+    system prompt 成为 skill 的"配置载体"，tool_result 只需记录加载凭证。
+    """
+    body = _strip_leading_h1(skill.content)
+    return (
+        f'<active_skill id="{_escape_xml(skill.id)}" '
+        f'name="{_escape_xml(skill.metadata.name)}">\n'
+        f'{body}\n'
+        f'</active_skill>'
+    )

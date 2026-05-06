@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ark_agentic.core.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.subtask.tool import SpawnSubtasksTool, SubtaskConfig, _SUBTASK_SESSION_MARKER
 from ark_agentic.core.tools.base import AgentTool
@@ -120,8 +120,6 @@ async def test_successful_single_subtask(session_manager: SessionManager, mock_r
         response=AgentMessage.assistant("subtask answer"),
         turns=2,
         tool_calls_count=1,
-        prompt_tokens=100,
-        completion_tokens=50,
     )
 
     with patch.object(AgentRunner, "run_ephemeral", new_callable=AsyncMock, return_value=run_result):
@@ -157,8 +155,6 @@ async def test_parallel_subtasks_execution(session_manager: SessionManager, mock
             response=AgentMessage.assistant(f"result for: {user_input[:20]}"),
             turns=1,
             tool_calls_count=0,
-            prompt_tokens=50,
-            completion_tokens=25,
         )
 
     with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
@@ -197,8 +193,6 @@ async def test_state_inheritance_and_delta(session_manager: SessionManager, mock
         return RunResult(
             response=AgentMessage.assistant("done"),
             turns=1,
-            prompt_tokens=10,
-            completion_tokens=5,
         )
 
     with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
@@ -226,8 +220,6 @@ async def test_token_aggregation(session_manager: SessionManager, mock_runner: A
         return RunResult(
             response=AgentMessage.assistant("ok"),
             turns=1,
-            prompt_tokens=200,
-            completion_tokens=100,
         )
 
     with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
@@ -239,9 +231,6 @@ async def test_token_aggregation(session_manager: SessionManager, mock_runner: A
             ],
         })
         result = await tool.execute(tc, {"session_id": "parent-006"})
-
-    assert parent_session.token_usage.prompt_tokens == 400
-    assert parent_session.token_usage.completion_tokens == 200
 
 
 @pytest.mark.asyncio
@@ -305,6 +294,37 @@ async def test_deny_list_excludes_spawn_subtasks(session_manager: SessionManager
     assert len(captured_registries) >= 1
     sub_reg = captured_registries[-1]
     assert not sub_reg.has("spawn_subtasks")
+
+
+@pytest.mark.asyncio
+async def test_subtask_runner_does_not_inherit_parent_callbacks(
+    session_manager: SessionManager,
+) -> None:
+    """Subtask runner should rebuild its own internal callbacks, not reuse parent callbacks."""
+    runner = _make_mock_runner(session_manager, [_DummyTool()])
+    parent_session = session_manager.create_session_sync(
+        session_id="parent-008b", user_id="user_F2",
+    )
+
+    captured_callback_args: list[object | None] = []
+    original_init = AgentRunner.__init__
+
+    def capture_init(self, *args, **kwargs):
+        captured_callback_args.append(kwargs.get("callbacks"))
+        original_init(self, *args, **kwargs)
+
+    async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        return RunResult(response=AgentMessage.assistant("ok"), turns=1)
+
+    with patch.object(AgentRunner, "__init__", capture_init), \
+         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+        tool = SpawnSubtasksTool(runner, session_manager)
+        tc = ToolCall.create("spawn_subtasks", {
+            "tasks": [{"task": "test callbacks", "label": "cb"}],
+        })
+        await tool.execute(tc, {"session_id": "parent-008b"})
+
+    assert captured_callback_args[-1] is None
 
 
 @pytest.mark.asyncio

@@ -33,7 +33,7 @@ for /f "usebackq delims=" %%v in (`python -c "import tomllib, pathlib; d = tomll
 echo [Version] %VERSION%
 
 REM Build Studio frontend (dist/ force-included in wheel via pyproject.toml)
-set FRONTEND_DIR=%REPO_ROOT%\src\ark_agentic\studio\frontend
+set FRONTEND_DIR=%REPO_ROOT%\src\ark_agentic\plugins\studio\frontend
 if exist "%FRONTEND_DIR%\package.json" (
   echo [Building] Studio frontend...
   cd /d "%FRONTEND_DIR%"

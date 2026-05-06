@@ -115,12 +115,29 @@ def _build_stop_message(
     return msg
 
 
+def _build_submit_digest(
+    channel: str,
+    remaining: list[dict[str, Any]],
+) -> str:
+    """结构化 LLM digest：供 execute_withdrawal STEP 0 做字段匹配续办判定。
+
+    格式：``[办理:已提交 channel=<ch> remaining=[<ch1>,<ch2>]]``
+    """
+    remaining_channels: list[str] = []
+    seen: set[str] = set()
+    for alloc in remaining:
+        ch = alloc.get("channel", "")
+        if ch and ch not in seen:
+            seen.add(ch)
+            remaining_channels.append(ch)
+    return f"[办理:已提交 channel={channel} remaining=[{','.join(remaining_channels)}]]"
+
+
 class SubmitWithdrawalTool(AgentTool):
     name = "submit_withdrawal"
     description = (
         "[STOP] 用户明确确认办理取款操作后调用。"
-        "调用后不可再发言，所有文字通过 text 参数传递。"
-        "只需传 operation_type，保单和金额自动从方案数据中获取。"
+        "只需传 operation_type，保单、金额和用户文字由工具自动生成。"
     )
     thinking_hint = "正在提交办理请求…"
     parameters = [
@@ -130,18 +147,6 @@ class SubmitWithdrawalTool(AgentTool):
             description="取款类型",
             enum=list(_SOURCE_TYPE_MAP.keys()),
         ),
-        ToolParameter(
-            name="text",
-            type="string",
-            description="展示给用户的文字说明（由 LLM 生成，包含办理内容和剩余渠道提醒）",
-            required=False,
-        ),
-        ToolParameter(
-            name="email",
-            type="string",
-            description="用户邮箱地址",
-            required=True,
-        ),
     ]
 
     async def execute(
@@ -149,14 +154,6 @@ class SubmitWithdrawalTool(AgentTool):
     ) -> AgentToolResult:
         operation_type: str = tool_call.arguments.get("operation_type", "")
         ctx = context or {}
-        
-        email = tool_call.arguments.get("email", "")
-        logger.info(f">>>>> email: {email}")
-        if not email:
-            return AgentToolResult.error_result(
-                tool_call.id,
-                "用户邮箱地址不能为空",
-            )
 
         source_type = _SOURCE_TYPE_MAP.get(operation_type)
         if source_type is None:
@@ -165,9 +162,18 @@ class SubmitWithdrawalTool(AgentTool):
                 f"未知的操作类型: {operation_type}，支持: {', '.join(_SOURCE_TYPE_MAP.keys())}",
             )
 
+        channel = _OP_TO_CHANNEL.get(operation_type, operation_type)
+        already_submitted: set[str] = set(ctx.get("_submitted_channels") or [])
+        if channel in already_submitted:
+            cn_name = _CHANNEL_CN.get(channel, channel)
+            return AgentToolResult.json_result(
+                tool_call_id=tool_call.id,
+                data=f"{cn_name}已提交办理，无需重复操作。如需重新办理请先生成新的取款方案。",
+                loop_action=ToolLoopAction.STOP,
+            )
+
         policies = _resolve_policies_from_state(operation_type, ctx)
         if not policies:
-            channel = _OP_TO_CHANNEL.get(operation_type, operation_type)
             plan_allocs: list[dict] = ctx.get("_plan_allocations") or []
             available: set[str] = set()
             for p in plan_allocs:
@@ -182,13 +188,10 @@ class SubmitWithdrawalTool(AgentTool):
                 f"请先通过取款方案确认该渠道的可取额度。",
             )
 
-        channel = _OP_TO_CHANNEL[operation_type]
         remaining = _find_remaining_channels(channel, ctx)
-        already = set(ctx.get("_submitted_channels") or []) | {channel}
-        stop_message = _build_stop_message(channel, remaining)
-
-        user_text = tool_call.arguments.get("text", "")
-        content = user_text if user_text else stop_message
+        already = already_submitted | {channel}
+        content = _build_stop_message(channel, remaining)
+        digest = _build_submit_digest(channel, remaining)
 
         query_msg = "，".join(
             f"保单号-{p['policy_no']}，金额-{p['amount']}"
@@ -206,4 +209,5 @@ class SubmitWithdrawalTool(AgentTool):
                     payload={"flow_type": source_type, "query_msg": query_msg},
                 ),
             ],
+            llm_digest=digest,
         )

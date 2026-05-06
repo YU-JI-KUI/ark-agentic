@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ark_agentic.core.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.stream.event_bus import AgentEventHandler
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
@@ -71,10 +71,12 @@ class TestRunnerConcurrency:
     @pytest.fixture
     def runner_config(self):
         """创建 Runner 配置"""
+        from ark_agentic.core.llm.sampling import SamplingConfig
+
         return RunnerConfig(
             model="mock",
-            temperature=0.7,
-            max_turns=3
+            sampling=SamplingConfig.for_chat(temperature=0.7),
+            max_turns=3,
         )
 
     @pytest.fixture

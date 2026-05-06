@@ -18,7 +18,6 @@ from .executor import ToolExecutor
 from .registry import ToolRegistry
 from .memory import MemoryWriteTool, create_memory_tools
 from .pa_knowledge_api import PAKnowledgeAPIConfig, PAKnowledgeAPITool, create_pa_knowledge_api_tool
-from .demo_state import SetStateDemoTool, GetStateDemoTool
 from .render_a2ui import BlocksConfig, CardExtractor, RenderA2UITool, TemplateConfig
 
 __all__ = [
@@ -41,9 +40,6 @@ __all__ = [
     "PAKnowledgeAPIConfig",
     "PAKnowledgeAPITool",
     "create_pa_knowledge_api_tool",
-    # Demo state tools (session state read/write)
-    "SetStateDemoTool",
-    "GetStateDemoTool",
     # A2UI rendering tools
     "BlocksConfig",
     "CardExtractor",

@@ -1,19 +1,33 @@
-"""Observability helpers."""
+"""Observability — OTel decorators + multi-backend provider registry +
+the framework's tracing Lifecycle component (auto-loaded by Bootstrap)."""
 
-from .phoenix import (
-    create_tracing_callbacks,
+from .decorators import (
+    add_span_attributes,
+    add_span_input,
+    add_span_output,
+    traced_agent,
+    traced_chain,
+    traced_tool,
+)
+from .tracing_lifecycle import TracingLifecycle
+from .links import current_trace_id_or_none, resolve_trace_link_template
+from .tracing import (
     get_tracer,
-    init_phoenix,
-    phoenix_callbacks_enabled,
-    shutdown_phoenix,
-    start_span,
+    setup_tracing_from_env,
+    shutdown_tracing,
 )
 
 __all__ = [
-    "create_tracing_callbacks",
+    "TracingLifecycle",
+    "add_span_attributes",
+    "add_span_input",
+    "add_span_output",
+    "current_trace_id_or_none",
     "get_tracer",
-    "init_phoenix",
-    "phoenix_callbacks_enabled",
-    "shutdown_phoenix",
-    "start_span",
+    "resolve_trace_link_template",
+    "setup_tracing_from_env",
+    "shutdown_tracing",
+    "traced_agent",
+    "traced_chain",
+    "traced_tool",
 ]

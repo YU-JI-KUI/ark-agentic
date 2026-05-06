@@ -25,7 +25,7 @@ from ark_agentic.core.flow.base_evaluator import (
     StageDefinition,
 )
 from ark_agentic.core.flow.callbacks import FlowCallbacks, _build_evaluation_message
-from ark_agentic.core.callbacks import CallbackContext, HookAction
+from ark_agentic.core.runtime.callbacks import CallbackContext, HookAction
 from ark_agentic.core.types import (
     AgentToolResult,
     SessionEntry,
@@ -276,7 +276,7 @@ def test_completed_stages_backward_compat() -> None:
 def _make_ctx_with_flow(flow_ctx: dict[str, Any]) -> CallbackContext:
     state: dict[str, Any] = {"_flow_context": flow_ctx}
     session = SessionEntry.create(model="m", provider="p", state=state)
-    return CallbackContext(user_input="", input_context={}, session=session)
+    return CallbackContext(run_id="test-run", user_input="", input_context={}, session=session)
 
 
 @pytest.mark.asyncio

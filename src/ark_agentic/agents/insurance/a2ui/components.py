@@ -39,6 +39,19 @@ from .withdraw_a2ui_utils import (
 
 logger = logging.getLogger(__name__)
 
+SECTION_TYPES: tuple[str, ...] = (
+    "zero_cost",
+    "survival_fund",
+    "bonus",
+    "loan",
+    "partial_withdrawal",
+    "surrender",
+)
+"""WithdrawSummary 板块枚举；与 `_section_presets` 字面量对齐。"""
+
+CHANNEL_TYPES: tuple[str, ...] = _ALL_CHANNELS
+"""取款渠道枚举；单一事实源来自 withdraw_a2ui_utils._ALL_CHANNELS。"""
+
 
 def _parse_options(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract options list from raw_data, with resilient parsing."""
@@ -92,15 +105,78 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "line_color": t.accent,
             "total_color": t.accent,
         },
-        "partial_surrender": {
-            "channels": ("partial_withdrawal", "surrender"),
-            "title": "部分领取/退保",
-            "tag": "保障有损失，不建议",
+        "partial_withdrawal": {
+            "channels": ("partial_withdrawal",),
+            "title": "部分领取",
+            "tag": "保额会降低",
+            "tag_color": "#FA8C16",
+            "line_color": t.accent,
+            "total_color": t.hint_color,
+        },
+        "surrender": {
+            "channels": ("surrender",),
+            "title": "退保",
+            "tag": "保障终止，不建议",
             "tag_color": "#CC6600",
             "line_color": "#CC6600",
             "total_color": t.hint_color,
         },
     }
+
+    assert tuple(_section_presets.keys()) == SECTION_TYPES, (
+        "_section_presets 的键顺序必须与 SECTION_TYPES 常量保持一致"
+    )
+
+    # -- Title/tag derivation (single source of truth: actual_channels) --
+
+    _SINGLE_CHANNEL_LABELS: dict[str, tuple[str, str, str]] = {
+        # channel -> (title, tag, tag_color)
+        "survival_fund":      ("生存金领取", "不影响保障", "#6cb585"),
+        "bonus":              ("红利领取",   "不影响保障", "#6cb585"),
+        "policy_loan":        ("保单贷款",   "需支付利息", "#FF8800"),
+        "partial_withdrawal": ("部分领取",   "保额会降低", "#FA8C16"),
+        "surrender":          ("退保",       "保障终止",   "#CC6600"),
+    }
+
+    def _derive_title_tag(
+        actual_channels: list[str],
+        is_recommended: bool,
+    ) -> tuple[str, str, str]:
+        """Derive (title, tag, tag_color) from the channels actually allocated.
+
+        This is the single source of truth — LLM-supplied title/tag are ignored
+        to prevent visual/allocation drift (e.g., title says "含贷款" but no loan
+        was allocated because target was met by an earlier channel).
+        """
+        if not actual_channels:
+            return ("无可用方案", "", t.hint_color)
+
+        if len(actual_channels) == 1:
+            title, tag, tag_color = _SINGLE_CHANNEL_LABELS[actual_channels[0]]
+            if is_recommended:
+                title = f"★ 推荐: {title}"
+            return (title, tag, tag_color)
+
+        chs = set(actual_channels)
+        zero_only = chs <= {"survival_fund", "bonus"}
+        has_loan = "policy_loan" in chs
+        has_surrender = "surrender" in chs
+        has_partial = "partial_withdrawal" in chs
+
+        if zero_only:
+            title = "★ 推荐: 零成本领取" if is_recommended else "零成本领取"
+            return (title, "不影响保障", "#6cb585")
+        if has_surrender:
+            title = "★ 推荐: 含退保方案" if is_recommended else "含退保方案"
+            return (title, "保障终止", "#CC6600")
+        if has_loan:
+            title = "★ 推荐: 含保单贷款方案" if is_recommended else "含保单贷款方案"
+            return (title, "需支付利息", "#FF8800")
+        if has_partial:
+            title = "★ 推荐: 组合领取方案" if is_recommended else "组合领取方案"
+            return (title, "保额会降低", "#FA8C16")
+        title = "★ 推荐: 组合方案" if is_recommended else "组合方案"
+        return (title, "", t.hint_color)
 
     # -- Shared helper --
 
@@ -140,7 +216,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
     ) -> A2UIOutput:
         """Header card for withdraw summary."""
         options = _parse_options(raw_data)
-        sections = data.get("sections", ["zero_cost", "loan", "partial_surrender"])
+        sections = data.get("sections", ["zero_cost", "loan", "partial_withdrawal", "surrender"])
         exclude_pids = set(data.get("exclude_policies") or [])
         if exclude_pids:
             options = [o for o in options if o.get("policy_id") not in exclude_pids]
@@ -203,9 +279,13 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "children": {"explicitList": [col_id]},
         })
 
-        digest = f"汇总: 总可领{'(含贷款)' if has_loan_section else ''} ¥{total:,.2f}"
-        if has_loan_section:
-            digest += f" | 不含贷款 ¥{total_excl_loan:,.2f}"
+        loan_flag = "true" if has_loan_section else "false"
+        digest = (
+            f"[卡片:总览/合计 total={total:.2f} loan_included={loan_flag}]"
+            f" 总可领 ¥{total:,.2f}"
+        )
+        if has_loan_section and total > 0:
+            digest += f" · 不含贷款 ¥{total_excl_loan:,.2f}"
 
         return A2UIOutput(components=[card, col] + comps, llm_digest=digest)
 
@@ -215,7 +295,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
         raw_data: dict[str, Any],
     ) -> A2UIOutput:
         """Section card for withdraw summary."""
-        section_name = data.get("section")
+        section_name = data.get("section_name")
         if section_name and section_name in _section_presets:
             preset = _section_presets[section_name]
             channels = preset["channels"]
@@ -297,8 +377,11 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "children": {"explicitList": [col_id]},
         })
 
-        detail = "; ".join(f"{item['label']} {item['value']}" for item in items)
-        digest = f"渠道: {title} | 合计: ¥{total_sum:,.2f} | {detail}"
+        detail = " · ".join(f"{item['label']} {item['value']}" for item in items)
+        digest = (
+            f"[卡片:总览/板块 name={section_name} total={total_sum:.2f}]"
+            f" {title} · {detail}"
+        )
 
         return A2UIOutput(components=[card, col] + comps, llm_digest=digest)
 
@@ -315,8 +398,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
 
         channels: list[str] = data.get("channels") or list(_ALL_CHANNELS)
         target = float(data.get("target") or 0)
-        title = data.get("title", "")
-        tag_text = data.get("tag", "")
+        is_recommended = bool(data.get("is_recommended", False))
         reason = data.get("reason", "")
 
         if target <= 0:
@@ -325,6 +407,9 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
         allocs = _allocate_to_target(options, target, channels)
         actual_total = sum(a for _, _, a in allocs)
         policies, buttons = _allocs_to_plan_parts(allocs)
+
+        actual_channels = list(dict.fromkeys(ch for _, ch, _ in allocs))
+        title, tag_text, tag_color_derived = _derive_title_tag(actual_channels, is_recommended)
 
         card_id, col_id = g("card"), g("column")
         row_id = g("row")
@@ -345,8 +430,7 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
         if tag_text:
             tag_tid = g("text")
             col_children.append(tag_tid)
-            tag_color = data.get("tag_color", "#52C41A")
-            comps.append(_text(tag_tid, tag_text, color=tag_color, fontSize="12px"))
+            comps.append(_text(tag_tid, tag_text, color=tag_color_derived, fontSize="12px"))
 
         col_children.append(total_id)
         comps.append(_text(total_id, f"合计：{_fmt(actual_total)}", color=t.accent, fontSize="16px", bold=True))
@@ -397,8 +481,6 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
             "children": {"explicitList": [col_id]},
         })
 
-        # Derive channels from actual allocations (single source of truth)
-        actual_channels = list(dict.fromkeys(ch for _, ch, _ in allocs))
         alloc_summary = {
             "title": title,
             "channels": actual_channels,
@@ -407,10 +489,17 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
                 for pid, ch, amt in allocs
             ],
         }
-        detail = "; ".join(f"{pid}({ch}) ¥{amt:,.2f}" for pid, ch, amt in allocs)
-        digest = f"方案: {title} | channels: {actual_channels} | 总额: ¥{actual_total:,.2f}"
-        if detail:
-            digest += f" | 明细: {detail}"
+        by_ch: dict[str, float] = {}
+        for _, ch, amt in allocs:
+            by_ch[ch] = by_ch.get(ch, 0) + amt
+        ch_summary = " · ".join(
+            f"{_CHANNEL_LABELS.get(ch, ch)} ¥{amt:,.2f}" for ch, amt in by_ch.items()
+        )
+        channels_str = ",".join(actual_channels)
+        digest = (
+            f"[卡片:方案 title=\"{title}\" channels=[{channels_str}] total={actual_total:.2f}]"
+            f" {ch_summary}"
+        )
 
         return A2UIOutput(
             components=[card, col] + comps,
@@ -429,3 +518,75 @@ def create_insurance_components(theme: A2UITheme | None = None) -> dict[str, Any
 
 
 INSURANCE_COMPONENTS: dict[str, Any] = create_insurance_components()
+
+COMPONENT_SCHEMAS: dict[str, str] = {
+    "WithdrawSummaryHeader": "总览头：合计所选板块的可领金额",
+    "WithdrawSummarySection": "板块卡：列出单板块各保单可领明细",
+    "WithdrawPlanCard": "方案卡：按目标金额在候选渠道自动分配",
+}
+
+BLOCK_DATA_SCHEMAS: dict[str, dict[str, Any]] = {
+    "WithdrawSummaryHeader": {
+        "type": "object",
+        "properties": {
+            "sections": {
+                "type": "array",
+                "description": "要展示的板块列表；缺省=全部。",
+                "items": {"type": "string", "enum": list(SECTION_TYPES)},
+            },
+            "exclude_policies": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "additionalProperties": True,
+    },
+    "WithdrawSummarySection": {
+        "type": "object",
+        "required": ["section_name"],
+        "properties": {
+            "section_name": {
+                "type": "string",
+                "description": "要展示的单个板块。",
+                "enum": list(SECTION_TYPES),
+            },
+            "exclude_policies": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "additionalProperties": True,
+    },
+    "WithdrawPlanCard": {
+        "type": "object",
+        "required": ["channels"],
+        "properties": {
+            "channels": {
+                "type": "array",
+                "description": (
+                    "候选渠道，按数组顺序贪心分配 target。"
+                    "顺序 = 优先级，把希望先消耗的渠道写在前面。"
+                ),
+                "items": {"type": "string", "enum": list(CHANNEL_TYPES)},
+            },
+            "target": {
+                "type": "number",
+                "description": "目标金额；0 或缺省=channels 累计全额。",
+            },
+            "is_recommended": {
+                "type": "boolean",
+                "description": "是否推荐方案（影响标题前缀 \"★ 推荐:\"）。一组方案中至多 1 个为 true。",
+            },
+            "reason": {"type": "string"},
+            "button_variant": {
+                "type": "string",
+                "enum": ["primary", "secondary"],
+            },
+            "exclude_policies": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "additionalProperties": True,
+    },
+}

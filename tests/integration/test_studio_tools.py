@@ -4,16 +4,20 @@ Updated for Phase 4 Service layer refactoring.
 """
 
 import pytest
-from pathlib import Path
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
-from ark_agentic.studio.api.tools import router as tools_router
-from ark_agentic.studio.services.tool_service import parse_tool_file
+from ark_agentic.plugins.studio.api.tools import router as tools_router
+from ark_agentic.plugins.studio.services.tool_service import parse_tool_file
 
 app = FastAPI()
 app.include_router(tools_router)
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def studio_auth(studio_auth_context):
+    studio_auth_context(client=client)
 
 
 @pytest.fixture
@@ -21,7 +25,7 @@ def mock_agents_root(tmp_path, monkeypatch):
     """Mock the _agents_root function to return a temp directory."""
     def mock_root(*args, **kwargs):
         return tmp_path
-    monkeypatch.setattr("ark_agentic.studio.api.tools.get_agents_root", mock_root)
+    monkeypatch.setattr("ark_agentic.plugins.studio.api.tools.get_agents_root", mock_root)
     return tmp_path
 
 

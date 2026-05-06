@@ -6,9 +6,11 @@ Bearer 由 ChatOpenAI(api_key=...) 注入。
 from __future__ import annotations
 
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import httpx
+
+from .sampling import SamplingConfig
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -18,8 +20,6 @@ logger = logging.getLogger(__name__)
 
 
 # ============ SX Transport ============
-# 仅注入 trace Header，不修改 body。Body 由 ChatOpenAI(extra_body=...) 在构造请求时一次写入，
-# 由上游计算 Content-Length，从源头避免「改 body 导致 Content-Length 不一致」。
 
 
 class PASXTraceTransport(httpx.AsyncBaseTransport):
@@ -56,39 +56,30 @@ class PASXTraceTransport(httpx.AsyncBaseTransport):
 def create_pa_sx_llm(
     config: "PAModelConfig",
     *,
-    temperature: float,
-    max_tokens: int,
-    streaming: bool,
-    enable_thinking: bool = False,
-    extra_body_override: dict[str, Any] | None = None,
+    sampling: SamplingConfig,
+    streaming: bool = False,
 ) -> "BaseChatModel":
-    """构建 PA-SX 系列 ChatOpenAI。Body 通过 extra_body 在构造时注入，从源头保证 Content-Length 正确。"""
+    """构建 PA-SX 系列 ChatOpenAI。
+
+    Body 通过 extra_body 在构造时注入，从源头保证 Content-Length 正确。
+    采样参数统一由 SamplingConfig 分层注入。
+    """
     from langchain_openai import ChatOpenAI
+    from .debug_transport import debug_transport
 
     transport = PASXTraceTransport(
-        base_transport=httpx.AsyncHTTPTransport(retries=3),
+        base_transport=debug_transport(httpx.AsyncHTTPTransport(retries=3)),
         trace_app_id=config.trace_app_id,
     )
     http_client = httpx.AsyncClient(transport=transport)
     logger.info(f"PA-SX model {config.model_name} with trace transport")
 
-    sx_extra_body: dict[str, Any] = {
-        "seed": 42,
-        "chat_template_kwargs": {
-            "enable_thinking": enable_thinking,
-            "thinking": enable_thinking,
-        },
-    }
-    if extra_body_override:
-        sx_extra_body.update(extra_body_override)
-
     return ChatOpenAI(
         base_url=config.base_url,
         api_key=config.api_key or "EMPTY",
         model=config.model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
         streaming=streaming,
         http_async_client=http_client,
-        extra_body=sx_extra_body,
+        extra_body=sampling.to_extra_body(),
+        **sampling.to_chat_openai_kwargs(),
     )

@@ -2,7 +2,7 @@
 
 import os
 import pytest
-from ark_agentic.core.compaction import (
+from ark_agentic.core.session.compaction import (
     CompactionConfig,
     ContextCompactor,
     LLMSummarizer,
@@ -48,6 +48,30 @@ class TestTokenEstimation:
         tokens = estimate_message_tokens(msg)
         # Content + structure overhead (4)
         assert tokens >= 4
+
+    def test_estimate_tool_message_tokens_uses_a2ui_digest(self) -> None:
+        from ark_agentic.core.types import AgentMessage, AgentToolResult
+
+        big_components = [
+            {"type": "Card", "data": {"text": "保单信息" * 50, "amount": 99999}}
+            for _ in range(20)
+        ]
+        big_msg = AgentMessage.tool([
+            AgentToolResult.a2ui_result("tc_a2ui", big_components),
+        ])
+        assert estimate_message_tokens(big_msg) < 30
+
+    def test_estimate_tool_message_tokens_explicit_digest(self) -> None:
+        from ark_agentic.core.types import AgentMessage, AgentToolResult
+
+        msg = AgentMessage.tool([
+            AgentToolResult.json_result(
+                "tc_dig",
+                {"data": list(range(500))},
+                llm_digest="ok",
+            ),
+        ])
+        assert estimate_message_tokens(msg) < 15
 
 
 class TestAdaptiveChunking:
@@ -278,14 +302,13 @@ class TestLLMSummarizerIntegration:
     @pytest.mark.asyncio
     async def test_llm_summarizer_basic(self) -> None:
         """Test LLMSummarizer with real OpenAI-compatible model."""
-        from ark_agentic.core.llm import create_chat_model
+        from ark_agentic.core.llm import SamplingConfig, create_chat_model
 
         llm = create_chat_model(
             model=os.getenv("MODEL_NAME", "gpt-4o"),
             api_key=os.getenv("API_KEY"),
             base_url=os.getenv("LLM_BASE_URL"),
-            temperature=0.3,
-            max_tokens=500,
+            sampling=SamplingConfig.for_summarization(temperature=0.3, max_tokens=500),
         )
         summarizer = LLMSummarizer(llm)
 
@@ -312,13 +335,13 @@ class TestLLMSummarizerIntegration:
     @pytest.mark.asyncio
     async def test_llm_summarizer_with_previous_summary(self) -> None:
         """Test incremental summarization."""
-        from ark_agentic.core.llm import create_chat_model
+        from ark_agentic.core.llm import SamplingConfig, create_chat_model
 
         llm = create_chat_model(
             model=os.getenv("MODEL_NAME", "gpt-4o"),
             api_key=os.getenv("API_KEY"),
             base_url=os.getenv("LLM_BASE_URL"),
-            temperature=0.3,
+            sampling=SamplingConfig.for_summarization(temperature=0.3),
         )
         summarizer = LLMSummarizer(llm)
 
@@ -338,13 +361,13 @@ class TestLLMSummarizerIntegration:
     @pytest.mark.asyncio
     async def test_llm_summarizer_custom_instructions(self) -> None:
         """Test custom summarization instructions."""
-        from ark_agentic.core.llm import create_chat_model
+        from ark_agentic.core.llm import SamplingConfig, create_chat_model
 
         llm = create_chat_model(
             model=os.getenv("MODEL_NAME", "gpt-4o"),
             api_key=os.getenv("API_KEY"),
             base_url=os.getenv("LLM_BASE_URL"),
-            temperature=0.3,
+            sampling=SamplingConfig.for_summarization(temperature=0.3),
         )
         summarizer = LLMSummarizer(llm)
 
@@ -371,13 +394,13 @@ class TestContextCompactorIntegration:
     @pytest.mark.asyncio
     async def test_compactor_with_llm_summarizer(self) -> None:
         """Test full compaction flow with LLM summarizer."""
-        from ark_agentic.core.llm import create_chat_model
+        from ark_agentic.core.llm import SamplingConfig, create_chat_model
 
         llm = create_chat_model(
             model=os.getenv("MODEL_NAME", "gpt-4o"),
             api_key=os.getenv("API_KEY"),
             base_url=os.getenv("LLM_BASE_URL"),
-            temperature=0.3,
+            sampling=SamplingConfig.for_summarization(temperature=0.3),
         )
         summarizer = LLMSummarizer(llm)
 

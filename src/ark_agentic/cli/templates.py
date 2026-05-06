@@ -13,12 +13,12 @@ version = "0.1.0"
 description = "{project_name} - Built with ark-agentic"
 requires-python = ">=3.10"
 dependencies = [
-    {ark_dep}
-    "python-dotenv>=1.0.0",{api_deps}
+    "ark-agentic[server]>=0.5.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
-{project_name} = "{package_name}.main:main_sync"
+{project_name} = "{package_name}.app:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -34,20 +34,22 @@ testpaths = ["tests"]
 
 MAIN_MODULE_TEMPLATE = '''\
 """
-{project_name} - 基于 ark-agentic 框架的智能体应用
+{project_name} - 基于 ark-agentic 框架的智能体应用（无 HTTP 入口）
+
+适合 CLI / 脚本场景；HTTP + Studio 入口请用 ``{package_name}.app``。
 """
 
 import asyncio
 
 from dotenv import load_dotenv
 
-from .agents.default.agent import create_default_agent
+from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
 
 load_dotenv()
 
 
 async def main():
-    agent = create_default_agent()
+    agent = create_{agent_name_snake}_agent()
     user_id = "default"
     session_id = await agent.create_session(user_id=user_id)
 
@@ -73,53 +75,56 @@ if __name__ == "__main__":
 
 AGENT_MODULE_TEMPLATE = '''\
 """
-{agent_name} 智能体
+{agent_display_name} 智能体
 
 环境变量:
     SESSIONS_DIR: 会话持久化基础目录（默认 data/ark_sessions）
-    MEMORY_DIR: Memory 数据基础目录（默认 data/ark_memory）
+    MEMORY_DIR:   Memory 数据基础目录（默认 data/ark_memory）
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from ark_agentic import AgentRunner, RunnerConfig, create_chat_model_from_env
-from ark_agentic.core.tools import ToolRegistry
-from ark_agentic.core.paths import prepare_agent_data_dir
-from ark_agentic.core.session import SessionManager
-from ark_agentic.core.prompt import PromptConfig
+from ark_agentic import AgentDef, AgentRunner, build_standard_agent
+from ark_agentic.core.runtime.callbacks import RunnerCallbacks
+
+from .tools import create_{agent_name_snake}_tools
+
+_AGENT_DIR = Path(__file__).resolve().parent
+
+_DEF = AgentDef(
+    agent_id="{agent_name_snake}",
+    agent_name="{agent_display_name}",
+    agent_description="TODO: 描述你的智能体功能",
+)
 
 
 def create_{agent_name_snake}_agent(
     llm: BaseChatModel | None = None,
     *,
     enable_memory: bool = False,
+    enable_dream: bool = True,
+    callbacks: RunnerCallbacks | None = None,
 ) -> AgentRunner:
-    if llm is None:
-        llm = create_chat_model_from_env()
+    """创建 {agent_display_name} 智能体。
 
-    tool_registry = ToolRegistry()
-    # TODO: Register your tools here
-    # tool_registry.register(YourTool())
-
-    session_manager = SessionManager(
-        sessions_dir=prepare_agent_data_dir("{agent_name_snake}"),
-    )
-
-    runner_config = RunnerConfig(
-        max_turns=10,
-        prompt_config=PromptConfig(
-            agent_name="{agent_display_name}",
-            agent_description="TODO: 描述你的智能体功能",
-        ),
-    )
-
-    return AgentRunner(
+    Args:
+        llm: LLM 实例；None 时从环境变量初始化
+        enable_memory: 是否启用 Memory 系统
+        enable_dream: 是否启用后台记忆蒸馏（需 enable_memory=True 才有效）
+        callbacks: 业务回调（鉴权、上下文注入、引用校验等）
+    """
+    return build_standard_agent(
+        _DEF,
+        skills_dir=_AGENT_DIR / "skills",
+        tools=create_{agent_name_snake}_tools(),
         llm=llm,
-        tool_registry=tool_registry,
-        session_manager=session_manager,
-        config=runner_config,
+        enable_memory=enable_memory,
+        enable_dream=enable_dream,
+        callbacks=callbacks,
     )
 '''
 
@@ -139,23 +144,51 @@ TOOL_TEMPLATE = '''\
 
 在此定义和注册业务工具。
 """
+
+from __future__ import annotations
+
+from ark_agentic.core.tools import AgentTool
+
+
+def create_{agent_name_snake}_tools() -> list[AgentTool]:
+    """返回 {agent_display_name} 智能体使用的业务工具列表。
+
+    在此处实例化你的工具并加入返回列表。
+    """
+    return []
 '''
 
 ENV_SAMPLE_TEMPLATE = """\
-# LLM Configuration
-{provider_block}
+# ---- LLM ----
+LLM_PROVIDER=openai
+MODEL_NAME=gpt-4o
+API_KEY=
 
-# Common options
-# DEFAULT_TEMPERATURE=0.7
+# ---- API server ----
+# API_HOST=0.0.0.0
+# API_PORT=8080
 
-# Studio configuration (optional)
+# ---- Plugins (opt-in via ENABLE_*) ----
 # ENABLE_STUDIO=true
-# AGENTS_ROOT=./src/{package_name}/agents
+# ENABLE_NOTIFICATIONS=true
+# ENABLE_JOB_MANAGER=true
+# ENABLE_MEMORY=true
+
+# ---- Tracing (off by default) ----
+# TRACING=console
 """
 
 API_APP_TEMPLATE = '''\
 """
-{project_name} API Server
+{project_name} - 框架装配入口
+
+仅做装配工作: 把项目自带的 Agent 注册到 ``AgentRegistry``，再交给
+``Bootstrap`` 驱动选定的 plugin (API / Notifications / Jobs / Studio)
+完成 init / install_routes / start / stop。框架自动加载强制 lifecycle
+组件 (``AgentsLifecycle`` / ``TracingLifecycle``)。
+
+启用具体插件由环境变量决定（如 ``ENABLE_STUDIO=true``）；不需要的插件
+保持默认即可，``Bootstrap`` 会跳过。
 """
 
 from __future__ import annotations
@@ -163,9 +196,9 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 _log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
@@ -175,70 +208,49 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     force=True,
 )
-for _lib in ("httpcore", "httpx", "urllib3", "asyncio"):
-    logging.getLogger(_lib).setLevel(logging.WARNING)
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
-from ark_agentic.core.registry import AgentRegistry
-from ark_agentic.api import chat as chat_api
-from ark_agentic.api import deps as api_deps
-from ark_agentic.studio import setup_studio_from_env
+from ark_agentic.core.protocol.app_context import AppContext
+from ark_agentic.core.protocol.bootstrap import Bootstrap
+from ark_agentic.plugins.api.plugin import APIPlugin
+from ark_agentic.plugins.jobs.plugin import JobsPlugin
+from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
+from ark_agentic.plugins.studio.plugin import StudioPlugin
 
 from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
 
 logger = logging.getLogger(__name__)
 
-_registry = AgentRegistry()
+# Bootstrap 自动加载 AgentsLifecycle + TracingLifecycle；
+# Plugin 是否启用由各自的 ENABLE_* 环境变量决定。
+# 把项目自带的 agent 注册到框架 registry（``start()`` 之前完成即可）。
+_bootstrap = Bootstrap(
+    components=[APIPlugin(), NotificationsPlugin(), JobsPlugin(), StudioPlugin()],
+)
+_bootstrap.agent_registry.register(
+    "{agent_name_snake}", create_{agent_name_snake}_agent(),
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    runner = create_{agent_name_snake}_agent()
-    _registry.register("{agent_name_snake}", runner)
-    api_deps.init_registry(_registry)
-    logger.info("{project_name} API started")
-    yield
-    logger.info("{project_name} API shutting down")
+    ctx = AppContext()
+    await _bootstrap.start(ctx)
+    app.state.ctx = ctx
+    try:
+        yield
+    finally:
+        await _bootstrap.stop()
 
 
 app = FastAPI(
     title="{project_name}",
-    description="{project_name} Agent API",
+    description="{project_name} - Built with ark-agentic",
     version="0.1.0",
     lifespan=lifespan,
 )
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(chat_api.router)
-setup_studio_from_env(app, registry=_registry)
-
-_STATIC_DIR = Path(__file__).parent / "static"
-if _STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-
-@app.get("/", include_in_schema=False)
-async def root():
-    index = _STATIC_DIR / "index.html"
-    if index.is_file():
-        return FileResponse(str(index), media_type="text/html")
-    return {{"message": "{project_name} API", "docs": "/docs"}}
-
-
-@app.get("/health")
-async def health_check():
-    return {{"status": "ok"}}
+_bootstrap.install_routes(app)
 
 
 def main() -> None:

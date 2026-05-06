@@ -4,29 +4,53 @@
     {
       "id": 1,
       "name": "withdraw-standard",
-      "prompt": "用户 U001 说：「我想取 5 万」。\n\ncustomer_info 返回：{ age: 42, gender: 'male', children: true, purpose: 'education' }\n\nrule_engine list_options 返回：\n{\n  \"requested_amount\": 50000,\n  \"total_available_excl_loan\": 219200,\n  \"total_available_incl_loan\": 252800,\n  \"combination_hint\": null,\n  \"options\": [\n    {\n      \"policy_id\": \"POL002\",\n      \"product_name\": \"金瑞人生年金险\",\n      \"product_type\": \"annuity\",\n      \"policy_year\": 5,\n      \"available_amount\": 177200,\n      \"survival_fund_amt\": 12000,\n      \"bonus_amt\": 5200,\n      \"loan_amt\": 0,\n      \"refund_amt\": 160000,\n      \"refund_fee_rate\": 0.01,\n      \"loan_interest_rate\": null,\n      \"processing_time\": \"1-3个工作日\"\n    },\n    {\n      \"policy_id\": \"POL001\",\n      \"product_name\": \"安心守护终身寿险\",\n      \"product_type\": \"whole_life\",\n      \"policy_year\": 8,\n      \"available_amount\": 75600,\n      \"survival_fund_amt\": 0,\n      \"bonus_amt\": 0,\n      \"loan_amt\": 42000,\n      \"refund_amt\": 33600,\n      \"refund_fee_rate\": 0,\n      \"loan_interest_rate\": 0.05,\n      \"processing_time\": \"1-3个工作日\"\n    }\n  ]\n}\n\n请按照 withdraw_money 技能的指令，给出你作为保险智能助手的完整回复。包括：\n1. 你会调用哪些工具（按顺序列出），以及 render_card 的 card_args 参数值\n2. 最终展示给用户的文字内容（这是最关键的，必须保存到 output.txt）",
-      "expected_output": "调用 render_card(card_type='withdraw_plan')，card_args 包含 rec 和 alt 两个方案。最终用户可见的文字极简（≤25字），仅为一句确认引导，无任何列表或段落描述。",
+      "prompt": "用户 U001 说：「我想取 5 万」。\n\nrule_engine list_options 返回（LLM 看到的 channels 摘要）：\n{\n  \"status\": \"ok\",\n  \"policy_count\": 2,\n  \"channels\": {\n    \"zero_cost\":          {\"total\": 17200, \"note\": \"不影响保障\"},\n    \"survival_fund\":      {\"total\": 12000},\n    \"bonus\":              {\"total\": 5200},\n    \"partial_withdrawal\": {\"total\": 160000, \"note\": \"保额降低\"},\n    \"policy_loan\":        {\"total\": 42000, \"note\": \"年利率5%\"},\n    \"surrender\":          {\"total\": 33600, \"note\": \"保障终止\"}\n  },\n  \"grand_total\": 252800,\n  \"combination_hint\": null\n}\n\n请按照 withdraw_money 技能的 STEP 3 PLAN 渲染规则 R1/R2，给出你作为保险智能助手的完整回复。包括：\n1. 你会调用哪些工具（按顺序列出），以及 render_a2ui blocks 数组中每个 WithdrawPlanCard 的 data 参数（必须含 channels / target / is_recommended，禁止含 title/tag/tag_color）\n2. 最终展示给用户的文字内容（≤25 字、保存到 output.txt）",
+      "expected_output": "调用 render_a2ui，blocks 包含 2 个 WithdrawPlanCard：Plan A（推荐，含零成本+部分领取）和 Plan B（备选，含零成本+保单贷款）。最终用户可见文字极简（≤25 字），仅为一句确认引导。",
       "files": [],
       "assertions": [
-        "输出文字中明确提到 render_card 或 withdraw_plan 卡片的调用",
-        "展示给用户的最终文字不超过 30 字（不含 card_args JSON）",
+        "调用 render_a2ui，blocks 中至少 1 个 WithdrawPlanCard",
+        "Plan A 的 channels 必须包含 survival_fund（零成本优先）",
+        "任何 PlanCard 的 data 都不含 title 字段（标题由引擎派生）",
+        "任何 PlanCard 的 data 都不含 tag 字段",
+        "至少 1 个 PlanCard 的 is_recommended 为 true",
+        "最终文字不超过 30 字",
         "最终文字中没有 Markdown 列表（无以 '- ' 或 '* ' 开头的行）",
-        "最终文字中没有重复卡片内容（不包含金额数字、保单名称、费用信息）",
-        "推荐方案优先选用生存金或红利等零成本渠道"
+        "最终文字中没有重复卡片内容（不包含金额数字、保单名称、费用信息）"
       ]
     },
     {
       "id": 2,
       "name": "withdraw-exceed",
-      "prompt": "用户 U001 说：「我想取 30 万」。\n\ncustomer_info 返回：{ age: 35, gender: 'female', children: false, purpose: 'investment' }\n\nrule_engine list_options 返回：\n{\n  \"requested_amount\": 300000,\n  \"total_available_excl_loan\": 219200,\n  \"total_available_incl_loan\": 252800,\n  \"combination_hint\": \"insufficient\",\n  \"options\": [\n    {\n      \"policy_id\": \"POL002\",\n      \"product_name\": \"金瑞人生年金险\",\n      \"product_type\": \"annuity\",\n      \"policy_year\": 5,\n      \"available_amount\": 177200,\n      \"survival_fund_amt\": 12000,\n      \"bonus_amt\": 5200,\n      \"loan_amt\": 0,\n      \"refund_amt\": 160000,\n      \"refund_fee_rate\": 0.01,\n      \"loan_interest_rate\": null,\n      \"processing_time\": \"1-3个工作日\"\n    },\n    {\n      \"policy_id\": \"POL001\",\n      \"product_name\": \"安心守护终身寿险\",\n      \"product_type\": \"whole_life\",\n      \"policy_year\": 8,\n      \"available_amount\": 75600,\n      \"survival_fund_amt\": 0,\n      \"bonus_amt\": 0,\n      \"loan_amt\": 42000,\n      \"refund_amt\": 33600,\n      \"refund_fee_rate\": 0,\n      \"loan_interest_rate\": 0.05,\n      \"processing_time\": \"1-3个工作日\"\n    }\n  ]\n}\n\n请按照 withdraw_money 技能的指令，给出你作为保险智能助手的完整回复。包括：\n1. 你会调用哪些工具（按顺序列出）\n2. 最终展示给用户的文字内容（保存到 output.txt）",
-      "expected_output": "告知最多可取 252,800 元（含贷款），给出最大可取方案，说明无法满足 30 万需求，文字简洁不超过 2 句。",
+      "prompt": "用户 U001 说：「我想取 30 万」。\n\nrule_engine list_options 返回：\n{\n  \"status\": \"ok\",\n  \"policy_count\": 2,\n  \"channels\": {\n    \"zero_cost\":          {\"total\": 17200},\n    \"survival_fund\":      {\"total\": 12000},\n    \"bonus\":              {\"total\": 5200},\n    \"partial_withdrawal\": {\"total\": 160000},\n    \"policy_loan\":        {\"total\": 42000},\n    \"surrender\":          {\"total\": 33600}\n  },\n  \"grand_total\": 252800,\n  \"combination_hint\": \"所有保单合计约 252,800 元，仍不足 300,000 元，请考虑调整金额。\"\n}\n\n请按照 withdraw_money 技能的 STEP 3 PLAN 渲染规则，给出你作为保险智能助手的完整回复。包括：\n1. 你会调用哪些工具（按顺序列出）\n2. 最终展示给用户的文字内容（保存到 output.txt）",
+      "expected_output": "因 target > grand，按 R1 特例只出 1 个 PlanCard：channels=null（全渠道）/ target=252800 / is_recommended=true。最终文字 ≤2 句，告知最大可取约 25 万元。",
       "files": [],
       "assertions": [
-        "最终文字中提到最大可用金额（25万或252,800）",
-        "最终文字不超过 50 字",
+        "调用 render_a2ui，blocks 中 PlanCard 数量为 1（target>grand 不出备选）",
+        "PlanCard 的 target 等于 252800 或省略 target（按 channels 累计）",
+        "任何 PlanCard 的 data 都不含 title 字段",
+        "最终文字中提到最大可用金额（25万 / 252,800 / 252800）",
+        "最终文字不超过 60 字",
         "最终文字中没有 Markdown 列表",
         "最终文字说明无法完全满足 30 万需求",
         "没有自行编造超出规则引擎数据的金额"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "withdraw-q1-no-duplicate-plans",
+      "prompt": "用户 U001 说：「我想取 10000」。\n\nrule_engine list_options 返回（LLM 看到的 channels 摘要）：\n{\n  \"status\": \"ok\",\n  \"policy_count\": 3,\n  \"channels\": {\n    \"zero_cost\":          {\"total\": 17200, \"note\": \"不影响保障\"},\n    \"survival_fund\":      {\"total\": 12000},\n    \"bonus\":              {\"total\": 5200},\n    \"partial_withdrawal\": {\"total\": 245000, \"note\": \"保额降低，可能有手续费\"},\n    \"policy_loan\":        {\"total\": 33600, \"note\": \"年利率5%\"},\n    \"surrender\":          {\"total\": 42000, \"note\": \"保障终止\"}\n  },\n  \"grand_total\": 342800,\n  \"combination_hint\": null\n}\n\n请按照 withdraw_money 技能的 STEP 3 PLAN 渲染规则 R1/R2，给出你作为保险智能助手的完整回复。包括：\n1. 你会调用哪些工具（按顺序列出），以及 render_a2ui blocks 数组中每个 WithdrawPlanCard 的 data 参数（必须含 channels / target / is_recommended，禁止含 title/tag/tag_color）\n2. 最终展示给用户的文字内容（≤25 字、保存到 output.txt）",
+      "expected_output": "调用 render_a2ui，blocks 含 1 或 2 个 WithdrawPlanCard。如果出 2 个，两张卡的 channels 数组（按集合视角）应不相等——这是 Q1 的核心断言。最终用户可见文字 ≤25 字、为一句确认引导。",
+      "files": [],
+      "assertions": [
+        "render_a2ui 调用中 PlanCard 数量为 1 或 2",
+        "如果有 2 个 PlanCard，两个 data.channels 数组（按集合视角）不相等",
+        "任何 PlanCard 的 data 都不含 title 字段（标题由引擎派生）",
+        "任何 PlanCard 的 data 都不含 tag 字段",
+        "任何 PlanCard 的 data 都不含 tag_color 字段",
+        "至少 1 个 PlanCard 的 is_recommended 为 true",
+        "Plan A 的 channels 优先包含 survival_fund 或 bonus（零成本优先）",
+        "最终文字不超过 30 字",
+        "最终文字中没有 Markdown 列表"
       ]
     }
   ]

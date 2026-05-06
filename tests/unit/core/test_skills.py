@@ -13,6 +13,7 @@ from ark_agentic.core.skills.base import (
     build_skill_prompt,
     check_skill_eligibility,
     format_skills_metadata_for_prompt,
+    render_active_skill_section,
     render_skill_section,
 )
 from ark_agentic.core.types import SkillLoadMode
@@ -229,6 +230,45 @@ class TestBuildSkillPrompt:
         assert "&quot;" in prompt
         assert "&lt;tag&gt;" in prompt
         assert "&amp;" in prompt
+
+
+class TestRenderActiveSkillSection:
+    """dynamic 模式 <active_skill> 段：与 build_skill_prompt 共用 strip/escape 语义。"""
+
+    def test_wraps_id_name_and_body(self) -> None:
+        skill = SkillEntry(
+            id="my.skill",
+            path="/p",
+            content="Rule line one.\nRule line two.",
+            metadata=SkillMetadata(name="My Skill", description="d"),
+        )
+        out = render_active_skill_section(skill)
+        assert '<active_skill id="my.skill" name="My Skill">' in out
+        assert "Rule line one." in out and "Rule line two." in out
+        assert out.strip().endswith("</active_skill>")
+
+    def test_strips_leading_h1(self) -> None:
+        skill = SkillEntry(
+            id="x",
+            path="/x",
+            content="# Title\n\nBody only.",
+            metadata=SkillMetadata(name="Title", description="d"),
+        )
+        out = render_active_skill_section(skill)
+        assert "# Title" not in out
+        assert "Body only." in out
+
+    def test_xml_escapes_name_attribute(self) -> None:
+        skill = SkillEntry(
+            id="id1",
+            path="/p",
+            content="b",
+            metadata=SkillMetadata(
+                name='N"q', description="d",
+            ),
+        )
+        out = render_active_skill_section(skill)
+        assert 'name="N&quot;q"' in out
 
 
 class TestStripLeadingH1:

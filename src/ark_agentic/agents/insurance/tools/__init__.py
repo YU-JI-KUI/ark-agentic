@@ -17,12 +17,8 @@ from pathlib import Path
 from ark_agentic.core.a2ui import A2UITheme
 from ark_agentic.core.tools import BlocksConfig, RenderA2UITool, TemplateConfig
 
-from ..a2ui import create_insurance_blocks, create_insurance_components
-from ..a2ui.template_extractors import (
-    policy_detail_extractor,
-    withdraw_plan_extractor,
-    withdraw_summary_extractor,
-)
+from ..a2ui import create_insurance_components
+from ..a2ui.components import BLOCK_DATA_SCHEMAS, COMPONENT_SCHEMAS
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
@@ -33,11 +29,6 @@ from ark_agentic.core.flow.collect_user_fields import CollectUserFieldsTool
 from ark_agentic.core.flow.rollback_flow_stage import RollbackFlowStageTool
 
 _A2UI_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "a2ui" / "templates"
-_CARD_EXTRACTORS = {
-    "withdraw_summary": withdraw_summary_extractor,
-    "withdraw_plan": withdraw_plan_extractor,
-    "policy_detail": policy_detail_extractor,
-}
 
 
 INSURANCE_THEME = A2UITheme(
@@ -48,7 +39,6 @@ INSURANCE_THEME = A2UITheme(
     card_padding=16,
 )
 
-_THEMED_BLOCKS = create_insurance_blocks(INSURANCE_THEME)
 _THEMED_COMPONENTS = create_insurance_components(INSURANCE_THEME)
 
 _INSURANCE_STATE_KEYS = (
@@ -61,13 +51,10 @@ _INSURANCE_STATE_KEYS = (
 def _create_render_a2ui_tool() -> RenderA2UITool:
     return RenderA2UITool(
         blocks=BlocksConfig(
-            agent_blocks=_THEMED_BLOCKS,
             agent_components=_THEMED_COMPONENTS,
             theme=INSURANCE_THEME,
-        ),
-        template=TemplateConfig(
-            template_root=_A2UI_TEMPLATE_ROOT,
-            extractors=_CARD_EXTRACTORS,
+            component_schemas=COMPONENT_SCHEMAS,
+            block_data_schemas=BLOCK_DATA_SCHEMAS,
         ),
         group="insurance",
         state_keys=_INSURANCE_STATE_KEYS,

@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from ark_agentic.core.callbacks import (
+from ark_agentic.core.runtime.callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
     RunnerCallbacks,
 )
-from ark_agentic.core.runner import AgentRunner, RunnerConfig, RunResult, _LoopState
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult, _LoopState
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.types import AgentMessage, SessionEntry, SkillLoadMode, ToolCall
 
@@ -91,6 +91,7 @@ class TestRunHooksEventDispatch:
 
         minimal_runner._callbacks = RunnerCallbacks(before_agent=[hook])
         cb_ctx = CallbackContext(
+            run_id="r1",
             user_input="ok",
             input_context={},
             session=SessionEntry(session_id="s1", user_id="u1"),
@@ -114,6 +115,7 @@ class TestRunHooksEventDispatch:
 
         minimal_runner._callbacks = RunnerCallbacks(before_agent=[hook])
         cb_ctx = CallbackContext(
+            run_id="r1",
             user_input="ok",
             input_context={},
             session=SessionEntry(session_id="s1", user_id="u1"),
@@ -135,8 +137,6 @@ class TestLoopStateMakeResult:
         ls = _LoopState(
             turns=2,
             total_tool_calls=1,
-            total_prompt_tokens=10,
-            total_completion_tokens=20,
             all_tool_calls=[tc],
             all_tool_results=[],
         )
@@ -148,6 +148,4 @@ class TestLoopStateMakeResult:
         assert out.tool_calls_count == 1
         assert out.tool_calls == [tc]
         assert out.tool_results == []
-        assert out.prompt_tokens == 10
-        assert out.completion_tokens == 20
         assert out.stopped_by_limit is True

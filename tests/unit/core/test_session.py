@@ -1,11 +1,14 @@
 """Tests for session management."""
 
+import time
+
 import pytest
 from pathlib import Path
 
-from ark_agentic.core.session import SessionManager
-from ark_agentic.core.compaction import CompactionConfig
-from ark_agentic.core.types import AgentMessage, MessageRole
+from ark_agentic.core.session.manager import SessionManager
+from ark_agentic.core.session.compaction import CompactionConfig
+from ark_agentic.core.storage.entries import SessionStoreEntry
+from ark_agentic.core.types import AgentMessage, MessageRole, SessionEntry
 
 
 class TestSessionManagerBasic:
@@ -151,6 +154,42 @@ class TestSessionManagerTokens:
         assert manager.estimate_current_tokens(session.session_id) > 0
 
 
+class TestSessionEntryActiveSkillIds:
+    """Tests for SessionEntry active_skill_ids SSOT field."""
+
+    def test_session_entry_active_skill_ids_roundtrip(self) -> None:
+        session = SessionEntry.create()
+        session.active_skill_ids = ["a", "b"]
+        # newest wins → [-1]
+        assert session.current_active_skill_id == "b"
+
+        original_updated_at = session.updated_at
+        time.sleep(0.001)
+        session.set_active_skill_ids(["c"])
+        assert session.active_skill_ids == ["c"]
+        assert session.current_active_skill_id == "c"
+        assert session.updated_at > original_updated_at
+
+    def test_session_entry_current_active_skill_id_empty(self) -> None:
+        session = SessionEntry.create()
+        assert session.active_skill_ids == []
+        assert session.current_active_skill_id is None
+
+    def test_session_store_entry_persists_active_skill_ids(self) -> None:
+        entry = SessionStoreEntry(
+            session_id="s1",
+            updated_at=0,
+            active_skill_ids=["a", "b"],
+        )
+        d = entry.to_dict()
+        assert d["activeSkillIds"] == ["a", "b"]
+        # legacy key not emitted
+        assert "activeSkills" not in d
+        # roundtrip
+        restored = SessionStoreEntry.from_dict(d)
+        assert restored.active_skill_ids == ["a", "b"]
+
+
 class TestSessionManagerSkills:
     """Tests for skill management."""
 
@@ -158,11 +197,13 @@ class TestSessionManagerSkills:
     def setup(self, tmp_sessions_dir: Path) -> None:
         self.sessions_dir = tmp_sessions_dir
 
-    def test_set_active_skills(self) -> None:
+    def test_set_active_skill_ids(self) -> None:
         manager = SessionManager(self.sessions_dir)
         session = manager.create_session_sync()
-        manager.set_active_skills(session.session_id, ["skill1", "skill2"])
-        assert manager.get_active_skills(session.session_id) == ["skill1", "skill2"]
+        manager.set_active_skill_ids(session.session_id, ["skill1", "skill2"])
+        assert manager.get_active_skill_ids(session.session_id) == ["skill1", "skill2"]
+        # SSOT lives only on session.active_skill_ids
+        assert session.active_skill_ids == ["skill1", "skill2"]
 
 
 class TestSessionManagerState:
@@ -263,3 +304,64 @@ class TestSessionManagerPersistence:
         assert session_file.exists()
         await manager.delete_session(session.session_id, self.USER_ID)
         assert not session_file.exists()
+
+
+class TestRepositoryBackedPersistence:
+    """Task 16 regressions: messages persist immediately, not via pending buffer."""
+
+    USER_ID = "u1"
+
+    async def test_add_message_persists_immediately(self, tmp_sessions_dir: Path) -> None:
+        manager = SessionManager(sessions_dir=tmp_sessions_dir)
+        session = await manager.create_session(self.USER_ID)
+
+        await manager.add_message(
+            session.session_id, self.USER_ID, AgentMessage.user("hello"),
+        )
+
+        # New SessionManager with same dir must see the message via repository.
+        fresh = SessionManager(sessions_dir=tmp_sessions_dir)
+        loaded = await fresh._repository.load_messages(session.session_id, self.USER_ID)
+        assert any(m.content == "hello" for m in loaded), \
+            "add_message must persist synchronously; pending-buffer is gone"
+
+
+class TestEphemeralPathDoesNotPersist:
+    async def test_add_message_in_memory_only_skips_disk(
+        self, tmp_sessions_dir: Path,
+    ) -> None:
+        manager = SessionManager(sessions_dir=tmp_sessions_dir)
+        session = manager.create_session_sync(user_id="u1")
+
+        manager.add_message_in_memory_only(
+            session.session_id, AgentMessage.user("ephemeral"),
+        )
+
+        # In-memory copy is updated...
+        assert any(m.content == "ephemeral" for m in manager.get_messages(session.session_id))
+        # ...but the repository was never touched.
+        loaded = await manager._repository.load_messages(session.session_id, "u1")
+        assert all(m.content != "ephemeral" for m in loaded)
+
+
+class TestFinalizeIsCalled:
+    USER_ID = "u-final"
+
+    async def test_finalize_triggered_after_compact(
+        self, tmp_sessions_dir: Path,
+    ) -> None:
+        manager = SessionManager(sessions_dir=tmp_sessions_dir)
+        session = await manager.create_session(self.USER_ID)
+
+        called: list[tuple[str, str]] = []
+        original_finalize = manager._repository.finalize
+
+        async def _spy(sid: str, uid: str) -> None:  # type: ignore[override]
+            called.append((sid, uid))
+            await original_finalize(sid, uid)
+
+        manager._repository.finalize = _spy  # type: ignore[method-assign]
+
+        await manager.compact_session(session.session_id, self.USER_ID, force=True)
+
+        assert (session.session_id, self.USER_ID) in called

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.callbacks import CallbackContext, HookAction
+from ark_agentic.core.runtime.callbacks import CallbackContext, HookAction
 from ark_agentic.core.types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
-from ark_agentic.core.validation import EntityTrie, create_citation_validation_hook
+from ark_agentic.core.runtime.validation import EntityTrie, create_citation_validation_hook
 
 
 def _inject_tool_turn(
@@ -55,6 +55,7 @@ async def test_grounded_answer_passes(
     _inject_tool_turn(mock_session, "call_sd1", "security_detail", {"stock_name": "平安银行", "market_value": 150000})
     cb = create_citation_validation_hook(entity_trie=trie)
     ctx = CallbackContext(
+        run_id="test",
         user_input="看看平安银行",
         input_context={},
         session=mock_session,
@@ -74,6 +75,7 @@ async def test_ungrounded_answer_requests_retry(
     _inject_tool_turn(mock_session, "call_sd1", "security_detail", {"stock_name": "平安银行", "market_value": 150000})
     cb = create_citation_validation_hook(entity_trie=trie)
     ctx = CallbackContext(
+        run_id="test",
         user_input="看看平安银行",
         input_context={},
         session=mock_session,
@@ -101,6 +103,7 @@ async def test_second_before_loop_end_skips_validation_after_reflect(
     _inject_tool_turn(mock_session, "call_sd1", "security_detail", {"stock_name": "平安银行", "market_value": 150000})
     cb = create_citation_validation_hook(entity_trie=trie)
     ctx = CallbackContext(
+        run_id="test",
         user_input="看看平安银行",
         input_context={},
         session=mock_session,
@@ -131,6 +134,7 @@ async def test_warn_route_does_not_retry(mock_session: SessionEntry) -> None:
     )
     cb = create_citation_validation_hook()
     ctx = CallbackContext(
+        run_id="test",
         user_input="看看账户",
         input_context={},
         session=mock_session,

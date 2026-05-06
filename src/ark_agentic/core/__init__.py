@@ -3,6 +3,10 @@
 Public API surface — 外部项目应仅使用此模块及子模块 __all__ 中列出的符号。
 
 子模块:
+    core.runtime  — AgentRunner, AgentRegistry, RunnerCallbacks, AgentsLifecycle …
+    core.observability — OTel decorators, tracing setup, TracingLifecycle
+    core.session  — SessionManager, JSONL 编解码, 上下文压缩
+    core.protocol — Lifecycle / Plugin / Bootstrap / AppContext
     core.tools   — AgentTool, ToolRegistry 等
     core.memory  — MemoryManager, Dream 等
     core.skills  — SkillLoader, SkillMatcher 等
@@ -30,22 +34,26 @@ from .types import (
     StepToolEvent,
     RunOptions,
 )
-from .callbacks import (
+from .runtime.callbacks import (
     CallbackContext,
     CallbackEvent,
     CallbackResult,
+    HookAction,
     BeforeAgentCallback,
     AfterAgentCallback,
     BeforeModelCallback,
     AfterModelCallback,
+    OnModelErrorCallback,
     BeforeToolCallback,
     AfterToolCallback,
+    BeforeLoopEndCallback,
     RunnerCallbacks,
     merge_runner_callbacks,
 )
-from .runner import AgentRunner, RunnerConfig, RunResult
-from .session import SessionManager
-from .compaction import (
+from .runtime.runner import AgentRunner, RunnerConfig, RunResult
+from .runtime.factory import AgentDef, build_standard_agent
+from .session.manager import SessionManager
+from .session.compaction import (
     ContextCompactor,
     CompactionConfig,
     CompactionResult,
@@ -53,13 +61,9 @@ from .compaction import (
     estimate_tokens,
     estimate_message_tokens,
 )
-from .persistence import (
-    TranscriptManager,
-    SessionStore,
-    SessionStoreEntry,
-    FileLock,
-    RawJsonlValidationError,
-)
+from .session.format import RawJsonlValidationError
+from .storage.entries import SessionStoreEntry
+from .storage.file._lock import FileLock
 from .llm import (
     PAModel,
     PAModelConfig,
@@ -69,12 +73,15 @@ from .llm import (
     LLMErrorReason,
 )
 from .observability import (
-    create_tracing_callbacks,
+    add_span_attributes,
+    add_span_input,
+    add_span_output,
     get_tracer,
-    init_phoenix,
-    phoenix_callbacks_enabled,
-    shutdown_phoenix,
-    start_span,
+    setup_tracing_from_env,
+    shutdown_tracing,
+    traced_agent,
+    traced_chain,
+    traced_tool,
 )
 
 __all__ = [
@@ -100,18 +107,24 @@ __all__ = [
     "CallbackContext",
     "CallbackEvent",
     "CallbackResult",
+    "HookAction",
     "BeforeAgentCallback",
     "AfterAgentCallback",
     "BeforeModelCallback",
     "AfterModelCallback",
+    "OnModelErrorCallback",
     "BeforeToolCallback",
     "AfterToolCallback",
+    "BeforeLoopEndCallback",
     "RunnerCallbacks",
     "merge_runner_callbacks",
     # Runner
     "AgentRunner",
     "RunnerConfig",
     "RunResult",
+    # Agent factory
+    "AgentDef",
+    "build_standard_agent",
     # Session
     "SessionManager",
     # Compaction
@@ -122,8 +135,6 @@ __all__ = [
     "estimate_tokens",
     "estimate_message_tokens",
     # Persistence
-    "TranscriptManager",
-    "SessionStore",
     "SessionStoreEntry",
     "FileLock",
     "RawJsonlValidationError",
@@ -135,10 +146,13 @@ __all__ = [
     "LLMError",
     "LLMErrorReason",
     # Observability
-    "create_tracing_callbacks",
+    "add_span_attributes",
+    "add_span_input",
+    "add_span_output",
     "get_tracer",
-    "init_phoenix",
-    "phoenix_callbacks_enabled",
-    "shutdown_phoenix",
-    "start_span",
+    "setup_tracing_from_env",
+    "shutdown_tracing",
+    "traced_agent",
+    "traced_chain",
+    "traced_tool",
 ]

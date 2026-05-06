@@ -13,11 +13,12 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from ark_agentic.api.deps import init_registry
-from ark_agentic.studio.api.sessions import router as sessions_router
-from ark_agentic.studio.api.memory import _resolve_memory_path, router as memory_router
-from ark_agentic.core.registry import AgentRegistry
-from ark_agentic.core.persistence import RawJsonlValidationError
+from ark_agentic.plugins.api.deps import init_registry
+from ark_agentic.plugins.studio.api.sessions import router as sessions_router
+from ark_agentic.plugins.studio.api.memory import _resolve_memory_path, router as memory_router
+from ark_agentic.core.runtime.registry import AgentRegistry
+from ark_agentic.core.session.format import RawJsonlValidationError
+from ark_agentic.core.storage.entries import MemorySummaryEntry, SessionSummaryEntry
 
 
 # ── Dummy objects ───────────────────────────────────────────────────
@@ -66,18 +67,50 @@ class DummyTranscriptManager:
         self.files[session_id] = content
 
 
+class DummySessionRepository:
+    """Repository facade over DummyTranscriptManager for the Studio raw endpoints."""
+
+    def __init__(self, tm: "DummyTranscriptManager"):
+        self._tm = tm
+
+    async def get_raw_transcript(self, session_id: str, user_id: str) -> str | None:
+        return self._tm.read_raw(session_id, user_id)
+
+    async def put_raw_transcript(self, session_id: str, user_id: str, content: str) -> None:
+        await self._tm.write_raw(session_id, user_id, content)
+
+
 class DummySessionManager:
     def __init__(self, sessions=None, transcript_files=None):
         self._sessions = {s.session_id: s for s in (sessions or [])}
         self._transcript_manager = DummyTranscriptManager()
         if transcript_files:
             self._transcript_manager.files.update(transcript_files)
+        self._repository = DummySessionRepository(self._transcript_manager)
 
     def list_sessions(self):
         return list(self._sessions.values())
 
     async def list_sessions_from_disk(self, user_id=None):
         return list(self._sessions.values())
+
+    async def list_session_summaries(self, user_id=None):
+        rows: list[SessionSummaryEntry] = []
+        for s in self._sessions.values():
+            first_user = next(
+                (m for m in s.messages if m.role == "user" and m.content), None,
+            )
+            rows.append(SessionSummaryEntry(
+                session_id=s.session_id,
+                user_id=s.user_id,
+                updated_at=0,
+                message_count=len(s.messages),
+                first_user_message=first_user.content[:80] if first_user else None,
+                model="",
+                provider="",
+                state=s.state,
+            ))
+        return rows
 
     def get_session(self, sid):
         return self._sessions.get(sid)
@@ -88,6 +121,12 @@ class DummySessionManager:
     async def reload_session_from_disk(self, sid, user_id):
         return self._sessions.get(sid)
 
+    async def get_raw_transcript(self, sid, user_id):
+        return await self._repository.get_raw_transcript(sid, user_id)
+
+    async def put_raw_transcript(self, sid, user_id, content):
+        await self._repository.put_raw_transcript(sid, user_id, content)
+
 
 class DummyMemoryManager:
     """Minimal stand-in for MemoryManager (only workspace_dir needed by Studio API)."""
@@ -95,6 +134,18 @@ class DummyMemoryManager:
     def __init__(self, workspace_dir: Path) -> None:
         self.config = SimpleNamespace(workspace_dir=str(workspace_dir))
         self._dirty = False
+
+    async def list_user_ids(self) -> list[str]:
+        return []
+
+    async def list_memory_summaries(self) -> list[MemorySummaryEntry]:
+        return []
+
+    async def read_memory(self, user_id: str) -> str:
+        return ""
+
+    async def overwrite(self, user_id: str, content: str) -> None:
+        pass
 
     def mark_dirty(self) -> None:
         self._dirty = True
@@ -104,6 +155,10 @@ class DummyAgentRunner:
     def __init__(self, sessions=None, transcript_files=None, memory_manager=None):
         self.session_manager = DummySessionManager(sessions, transcript_files)
         self._memory_manager = memory_manager
+
+    @property
+    def memory_manager(self):
+        return self._memory_manager
 
     def mark_memory_dirty(self) -> None:
         if self._memory_manager:
@@ -122,8 +177,9 @@ VALID_JSONL_SID1 = '{"type":"session","id":"sid1","timestamp":"","cwd":""}\n{"ty
 
 
 @pytest.fixture(autouse=True)
-def setup_registry():
+def setup_registry(tmp_path: Path, studio_auth_context):
     """Inject a clean registry before each test."""
+    studio_auth_context(client=client)
     registry = AgentRegistry()
     runner = DummyAgentRunner(
         [
@@ -327,3 +383,49 @@ def test_resolve_memory_path_allows_workspace_file(tmp_path: Path):
     resolved = _resolve_memory_path(ws, "MEMORY.md")
     assert resolved == target.resolve()
     assert resolved.read_text(encoding="utf-8") == "content"
+
+
+async def test_list_memory_files_merges_sqlite_user_without_disk_md(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    studio_auth_context,
+):
+    """SQLite user_memory has rows but workspace has no U001/MEMORY.md — Studio still lists them."""
+    from ark_agentic.core.storage.database.engine import get_async_engine, init_schema, reset_engine_cache
+    from ark_agentic.core.memory.manager import build_memory_manager
+
+    db_path = tmp_path / "central.db"
+    monkeypatch.setenv("DB_TYPE", "sqlite")
+    monkeypatch.setenv("DB_CONNECTION_STR", f"sqlite+aiosqlite:///{db_path.as_posix()}")
+    reset_engine_cache()
+    try:
+        engine = get_async_engine()
+        await init_schema(engine)
+
+        ws = tmp_path / "mem_workspace"
+        ws.mkdir()
+        mm = build_memory_manager(ws)
+        await mm.overwrite("U001", "## SqliteOnly\ncontent\n")
+
+        studio_auth_context(client=client)
+        registry = AgentRegistry()
+        sessions, transcript_files = _sessions_and_transcript()
+        registry.register(
+            "insurance",
+            DummyAgentRunner(sessions, transcript_files, memory_manager=mm),
+        )
+        init_registry(registry)
+
+        response = client.get("/api/studio/agents/insurance/memory/files")
+        assert response.status_code == 200
+        paths = {f["file_path"] for f in response.json()["files"]}
+        assert "U001/MEMORY.md" in paths
+
+        r2 = client.get(
+            "/api/studio/agents/insurance/memory/content",
+            params={"file_path": "U001/MEMORY.md", "user_id": "U001"},
+        )
+        assert r2.status_code == 200
+        assert "SqliteOnly" in r2.text
+    finally:
+        reset_engine_cache()

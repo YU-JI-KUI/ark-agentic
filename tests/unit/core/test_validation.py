@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.validation import (
+from ark_agentic.core.runtime.validation import (
     CitedResponse,
     EntityTrie,
     extract_claims_from_answer,
@@ -355,7 +355,10 @@ class TestRelativeTime:
 class TestEntityTrie:
     def test_extract_from_csv_whitelist(self, tmp_path: Path) -> None:
         csv_file = tmp_path / "test.csv"
-        csv_file.write_text("code,name,exchange\n000001,平安银行,SZ\n000002,万科A,SZ\n")
+        csv_file.write_text(
+            "code,name,exchange\n000001,平安银行,SZ\n000002,万科A,SZ\n",
+            encoding="utf-8",
+        )
         trie = EntityTrie()
         trie.load_from_csv(csv_file)
         assert "平安银行" in trie.extract("您持有的平安银行市值上涨了")
@@ -363,7 +366,8 @@ class TestEntityTrie:
     def test_extract_multiple_entities(self, tmp_path: Path) -> None:
         csv_file = tmp_path / "test.csv"
         csv_file.write_text(
-            "code,name,exchange\n000001,平安银行,SZ\n600036,招商银行,SH\n"
+            "code,name,exchange\n000001,平安银行,SZ\n600036,招商银行,SH\n",
+            encoding="utf-8",
         )
         trie = EntityTrie()
         trie.load_from_csv(csv_file)
@@ -373,21 +377,30 @@ class TestEntityTrie:
 
     def test_csv_with_irregular_spacing(self, tmp_path: Path) -> None:
         csv_file = tmp_path / "test.csv"
-        csv_file.write_text('code,name,exchange\n000002,"万  科Ａ",SZ\n')
+        csv_file.write_text(
+            'code,name,exchange\n000002,"万  科Ａ",SZ\n',
+            encoding="utf-8",
+        )
         trie = EntityTrie()
         trie.load_from_csv(csv_file)
         assert len(trie.extract("万科A今天涨了")) >= 1
 
     def test_returns_empty_for_no_match(self, tmp_path: Path) -> None:
         csv_file = tmp_path / "test.csv"
-        csv_file.write_text("code,name,exchange\n000001,平安银行,SZ\n")
+        csv_file.write_text(
+            "code,name,exchange\n000001,平安银行,SZ\n",
+            encoding="utf-8",
+        )
         trie = EntityTrie()
         trie.load_from_csv(csv_file)
         assert trie.extract("今天天气不错") == []
 
     def test_extract_stock_code(self, tmp_path: Path) -> None:
         csv_file = tmp_path / "test.csv"
-        csv_file.write_text("code,name,exchange\n000001,平安银行,SZ\n")
+        csv_file.write_text(
+            "code,name,exchange\n000001,平安银行,SZ\n",
+            encoding="utf-8",
+        )
         trie = EntityTrie()
         trie.load_from_csv(csv_file)
         assert "000001" in trie.extract("000001 表现不错")

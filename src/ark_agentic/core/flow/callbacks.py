@@ -17,7 +17,7 @@
 
 使用方式:
     from ark_agentic.core.flow.callbacks import FlowCallbacks
-    from ark_agentic.core.callbacks import RunnerCallbacks
+    from ark_agentic.core.runtime.callbacks import RunnerCallbacks
 
     fc = FlowCallbacks(sessions_dir=sessions_dir)
     callbacks = RunnerCallbacks(
@@ -36,7 +36,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..callbacks import CallbackContext, CallbackResult, HookAction
+from ..runtime.callbacks import CallbackContext, CallbackResult, HookAction
+from ..skills.base import _escape_xml
 from ..state_utils import apply_delta
 from ..types import (
     AgentMessage,
@@ -45,7 +46,6 @@ from ..types import (
     ToolLoopAction,
     ToolResultType,
 )
-from ..skills.base import _escape_xml
 from .base_evaluator import BaseFlowEvaluator, FlowEvalResult, FlowEvaluatorRegistry
 from .task_registry import TaskRegistry
 
@@ -439,7 +439,7 @@ class FlowCallbacks:
             logger.warning("[FlowEval] reference file not found: %s", ref_path)
             return None
         try:
-            from ..runner import _read_reference_file  # 复用运行器侧的 lru_cache
+            from ..runtime.runner import _read_reference_file  # 复用运行器侧的 lru_cache
             ref_content = _read_reference_file(str(ref_path))
         except Exception as e:
             logger.warning("[FlowEval] failed to read reference %s: %s", ref_path, e)
@@ -458,6 +458,7 @@ class FlowCallbacks:
         ctx: CallbackContext,
         *,
         response: AgentMessage,
+        **kwargs: Any,
     ) -> CallbackResult | None:
         """after_agent hook: 持久化 _flow_context 到 active_tasks.json。"""
         session = ctx.session

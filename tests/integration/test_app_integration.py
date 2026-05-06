@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ark_agentic.app import app
-from ark_agentic.core.runner import AgentRunner, RunResult
+from ark_agentic.core.runtime.runner import AgentRunner, RunResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 
@@ -19,8 +19,8 @@ def client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def init_agent_registry():
-    from ark_agentic.api import deps
-    from ark_agentic.core.registry import AgentRegistry
+    from ark_agentic.plugins.api import deps
+    from ark_agentic.core.runtime.registry import AgentRegistry
     # 初始化一个临时的空的 registry
     deps.init_registry(AgentRegistry())
     yield
@@ -30,11 +30,11 @@ def init_agent_registry():
 def mock_agent_runner():
     """Mock the insurance agent runner."""
     from ark_agentic.core.types import SessionEntry
-    with patch("ark_agentic.api.chat.get_agent") as mock_get:
+    with patch("ark_agentic.plugins.api.chat.get_agent") as mock_get:
         runner = AsyncMock(spec=AgentRunner)
         # Mock session manager with proper SessionEntry
         runner.session_manager = MagicMock()
-        mock_session = SessionEntry(session_id="test-session", model="mock", provider="mock", state={}, active_skills=[], messages=[])
+        mock_session = SessionEntry(session_id="test-session", model="mock", provider="mock", state={}, active_skill_ids=[], messages=[])
         
         async def mock_create_session(user_id, *args, **kwargs):
             return mock_session
@@ -50,8 +50,6 @@ def mock_agent_runner():
         runner.run.return_value = RunResult(
             response=AgentMessage(role=MessageRole.ASSISTANT, content="Hello"),
             turns=1,
-            prompt_tokens=10,
-            completion_tokens=10
         )
         
         mock_get.return_value = runner
@@ -140,50 +138,27 @@ class TestChatRunOptionsIntegration:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_skips_phoenix_when_disabled() -> None:
-    from ark_agentic import app as app_module
+async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> None:
+    """``AgentsLifecycle.start`` walks the registry warming up every runner;
+    ``stop`` closes every runner's memory backend."""
+    from types import SimpleNamespace
+
+    from ark_agentic.core.protocol.bootstrap import Bootstrap
+    from ark_agentic.core.runtime.agents_lifecycle import AgentsLifecycle
 
     runner = AsyncMock()
     registry = MagicMock()
     registry.list_ids.return_value = ["insurance", "securities"]
     registry.get.return_value = runner
 
-    with (
-        patch.object(app_module, "phoenix_callbacks_enabled", return_value=False),
-        patch.object(app_module, "init_phoenix") as mock_init_phoenix,
-        patch.object(app_module, "shutdown_phoenix") as mock_shutdown_phoenix,
-        patch.object(app_module, "create_insurance_agent", return_value=runner),
-        patch.object(app_module, "create_securities_agent", return_value=runner),
-        patch.object(app_module, "_registry", registry),
-        patch.object(app_module.api_deps, "init_registry"),
+    with patch(
+        "ark_agentic.core.runtime.agents_lifecycle.discover_and_register_agents"
     ):
-        async with app_module.lifespan(app_module.app):
-            pass
+        bootstrap = Bootstrap._from_components(
+            [AgentsLifecycle(registry=registry)],
+        )
+        await bootstrap.start(SimpleNamespace())
+        await bootstrap.stop()
 
-    mock_init_phoenix.assert_not_called()
-    mock_shutdown_phoenix.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_lifespan_initializes_phoenix_when_enabled() -> None:
-    from ark_agentic import app as app_module
-
-    runner = AsyncMock()
-    registry = MagicMock()
-    registry.list_ids.return_value = ["insurance", "securities"]
-    registry.get.return_value = runner
-
-    with (
-        patch.object(app_module, "phoenix_callbacks_enabled", return_value=True),
-        patch.object(app_module, "init_phoenix") as mock_init_phoenix,
-        patch.object(app_module, "shutdown_phoenix") as mock_shutdown_phoenix,
-        patch.object(app_module, "create_insurance_agent", return_value=runner),
-        patch.object(app_module, "create_securities_agent", return_value=runner),
-        patch.object(app_module, "_registry", registry),
-        patch.object(app_module.api_deps, "init_registry"),
-    ):
-        async with app_module.lifespan(app_module.app):
-            pass
-
-    mock_init_phoenix.assert_called_once_with(service_name="ark-agentic-api")
-    mock_shutdown_phoenix.assert_called_once_with()
+    assert runner.warmup.await_count == 2
+    assert runner.close_memory.await_count == 2

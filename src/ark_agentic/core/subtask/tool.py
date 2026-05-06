@@ -21,7 +21,7 @@ from ..tools.registry import ToolRegistry
 from ..types import AgentMessage, AgentToolResult, ToolCall
 
 if TYPE_CHECKING:
-    from ..runner import AgentRunner
+    from ..runtime.runner import AgentRunner
     from ..session import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,8 @@ class SpawnSubtasksTool(AgentTool):
     适用于用户一句话包含多个独立意图时（如"我要理赔，同时查查能领多少钱"），
     每个子任务在隔离会话中独立推理。不要用于有先后依赖的任务。
     """
+
+    visibility = "always"
 
     name = "spawn_subtasks"
     description = (
@@ -123,8 +125,6 @@ class SpawnSubtasksTool(AgentTool):
         )
 
         merged_state_delta: dict[str, Any] = {}
-        total_prompt = 0
-        total_completion = 0
         subtask_results: list[dict[str, Any]] = []
 
         for r in results:
@@ -138,15 +138,6 @@ class SpawnSubtasksTool(AgentTool):
                             k, merged_state_delta[k], v,
                         )
                     merged_state_delta[k] = v
-            total_prompt += r.get("prompt_tokens", 0)
-            total_completion += r.get("completion_tokens", 0)
-
-        if parent_session_id:
-            self._session_manager.update_token_usage(
-                parent_session_id,
-                prompt_tokens=total_prompt,
-                completion_tokens=total_completion,
-            )
 
         metadata: dict[str, Any] = {}
         if merged_state_delta:
@@ -205,7 +196,7 @@ class SpawnSubtasksTool(AgentTool):
         context: dict[str, Any],
         tools_allow: list[str] | None = None,
     ) -> dict[str, Any]:
-        from ..runner import AgentRunner, RunnerConfig
+        from ..runtime.runner import AgentRunner
 
         parent_session = self._session_manager.get_session(parent_session_id)
         initial_state: dict[str, Any] = {}
@@ -214,7 +205,7 @@ class SpawnSubtasksTool(AgentTool):
             initial_state = {k: v for k, v in parent_session.state.items() if k.startswith("user:")}
             user_id = parent_session.user_id
 
-        sub_session = self._session_manager.create_session_sync(
+        self._session_manager.create_session_sync(
             model=self._runner.config.model or "Qwen3-80B-Instruct",
             provider="ark",
             state=dict(initial_state),
@@ -234,7 +225,6 @@ class SpawnSubtasksTool(AgentTool):
         sub_config = replace(
             self._runner.config,
             auto_compact=False,
-            enable_output_validation=False,
             enable_subtasks=False,
         )
         if self._config.max_turns is not None:
@@ -271,7 +261,6 @@ class SpawnSubtasksTool(AgentTool):
                 "turns": result.turns,
                 "tools_called": tools_called,
                 "tool_calls_count": result.tool_calls_count,
-                "token_usage": {"prompt": result.prompt_tokens, "completion": result.completion_tokens},
                 "duration_ms": elapsed_ms,
             }
 
@@ -291,8 +280,6 @@ class SpawnSubtasksTool(AgentTool):
             return {
                 "payload": payload,
                 "state_delta": state_delta,
-                "prompt_tokens": result.prompt_tokens,
-                "completion_tokens": result.completion_tokens,
                 "label": label,
                 "transcript": transcript,
             }

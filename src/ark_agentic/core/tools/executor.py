@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
+from ..observability.decorators import traced_tool
 from ..stream.event_bus import AgentEventHandler
-from ..guardrails.channels import resolve_ui_visible_content
 from ..types import (
     AgentToolResult,
     CustomToolEvent,
@@ -61,6 +62,7 @@ class ToolExecutor:
 
         return list(results)
 
+    @traced_tool
     async def _execute_single(
         self,
         tc: ToolCall,
@@ -75,6 +77,7 @@ class ToolExecutor:
             status = tool.thinking_hint if tool and tool.thinking_hint else f"正在处理 {tc.name}…"
             handler.on_step(status)
 
+        t_start = time.monotonic()
         if tool is None:
             result = AgentToolResult.error_result(tc.id, f"Tool not found: {tc.name}")
         else:
@@ -86,13 +89,11 @@ class ToolExecutor:
             except Exception as e:
                 logger.error("[TOOL_ERROR] %s: %s", tc.name, e)
                 result = AgentToolResult.error_result(tc.id, str(e))
-
         if handler:
             handler.on_tool_call_result(
                 tc.id,
                 tc.name,
-                # 前端事件流优先读取 UI 可见副本，避免把原始敏感结果直接透传出去。
-                resolve_ui_visible_content(result.content, result.metadata),
+                result.content,
             )
 
         logger.debug("[TOOL_DONE] %s error=%s size=%dB", tc.name, result.is_error, len(str(result.content)))

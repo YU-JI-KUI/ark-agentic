@@ -4,7 +4,9 @@ Pytest 配置和 fixtures
 处理可选依赖的 mock，确保测试可以在没有完整依赖的情况下运行。
 """
 
+import importlib.util
 import sys
+import types
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -27,7 +29,10 @@ for module_name in OPTIONAL_MODULES:
         try:
             __import__(module_name)
         except ImportError:
-            sys.modules[module_name] = MagicMock()
+            # Use a real ModuleType so Python's import machinery doesn't choke on __spec__
+            stub = types.ModuleType(module_name)
+            stub.__spec__ = importlib.util.spec_from_loader(module_name, loader=None)
+            sys.modules[module_name] = stub
 
 
 @pytest.fixture
@@ -36,3 +41,60 @@ def tmp_sessions_dir(tmp_path: Path) -> Path:
     d = tmp_path / "sessions"
     d.mkdir()
     return d
+
+
+@pytest.fixture
+def studio_auth_headers():
+    """Build Studio bearer auth headers for tests."""
+    from ark_agentic.plugins.studio.services.auth import issue_studio_token
+
+    def _headers(user_id: str = "admin") -> dict[str, str]:
+        return {"Authorization": f"Bearer {issue_studio_token(user_id)}"}
+
+    return _headers
+
+
+@pytest.fixture
+def studio_auth_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    studio_auth_headers,
+):
+    """Configure isolated Studio auth state for tests.
+
+    Builds a per-test SqliteStudioUserRepository against a dedicated
+    file-backed engine and injects it into the authz module — no env
+    vars, no implicit central engine reuse.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from ark_agentic.plugins.studio.services.auth import (
+        reset_studio_user_repo_cache,
+        set_studio_user_repo_for_testing,
+    )
+    from ark_agentic.plugins.studio.services.auth.storage.sqlite import (
+        SqliteStudioUserRepository,
+    )
+
+    def _configure(
+        *,
+        client=None,
+        database_dir: Path | None = None,
+        user_id: str = "admin",
+    ) -> None:
+        db_dir = database_dir or tmp_path
+        db_dir.mkdir(parents=True, exist_ok=True)
+        engine = create_async_engine(
+            f"sqlite+aiosqlite:///{db_dir}/ark_studio.db",
+            future=True,
+            connect_args={"check_same_thread": False},
+        )
+        set_studio_user_repo_for_testing(SqliteStudioUserRepository(engine))
+
+        monkeypatch.setenv("STUDIO_AUTH_TOKEN_SECRET", "test-secret")
+        monkeypatch.delenv("STUDIO_AUTH_PROVIDERS", raising=False)
+        if client is not None:
+            client.headers.update(studio_auth_headers(user_id))
+
+    yield _configure
+    reset_studio_user_repo_cache()

@@ -55,6 +55,16 @@ class BlocksConfig:
     agent_blocks: dict[str, Callable] = field(default_factory=dict)
     agent_components: dict[str, Callable] = field(default_factory=dict)
     theme: A2UITheme | None = None
+    component_schemas: dict[str, str] = field(default_factory=dict)
+    block_data_schemas: dict[str, dict[str, Any]] = field(default_factory=dict)
+    """每个 block type 的 data JSON Schema (key=type name, value=JSON Schema object).
+
+    Agent-provided per-type schemas drive grammar-guided decoding to the
+    field/enum level. Types without an explicit schema fall back to
+    ``{"type": "object", "additionalProperties": True}``.
+
+    Card.children is injected by the framework layer, not here.
+    """
 
 
 @dataclass(frozen=True)
@@ -69,10 +79,73 @@ class TemplateConfig:
 # Helpers
 # ---------------------------------------------------------------------------
 
+_DEFAULT_BLOCK_DATA_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+}
+
+
+def _build_card_data_schema() -> dict[str, Any]:
+    """Card 的 data schema — framework 层拥有，children 是 Card 的核心契约。"""
+    return {
+        "type": "object",
+        "required": ["children"],
+        "properties": {
+            "children": {
+                "type": "array",
+                "description": "子块列表；每项仍为 {type, data}。",
+                "items": {
+                    "type": "object",
+                    "required": ["type", "data"],
+                    "properties": {
+                        "type": {"type": "string"},
+                        "data": {"type": "object", "additionalProperties": True},
+                    },
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "additionalProperties": True,
+    }
+
+
+def _build_blocks_items_schema(blocks_config: BlocksConfig) -> dict[str, Any]:
+    """生成 blocks 数组的 ``items`` schema：每个 block type 一条 oneOf 分支。
+
+    - type 字段用 ``const`` 锁定，data 使用该 type 独有的 schema（ISP）
+    - Card 分支由框架层注入 ``children`` 契约（DIP 分层，不摊派到业务）
+    - 未声明 schema 的 type 退化到 ``{type:object, additionalProperties:true}``
+
+    Grammar-guided decoding（vLLM / Qwen3-Next-80B）在此结构上可约束到
+    字段与枚举值。
+    """
+    data_schemas: dict[str, dict[str, Any]] = dict(blocks_config.block_data_schemas)
+    data_schemas["Card"] = _build_card_data_schema()
+
+    type_names: list[str] = []
+    type_names.extend(sorted(blocks_config.agent_blocks.keys()))
+    type_names.append("Card")
+    type_names.extend(sorted(blocks_config.agent_components.keys()))
+
+    branches: list[dict[str, Any]] = []
+    for name in type_names:
+        branches.append({
+            "type": "object",
+            "required": ["type", "data"],
+            "properties": {
+                "type": {"const": name},
+                "data": data_schemas.get(name, _DEFAULT_BLOCK_DATA_SCHEMA),
+            },
+            "additionalProperties": False,
+        })
+
+    return {"oneOf": branches}
+
+
 def _attach_enrichment(result: AgentToolResult, output: A2UIOutput) -> None:
-    """Route llm_digest and state_delta from A2UIOutput into AgentToolResult.metadata."""
+    """Route llm_digest and state_delta from A2UIOutput into AgentToolResult."""
     if output.llm_digest:
-        result.metadata["llm_digest"] = output.llm_digest
+        result.llm_digest = output.llm_digest
     if output.state_delta:
         existing = result.metadata.get("state_delta") or {}
         existing.update(output.state_delta)
@@ -179,14 +252,23 @@ class RenderA2UITool(AgentTool):
             )
             blocks_desc = ", ".join(available_types)
             exclusive = self._exclusive_hint("blocks")
+            desc = (
+                f"块描述数组。每项为 {{\"type\": \"<BlockType>\", \"data\": {{...}}}}，"
+                f"data 字段结构按 type 通过 oneOf 约束。"
+                f"可用类型：{blocks_desc}。{exclusive}"
+            )
+            if self._blocks.component_schemas:
+                schema_lines = "\n".join(
+                    f"- {name}: {schema}"
+                    for name, schema in self._blocks.component_schemas.items()
+                )
+                desc += f"\n组件说明：\n{schema_lines}"
             params.append(ToolParameter(
                 name="blocks",
-                type="string",
-                description=(
-                    f"块描述 JSON 数组字符串。每个元素为 {{\"type\": \"BlockType\", \"data\": {{...}}}}。"
-                    f"可用类型：{blocks_desc}。{exclusive}"
-                ),
+                type="array",
+                description=desc,
                 required=False,
+                items=_build_blocks_items_schema(self._blocks),
             ))
 
         if self._template:
@@ -253,7 +335,13 @@ class RenderA2UITool(AgentTool):
         card_type = (args.get("card_type") or "").strip()
         preset_type = (args.get("preset_type") or "").strip()
 
-        has_blocks = bool(blocks_raw is not None and str(blocks_raw).strip())
+        if blocks_raw is not None and not isinstance(blocks_raw, list):
+            return AgentToolResult.error_result(
+                tool_call.id,
+                f"blocks 必须是数组，收到 {type(blocks_raw).__name__}",
+            )
+
+        has_blocks = isinstance(blocks_raw, list) and len(blocks_raw) > 0
         has_card_type = bool(card_type)
         has_preset_type = bool(preset_type)
 
@@ -283,20 +371,10 @@ class RenderA2UITool(AgentTool):
                 tool_call.id, "blocks 模式不可用：未配置 BlocksConfig。"
             )
 
-        blocks_raw = args.get("blocks", "")
         surface_id = (args.get("surface_id") or "").strip()
         event = "surfaceUpdate" if surface_id else "beginRendering"
 
-        try:
-            block_descriptors = json.loads(str(blocks_raw))
-        except json.JSONDecodeError as e:
-            return AgentToolResult.error_result(
-                tool_call.id, f"blocks 不是合法 JSON: {e}"
-            )
-        if not isinstance(block_descriptors, list):
-            return AgentToolResult.error_result(
-                tool_call.id, "blocks 必须是 JSON 数组"
-            )
+        block_descriptors = args.get("blocks") or []
 
         raw_data = _collect_raw_data(ctx, self._state_keys)
 

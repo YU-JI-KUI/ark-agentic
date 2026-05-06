@@ -18,12 +18,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_asyncio
 
-from ark_agentic.core.compaction import CompactionConfig, SimpleSummarizer
+from ark_agentic.core.session.compaction import CompactionConfig, SimpleSummarizer
 from ark_agentic.core.memory.extractor import FlushResult, MemoryFlusher
-from ark_agentic.core.memory.manager import MemoryConfig, MemoryManager
+from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.llm.caller import LLMCaller
-from ark_agentic.core.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.tools.registry import ToolRegistry
@@ -66,7 +66,7 @@ def base_sessions_dir(tmp_path: Path) -> Path:
 async def base_agent(memory_dir: Path, base_sessions_dir: Path):
     llm = _stub_chat_model()
 
-    memory_manager = MemoryManager(MemoryConfig(workspace_dir=str(memory_dir)))
+    memory_manager = build_memory_manager(memory_dir)
 
     session_manager = SessionManager(
         compaction_config=CompactionConfig(
@@ -78,7 +78,6 @@ async def base_agent(memory_dir: Path, base_sessions_dir: Path):
     )
 
     runner_config = RunnerConfig(
-        max_tokens=4096,
         max_turns=10,
         prompt_config=PromptConfig(
             agent_name="记忆测试助手",

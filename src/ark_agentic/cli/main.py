@@ -2,7 +2,7 @@
 ark-agentic CLI entry point.
 
 Subcommands:
-  init <project_name>       Scaffold a new agent project
+  init <project_name>       Scaffold a new agent project (默认含 server: API + Studio)
   add-agent <agent_name>    Add an agent module to an existing project
   version                   Print framework version
 """
@@ -10,7 +10,6 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -44,39 +43,9 @@ def _touch(path: Path) -> None:
     path.touch()
 
 
-def _render_env_sample(llm_provider: str, package_name: str = "") -> str:
-    """根据选择的 LLM 提供商生成 .env-sample 内容。"""
-    if llm_provider == "pa-sx":
-        provider_block = "\n".join(
-            [
-                "LLM_PROVIDER=pa",
-                "MODEL_NAME=PA-SX-80B",
-                "API_KEY=your-sx-api-key",
-                "LLM_BASE_URL=https://pa-sx.example.com",
-                "# PA-SX trace 专用（可选）: PA_SX_80B_APP_ID=  PA_SX_235B_APP_ID=",
-            ]
-        )
-    elif llm_provider == "pa-jt":
-        provider_block = "\n".join(
-            [
-                "LLM_PROVIDER=pa",
-                "MODEL_NAME=PA-JT-80B",
-                "API_KEY=",
-                "LLM_BASE_URL=https://pa-jt.example.com",
-                "# PA-JT 签名（必填）: PA_JT_OPEN_API_CODE=  PA_JT_OPEN_API_CREDENTIAL=  PA_JT_RSA_PRIVATE_KEY=  PA_JT_GPT_APP_KEY=  PA_JT_GPT_APP_SECRET=  PA_JT_SCENE_ID=",
-            ]
-        )
-    else:  # openai (default)
-        provider_block = "\n".join(
-            [
-                "LLM_PROVIDER=openai",
-                "MODEL_NAME=gpt-4o",
-                "API_KEY=sk-xxx",
-                "# LLM_BASE_URL=https://api.openai.com/v1",
-            ]
-        )
-
-    return ENV_SAMPLE_TEMPLATE.format(provider_block=provider_block, package_name=package_name or "<package>")
+def _render_env_sample() -> str:
+    """生成默认 .env-sample（保持干净的最小集）。"""
+    return ENV_SAMPLE_TEMPLATE
 
 
 # ── init ─────────────────────────────────────────────────────────────
@@ -84,9 +53,7 @@ def _render_env_sample(llm_provider: str, package_name: str = "") -> str:
 def _cmd_init(args: argparse.Namespace) -> None:
     project_name: str = args.project_name
     package_name = _to_package_name(project_name)
-    include_api: bool = args.api
-    include_memory: bool = args.memory
-    llm_provider: str = args.llm_provider
+    headless: bool = args.no_api
 
     root = Path.cwd() / project_name
     if root.exists():
@@ -97,26 +64,17 @@ def _cmd_init(args: argparse.Namespace) -> None:
     default_agent = src / "agents" / "default"
     tests_dir = root / "tests"
 
-    api_deps = (
-        '\n    "fastapi>=0.110.0",\n    "uvicorn[standard]>=0.29.0",'
-        if include_api else ""
-    )
-
-    ark_dep = '"ark-agentic[memory]>=0.1.0",' if include_memory else '"ark-agentic>=0.1.0",'
-
     fmt = dict(
         project_name=project_name,
         package_name=package_name,
         agent_name="default",
         agent_name_snake="default",
         agent_display_name="Default",
-        api_deps=api_deps,
-        ark_dep=ark_dep,
     )
 
     _write(root / "pyproject.toml", PYPROJECT_TEMPLATE.format(**fmt))
     _write(root / "pip.conf", PIP_CONF_TEMPLATE)
-    _write(root / ".env-sample", _render_env_sample(llm_provider, package_name))
+    _write(root / ".env-sample", _render_env_sample())
     _write(src / "__init__.py", f'"""{project_name}"""\n')
     _write(src / "main.py", MAIN_MODULE_TEMPLATE.format(**fmt))
     _write(src / "agents" / "__init__.py", "")
@@ -127,7 +85,7 @@ def _cmd_init(args: argparse.Namespace) -> None:
     _touch(default_agent / "skills" / ".gitkeep")
     _write(default_agent / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
 
-    if include_api:
+    if not headless:
         _write(src / "app.py", API_APP_TEMPLATE.format(**fmt))
         static_dest = src / "static"
         static_dest.mkdir(parents=True, exist_ok=True)
@@ -145,12 +103,13 @@ def _cmd_init(args: argparse.Namespace) -> None:
     print()
     print("后续步骤:")
     print(f"  cd {project_name}")
-    print("  uv pip install -e '.[server]'")
-    if include_api:
-        print(f"  uv run python -m {package_name}.app")
-        print("  # 启用 Studio: 设置 ENABLE_STUDIO=true")
-    else:
+    print("  uv pip install -e .")
+    if headless:
         print(f"  python -m {package_name}.main")
+    else:
+        print(f"  uv run python -m {package_name}.app")
+        print("  # 启用 Studio: 在 .env 中设置 ENABLE_STUDIO=true")
+        print("  # 启用 Notifications + Jobs: ENABLE_NOTIFICATIONS=true / ENABLE_JOB_MANAGER=true")
 
 
 # ── add-agent ────────────────────────────────────────────────────────
@@ -165,7 +124,6 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
         print("错误: 当前目录未找到 pyproject.toml，请在项目根目录下运行", file=sys.stderr)
         sys.exit(1)
 
-    # Detect package name from src/ structure
     src_dir = Path.cwd() / "src"
     if not src_dir.is_dir():
         print("错误: 未找到 src/ 目录", file=sys.stderr)
@@ -199,6 +157,14 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
     _write(agents_dir / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
 
     print(f"[OK] 智能体 '{agent_name}' 已添加到 src/{package_name}/agents/{agent_name_snake}/")
+    print()
+    print("后续步骤:")
+    print(f"  1. 在 src/{package_name}/agents/{agent_name_snake}/tools/__init__.py 中实现 create_{agent_name_snake}_tools()")
+    print("  2. 修改 _DEF 中的 agent_description，描述这个 agent 的职责")
+    print(f"  3. 在 src/{package_name}/app.py 的 _registry 中追加注册：")
+    print()
+    print(f'       from .agents.{agent_name_snake} import create_{agent_name_snake}_agent')
+    print(f'       _registry.register("{agent_name_snake}", create_{agent_name_snake}_agent())')
 
 
 # ── version ──────────────────────────────────────────────────────────
@@ -217,15 +183,15 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command")
 
     # init
-    p_init = sub.add_parser("init", help="初始化新的智能体项目")
+    p_init = sub.add_parser(
+        "init",
+        help="初始化新的智能体项目（默认装配 ark-agentic[server]: API + Studio）",
+    )
     p_init.add_argument("project_name", help="项目名称")
-    p_init.add_argument("--api", action="store_true", help="包含 FastAPI 服务模板（含 Studio 支持）")
-    p_init.add_argument("--memory", action="store_true", help="包含记忆系统配置")
     p_init.add_argument(
-        "--llm-provider",
-        default="openai",
-        choices=["openai", "pa-sx", "pa-jt"],
-        help="LLM 提供商 (default: openai)",
+        "--no-api",
+        action="store_true",
+        help="生成纯 CLI 项目（不包含 app.py / Bootstrap 装配）",
     )
 
     # add-agent

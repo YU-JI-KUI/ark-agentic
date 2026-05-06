@@ -59,6 +59,9 @@ class AgentTool(ABC):
     # 工具分组（用于策略控制）
     group: str | None = None
 
+    # 工具可见度: "always" 始终在工具列表；"auto" 仅在对应技能被 read_skill 激活后可见
+    visibility: str = "auto"
+
     # 是否需要确认
     requires_confirmation: bool = False
 

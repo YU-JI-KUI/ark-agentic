@@ -6,6 +6,7 @@ Agent 核心类型定义
 
 from __future__ import annotations
 
+import json as _json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -85,10 +86,7 @@ class ToolCall:
 
 @dataclass
 class AgentToolResult:
-    """工具调用结果
-
-    参考: openclaw-main/src/agents/tools/common.ts - jsonResult, imageResult
-    """
+    """工具调用结果"""
 
     tool_call_id: str
     result_type: ToolResultType
@@ -97,6 +95,46 @@ class AgentToolResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     loop_action: ToolLoopAction = ToolLoopAction.CONTINUE
     events: list[ToolEvent] = field(default_factory=list)
+    _llm_digest: str | None = field(default=None, repr=False)
+    # Extracted from metadata — runner reads these directly
+    state_delta: dict[str, Any] | None = field(default=None)
+    session_effects: list[SessionEffect] | None = field(default=None)
+
+    def __init__(
+        self,
+        tool_call_id: str,
+        result_type: ToolResultType,
+        content: Union[str, dict[str, Any], list[Any], int, float],
+        is_error: bool = False,
+        metadata: dict[str, Any] | None = None,
+        loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
+        events: list[ToolEvent] | None = None,
+        llm_digest: str | None = None,
+        state_delta: dict[str, Any] | None = None,
+        session_effects: list[SessionEffect] | None = None,
+    ) -> None:
+        self.tool_call_id = tool_call_id
+        self.result_type = result_type
+        self.content = content
+        self.is_error = is_error
+        self.metadata = metadata if metadata is not None else {}
+        self.loop_action = loop_action
+        self.events = events if events is not None else []
+        self._llm_digest = llm_digest
+        self.state_delta = state_delta
+        self.session_effects = session_effects
+
+    @property
+    def llm_digest(self) -> str:
+        if self._llm_digest is not None:
+            return self._llm_digest
+        if isinstance(self.content, (dict, list)):
+            return _json.dumps(self.content, ensure_ascii=False)
+        return str(self.content)
+
+    @llm_digest.setter
+    def llm_digest(self, value: str | None) -> None:
+        self._llm_digest = value
 
     @classmethod
     def json_result(
@@ -106,6 +144,7 @@ class AgentToolResult:
         metadata: dict[str, Any] | None = None,
         loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
         events: list[ToolEvent] | None = None,
+        llm_digest: str | None = None,
     ) -> AgentToolResult:
         return cls(
             tool_call_id=tool_call_id,
@@ -114,6 +153,7 @@ class AgentToolResult:
             metadata=metadata or {},
             loop_action=loop_action,
             events=events or [],
+            llm_digest=llm_digest,
         )
 
     @classmethod
@@ -124,6 +164,7 @@ class AgentToolResult:
         metadata: dict[str, Any] | None = None,
         loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
         events: list[ToolEvent] | None = None,
+        llm_digest: str | None = None,
     ) -> AgentToolResult:
         return cls(
             tool_call_id=tool_call_id,
@@ -132,6 +173,7 @@ class AgentToolResult:
             metadata=metadata or {},
             loop_action=loop_action,
             events=events or [],
+            llm_digest=llm_digest,
         )
 
     @classmethod
@@ -143,6 +185,7 @@ class AgentToolResult:
         metadata: dict[str, Any] | None = None,
         loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
         events: list[ToolEvent] | None = None,
+        llm_digest: str | None = None,
     ) -> AgentToolResult:
         return cls(
             tool_call_id=tool_call_id,
@@ -151,6 +194,7 @@ class AgentToolResult:
             metadata=metadata or {},
             loop_action=loop_action,
             events=events or [],
+            llm_digest=llm_digest,
         )
 
     @classmethod
@@ -161,10 +205,13 @@ class AgentToolResult:
         metadata: dict[str, Any] | None = None,
         loop_action: ToolLoopAction = ToolLoopAction.CONTINUE,
         events: list[ToolEvent] | None = None,
+        llm_digest: str | None = None,
     ) -> AgentToolResult:
         """A2UI 前端组件结果 — 自动将 content 转为 UI_COMPONENT events。"""
         components = [data] if isinstance(data, dict) else data
         auto_events = [UIComponentToolEvent(component=c) for c in components]
+        if llm_digest is None:
+            llm_digest = "[已向用户展示卡片]"
         return cls(
             tool_call_id=tool_call_id,
             result_type=ToolResultType.A2UI,
@@ -172,6 +219,7 @@ class AgentToolResult:
             metadata=metadata or {},
             loop_action=loop_action,
             events=auto_events + (events or []),
+            llm_digest=llm_digest,
         )
 
     @classmethod
@@ -201,6 +249,8 @@ class AgentMessage:
     thinking: str | None = None  # 思考过程（extended thinking）
     timestamp: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
+    finish_reason: str | None = None          # lifted from metadata; persisted to JSONL
+    turn_context: TurnContext | None = None   # per-turn input snapshot; persisted; assistant only
 
     @classmethod
     def system(cls, content: str) -> AgentMessage:
@@ -329,6 +379,14 @@ class TokenUsage:
 
 
 @dataclass
+class TurnContext:
+    """Per-turn LLM call input context — Studio display only, never in LLM prompts."""
+
+    active_skill_id: str | None = None
+    tools_mounted: list[str] = field(default_factory=list)
+
+
+@dataclass
 class CompactionStats:
     """压缩统计"""
 
@@ -365,8 +423,8 @@ class SessionEntry:
     # 压缩状态
     compaction_stats: CompactionStats = field(default_factory=CompactionStats)
 
-    # 活跃技能快照
-    active_skills: list[str] = field(default_factory=list)
+    # 活跃技能 SSOT（有序激活列表，newest-wins）
+    active_skill_ids: list[str] = field(default_factory=list)
 
     # 会话状态（ADK-style session scratchpad）
     state: dict[str, Any] = field(default_factory=dict)
@@ -385,6 +443,25 @@ class SessionEntry:
     def add_message(self, message: AgentMessage) -> None:
         """添加消息到历史"""
         self.messages.append(message)
+        self.updated_at = datetime.now()
+
+    @property
+    def current_active_skill_id(self) -> str | None:
+        """SSOT 单值视图（newest-wins）。
+
+        返回最近激活的 skill id（即列表末元素），列表空时返回 None。
+        集中在此属性以避免 [-1] 规则散落在多个 reader。
+        """
+        return self.active_skill_ids[-1] if self.active_skill_ids else None
+
+    def set_active_skill_ids(self, skill_ids: list[str]) -> None:
+        """覆盖式写入 active_skill_ids 并推进 updated_at。
+
+        覆盖语义：调用方提供的 list 完全替代当前值。这是 SessionEntry 上 active-skill
+        状态的唯一变更入口；full 模式下 `_run_turn` 每轮都会以"全部已加载 skill"
+        重新覆盖此字段——外部 API 写入 full 模式 session 的此字段在下轮会被 clobber。
+        """
+        self.active_skill_ids = list(skill_ids)
         self.updated_at = datetime.now()
 
     def update_token_usage(
@@ -415,3 +492,25 @@ class SessionEntry:
             k: v for k, v in self.state.items()
             if not k.startswith("temp:") and k not in _TURN_TEMP_KEYS
         }
+
+
+# ── Tool→Session typed effect channel ──────────────────────────────────────
+
+
+class SessionEffect(_PydanticBaseModel):
+    """工具→Session 的 typed 写入 effect。
+
+    工具在 `AgentToolResult.metadata["session_effects"]: list[dict]` 中提交，
+    runner 用 `_apply_session_effects` 校验后 dispatch 到 `SessionEntry` 的
+    具名变更方法（不经由 `state_delta` 通用通道，与 `session.state` 完全解耦）。
+
+    当前 op：
+    - `activate_skill` — 调用 `session.set_active_skill_ids(skill_ids)`，
+      覆盖式写入 SSOT。
+
+    新增 op 时：在此处扩展 `op` 的 Literal 类型，在 `_apply_session_effects`
+    中加分支即可。
+    """
+
+    op: Literal["activate_skill"]
+    skill_ids: list[str] = _Field(default_factory=list)

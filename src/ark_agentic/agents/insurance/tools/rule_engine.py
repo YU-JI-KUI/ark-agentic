@@ -3,7 +3,7 @@
 
 查询用户保单数据，标准化为每张保单一条记录，包含四个可用金额字段和费率信息。
 基于保单数据中的四个金额字段进行确定性计算：
-  - bounusAmt           红利
+  - bonusAmt           红利
   - loanAmt             可贷款额度
   - survivalFundAmt     生存金 / 满期金
   - policyRefundAmount  退保金额（部分领取 / 全额退保）
@@ -26,8 +26,11 @@ from ark_agentic.core.tools.base import (
     read_float_param,
     read_dict_param,
 )
+import json
+
 from ark_agentic.core.types import AgentToolResult, ToolCall
 
+from ..a2ui.withdraw_a2ui_utils import _channel_available
 from .data_service import (
     DataServiceClient,
     DataServiceError,
@@ -188,12 +191,16 @@ class RuleEngineTool(AgentTool):
                 tool_call.id, f"不支持的操作: {action}"
             )
 
-        # list_options 结果存入 session state，供 render_a2ui(card_type=withdraw_summary) 跨轮次读取
-        metadata = {}
+        metadata: dict[str, Any] = {}
+        llm_digest: str | None = None
         if action == "list_options":
             metadata["state_delta"] = {"_rule_engine_result": result}
+            llm_summary = self._build_llm_summary(result)
+            llm_digest = json.dumps(llm_summary, ensure_ascii=False)
 
-        return AgentToolResult.json_result(tool_call.id, result, metadata=metadata or None)
+        return AgentToolResult.json_result(
+            tool_call.id, result, metadata=metadata or None, llm_digest=llm_digest,
+        )
 
     # ------------------------------------------------------------------
     # list_options: 自动获取保单数据 → 标准化为每张保单一条记录
@@ -236,7 +243,7 @@ class RuleEngineTool(AgentTool):
             policy_year = _compute_policy_year(effective_date) if effective_date else 6
 
             survival = float(pol.get("survivalFundAmt", 0) or 0)
-            bonus = float(pol.get("bounusAmt", 0) or 0)
+            bonus = float(pol.get("bonusAmt", 0) or 0)
             loan = float(pol.get("loanAmt", 0) or 0)
             refund = float(pol.get("policyRefundAmount", 0) or 0)
             total = survival + bonus + loan + refund
@@ -294,6 +301,37 @@ class RuleEngineTool(AgentTool):
         }
 
     # ------------------------------------------------------------------
+    # LLM-visible summary (渠道级汇总，隐藏保单级明细)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_channel_summary(options: list[dict[str, Any]]) -> dict[str, Any]:
+        sf = sum(_channel_available(o, "survival_fund") for o in options)
+        bon = sum(_channel_available(o, "bonus") for o in options)
+        pw = sum(_channel_available(o, "partial_withdrawal") for o in options)
+        loan = sum(_channel_available(o, "policy_loan") for o in options)
+        surr = sum(_channel_available(o, "surrender") for o in options)
+        return {
+            "zero_cost": {"total": sf + bon, "note": "不影响保障"},
+            "survival_fund": {"total": sf},
+            "bonus": {"total": bon},
+            "partial_withdrawal": {"total": pw, "note": "保额降低，可能有手续费"},
+            "policy_loan": {"total": loan, "note": "年利率5%，保障不受影响"},
+            "surrender": {"total": surr, "note": "保障终止"},
+        }
+
+    @staticmethod
+    def _build_llm_summary(result: dict[str, Any]) -> dict[str, Any]:
+        options = result.get("options", [])
+        return {
+            "status": "ok",
+            "policy_count": len(options),
+            "channels": RuleEngineTool._build_channel_summary(options),
+            "grand_total": result.get("total_available_incl_loan", 0),
+            "combination_hint": result.get("combination_hint"),
+        }
+
+    # ------------------------------------------------------------------
     # calculate_detail: 单保单 + 单渠道详细计算
     # ------------------------------------------------------------------
 
@@ -322,7 +360,7 @@ class RuleEngineTool(AgentTool):
                 "生存金领取",
             ),
             "bonus": (
-                ["bonus_amt", "bounusAmt"],
+                ["bonus_amt", "bonusAmt"],
                 "红利领取",
             ),
             "partial_withdrawal": (

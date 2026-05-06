@@ -6,7 +6,7 @@ import ast
 import pytest
 from pathlib import Path
 
-from ark_agentic.studio.services.tool_service import (
+from ark_agentic.plugins.studio.services.tool_service import (
     scaffold_tool,
     list_tools,
     parse_tool_file,
