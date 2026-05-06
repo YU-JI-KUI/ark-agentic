@@ -174,6 +174,27 @@ class BaseAgent(ABC):
     # ── Construction ────────────────────────────────────────────────────
     @final
     def __init__(self) -> None:
+        self._validate_subclass_declaration()
+        self.llm = self.build_llm()
+        skill_config = self._init_skill_subsystem()
+        self._init_session_manager()
+        self._init_tool_registry()
+        self._init_memory_manager()
+        self._callbacks = self.build_callbacks() or RunnerCallbacks()
+        self._skill_router: SkillRouter | None = self.build_skill_router()
+        self._init_engine_internals(
+            skill_config=skill_config, sampling=self.build_sampling(),
+        )
+        self._finish_wiring(
+            skill_loader=self.skill_loader,
+            skill_load_mode=self.skill_load_mode,
+            memory_manager=self._memory_manager,
+        )
+        self._register_subtask_tool_if_enabled()
+
+    # ── __init__ phases (private; @final __init__ orchestrates) ─────────
+    def _validate_subclass_declaration(self) -> None:
+        """Reject direct ``BaseAgent()`` and malformed identity declarations."""
         cls = type(self)
         if cls is BaseAgent:
             raise TypeError(
@@ -191,11 +212,8 @@ class BaseAgent(ABC):
                 f"got {cls.agent_id!r}."
             )
 
-        # Phase 1: LLM + sampling
-        self.llm = self.build_llm()
-        sampling = self.build_sampling()
-
-        # Phase 2: skills (loader + matcher)
+    def _init_skill_subsystem(self) -> SkillConfig:
+        """Build SkillLoader + SkillMatcher; return SkillConfig for RunnerConfig."""
         skill_config = SkillConfig(
             skill_directories=[str(self.skills_dir)],
             agent_id=self.agent_id,
@@ -215,8 +233,9 @@ class BaseAgent(ABC):
                 "Failed to load skills for agent '%s': %s", self.agent_id, exc,
             )
         self.skill_matcher: SkillMatcher | None = SkillMatcher(self.skill_loader)
+        return skill_config
 
-        # Phase 3: session manager (depends on llm, compaction)
+    def _init_session_manager(self) -> None:
         self.session_manager = SessionManager(
             sessions_dir=self.sessions_dir,
             compaction_config=self.build_compaction(),
@@ -224,11 +243,13 @@ class BaseAgent(ABC):
             agent_id=self.agent_id,
         )
 
-        # Phase 4: tools (registry + agent-specific tools)
+    def _init_tool_registry(self) -> None:
         self.tool_registry = ToolRegistry()
         self.tool_registry.register_all(self.build_tools())
 
-        # Phase 5: memory manager (tools + flusher are wired in _finish_wiring)
+    def _init_memory_manager(self) -> None:
+        """Build MemoryManager when ``enable_memory``; tools/flusher come later
+        via ``_finish_wiring`` (shared with the explicit-args ``_construct``)."""
         self._memory_manager: "MemoryManager | None" = None
         if self.enable_memory:
             self._memory_manager = build_memory_manager(
@@ -239,11 +260,10 @@ class BaseAgent(ABC):
                 llm_factory=(lambda: self.llm) if self.enable_dream else None,
             )
 
-        # Phase 6: callbacks + skill router
-        self._callbacks = self.build_callbacks() or RunnerCallbacks()
-        self._skill_router: SkillRouter | None = self.build_skill_router()
-
-        # Phase 7: assembled config (per-call execution knobs)
+    def _init_engine_internals(
+        self, *, skill_config: SkillConfig, sampling: SamplingConfig,
+    ) -> None:
+        """Assemble RunnerConfig + LLMCaller + ToolExecutor; init flusher slot."""
         self.config = RunnerConfig(
             sampling=sampling,
             max_turns=self.max_turns,
@@ -257,8 +277,6 @@ class BaseAgent(ABC):
             skill_config=skill_config,
             skill_router=self._skill_router,
         )
-
-        # Phase 8: engine internals (LLMCaller / ToolExecutor)
         self._llm_caller = LLMCaller(self.llm, max_retries=self.config.max_retries)
         self._tool_executor = ToolExecutor(
             self.tool_registry,
@@ -267,23 +285,41 @@ class BaseAgent(ABC):
         )
         self._flusher: "MemoryFlusher | None" = None
 
-        # Phase 9: shared post-wire — read_skill tool, memory tools, flusher.
-        # Centralised so ``_construct`` (subtask / test path) and the public
-        # declarative path stay in sync.
-        self._finish_wiring(
-            skill_loader=self.skill_loader,
-            skill_load_mode=self.skill_load_mode,
-            memory_manager=self._memory_manager,
+    def _register_subtask_tool_if_enabled(self) -> None:
+        """Subtask spawn-tool needs ``self`` (to fork sub-agents) and the
+        already-built session manager — must run after both exist."""
+        if not self.enable_subtasks:
+            return
+        from ..subtask import create_subtask_tool
+        self.tool_registry.register(
+            create_subtask_tool(self, self.session_manager)
         )
 
-        # Phase 10: subtask tool (needs self for recursive spawn)
-        if self.enable_subtasks:
-            from ..subtask import create_subtask_tool
-            self.tool_registry.register(
-                create_subtask_tool(self, self.session_manager)
-            )
-
     # ── Internal explicit-args constructor ──────────────────────────────
+    @classmethod
+    def _assign_subagent_identity(
+        cls, instance: "BaseAgent", agent_id: str | None,
+    ) -> None:
+        """Resolve identity for an ephemeral subagent and write it to the
+        instance via ``object.__setattr__`` (bypasses the ``ClassVar``
+        descriptor so a subagent can have an id distinct from its class
+        — needed because subagents are spawned from arbitrary parent
+        classes for ephemeral work, not registered as their own type).
+
+        Resolution: explicit ``agent_id`` arg → ``cls.agent_id`` ClassVar
+        → literal ``"ephemeral"`` (so observability spans always have a name).
+        """
+        resolved_id = agent_id or getattr(cls, "agent_id", None) or "ephemeral"
+        object.__setattr__(instance, "agent_id", resolved_id)
+        object.__setattr__(
+            instance, "agent_name",
+            getattr(cls, "agent_name", "") or resolved_id,
+        )
+        object.__setattr__(
+            instance, "agent_description",
+            getattr(cls, "agent_description", "") or "",
+        )
+
     @classmethod
     def _construct(
         cls,
@@ -310,20 +346,7 @@ class BaseAgent(ABC):
         single source of truth for agent identity / capabilities.
         """
         instance = object.__new__(cls)
-        # Identity: prefer explicit agent_id arg → cls.agent_id ClassVar
-        # → ephemeral fallback so observability spans always have a name.
-        # ``object.__setattr__`` bypasses the ClassVar descriptor — this
-        # path explicitly overrides identity for ephemeral subagents.
-        resolved_id = agent_id or getattr(cls, "agent_id", None) or "ephemeral"
-        object.__setattr__(instance, "agent_id", resolved_id)
-        object.__setattr__(
-            instance, "agent_name",
-            getattr(cls, "agent_name", "") or resolved_id,
-        )
-        object.__setattr__(
-            instance, "agent_description",
-            getattr(cls, "agent_description", "") or "",
-        )
+        cls._assign_subagent_identity(instance, agent_id)
         instance.llm = llm
         instance.tool_registry = tool_registry or ToolRegistry()
         instance.session_manager = session_manager
