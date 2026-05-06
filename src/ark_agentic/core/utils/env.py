@@ -17,39 +17,28 @@ def env_flag(name: str, *, default: bool = False) -> bool:
     return raw.lower() in ("true", "1")
 
 
-def get_agents_root(current_file: str | Path) -> Path:
-    """获取 agents/ 根目录路径，解决多文件重复 _agents_root() 的问题。
+def get_agents_root() -> Path:
+    """Return the resolved agents root directory.
 
-    优先级:
-      1. 环境变量 AGENTS_ROOT (明确配置，适合线上部署)
-      2. 从给定的 current_file 向上遍历寻找 pyproject.toml 所在的项目根；
-         在 ``src/<pkg>/agents`` 中匹配第一个存在的 ``<pkg>``
-         (按字典序，确定性)。这覆盖框架自身的 ``src/ark_agentic/agents``，
-         也覆盖 wheel 消费者的 ``src/<their_pkg>/agents``。
-      3. 回退策略：简单向上找 4 层 (适用于一般源码目录结构)
+    ``Bootstrap`` writes ``AGENTS_ROOT`` to the environment during its
+    init (resolved from explicit arg / env / caller-convention), so any
+    downstream runtime code that needs the path (Studio's filesystem
+    CRUD on user agents, meta_builder tools) sees the same value the
+    discovery + lifecycle used.
+
+    Raises:
+        RuntimeError: if ``AGENTS_ROOT`` is unset. Bootstrap should run
+        before any caller of this function; an unset value indicates a
+        misconfigured deployment.
     """
-    if env_root := os.getenv("AGENTS_ROOT"):
-        return Path(env_root).resolve()
-
-    cursor = Path(current_file).resolve().parent
-    for _ in range(10):
-        if (cursor / "pyproject.toml").exists():
-            src_dir = cursor / "src"
-            if src_dir.is_dir():
-                for pkg_dir in sorted(src_dir.iterdir()):
-                    candidate = pkg_dir / "agents"
-                    if candidate.is_dir():
-                        return candidate
-            fallback_agents = cursor / "agents"
-            if fallback_agents.is_dir():
-                return fallback_agents
-            break
-        if cursor == cursor.parent:
-            break
-        cursor = cursor.parent
-
-    # 作为最终 fallback
-    return Path(current_file).resolve().parents[4]
+    env = os.getenv("AGENTS_ROOT")
+    if not env:
+        raise RuntimeError(
+            "AGENTS_ROOT is not set. Construct Bootstrap (which resolves "
+            "and exports it) before calling get_agents_root(), or set the "
+            "AGENTS_ROOT environment variable explicitly."
+        )
+    return Path(env).resolve()
 
 
 def resolve_agent_dir(agents_root: Path, agent_id: str) -> Path | None:

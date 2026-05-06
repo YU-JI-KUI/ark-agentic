@@ -1,17 +1,31 @@
-"""Agent Runner - ReAct 执行器
+"""BaseAgent — the agent itself (identity + ReAct execution + state).
 
-使用 langchain ChatOpenAI 作为 LLM 后端。
+Subclassing contract:
+
+    class InsuranceAgent(BaseAgent):
+        agent_id          = "insurance"
+        agent_name        = "保险智能助手"
+        agent_description = "..."
+
+        def build_tools(self):
+            return create_insurance_tools(sessions_dir=self.sessions_dir)
+
+The framework discovers ``BaseAgent`` subclasses under the configured
+agents root, instantiates each (zero-arg ``__init__``), and registers
+them by ``agent_id``. ``__init__`` is ``@final``: do not override.
+Customize via ``ClassVar`` attributes and ``build_*`` hooks.
 """
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 import json
 import logging
+from abc import ABC
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, NamedTuple, TYPE_CHECKING
+from typing import Any, ClassVar, NamedTuple, TYPE_CHECKING, final
 from uuid import uuid4
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -23,20 +37,24 @@ from .callbacks import (
     HookAction,
     RunnerCallbacks,
 )
+from ..llm import create_chat_model_from_env
 from ..llm.caller import LLMCaller
 from ..llm.errors import LLMError, LLMErrorReason
 from ..llm.sampling import SamplingConfig
+from ..memory.manager import build_memory_manager
+from ..paths import get_memory_base_dir, prepare_agent_data_dir
 from ..prompt.builder import SystemPromptBuilder, PromptConfig
+from ..session.compaction import CompactionConfig, LLMSummarizer
 from ..session.manager import SessionManager
 from ..skills.base import SkillConfig
 from ..skills.loader import SkillLoader
 from ..skills.matcher import SkillMatcher
-from ..skills.router import RouteContext, SkillRouter
+from ..skills.router import LLMSkillRouter, RouteContext, SkillRouter
 from ..stream.event_bus import AgentEventHandler
 from ..tools.base import AgentTool
 from ..tools.executor import ToolExecutor
-from ..tools.registry import ToolRegistry
 from ..tools.memory import create_memory_tools
+from ..tools.registry import ToolRegistry
 from ..observability.decorators import (
     add_span_attributes,
     add_span_input,
@@ -54,87 +72,47 @@ from ..types import (
     SkillLoadMode,
     ToolCall,
     ToolLoopAction,
-    ToolResultType,
     TurnContext,
 )
+from ..utils.env import env_flag
+
 if TYPE_CHECKING:
     from ..memory.manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 
 
-def _build_runner_callbacks(
-    *,
-    config: RunnerConfig,
-    callbacks: RunnerCallbacks | None,
-) -> RunnerCallbacks:
-    """Business hooks only — observability is handled by OTel decorators."""
-    return callbacks or RunnerCallbacks()
-
-
-# ============ Runner Config ============
+# ============ Runner Config / Result ============
 
 
 @dataclass
 class RunnerConfig:
-    """Runner 配置"""
+    """Per-call execution knobs. Identity / tools / skills live on BaseAgent."""
 
-    # LLM 参数
     model: str | None = None
     sampling: SamplingConfig = field(default_factory=SamplingConfig.for_chat)
-
-    # LLM 调用重试（指数退避 + 抖动，仅对 retryable 错误生效）
     max_retries: int = 3
-
-    # 执行控制
-    max_turns: int = 10  # 最大对话轮数（防止无限循环）
-    max_tool_calls_per_turn: int = 5  # 单轮最大工具调用数
-    tool_timeout: float = 30.0  # 单个工具执行超时（秒）
-
-    # 自动压缩
+    max_turns: int = 10
+    max_tool_calls_per_turn: int = 5
+    tool_timeout: float = 30.0
     auto_compact: bool = True
-
-    # 提示配置
     prompt_config: PromptConfig = field(default_factory=PromptConfig)
-
-    # 技能配置
     skill_config: SkillConfig = field(default_factory=SkillConfig)
-
-    # 子任务（启用后自动注册 spawn_subtasks 工具）
     enable_subtasks: bool = False
-
-    # 外部历史合并（agent 级开关）
     accept_external_history: bool = True
-
-    # Skill 路由器（dynamic 模式专用）。
-    # 实例：在 ReAct 循环开始前确定性写入 session.active_skill_ids（SSOT）。
-    # None：runner 不会 route；通常由 build_standard_agent 在 dynamic 模式下
-    # 自动注入 LLMSkillRouter。直接构造 AgentRunner 时由调用方自负其责。
     skill_router: SkillRouter | None = None
 
 
 @dataclass
 class RunResult:
-    """执行结果"""
+    """ReAct loop result returned to callers."""
 
-    # 最终响应
     response: AgentMessage
-
-    # 执行统计
     turns: int = 0
     tool_calls_count: int = 0
-
-    # 所有工具调用（用于返回给客户端）
     tool_calls: list[ToolCall] = field(default_factory=list)
-
-    # 所有工具结果（用于提取结构化数据，如模板卡片）
     tool_results: list[AgentToolResult] = field(default_factory=list)
-
-    # 是否因达到限制而停止
     stopped_by_limit: bool = False
-
-
-# ============ Run Params / Loop State ============
 
 
 class _RunParams(NamedTuple):
@@ -147,7 +125,7 @@ class _RunParams(NamedTuple):
 
 @dataclass
 class _LoopState:
-    """ReAct loop 累积状态（私有）。"""
+    """ReAct loop accumulator (private)."""
 
     turns: int = 0
     total_tool_calls: int = 0
@@ -165,128 +143,329 @@ class _LoopState:
         )
 
 
-# ============ Agent Runner ============
+# ============ Base Agent ============
 
 
-class AgentRunner:
-    """智能体执行器
+class BaseAgent(ABC):
+    """The agent: identity + tools/skills + ReAct execution + state.
 
-    核心执行循环：
-    1. 构建系统提示（含工具和技能）
-    2. 调用 LLM 获取响应
-    3. 如果有工具调用，执行工具并继续
-    4. 返回最终响应
+    Subclass and declare identity at the class level; the framework
+    instantiates exactly once per process and serves traffic against
+    that instance. ``__init__`` is final — customize via ``ClassVar``
+    attributes and ``build_*`` hooks.
     """
 
-    def __init__(
-        self,
-        llm: BaseChatModel,
-        *,
-        session_manager: SessionManager,
-        tool_registry: ToolRegistry | None = None,
-        skill_loader: SkillLoader | None = None,
-        config: RunnerConfig | None = None,
-        memory_manager: MemoryManager | None = None,
-        callbacks: RunnerCallbacks | None = None,
-    ) -> None:
-        self.llm = llm
-        self.tool_registry = tool_registry or ToolRegistry()
-        self.session_manager = session_manager
-        self.skill_loader = skill_loader
-        self.config = config or RunnerConfig()
-        self._callbacks = _build_runner_callbacks(
-            config=self.config,
-            callbacks=callbacks,
+    # ── Identity (subclass MUST declare agent_id; others have defaults) ─
+    agent_id: ClassVar[str]
+    agent_name: ClassVar[str] = ""
+    agent_description: ClassVar[str] = ""
+
+    # ── Behavior knobs (subclass may override) ──────────────────────────
+    system_protocol: ClassVar[str] = ""
+    custom_instructions: ClassVar[str] = ""
+    enable_subtasks: ClassVar[bool] = False
+    max_turns: ClassVar[int] = 10
+    skill_load_mode: ClassVar[SkillLoadMode] = SkillLoadMode.dynamic
+
+    # ── Convention paths ────────────────────────────────────────────────
+    @property
+    def sessions_dir(self) -> Path:
+        return prepare_agent_data_dir(self.agent_id)
+
+    @property
+    def memory_dir(self) -> Path:
+        return get_memory_base_dir() / self.agent_id
+
+    @property
+    def skills_dir(self) -> Path:
+        """Convention: ``skills/`` directory next to the subclass module."""
+        try:
+            module_file = inspect.getfile(type(self))
+        except TypeError:
+            return Path.cwd() / "skills"
+        return Path(module_file).resolve().parent / "skills"
+
+    # ── Process-global toggles (env-driven; subclass may override) ──────
+    @property
+    def enable_memory(self) -> bool:
+        return env_flag("ENABLE_MEMORY")
+
+    @property
+    def enable_dream(self) -> bool:
+        if "ENABLE_DREAM" in __import__("os").environ:
+            return env_flag("ENABLE_DREAM")
+        return True
+
+    # ── Build hooks (subclass overrides as needed) ──────────────────────
+    def build_tools(self) -> list[AgentTool]:
+        """Override to expose agent-specific business tools."""
+        return []
+
+    def build_callbacks(self) -> RunnerCallbacks | None:
+        """Override to attach business hooks (auth, citations, flow…)."""
+        return None
+
+    def build_llm(self) -> BaseChatModel:
+        """Override to inject a non-default LLM (default reads env)."""
+        return create_chat_model_from_env()
+
+    def build_sampling(self) -> SamplingConfig:
+        return SamplingConfig.for_chat()
+
+    def build_compaction(self) -> CompactionConfig:
+        return CompactionConfig(context_window=128_000, preserve_recent=4)
+
+    def build_skill_router(self) -> SkillRouter | None:
+        """Default: ``LLMSkillRouter`` in dynamic mode, ``None`` in full mode."""
+        if self.skill_load_mode == SkillLoadMode.dynamic:
+            return LLMSkillRouter(
+                llm_factory=lambda: self.llm,
+                history_window=6,
+                timeout=5.0,
+            )
+        return None
+
+    # ── Construction ────────────────────────────────────────────────────
+    @final
+    def __init__(self) -> None:
+        cls = type(self)
+        if cls is BaseAgent:
+            raise TypeError(
+                "BaseAgent cannot be instantiated directly; subclass it and "
+                "declare agent_id / agent_name / agent_description."
+            )
+        if "agent_id" not in cls.__dict__:
+            raise TypeError(
+                f"{cls.__name__} must declare a class-level 'agent_id' "
+                "(non-empty string)."
+            )
+        if not isinstance(cls.agent_id, str) or not cls.agent_id:
+            raise TypeError(
+                f"{cls.__name__}.agent_id must be a non-empty string; "
+                f"got {cls.agent_id!r}."
+            )
+
+        # Phase 1: LLM + sampling
+        self.llm = self.build_llm()
+        sampling = self.build_sampling()
+
+        # Phase 2: skills (loader + matcher)
+        skill_config = SkillConfig(
+            skill_directories=[str(self.skills_dir)],
+            agent_id=self.agent_id,
+            enable_eligibility_check=True,
+            load_mode=self.skill_load_mode,
+        )
+        self.skill_loader: SkillLoader | None = SkillLoader(skill_config)
+        try:
+            self.skill_loader.load_from_directories()
+            logger.info(
+                "Loaded %d skills for agent '%s'",
+                len(self.skill_loader.list_skills()),
+                self.agent_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to load skills for agent '%s': %s", self.agent_id, exc,
+            )
+        self.skill_matcher: SkillMatcher | None = SkillMatcher(self.skill_loader)
+
+        # Phase 3: session manager (depends on llm, compaction)
+        self.session_manager = SessionManager(
+            sessions_dir=self.sessions_dir,
+            compaction_config=self.build_compaction(),
+            summarizer=LLMSummarizer(self.llm),
+            agent_id=self.agent_id,
         )
 
-        self._memory_manager = memory_manager
-        self._flusher = None
-        # Warmup hooks are appended by services (jobs / future bindings)
-        # via add_warmup_hook(); runner just runs them on warmup().
-        self._warmup_hooks: list[Callable[[], Awaitable[None]]] = []
+        # Phase 4: tools (registry + agent-specific tools)
+        self.tool_registry = ToolRegistry()
+        self.tool_registry.register_all(self.build_tools())
 
-        # LLMCaller / ToolExecutor (SRP)
-        self._llm_caller = LLMCaller(
-            llm,
-            max_retries=self.config.max_retries,
+        # Phase 5: memory (registers more tools into the registry)
+        self._memory_manager: "MemoryManager | None" = None
+        if self.enable_memory:
+            self._memory_manager = build_memory_manager(
+                memory_dir=self.memory_dir,
+                agent_id=self.agent_id,
+                enable_dream=self.enable_dream,
+                session_manager=self.session_manager,
+                llm_factory=(lambda: self.llm) if self.enable_dream else None,
+            )
+            for tool in create_memory_tools(self._get_memory_for_user):
+                self.tool_registry.register(tool)
+
+        # Phase 6: dynamic-mode read_skill tool
+        if self.skill_load_mode != SkillLoadMode.full:
+            from ..tools.read_skill import ReadSkillTool
+            self.tool_registry.register(ReadSkillTool(self.skill_loader))
+
+        # Phase 7: callbacks + skill router
+        self._callbacks = self.build_callbacks() or RunnerCallbacks()
+        self._skill_router: SkillRouter | None = self.build_skill_router()
+
+        # Phase 8: assembled config (per-call execution knobs)
+        self.config = RunnerConfig(
+            sampling=sampling,
+            max_turns=self.max_turns,
+            enable_subtasks=self.enable_subtasks,
+            prompt_config=PromptConfig(
+                agent_name=self.agent_name,
+                agent_description=self.agent_description,
+                system_protocol=self.system_protocol,
+                custom_instructions=self.custom_instructions,
+            ),
+            skill_config=skill_config,
+            skill_router=self._skill_router,
         )
+
+        # Phase 9: engine internals (LLMCaller / ToolExecutor)
+        self._llm_caller = LLMCaller(self.llm, max_retries=self.config.max_retries)
         self._tool_executor = ToolExecutor(
             self.tool_registry,
             timeout=self.config.tool_timeout,
             max_calls_per_turn=self.config.max_tool_calls_per_turn,
         )
 
-        if memory_manager is not None:
+        # Phase 10: memory flusher (needs llm_caller for extraction sampling)
+        self._flusher = None
+        if self._memory_manager is not None:
             from ..memory.extractor import MemoryFlusher
-
-            # Memory flush 是结构化 JSON 抽取任务，需要低温度 + 可复现 seed
             extraction_sampling = SamplingConfig.for_extraction()
             self._flusher = MemoryFlusher(
                 lambda: self._llm_caller.get_llm(sampling_override=extraction_sampling)
             )
 
-            memory_tools = create_memory_tools(self._get_memory_for_user)
-            for tool in memory_tools:
-                self.tool_registry.register(tool)
-            logger.info("Registered %d memory tools", len(memory_tools))
-
-        if skill_loader is not None:
-            if self.config.skill_config.load_mode != SkillLoadMode.full:
-                from ..tools.read_skill import ReadSkillTool
-
-                self.tool_registry.register(ReadSkillTool(skill_loader))
-                logger.info("Registered read_skill tool for dynamic skill loading")
-
-        self.skill_matcher = (
-            SkillMatcher(skill_loader) if skill_loader else None
-        )
-
-        # Skill router: caller is the source of truth. Wiring concerns
-        # (default selection, mode validation) live in build_standard_agent.
-        # Direct AgentRunner construction trusts whatever RunnerConfig provides.
-        self._skill_router: SkillRouter | None = self.config.skill_router
-
-        if self.config.enable_subtasks:
+        # Phase 11: subtask tool (needs self for recursive spawn)
+        if self.enable_subtasks:
             from ..subtask import create_subtask_tool
             self.tool_registry.register(
                 create_subtask_tool(self, self.session_manager)
             )
-            logger.info("Registered spawn_subtasks tool")
 
-    def _get_memory_for_user(self, user_id: str) -> "MemoryManager | None":
-        """返回共享 MemoryManager（所有用户共用一个实例）。"""
-        return self._memory_manager
+        # Phase 12: warmup hooks (registered later by jobs / external services)
+        self._warmup_hooks: list[Callable[[], Awaitable[None]]] = []
 
+    # ── Internal explicit-args constructor ──────────────────────────────
+    @classmethod
+    def _construct(
+        cls,
+        *,
+        llm: BaseChatModel,
+        session_manager: SessionManager,
+        tool_registry: ToolRegistry | None = None,
+        skill_loader: SkillLoader | None = None,
+        config: RunnerConfig | None = None,
+        memory_manager: "MemoryManager | None" = None,
+        callbacks: RunnerCallbacks | None = None,
+        agent_id: str | None = None,
+    ) -> "BaseAgent":
+        """Internal: build an instance from explicit dependencies.
+
+        Bypasses identity validation and the declarative build hooks —
+        used by:
+          * the ``spawn_subtasks`` tool to fork ephemeral sub-agents
+            from a parent agent;
+          * unit tests that need to inject mock components.
+
+        Production code instantiates real agents via ``cls()`` (no args)
+        so the framework's ``ClassVar`` + hook-driven wiring stays the
+        single source of truth for agent identity / capabilities.
+        """
+        instance = object.__new__(cls)
+        # Identity: prefer explicit agent_id arg → cls.agent_id ClassVar
+        # → ephemeral fallback so observability spans always have a name.
+        # ``object.__setattr__`` bypasses the ClassVar descriptor — this
+        # path explicitly overrides identity for ephemeral subagents.
+        resolved_id = agent_id or getattr(cls, "agent_id", None) or "ephemeral"
+        object.__setattr__(instance, "agent_id", resolved_id)
+        object.__setattr__(
+            instance, "agent_name",
+            getattr(cls, "agent_name", "") or resolved_id,
+        )
+        object.__setattr__(
+            instance, "agent_description",
+            getattr(cls, "agent_description", "") or "",
+        )
+        instance.llm = llm
+        instance.tool_registry = tool_registry or ToolRegistry()
+        instance.session_manager = session_manager
+        instance.skill_loader = skill_loader
+        instance.skill_matcher = SkillMatcher(skill_loader) if skill_loader else None
+        cfg = config or RunnerConfig()
+        instance.config = cfg
+        instance._callbacks = callbacks or RunnerCallbacks()
+        instance._memory_manager = memory_manager
+        instance._flusher = None
+        instance._skill_router = cfg.skill_router
+        instance._llm_caller = LLMCaller(llm, max_retries=cfg.max_retries)
+        instance._tool_executor = ToolExecutor(
+            instance.tool_registry,
+            timeout=cfg.tool_timeout,
+            max_calls_per_turn=cfg.max_tool_calls_per_turn,
+        )
+        instance._warmup_hooks = []
+
+        # Mirror __init__: auto-register read_skill in dynamic mode when a
+        # skill_loader exists and the registry doesn't already have one
+        # (e.g. inherited from a parent agent's already-populated registry).
+        if (
+            skill_loader is not None
+            and cfg.skill_config.load_mode != SkillLoadMode.full
+            and not instance.tool_registry.has("read_skill")
+        ):
+            from ..tools.read_skill import ReadSkillTool
+            instance.tool_registry.register(ReadSkillTool(skill_loader))
+
+        # Mirror __init__: when a MemoryManager is supplied, auto-register
+        # memory tools + wire MemoryFlusher so caller can use the full
+        # memory subsystem without re-implementing the wiring.
+        if memory_manager is not None:
+            from ..memory.extractor import MemoryFlusher
+            extraction_sampling = SamplingConfig.for_extraction()
+            instance._flusher = MemoryFlusher(
+                lambda: instance._llm_caller.get_llm(
+                    sampling_override=extraction_sampling
+                )
+            )
+            for tool in create_memory_tools(instance._get_memory_for_user):
+                if not instance.tool_registry.has(tool.name):
+                    instance.tool_registry.register(tool)
+        return instance
+
+    # ── Public API ──────────────────────────────────────────────────────
     def add_warmup_hook(
         self, hook: Callable[[], Awaitable[None]],
     ) -> None:
         """Register an async hook to run on ``warmup()``.
 
-        Public hook point: services (e.g. jobs/bindings) register
-        startup tasks here without reaching into runner internals.
+        Public hook point: services (jobs / bindings / future) attach
+        startup tasks here without reaching into agent internals.
         """
         self._warmup_hooks.append(hook)
 
     async def warmup(self) -> None:
-        """Run every hook registered via ``add_warmup_hook``.
-
-        The runner stays unaware of what each hook does (job registration,
-        cache priming, …) — services attach behaviour from outside.
-        """
+        """Run every hook registered via ``add_warmup_hook``."""
         for hook in self._warmup_hooks:
             await hook()
+
+    async def close(self) -> None:
+        """Release per-agent resources. Called once at lifecycle stop.
+
+        Currently a no-op; kept as a stable shutdown hook so future
+        backends (e.g. DB connections) can release without breaking
+        the public surface.
+        """
 
     @property
     def memory_manager(self) -> "MemoryManager | None":
         return self._memory_manager
 
-    def mark_memory_dirty(self) -> None:
-        """保留接口兼容 — 无 SQLite 索引，无需刷新标记。"""
+    def _get_memory_for_user(self, user_id: str) -> "MemoryManager | None":
+        """Return shared MemoryManager (one instance for all users)."""
+        return self._memory_manager
 
-    async def close_memory(self) -> None:
-        """保留接口兼容 — 无需释放资源。"""
-
-    @traced_agent("agent.run", span_name_template="agent.run:{self.config.skill_config.agent_id}")
+    @traced_agent("agent.run", span_name_template="agent.run:{self.agent_id}")
     async def run(
         self,
         session_id: str,
@@ -300,7 +479,7 @@ class AgentRunner:
         history: list[dict[str, Any]] | None = None,
         use_history: bool = True,
     ) -> RunResult:
-        """执行智能体
+        """Execute the agent.
 
         Lifecycle: resolve → prepare → execute → finalize
         """
@@ -309,8 +488,8 @@ class AgentRunner:
         run_id = uuid4().hex
         run_metadata: dict[str, Any] = {
             "user_id": user_id,
-            "agent_id": self.config.skill_config.agent_id,
-            "agent_name": self.config.prompt_config.agent_name,
+            "agent_id": self.agent_id,
+            "agent_name": self.agent_name,
             "model": params.model,
             "stream": stream,
             "skill_load_mode": params.skill_load_mode,
@@ -320,8 +499,8 @@ class AgentRunner:
             "session.id": session_id,
             "user.id": user_id,
             "ark.run_id": run_id,
-            "ark.agent_id": self.config.skill_config.agent_id,
-            "ark.agent_name": self.config.prompt_config.agent_name,
+            "ark.agent_id": self.agent_id,
+            "ark.agent_name": self.agent_name,
             "ark.model": params.model,
             "ark.stream": stream,
             "ark.skill_load_mode": params.skill_load_mode,
@@ -348,9 +527,6 @@ class AgentRunner:
             return prepared
 
         cb_ctx = prepared
-        # Phase: deterministic skill routing (dynamic mode only).
-        # Writes session.active_skill_ids (SSOT); first ReAct turn picks it up
-        # via _build_system_prompt + _filter_tools. No-op in full mode.
         await self._route_skill_phase(session_id, cb_ctx)
 
         try:
@@ -364,7 +540,6 @@ class AgentRunner:
                 cb_ctx=cb_ctx,
             )
         finally:
-            # Messages are now persisted at append-time; no batch flush needed.
             pass
 
         await self._finalize_run(session_id, user_id, result, cb_ctx, handler)
@@ -380,13 +555,12 @@ class AgentRunner:
         return result
 
     async def run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
-        """无持久化的 ReAct 循环，用于 ephemeral 子任务。
+        """Persistence-free ReAct loop, used by ephemeral subtasks.
 
-        调用方负责 session 创建和清理。跳过 _prepare_session / _finalize_run
-        的持久化、hooks、compaction 生命周期。
+        Caller owns session creation and cleanup. Skips the persistence /
+        hooks / compaction lifecycle of the regular ``run()``.
         """
         user_message = AgentMessage.user(user_input)
-        # Ephemeral path: in-memory only, never persists.
         self.session_manager.add_message_in_memory_only(session_id, user_message)
         params = self._resolve_run_params(None)
         return await self._run_loop(
@@ -427,12 +601,11 @@ class AgentRunner:
         run_id: str,
         run_metadata: dict[str, Any],
     ) -> RunResult | CallbackContext:
-        """Lazy init, before_agent hooks, context merge, history merge, record user message, auto-compact.
+        """Lazy init, before_agent hooks, context merge, history merge,
+        record user message, auto-compact.
 
         Returns RunResult on halt (early exit), CallbackContext on success.
         """
-        # Pop display-only meta:* keys before they reach AgentMessage.metadata via
-        # input_context. They re-enter under their proper top-level key names below.
         chat_request_meta = input_context.pop("meta:chat_request", None)
 
         session = self.session_manager.get_session_required(session_id)
@@ -502,8 +675,6 @@ class AgentRunner:
                 pre_compact_callback=flush_cb,
             )
 
-        # 供工具在执行时通过 session.state["temp:user_input"] 访问当前用户输入；
-        # strip_temp_state() 在 _finalize_run 中自动清理。
         session.state["temp:user_input"] = user_input
 
         return cb_ctx
@@ -513,11 +684,7 @@ class AgentRunner:
         msg: AgentMessage,
         chat_request: dict[str, Any] | None,
     ) -> None:
-        """Display-only metadata for the Studio user-message panel.
-
-        Only `chat_request` lives here; trace correlation is observability
-        cross-cut surfaced via the assistant message's trace.trace_id link.
-        """
+        """Display-only metadata for the Studio user-message panel."""
         if chat_request:
             msg.metadata["chat_request"] = chat_request
 
@@ -538,7 +705,6 @@ class AgentRunner:
             context=cb_ctx.input_context,
             handler=handler,
         )
-        # 支持 after_agent 回调替换最终 response
         if cb_result and cb_result.response is not None:
             result.response = cb_result.response
         cb_ctx.session.strip_temp_state()
@@ -548,7 +714,7 @@ class AgentRunner:
         await self._maybe_trigger_dream(user_id)
 
     async def _maybe_trigger_dream(self, user_id: str) -> None:
-        """Delegate to memory subsystem; runner owns no dream state itself."""
+        """Delegate to memory subsystem; agent owns no dream state itself."""
         if self._memory_manager is not None:
             await self._memory_manager.maybe_consolidate(user_id)
 
@@ -560,7 +726,7 @@ class AgentRunner:
         for tr in tool_results:
             state_delta = tr.state_delta if tr.state_delta is not None else tr.metadata.get("state_delta")
             if state_delta and isinstance(state_delta, dict):
-                AgentRunner._apply_state_delta(session.state, state_delta)
+                BaseAgent._apply_state_delta(session.state, state_delta)
                 session.updated_at = __import__("datetime").datetime.now()
 
     @staticmethod
@@ -568,15 +734,7 @@ class AgentRunner:
         session: SessionEntry,
         tool_results: list[AgentToolResult],
     ) -> None:
-        """Dispatch typed `session_effects` from tool results to SessionEntry mutations.
-
-        与 `_merge_tool_state_deltas` 并列：state_delta 通道只处理 `session.state`
-        通用 dict 变更，session_effects 通道处理 SessionEntry 上的 typed 字段
-        变更（如 active_skill_ids），两者完全解耦。
-
-        畸形 effect 记录 warning 并 skip，不抛异常（防御工具路径，避免一条坏
-        effect 阻断整轮）。
-        """
+        """Dispatch typed ``session_effects`` from tool results."""
         from pydantic import ValidationError
         from ..types import SessionEffect
 
@@ -595,12 +753,7 @@ class AgentRunner:
 
     @staticmethod
     def _apply_state_delta(state: dict[str, Any], delta: dict[str, Any]) -> None:
-        """支持点路径（dot-path）的深度合并。
-
-        普通 key → state[key] = value（浅覆盖）
-        点路径 key（如 "_flow_context.stage_identity_verify"）→ 逐层 setdefault({}) 后赋值，
-        不整体替换父对象，避免清空同级其他 key。
-        """
+        """Dot-path-aware deep merge into session.state."""
         for key, value in delta.items():
             if "." in key:
                 parts = key.split(".")
@@ -617,7 +770,7 @@ class AgentRunner:
     def _merge_input_context(
         session: SessionEntry, input_context: dict[str, Any]
     ) -> None:
-        """将 input_context 合并到 session.state，所有键始终覆盖已有值。"""
+        """Merge input_context into session.state (always overwrite)."""
         for k, v in input_context.items():
             session.state[k] = v
 
@@ -660,11 +813,7 @@ class AgentRunner:
         handler: AgentEventHandler | None = None,
         **kwargs: Any,
     ) -> CallbackResult | None:
-        """Run hooks in order. Apply context_updates/event for each non-None result.
-
-        Returns first result with action != PASS (remaining hooks skipped),
-        or last non-None result, or None.
-        """
+        """Run hooks in order. Apply context_updates/event for each non-None result."""
         if not hooks or cb_ctx is None:
             return None
         last: CallbackResult | None = None
@@ -721,8 +870,6 @@ class AgentRunner:
         )
         return ls.make_result(last_assistant, stopped_by_limit=True)
 
-    # ---- Phase methods (SRP: each handles one phase of a ReAct turn) ----
-
     @traced_chain("agent.turn", span_name_template="agent.turn-{ls.turns}")
     async def _run_turn(
         self,
@@ -739,8 +886,6 @@ class AgentRunner:
         """One ReAct turn. Returns RunResult to terminate, or None to continue."""
         add_span_attributes({"ark.turn": ls.turns})
         session = self.session_manager.get_session_required(session_id)
-        # full 模式不变量：每轮以"全部已加载 skill"覆盖 active_skill_ids（SSOT）。
-        # 外部 API 写入 full 模式 session 的 active_skill_ids 在下轮被 clobber。
         if (
             skill_load_mode == SkillLoadMode.full.value
             and self.skill_loader is not None
@@ -819,7 +964,7 @@ class AgentRunner:
         handler: AgentEventHandler | None,
         cb_ctx: CallbackContext | None,
     ) -> RunResult | None:
-        """before_loop_end → finalize.  Returns None on RETRY."""
+        """before_loop_end → finalize. Returns None on RETRY."""
         bc = await self._run_hooks(
             self._callbacks.before_loop_end,
             cb_ctx,
@@ -1125,14 +1270,11 @@ class AgentRunner:
         skill_load_mode: str = "full",
         session: SessionEntry | None = None,
     ) -> list[dict[str, Any]]:
-        """构建 LLM 消息列表。"""
-        import json
-
+        """Build the LLM message list."""
         if session is None:
             session = self.session_manager.get_session_required(session_id)
         messages: list[dict[str, Any]] = []
 
-        # 系统提示
         system_prompt = await self._build_system_prompt(
             state,
             session_id=session_id,
@@ -1141,10 +1283,9 @@ class AgentRunner:
         )
         messages.append({"role": "system", "content": system_prompt})
 
-        # 历史消息
         for msg in session.messages:
             if msg.role == MessageRole.SYSTEM:
-                continue  # 已添加
+                continue
 
             if msg.role == MessageRole.USER:
                 messages.append({"role": "user", "content": msg.content})
@@ -1189,11 +1330,7 @@ class AgentRunner:
         session_id: str,
         cb_ctx: CallbackContext,
     ) -> None:
-        """Dynamic 模式下，在 ReAct 循环前确定性激活一个 skill。
-
-        写入 session.active_skill_ids（SSOT），newest-wins 语义。
-        Router 出错或决定为 None 时，保留原值不变。
-        """
+        """Dynamic mode: deterministically activate one skill before the loop."""
         if self._skill_router is None or self.skill_loader is None:
             return
 
@@ -1218,7 +1355,7 @@ class AgentRunner:
 
         try:
             decision = await self._skill_router.route(ctx)
-        except Exception as exc:  # Protocol violation defense
+        except Exception as exc:
             logger.warning(
                 "Skill router raised (Protocol violation): %s", exc, exc_info=True,
             )
@@ -1247,7 +1384,7 @@ class AgentRunner:
         *,
         skill_load_mode: str = "full",
     ) -> list[SkillEntry]:
-        """统一技能匹配入口，供 _run_loop 一次匹配、多处复用。"""
+        """Unified skill match entry — single match per loop, multi-use."""
         if not self.skill_matcher:
             return []
 
@@ -1277,13 +1414,7 @@ class AgentRunner:
         skill_load_mode: str = "full",
         session: SessionEntry | None = None,
     ) -> str:
-        """构建系统提示。
-
-        dynamic 模式下，若 session.active_skill_ids 非空，则将其末元素
-        （newest-wins）对应 skill 正文注入 <active_skill> 段；此时传入 builder
-        的 tools 与 `_build_tools` 同源（经 `_filter_tools` 筛选），保证 system
-        prompt 描述的工具集与 API tools schema 一致。
-        """
+        """Build the system prompt."""
         tools = self._filter_tools(state, session=session)
 
         skills = self._match_skills(
@@ -1296,14 +1427,12 @@ class AgentRunner:
             if active_id:
                 active_skill = self.skill_loader.get_skill(active_id)
 
-        # Dynamic reference 注入: 有 _flow_stage 时按阶段按需追加 reference 内容
         current_stage_id = state.get("_flow_stage")
         if current_stage_id and current_stage_id != "__completed__" and skills:
             skills = self._enrich_skills_with_stage_reference(skills, current_stage_id)
 
         prompt_config = self.config.prompt_config
 
-        # 默认只注入 user: 前缀的状态到提示词，减少噪声
         user_state = {k: v for k, v in state.items() if k.startswith("user:")}
 
         profile_content = ""
@@ -1338,15 +1467,7 @@ class AgentRunner:
         *,
         session: SessionEntry | None = None,
     ) -> list[AgentTool]:
-        """按 skill_load_mode 与 session.active_skill_ids 筛选可见工具（单一事实源）。
-
-        full 模式: 全部返回。
-        dynamic 模式: always 工具始终可见；auto 工具仅在 session.active_skill_ids
-            末元素（newest-wins）对应的技能被激活后才暴露给 LLM。
-
-        `_build_tools` 与 `_build_system_prompt` 都以此为准，保证 API tools
-        schema 与 system prompt 中的工具描述（若开启）同源。
-        """
+        """Per-skill tool visibility filter (single source of truth)."""
         all_tools = self.tool_registry.list_all()
 
         if (
@@ -1373,23 +1494,18 @@ class AgentRunner:
         *,
         session: SessionEntry | None = None,
     ) -> list[dict[str, Any]]:
-        """构建 API tools schema（`_filter_tools` 的薄包装）。"""
+        """Build API tools schema (thin wrapper over ``_filter_tools``)."""
         return [t.get_json_schema() for t in self._filter_tools(state, session=session)]
 
     @staticmethod
     def _enrich_skills_with_stage_reference(
         skills: list, current_stage_id: str
     ) -> list:
-        """根据 _flow_stage，将当前阶段 reference 文件内容追加到对应 SkillEntry.content。
-
-        通过 FlowEvaluatorRegistry 反查 evaluator，使用 StageDefinition.reference_file
-        （而非直接拼接 stage.id），避免文件名与 stage.id 不一致导致静默失败。
-        """
+        """Inject stage-specific reference content into matching SkillEntries."""
         from ..flow.base_evaluator import FlowEvaluatorRegistry
 
         enriched = []
         for skill in skills:
-            # 尝试用完整 id 和短 id（去掉 agent 前缀）查找 evaluator
             skill_short = skill.id.split(".")[-1]
             evaluator = FlowEvaluatorRegistry.get(skill.id) or FlowEvaluatorRegistry.get(skill_short)
 
@@ -1401,7 +1517,6 @@ class AgentRunner:
                 ref_filename = stage_def.reference_file if stage_def else None
 
             if ref_filename:
-                from pathlib import Path
                 ref_path = Path(skill.path) / "references" / ref_filename
                 if ref_path.exists():
                     ref_content = ref_path.read_text(encoding="utf-8")
@@ -1428,13 +1543,13 @@ class AgentRunner:
         model_override: str | None = None,
         sampling_override: SamplingConfig | None = None,
     ) -> BaseChatModel:
-        """委托给 LLMCaller.get_llm（支持模型 / 采样参数覆盖）。"""
+        """Delegate to LLMCaller.get_llm (model / sampling overrides)."""
         return self._llm_caller.get_llm(
             model_override=model_override,
             sampling_override=sampling_override,
         )
 
-    # ============ 便捷方法 ============
+    # ============ Session conveniences ============
 
     async def create_session(
         self,
@@ -1443,7 +1558,7 @@ class AgentRunner:
         provider: str = "ark",
         state: dict[str, Any] | None = None,
     ) -> str:
-        """创建新会话并返回 ID（异步，支持持久化）"""
+        """Create a new session and return its ID (async, persisted)."""
         session = await self.session_manager.create_session(
             user_id=user_id, model=model, provider=provider, state=state
         )
@@ -1455,16 +1570,16 @@ class AgentRunner:
         provider: str = "ark",
         state: dict[str, Any] | None = None,
     ) -> str:
-        """创建新会话并返回 ID（同步，无持久化）"""
+        """Create a new session and return its ID (sync, no persistence)."""
         session = self.session_manager.create_session_sync(
             model=model, provider=provider, state=state
         )
         return session.session_id
 
     def register_tool(self, tool: AgentTool) -> None:
-        """注册工具"""
+        """Register a single tool."""
         self.tool_registry.register(tool)
 
     def register_tools(self, tools: list[AgentTool]) -> None:
-        """批量注册工具"""
+        """Register multiple tools."""
         self.tool_registry.register_all(tools)

@@ -33,7 +33,10 @@ CLI scaffolds with their own agents seed the framework registry through
 
 from __future__ import annotations
 
+import inspect
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .lifecycle import Lifecycle
@@ -61,6 +64,8 @@ class Bootstrap:
     def __init__(
         self,
         components: list[Lifecycle] | None = None,
+        *,
+        agents_root: "Path | None" = None,
     ) -> None:
         # Lazy import: runtime + observability transitively import the
         # protocol package, so a top-level import would cycle.
@@ -68,8 +73,11 @@ class Bootstrap:
         from ..runtime.agents_lifecycle import AgentsLifecycle
         from ..storage.storage_lifecycle import CoreStorageLifecycle
 
+        resolved_root = self._resolve_agents_root(agents_root)
         self._storage: Lifecycle | None = CoreStorageLifecycle()
-        self._agents: "_AgentsLifecycle | None" = AgentsLifecycle()
+        self._agents: "_AgentsLifecycle | None" = AgentsLifecycle(
+            agents_root=resolved_root,
+        )
         self._tracing: Lifecycle | None = TracingLifecycle()
         # Storage runs first so the central session / user-memory tables
         # exist before agents warm up or component init() touches the DB.
@@ -83,6 +91,50 @@ class Bootstrap:
         ]
         self._started: list[Lifecycle] = []
         self._inited = False
+
+    @staticmethod
+    def _resolve_agents_root(explicit: Path | None) -> Path | None:
+        """Three-tier resolution: explicit > AGENTS_ROOT env > caller convention.
+
+        Convention: caller's source file directory + ``/agents``. The
+        caller is the frame that invoked ``Bootstrap(...)`` directly —
+        typically the user's ``app.py``. If a wrapper (factory function)
+        instantiates Bootstrap, the convention will resolve relative to
+        the wrapper's file; pass ``agents_root=`` explicitly in that case.
+
+        Sets ``AGENTS_ROOT`` env var (only if unset) so downstream
+        runtime code that needs the path (Studio's filesystem CRUD,
+        meta_builder tools) sees the same value the lifecycle uses.
+        """
+        if explicit is not None:
+            resolved = explicit.resolve()
+        elif env := os.getenv("AGENTS_ROOT"):
+            resolved = Path(env).resolve()
+        else:
+            resolved = None
+            for frame_info in inspect.stack()[1:]:
+                fname = frame_info.filename
+                # Skip frames inside this file (the resolver itself).
+                if fname == __file__:
+                    continue
+                candidate = Path(fname).resolve().parent / "agents"
+                if candidate.is_dir():
+                    resolved = candidate
+                    logger.info(
+                        "Bootstrap resolved agents_root by convention: %s "
+                        "(caller=%s)", candidate, fname,
+                    )
+                    break
+            if resolved is None:
+                logger.info(
+                    "Bootstrap: no agents_root resolved (no explicit arg, "
+                    "no AGENTS_ROOT env, no agents/ dir next to caller)",
+                )
+                return None
+
+        if "AGENTS_ROOT" not in os.environ:
+            os.environ["AGENTS_ROOT"] = str(resolved)
+        return resolved
 
     @classmethod
     def _from_components(cls, components: list[Lifecycle]) -> "Bootstrap":

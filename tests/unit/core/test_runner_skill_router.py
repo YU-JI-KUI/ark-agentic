@@ -1,4 +1,4 @@
-"""Tests for AgentRunner skill router wiring and _route_skill_phase."""
+"""Tests for BaseAgent skill router wiring and _route_skill_phase."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
@@ -52,7 +52,7 @@ def _make_runner(
             loader = SkillLoader(cfg)
             loader.load_from_directories()
             session_manager = SessionManager(tmp_sessions_dir, agent_id="test")
-            runner = AgentRunner(
+            runner = BaseAgent._construct(
                 llm=_MockLLM(),
                 session_manager=session_manager,
                 tool_registry=ToolRegistry(),
@@ -74,7 +74,7 @@ def test_runner_stores_none_router_verbatim(tmp_sessions_dir: Path) -> None:
     """Runner is a dumb pass-through: skill_router=None → _skill_router is None.
 
     Wiring decisions (default selection, mode validation) live in
-    build_standard_agent. Direct AgentRunner construction takes the config
+    build_standard_agent. Direct BaseAgent construction takes the config
     at face value.
     """
     with _make_runner(
@@ -259,7 +259,7 @@ def _make_runner_with_llm_mock(
             loader = SkillLoader(cfg)
             loader.load_from_directories()
             session_manager = SessionManager(tmp_sessions_dir, agent_id="test")
-            runner = AgentRunner(
+            runner = BaseAgent._construct(
                 llm=_MockChatModelForRun(),  # type: ignore[arg-type]
                 session_manager=session_manager,
                 tool_registry=ToolRegistry(),
@@ -403,7 +403,7 @@ async def test_topic_switch_updates_active_skill(
         ids = list(loader._skills.keys())
         assert len(ids) == 2
 
-        runner = AgentRunner(
+        runner = BaseAgent._construct(
             llm=_MockChatModelForRun(),  # type: ignore[arg-type]
             session_manager=SessionManager(tmp_sessions_dir, agent_id="test"),
             tool_registry=ToolRegistry(),

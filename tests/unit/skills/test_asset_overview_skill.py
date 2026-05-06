@@ -13,7 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from ark_agentic.agents.securities import create_securities_agent
+from unittest.mock import patch
+
+from ark_agentic.agents.securities import SecuritiesAgent
 from ark_agentic.core.llm import create_chat_model
 
 
@@ -62,7 +64,8 @@ async def main():
 
     print("创建 Agent...")
     llm = create_chat_model("deepseek-chat")
-    agent = create_securities_agent(llm=llm)
+    with patch.object(SecuritiesAgent, "build_llm", return_value=llm):
+        agent = SecuritiesAgent()
 
     print(f"\n运行 {len(evals)} 个评估...\n")
 

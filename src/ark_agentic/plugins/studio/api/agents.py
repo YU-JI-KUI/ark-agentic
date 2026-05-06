@@ -76,7 +76,7 @@ def _write_agent_meta(agent_dir: Path, meta: AgentMeta) -> None:
 @router.get("/agents", response_model=AgentListResponse)
 async def list_agents():
     """扫描 agents/ 目录，列出所有 Agent。"""
-    agents_root = get_agents_root(__file__)
+    agents_root = get_agents_root()
     agents: list[AgentMeta] = []
     if agents_root.is_dir():
         for child in sorted(agents_root.iterdir()):
@@ -93,7 +93,7 @@ async def list_agents():
 @router.get("/agents/{agent_id}", response_model=AgentMeta)
 async def get_agent(agent_id: str):
     """获取单个 Agent 的元数据。"""
-    agents_root = get_agents_root(__file__)
+    agents_root = get_agents_root()
     agent_dir = resolve_agent_dir(agents_root, agent_id)
     if not agent_dir:
         raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
@@ -109,7 +109,7 @@ async def create_agent(
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """创建新的 Agent 目录和 agent.json。"""
-    agents_root = get_agents_root(__file__)
+    agents_root = get_agents_root()
     agent_dir = agents_root / request.id
     if agent_dir.exists():
         raise HTTPException(status_code=409, detail=f"Agent already exists: {request.id}")

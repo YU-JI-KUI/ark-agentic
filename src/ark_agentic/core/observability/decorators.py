@@ -107,7 +107,7 @@ def _traced(span_name: str, kind: str, *, span_name_template: str = None) -> Cal
 
 
 def traced_agent(span_name: str = "agent.run", span_name_template: str = None) -> Callable[[F], F]:
-    """Wrap AgentRunner.run — opens an OpenInference AGENT span."""
+    """Wrap BaseAgent.run — opens an OpenInference AGENT span."""
     return _traced(span_name, _SPAN_KIND_AGENT, span_name_template=span_name_template)
 
 

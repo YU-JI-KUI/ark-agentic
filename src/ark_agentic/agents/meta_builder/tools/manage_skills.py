@@ -239,7 +239,7 @@ class ManageSkillsTool(AgentTool):
                 "需要指定 agent_id，或在当前 Agent 管理页打开 Meta-Agent 对话。",
             )
 
-        agents_root = get_agents_root(__file__)
+        agents_root = get_agents_root()
 
         if action == "list":
             return await _do_list_skills(agents_root, tool_call.id, agent_id)

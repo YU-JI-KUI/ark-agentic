@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ark_agentic.core.runtime.runner import AgentRunner
+    from ark_agentic.core.runtime.base_agent import BaseAgent
     from .base import BaseJob
 
 logger = logging.getLogger(__name__)
@@ -37,9 +37,9 @@ def build_proactive_job_bindings(
 
 
 def apply_proactive_job_bindings(
-    runner: "AgentRunner",
+    runner: "BaseAgent",
     bindings: ProactiveJobBindings,
-) -> "AgentRunner":
+) -> "BaseAgent":
     """Register the job's bootstrap as a runner warmup hook.
 
     runner 不感知 job 类型或 JobManager;此函数负责闭包捕获 job

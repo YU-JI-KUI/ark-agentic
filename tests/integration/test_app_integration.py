@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ark_agentic.app import app
-from ark_agentic.core.runtime.runner import AgentRunner, RunResult
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 
@@ -22,7 +22,7 @@ def mock_agent_runner():
     """Mock the insurance agent runner."""
     from ark_agentic.core.types import SessionEntry
     with patch("ark_agentic.plugins.api.chat.get_agent") as mock_get:
-        runner = AsyncMock(spec=AgentRunner)
+        runner = AsyncMock(spec=BaseAgent)
         # Mock session manager with proper SessionEntry
         runner.session_manager = MagicMock()
         mock_session = SessionEntry(session_id="test-session", model="mock", provider="mock", state={}, active_skill_ids=[], messages=[])
@@ -143,7 +143,7 @@ async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> 
     registry.get.return_value = runner
 
     with patch(
-        "ark_agentic.core.runtime.agents_lifecycle.discover_and_register_agents"
+        "ark_agentic.core.runtime.agents_lifecycle.discover_agents"
     ):
         bootstrap = Bootstrap._from_components(
             [AgentsLifecycle(registry=registry)],
@@ -152,4 +152,4 @@ async def test_agents_lifecycle_warms_up_and_closes_every_registered_agent() -> 
         await bootstrap.stop()
 
     assert runner.warmup.await_count == 2
-    assert runner.close_memory.await_count == 2
+    assert runner.close.await_count == 2

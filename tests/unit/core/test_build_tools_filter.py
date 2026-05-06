@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
@@ -65,7 +65,7 @@ def _make_runner(
     tools: list[AgentTool],
     all_skills: list[SkillEntry] | None = None,
     load_mode: SkillLoadMode = SkillLoadMode.dynamic,
-) -> AgentRunner:
+) -> BaseAgent:
     mock_llm = MagicMock()
     registry = ToolRegistry()
     for t in tools:
@@ -80,7 +80,7 @@ def _make_runner(
         )
 
     skill_config = SkillConfig(load_mode=load_mode)
-    runner = AgentRunner(
+    runner = BaseAgent._construct(
         llm=mock_llm,
         tool_registry=registry,
         session_manager=SessionManager(tmp_path, agent_id="test"),
@@ -120,7 +120,7 @@ class TestBuildToolsFullMode:
 
 class TestBuildToolsDynamicMode:
     """
-    AgentRunner 在 dynamic 模式下会自动注册 ReadSkillTool（visibility=always）。
+    BaseAgent 在 dynamic 模式下会自动注册 ReadSkillTool（visibility=always）。
     测试工具列表里不要重复传 read_skill，让 runner 自行注册。
     """
 
@@ -216,7 +216,7 @@ class TestBuildToolsDynamicMode:
 
 class TestInsuranceScenario:
 
-    def _make_insurance_runner(self, tmp_path: Path) -> AgentRunner:
+    def _make_insurance_runner(self, tmp_path: Path) -> BaseAgent:
         withdraw = _make_skill(
             "insurance.withdraw_money",
             required_tools=["customer_info", "rule_engine", "render_a2ui"],

@@ -63,7 +63,7 @@ class InsuranceProactiveJob(ProactiveServiceJob):
     调用 policy_query 工具查询保单状态，主动推送提醒通知。
 
     使用示例（在 create_insurance_agent 中配置）：
-        runner = AgentRunner(...)
+        runner = BaseAgent(...)
         runner.set_proactive_job_class(InsuranceProactiveJob)
     """
 

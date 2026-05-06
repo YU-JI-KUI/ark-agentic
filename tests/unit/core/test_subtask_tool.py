@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig, RunResult
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.subtask.tool import SpawnSubtasksTool, SubtaskConfig, _SUBTASK_SESSION_MARKER
 from ark_agentic.core.tools.base import AgentTool
@@ -48,12 +48,12 @@ class _BraveTool(AgentTool):
         return AgentToolResult.json_result(tool_call.id, {"result": "ok"})
 
 
-def _make_mock_runner(session_manager: SessionManager, tools: list[AgentTool] | None = None) -> AgentRunner:
+def _make_mock_runner(session_manager: SessionManager, tools: list[AgentTool] | None = None) -> BaseAgent:
     llm = MagicMock()
     registry = ToolRegistry()
     for t in (tools or [_DummyTool()]):
         registry.register(t)
-    runner = AgentRunner.__new__(AgentRunner)
+    runner = BaseAgent.__new__(BaseAgent)
     runner.llm = llm
     runner.tool_registry = registry
     runner.session_manager = session_manager
@@ -69,12 +69,12 @@ def _make_mock_runner(session_manager: SessionManager, tools: list[AgentTool] | 
 
 
 @pytest.fixture
-def mock_runner(session_manager: SessionManager) -> AgentRunner:
+def mock_runner(session_manager: SessionManager) -> BaseAgent:
     return _make_mock_runner(session_manager)
 
 
 @pytest.mark.asyncio
-async def test_nesting_rejected(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_nesting_rejected(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     """Subtask cannot spawn subtasks (nesting prevention)."""
     tool = SpawnSubtasksTool(mock_runner, session_manager)
     tc = ToolCall.create("spawn_subtasks", {
@@ -87,7 +87,7 @@ async def test_nesting_rejected(session_manager: SessionManager, mock_runner: Ag
 
 
 @pytest.mark.asyncio
-async def test_empty_tasks_list(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_empty_tasks_list(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     tool = SpawnSubtasksTool(mock_runner, session_manager)
     tc = ToolCall.create("spawn_subtasks", {"tasks": []})
     result = await tool.execute(tc, {"session_id": "parent-001"})
@@ -95,7 +95,7 @@ async def test_empty_tasks_list(session_manager: SessionManager, mock_runner: Ag
 
 
 @pytest.mark.asyncio
-async def test_empty_task_description(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_empty_task_description(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     tool = SpawnSubtasksTool(mock_runner, session_manager)
     tc = ToolCall.create("spawn_subtasks", {
         "tasks": [{"task": "", "label": "empty"}],
@@ -109,7 +109,7 @@ async def test_empty_task_description(session_manager: SessionManager, mock_runn
 
 
 @pytest.mark.asyncio
-async def test_successful_single_subtask(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_successful_single_subtask(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     """Single subtask executes and returns result."""
     parent_session = session_manager.create_session_sync(
         session_id="parent-003", user_id="user_A",
@@ -122,7 +122,7 @@ async def test_successful_single_subtask(session_manager: SessionManager, mock_r
         tool_calls_count=1,
     )
 
-    with patch.object(AgentRunner, "run_ephemeral", new_callable=AsyncMock, return_value=run_result):
+    with patch.object(BaseAgent, "run_ephemeral", new_callable=AsyncMock, return_value=run_result):
         tool = SpawnSubtasksTool(mock_runner, session_manager)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "analyze policy P001", "label": "P001"}],
@@ -138,7 +138,7 @@ async def test_successful_single_subtask(session_manager: SessionManager, mock_r
 
 
 @pytest.mark.asyncio
-async def test_parallel_subtasks_execution(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_parallel_subtasks_execution(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     """Multiple subtasks run in parallel."""
     parent_session = session_manager.create_session_sync(
         session_id="parent-004", user_id="user_B",
@@ -157,7 +157,7 @@ async def test_parallel_subtasks_execution(session_manager: SessionManager, mock
             tool_calls_count=0,
         )
 
-    with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(mock_runner, session_manager)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [
@@ -176,7 +176,7 @@ async def test_parallel_subtasks_execution(session_manager: SessionManager, mock
 
 
 @pytest.mark.asyncio
-async def test_state_inheritance_and_delta(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_state_inheritance_and_delta(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     """Sub-session inherits user:* state. state_delta returned for changed keys."""
     parent_session = session_manager.create_session_sync(
         session_id="parent-005", user_id="user_C",
@@ -195,7 +195,7 @@ async def test_state_inheritance_and_delta(session_manager: SessionManager, mock
             turns=1,
         )
 
-    with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(mock_runner, session_manager)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "check state", "label": "state_test"}],
@@ -210,7 +210,7 @@ async def test_state_inheritance_and_delta(session_manager: SessionManager, mock
 
 
 @pytest.mark.asyncio
-async def test_token_aggregation(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_token_aggregation(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     """Subtask tokens are aggregated to parent session."""
     parent_session = session_manager.create_session_sync(
         session_id="parent-006", user_id="user_D",
@@ -222,7 +222,7 @@ async def test_token_aggregation(session_manager: SessionManager, mock_runner: A
             turns=1,
         )
 
-    with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(mock_runner, session_manager)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [
@@ -234,7 +234,7 @@ async def test_token_aggregation(session_manager: SessionManager, mock_runner: A
 
 
 @pytest.mark.asyncio
-async def test_sub_session_cleanup(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_sub_session_cleanup(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     """Sub-sessions are deleted after subtask completes (keep_session=False)."""
     parent_session = session_manager.create_session_sync(
         session_id="parent-007", user_id="user_E",
@@ -254,7 +254,7 @@ async def test_sub_session_cleanup(session_manager: SessionManager, mock_runner:
     async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
         return RunResult(response=AgentMessage.assistant("done"), turns=1)
 
-    with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(mock_runner, session_manager, SubtaskConfig(keep_session=False))
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "temp task", "label": "t"}],
@@ -266,24 +266,19 @@ async def test_sub_session_cleanup(session_manager: SessionManager, mock_runner:
 
 
 @pytest.mark.asyncio
-async def test_deny_list_excludes_spawn_subtasks(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_deny_list_excludes_spawn_subtasks(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     """spawn_subtasks is always excluded from sub-runner's tool registry."""
     parent_session = session_manager.create_session_sync(
         session_id="parent-008", user_id="user_F",
     )
 
     captured_registries: list[ToolRegistry] = []
-    original_init = AgentRunner.__init__
-
-    def capture_init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        captured_registries.append(self.tool_registry)
 
     async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        captured_registries.append(self.tool_registry)
         return RunResult(response=AgentMessage.assistant("ok"), turns=1)
 
-    with patch.object(AgentRunner, "__init__", capture_init), \
-         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(mock_runner, session_manager)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "test deny", "label": "d"}],
@@ -306,29 +301,28 @@ async def test_subtask_runner_does_not_inherit_parent_callbacks(
         session_id="parent-008b", user_id="user_F2",
     )
 
-    captured_callback_args: list[object | None] = []
-    original_init = AgentRunner.__init__
-
-    def capture_init(self, *args, **kwargs):
-        captured_callback_args.append(kwargs.get("callbacks"))
-        original_init(self, *args, **kwargs)
+    captured_callbacks: list[object | None] = []
 
     async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        # Sub-agent's _callbacks is set in _construct; if subtask passed
+        # callbacks=None it should be a fresh empty RunnerCallbacks(), NOT
+        # the parent's callback collection.
+        captured_callbacks.append(self._callbacks)
         return RunResult(response=AgentMessage.assistant("ok"), turns=1)
 
-    with patch.object(AgentRunner, "__init__", capture_init), \
-         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(runner, session_manager)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "test callbacks", "label": "cb"}],
         })
         await tool.execute(tc, {"session_id": "parent-008b"})
 
-    assert captured_callback_args[-1] is None
+    # Sub-runner's _callbacks must not be the parent's callbacks reference.
+    assert captured_callbacks[-1] is not runner._callbacks
 
 
 @pytest.mark.asyncio
-async def test_subtask_timeout(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_subtask_timeout(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     """Subtask that exceeds timeout returns timed_out status."""
     parent_session = session_manager.create_session_sync(
         session_id="parent-009", user_id="user_G",
@@ -339,7 +333,7 @@ async def test_subtask_timeout(session_manager: SessionManager, mock_runner: Age
         return RunResult(response=AgentMessage.assistant("late"), turns=1)
 
     config = SubtaskConfig(timeout_seconds=0.1)
-    with patch.object(AgentRunner, "run_ephemeral", slow_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", slow_run_ephemeral):
         tool = SpawnSubtasksTool(mock_runner, session_manager, config)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "slow task", "label": "slow"}],
@@ -352,7 +346,7 @@ async def test_subtask_timeout(session_manager: SessionManager, mock_runner: Age
 
 
 @pytest.mark.asyncio
-async def test_persist_transcript_in_metadata(session_manager: SessionManager, mock_runner: AgentRunner) -> None:
+async def test_persist_transcript_in_metadata(session_manager: SessionManager, mock_runner: BaseAgent) -> None:
     """When persist_transcript=True, transcript is included in metadata."""
     parent_session = session_manager.create_session_sync(
         session_id="parent-010", user_id="user_H",
@@ -369,7 +363,7 @@ async def test_persist_transcript_in_metadata(session_manager: SessionManager, m
         )
 
     config = SubtaskConfig(persist_transcript=True)
-    with patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(mock_runner, session_manager, config)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "transcript test", "label": "tr"}],
@@ -393,17 +387,12 @@ async def test_tools_whitelist_filters_registry(session_manager: SessionManager)
     )
 
     captured_registries: list[ToolRegistry] = []
-    original_init = AgentRunner.__init__
-
-    def capture_init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        captured_registries.append(self.tool_registry)
 
     async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        captured_registries.append(self.tool_registry)
         return RunResult(response=AgentMessage.assistant("ok"), turns=1)
 
-    with patch.object(AgentRunner, "__init__", capture_init), \
-         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(runner, session_manager)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "use alpha only", "label": "wl", "tools": ["alpha"]}],
@@ -427,17 +416,12 @@ async def test_tools_omitted_inherits_all(session_manager: SessionManager) -> No
     )
 
     captured_registries: list[ToolRegistry] = []
-    original_init = AgentRunner.__init__
-
-    def capture_init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        captured_registries.append(self.tool_registry)
 
     async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        captured_registries.append(self.tool_registry)
         return RunResult(response=AgentMessage.assistant("ok"), turns=1)
 
-    with patch.object(AgentRunner, "__init__", capture_init), \
-         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(runner, session_manager)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "inherit all", "label": "inherit"}],
@@ -462,17 +446,12 @@ async def test_tools_empty_list_inherits_all(session_manager: SessionManager) ->
     )
 
     captured_registries: list[ToolRegistry] = []
-    original_init = AgentRunner.__init__
-
-    def capture_init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        captured_registries.append(self.tool_registry)
 
     async def fake_run_ephemeral(self, session_id: str, user_input: str) -> RunResult:
+        captured_registries.append(self.tool_registry)
         return RunResult(response=AgentMessage.assistant("ok"), turns=1)
 
-    with patch.object(AgentRunner, "__init__", capture_init), \
-         patch.object(AgentRunner, "run_ephemeral", fake_run_ephemeral):
+    with patch.object(BaseAgent, "run_ephemeral", fake_run_ephemeral):
         tool = SpawnSubtasksTool(runner, session_manager)
         tc = ToolCall.create("spawn_subtasks", {
             "tasks": [{"task": "empty tools", "label": "et", "tools": []}],

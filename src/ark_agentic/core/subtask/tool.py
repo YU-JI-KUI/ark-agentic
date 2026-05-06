@@ -2,7 +2,7 @@
 
 设计原则：
 - 接收任务列表，工具内部 asyncio.gather 并行执行，不依赖 executor 并行
-- 每个子任务创建独立 AgentRunner + ephemeral session，真正上下文隔离
+- 每个子任务创建独立 BaseAgent + ephemeral session，真正上下文隔离
 - 防嵌套：子任务 session_id 含 ":sub:"，检测到则拒绝再次 spawn
 - state_delta / token_usage / transcript 回传父 runner
 """
@@ -21,7 +21,7 @@ from ..tools.registry import ToolRegistry
 from ..types import AgentMessage, AgentToolResult, ToolCall
 
 if TYPE_CHECKING:
-    from ..runtime.runner import AgentRunner
+    from ..runtime.base_agent import BaseAgent
     from ..session import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,7 @@ class SpawnSubtasksTool(AgentTool):
 
     def __init__(
         self,
-        runner: AgentRunner,
+        runner: BaseAgent,
         session_manager: SessionManager,
         config: SubtaskConfig | None = None,
     ) -> None:
@@ -196,8 +196,6 @@ class SpawnSubtasksTool(AgentTool):
         context: dict[str, Any],
         tools_allow: list[str] | None = None,
     ) -> dict[str, Any]:
-        from ..runtime.runner import AgentRunner
-
         parent_session = self._session_manager.get_session(parent_session_id)
         initial_state: dict[str, Any] = {}
         user_id: str = ""
@@ -230,7 +228,7 @@ class SpawnSubtasksTool(AgentTool):
         if self._config.max_turns is not None:
             sub_config = replace(sub_config, max_turns=self._config.max_turns)
 
-        sub_runner = AgentRunner(
+        sub_runner = type(self._runner)._construct(
             llm=self._runner.llm,
             tool_registry=sub_registry,
             session_manager=self._session_manager,
@@ -296,7 +294,7 @@ class SpawnSubtasksTool(AgentTool):
 
 
 def create_subtask_tool(
-    runner: AgentRunner,
+    runner: BaseAgent,
     session_manager: SessionManager,
     config: SubtaskConfig | None = None,
 ) -> SpawnSubtasksTool:

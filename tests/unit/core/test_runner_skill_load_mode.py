@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.skills.loader import SkillLoader
@@ -31,7 +31,7 @@ class _MockLLM:
 
 
 def _make_runner_with_skill(tmp_sessions_dir: Path, load_mode: SkillLoadMode):
-    """Helper that creates an AgentRunner with one skill and the given load_mode."""
+    """Helper that creates an BaseAgent with one skill and the given load_mode."""
     import contextlib
 
     @contextlib.contextmanager
@@ -54,7 +54,7 @@ def _make_runner_with_skill(tmp_sessions_dir: Path, load_mode: SkillLoadMode):
                 AgentMessage.user("Hello", metadata={}),
             )
 
-            runner = AgentRunner(
+            runner = BaseAgent._construct(
                 llm=_MockLLM(),
                 session_manager=session_manager,
                 tool_registry=ToolRegistry(),
@@ -68,14 +68,14 @@ def _make_runner_with_skill(tmp_sessions_dir: Path, load_mode: SkillLoadMode):
 
 @pytest.fixture
 def runner_with_one_skill(tmp_sessions_dir: Path):
-    """AgentRunner with one skill, load_mode=full."""
+    """BaseAgent with one skill, load_mode=full."""
     with _make_runner_with_skill(tmp_sessions_dir, SkillLoadMode.full) as ctx:
         yield ctx
 
 
 @pytest.fixture
 def runner_with_one_skill_dynamic(tmp_sessions_dir: Path):
-    """AgentRunner with one skill, load_mode=dynamic."""
+    """BaseAgent with one skill, load_mode=dynamic."""
     with _make_runner_with_skill(tmp_sessions_dir, SkillLoadMode.dynamic) as ctx:
         yield ctx
 
@@ -154,7 +154,7 @@ def test_dynamic_mode_registers_read_skill_tool(tmp_sessions_dir: Path) -> None:
         loader = SkillLoader(skill_cfg)
         loader.load_from_directories()
 
-        runner = AgentRunner(
+        runner = BaseAgent._construct(
             llm=_MockLLM(),
             session_manager=SessionManager(tmp_sessions_dir, agent_id="test"),
             tool_registry=ToolRegistry(),
@@ -212,7 +212,7 @@ async def test_full_mode_bootstraps_active_skill_ids_each_turn(
         session = await sm.create_session(user_id="u1")
         sm.set_active_skill_ids(session.session_id, ["pre-existing"])
 
-        runner = AgentRunner(
+        runner = BaseAgent._construct(
             llm=_StubLLM(),  # type: ignore[arg-type]
             session_manager=sm,
             tool_registry=ToolRegistry(),
@@ -247,7 +247,7 @@ async def test_dynamic_mode_does_not_bootstrap_active_skill_ids(
         sm = SessionManager(tmp_sessions_dir, agent_id="test")
         session = await sm.create_session(user_id="u1")
 
-        runner = AgentRunner(
+        runner = BaseAgent._construct(
             llm=_StubLLM(),  # type: ignore[arg-type]
             session_manager=sm,
             tool_registry=ToolRegistry(),
@@ -330,7 +330,7 @@ def _make_runner_with_two_skills(tmp_sessions_dir: Path):
                 session_id, AgentMessage.user("Hi", metadata={}),
             )
 
-            runner = AgentRunner(
+            runner = BaseAgent._construct(
                 llm=_MockLLM(),
                 session_manager=session_manager,
                 tool_registry=registry,

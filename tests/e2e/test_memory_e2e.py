@@ -23,7 +23,7 @@ from ark_agentic.core.memory.extractor import FlushResult, MemoryFlusher
 from ark_agentic.core.memory.manager import build_memory_manager
 from ark_agentic.core.prompt.builder import PromptConfig
 from ark_agentic.core.llm.caller import LLMCaller
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.tools.registry import ToolRegistry
@@ -87,7 +87,7 @@ async def base_agent(memory_dir: Path, base_sessions_dir: Path):
         skill_config=SkillConfig(),
     )
 
-    runner = AgentRunner(
+    runner = BaseAgent._construct(
         llm=llm,
         tool_registry=ToolRegistry(),
         session_manager=session_manager,
@@ -99,7 +99,7 @@ async def base_agent(memory_dir: Path, base_sessions_dir: Path):
 
 @pytest.mark.asyncio
 async def test_compact_flush_writes_memory(
-    base_agent: AgentRunner,
+    base_agent: BaseAgent,
     memory_dir: Path,
     base_sessions_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -165,7 +165,7 @@ async def test_compact_flush_writes_memory(
 
 @pytest.mark.asyncio
 async def test_memory_injected_into_system_prompt(
-    base_agent: AgentRunner,
+    base_agent: BaseAgent,
     memory_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -212,7 +212,7 @@ async def test_memory_injected_into_system_prompt(
 
 @pytest.mark.asyncio
 async def test_memory_write_tool_works_in_runner(
-    base_agent: AgentRunner,
+    base_agent: BaseAgent,
     memory_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):

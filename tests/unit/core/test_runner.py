@@ -1,4 +1,4 @@
-"""Tests for AgentRunner core happy paths with ChatOpenAI backend."""
+"""Tests for BaseAgent core happy paths with ChatOpenAI backend."""
 
 import os
 import pytest
@@ -10,7 +10,7 @@ import asyncio
 import json
 
 from ark_agentic.core.runtime.callbacks import CallbackContext, CallbackResult, RunnerCallbacks
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig, RunResult
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
 from ark_agentic.core.tools.registry import ToolRegistry
@@ -96,8 +96,8 @@ def _make_runner(
     responses: list[Any] = None,
     stream_responses: list[list[Any]] = None,
     callbacks: RunnerCallbacks | None = None,
-) -> tuple[AgentRunner, _MockTool]:
-    """Create a fresh AgentRunner with mock dependencies."""
+) -> tuple[BaseAgent, _MockTool]:
+    """Create a fresh BaseAgent with mock dependencies."""
     mock_llm = MockChatModel(
         responses=responses or [], stream_responses=stream_responses or []
     )
@@ -110,7 +110,7 @@ def _make_runner(
         max_turns=5,
         auto_compact=False,
     )
-    runner = AgentRunner(
+    runner = BaseAgent._construct(
         llm=llm,
         session_manager=session_mgr,
         tool_registry=registry,
@@ -361,7 +361,7 @@ async def test_execute_tools_on_step_uses_tool_thinking_hint(
     registry = ToolRegistry()
     registry.register(ToolWithHint())
     session_mgr = SessionManager(tmp_sessions_dir, agent_id="test")
-    runner = AgentRunner(
+    runner = BaseAgent._construct(
         llm=mock_llm,  # type: ignore[arg-type]
         session_manager=session_mgr,
         tool_registry=registry,
@@ -441,7 +441,7 @@ async def test_state_delta_merge(tmp_sessions_dir: Path) -> None:
     registry.register(_StateDeltaTool())
     session_mgr = SessionManager(tmp_sessions_dir, agent_id="test")
     config = RunnerConfig(max_turns=5, auto_compact=False)
-    runner = AgentRunner(
+    runner = BaseAgent._construct(
         llm=mock_llm, session_manager=session_mgr, tool_registry=registry, config=config
     )
 
@@ -497,13 +497,13 @@ class _A2UITool(AgentTool):
         )
 
 
-def _make_runner_with_a2ui(sessions_dir: Path, responses: list[Any]) -> AgentRunner:
+def _make_runner_with_a2ui(sessions_dir: Path, responses: list[Any]) -> BaseAgent:
     mock_llm = MockChatModel(responses=responses)
     registry = ToolRegistry()
     registry.register(_A2UITool())
     session_mgr = SessionManager(sessions_dir, agent_id="test")
     config = RunnerConfig(max_turns=5, auto_compact=False)
-    return AgentRunner(
+    return BaseAgent._construct(
         llm=mock_llm, session_manager=session_mgr, tool_registry=registry, config=config
     )
 
@@ -719,37 +719,3 @@ async def test_non_a2ui_tool_call_args_not_redacted(tmp_sessions_dir: Path) -> N
 # tests/unit/core/test_runner_build_messages.py for the replacement contract.
 
 
-class _FakeMemoryManager:
-    """Minimal MemoryManager stand-in for mark_memory_dirty tests."""
-
-    def __init__(self) -> None:
-        self.dirty_count = 0
-
-    def mark_dirty(self) -> None:
-        self.dirty_count += 1
-
-    async def initialize(self) -> None:
-        return None
-
-    async def close(self) -> None:
-        return None
-
-
-def test_mark_memory_dirty_noop_without_memory_manager(tmp_sessions_dir: Path) -> None:
-    runner, _ = _make_runner(tmp_sessions_dir)
-    runner.mark_memory_dirty()
-
-
-def test_mark_memory_dirty_is_noop_after_redesign(tmp_sessions_dir: Path) -> None:
-    """mark_memory_dirty is a no-op after SQLite removal — kept for API compat."""
-    mock_llm = MockChatModel(responses=[])
-    llm = mock_llm  # type: ignore[arg-type]
-    mm = _FakeMemoryManager()
-    session_mgr = SessionManager(tmp_sessions_dir, agent_id="test")
-    runner = AgentRunner(
-        llm=llm,
-        session_manager=session_mgr,
-        memory_manager=mm,  # type: ignore[arg-type]
-    )
-    runner.mark_memory_dirty()
-    assert mm.dirty_count == 0, "mark_memory_dirty should be a no-op (no SQLite index)"

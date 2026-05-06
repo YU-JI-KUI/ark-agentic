@@ -92,7 +92,7 @@ class SkillLoader:
         frontmatter, body = self._parse_frontmatter(content)
 
         # FULL 模式：自动扫描 references/ 子目录，将所有 .md 文件追加到 body
-        # Dynamic 模式：references/ 由 AgentRunner._enrich_skills_with_stage_reference 按阶段注入
+        # Dynamic 模式：references/ 由 BaseAgent._enrich_skills_with_stage_reference 按阶段注入
         references_dir = file_path.parent / "references"
         if references_dir.exists() and references_dir.is_dir():
             body = self._append_references_full(body, references_dir)

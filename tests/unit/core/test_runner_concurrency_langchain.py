@@ -1,4 +1,4 @@
-"""Tests for AgentRunner concurrency safety with LangChain integration.
+"""Tests for BaseAgent concurrency safety with LangChain integration.
 
 Verifies that the LangChain integration maintains proper callback isolation
 and concurrency safety in the ReAct loop.
@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig, RunResult
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.stream.event_bus import AgentEventHandler
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
@@ -48,7 +48,7 @@ class MockEventHandler:
 
 
 class TestRunnerConcurrency:
-    """测试 AgentRunner 的并发安全性"""
+    """测试 BaseAgent 的并发安全性"""
 
     @pytest.fixture
     def mock_llm(self):
@@ -105,7 +105,7 @@ class TestRunnerConcurrency:
         session = await session_manager.create_session("test_user", model="mock")
         session_id = session.session_id
 
-        runner = AgentRunner(
+        runner = BaseAgent._construct(
             llm=mock_llm,
             config=runner_config,
             session_manager=session_manager,
@@ -164,7 +164,7 @@ class TestRunnerConcurrency:
         session = await session_manager.create_session("test_user", model="mock")
         session_id = session.session_id
 
-        runner = AgentRunner(
+        runner = BaseAgent._construct(
             llm=mock_llm,
             config=runner_config,
             session_manager=session_manager,
@@ -212,7 +212,7 @@ class TestRunnerConcurrency:
         session = await session_manager.create_session("test_user", model="mock")
         session_id = session.session_id
 
-        runner = AgentRunner(
+        runner = BaseAgent._construct(
             llm=mock_llm,
             config=runner_config,
             session_manager=session_manager,
@@ -257,14 +257,14 @@ class TestRunnerConcurrency:
         session1 = await session_manager1.create_session("test_user", model="mock")
         session2 = await session_manager2.create_session("test_user", model="mock")
 
-        runner1 = AgentRunner(
+        runner1 = BaseAgent._construct(
             llm=mock_llm,
             config=runner_config,
             session_manager=session_manager1,
             tool_registry=tool_registry
         )
 
-        runner2 = AgentRunner(
+        runner2 = BaseAgent._construct(
             llm=mock_llm,
             config=runner_config,
             session_manager=session_manager2,

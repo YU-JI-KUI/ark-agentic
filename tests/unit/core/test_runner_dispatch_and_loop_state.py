@@ -12,17 +12,17 @@ from ark_agentic.core.runtime.callbacks import (
     CallbackResult,
     RunnerCallbacks,
 )
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult, _LoopState
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig, RunResult, _LoopState
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.types import AgentMessage, SessionEntry, SkillLoadMode, ToolCall
 
 
 class TestDispatchEvent:
-    """AgentRunner._dispatch_event routes CallbackEvent to AgentEventHandler methods."""
+    """BaseAgent._dispatch_event routes CallbackEvent to AgentEventHandler methods."""
 
     def test_step_routes_to_on_step_with_text(self) -> None:
         handler = MagicMock()
-        AgentRunner._dispatch_event(
+        BaseAgent._dispatch_event(
             handler, CallbackEvent(type="step", data={"text": "doing work"}),
         )
         handler.on_step.assert_called_once_with("doing work")
@@ -31,13 +31,13 @@ class TestDispatchEvent:
 
     def test_step_empty_string_when_text_missing(self) -> None:
         handler = MagicMock()
-        AgentRunner._dispatch_event(handler, CallbackEvent(type="step", data={}))
+        BaseAgent._dispatch_event(handler, CallbackEvent(type="step", data={}))
         handler.on_step.assert_called_once_with("")
 
     def test_ui_component_routes_to_on_ui_component(self) -> None:
         handler = MagicMock()
         payload = {"source_type": "x", "query_msg": "y"}
-        AgentRunner._dispatch_event(
+        BaseAgent._dispatch_event(
             handler, CallbackEvent(type="ui_component", data=payload),
         )
         handler.on_ui_component.assert_called_once_with(payload)
@@ -45,7 +45,7 @@ class TestDispatchEvent:
 
     def test_other_types_route_to_on_custom_event(self) -> None:
         handler = MagicMock()
-        AgentRunner._dispatch_event(
+        BaseAgent._dispatch_event(
             handler, CallbackEvent(type="intake_rejected", data={"relevant": 0}),
         )
         handler.on_custom_event.assert_called_once_with("intake_rejected", {"relevant": 0})
@@ -57,11 +57,11 @@ class TestRunHooksEventDispatch:
     """_run_hooks uses _dispatch_event (integration with mock handler)."""
 
     @pytest.fixture
-    def minimal_runner(self) -> AgentRunner:
+    def minimal_runner(self) -> BaseAgent:
         config = RunnerConfig(
             skill_config=SkillConfig(load_mode=SkillLoadMode.full),
         )
-        runner = AgentRunner(
+        runner = BaseAgent._construct(
             llm=Mock(),
             session_manager=Mock(),
             tool_registry=Mock(),
@@ -81,7 +81,7 @@ class TestRunHooksEventDispatch:
         return runner
 
     @pytest.mark.asyncio
-    async def test_hook_event_dispatched_to_custom(self, minimal_runner: AgentRunner) -> None:
+    async def test_hook_event_dispatched_to_custom(self, minimal_runner: BaseAgent) -> None:
         handler = MagicMock()
 
         async def hook(ctx: CallbackContext, **kwargs: object) -> CallbackResult:
@@ -105,7 +105,7 @@ class TestRunHooksEventDispatch:
         handler.on_custom_event.assert_called_once_with("start_flow", {"source_type": "bonus"})
 
     @pytest.mark.asyncio
-    async def test_hook_event_dispatched_to_on_step(self, minimal_runner: AgentRunner) -> None:
+    async def test_hook_event_dispatched_to_on_step(self, minimal_runner: BaseAgent) -> None:
         handler = MagicMock()
 
         async def hook(ctx: CallbackContext, **kwargs: object) -> CallbackResult:

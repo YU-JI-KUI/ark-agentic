@@ -210,7 +210,7 @@ def _loginflag_to_account_type(loginflag: str | None) -> str:
 def enrich_securities_context(input_context: dict[str, Any]) -> dict[str, Any]:
     """证券 Agent context 预处理：解析 validatedata 字符串并将各字段注入 context
 
-    由 AgentRunner.context_preprocessor 调用，在合并 session.state 之前执行。
+    由 BaseAgent.context_preprocessor 调用，在合并 session.state 之前执行。
     已存在的显式字段不会被覆盖。
 
     account_type 推导规则（优先级从高到低）：

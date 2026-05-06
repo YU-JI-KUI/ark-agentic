@@ -1,23 +1,23 @@
-"""Integration tests for create_insurance_agent() with LLM from env."""
+"""Integration tests for ``InsuranceAgent`` with LLM from env."""
 
 from __future__ import annotations
 
 import pytest
 
-from ark_agentic.agents.insurance import create_insurance_agent
+from ark_agentic.agents.insurance import InsuranceAgent
 
 
-def test_create_insurance_agent_with_openai_compat_returns_runner_with_llm(
+def test_insurance_agent_with_openai_env_wires_chat_model(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """create_insurance_agent with API_KEY and LLM_PROVIDER=openai returns runner with ChatOpenAI."""
+    """InsuranceAgent() with API_KEY + LLM_PROVIDER=openai pulls ChatOpenAI from env."""
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     monkeypatch.setenv("API_KEY", "sk-test")
     monkeypatch.setenv("MODEL_NAME", "gpt-4o")
     monkeypatch.setenv("SESSIONS_DIR", str(tmp_path))
 
-    runner = create_insurance_agent()
+    agent = InsuranceAgent()
 
-    assert runner is not None
-    assert runner.llm is not None
-    assert getattr(runner.llm, "model", None) == "gpt-4o"
+    assert agent is not None
+    assert agent.llm is not None
+    assert getattr(agent.llm, "model", None) == "gpt-4o"

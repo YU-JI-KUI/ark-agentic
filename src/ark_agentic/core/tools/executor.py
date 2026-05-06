@@ -1,6 +1,6 @@
 """ToolExecutor — 工具执行 + ToolEvent 统一分发
 
-从 AgentRunner._execute_tools 提取。职责：
+从 BaseAgent._execute_tools 提取。职责：
 1. 按序执行工具调用（含超时 / 错误兜底）
 2. 将 AgentToolResult.events 统一分发到 AgentEventHandler
 """

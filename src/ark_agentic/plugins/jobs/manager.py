@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 全局单例：app.py 启动时设置，AgentRunner.warmup() 时取用
+# 全局单例：app.py 启动时设置，BaseAgent.warmup() 时取用
 _global_job_manager: "JobManager | None" = None
 
 

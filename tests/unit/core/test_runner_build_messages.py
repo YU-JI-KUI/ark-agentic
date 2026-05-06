@@ -1,4 +1,4 @@
-"""Contract tests for AgentRunner._build_messages tool-role content."""
+"""Contract tests for BaseAgent._build_messages tool-role content."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import (
@@ -31,8 +31,8 @@ def tmp_sessions_dir(tmp_path: Path) -> Path:
     return d
 
 
-def _make_runner(tmp_sessions_dir: Path) -> AgentRunner:
-    return AgentRunner(
+def _make_runner(tmp_sessions_dir: Path) -> BaseAgent:
+    return BaseAgent._construct(
         llm=_NoopChatModel(),
         session_manager=SessionManager(tmp_sessions_dir, agent_id="test"),
         tool_registry=ToolRegistry(),
