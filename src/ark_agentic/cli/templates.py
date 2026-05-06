@@ -43,48 +43,20 @@ AGENT_MODULE_TEMPLATE = '''\
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from langchain_core.language_models.chat_models import BaseChatModel
-
-from ark_agentic import AgentDef, AgentRunner, build_standard_agent
-from ark_agentic.core.runtime.callbacks import RunnerCallbacks
+from ark_agentic import BaseAgent
 
 from .tools import create_{agent_name_snake}_tools
 
-_AGENT_DIR = Path(__file__).resolve().parent
 
-_DEF = AgentDef(
-    agent_id="{agent_name_snake}",
-    agent_name="{agent_display_name}",
-    agent_description="TODO: 描述你的智能体功能",
-)
+class {agent_class_name}(BaseAgent):
+    """{agent_display_name} 智能体。"""
 
+    agent_id = "{agent_name_snake}"
+    agent_name = "{agent_display_name}"
+    agent_description = "TODO: 描述你的智能体功能"
 
-def create_{agent_name_snake}_agent(
-    llm: BaseChatModel | None = None,
-    *,
-    enable_memory: bool = False,
-    enable_dream: bool = True,
-    callbacks: RunnerCallbacks | None = None,
-) -> AgentRunner:
-    """创建 {agent_display_name} 智能体。
-
-    Args:
-        llm: LLM 实例；None 时从环境变量初始化
-        enable_memory: 是否启用 Memory 系统
-        enable_dream: 是否启用后台记忆蒸馏（需 enable_memory=True 才有效）
-        callbacks: 业务回调（鉴权、上下文注入、引用校验等）
-    """
-    return build_standard_agent(
-        _DEF,
-        skills_dir=_AGENT_DIR / "skills",
-        tools=create_{agent_name_snake}_tools(),
-        llm=llm,
-        enable_memory=enable_memory,
-        enable_dream=enable_dream,
-        callbacks=callbacks,
-    )
+    def build_tools(self):
+        return create_{agent_name_snake}_tools()
 '''
 
 AGENT_INIT_TEMPLATE = '''\
@@ -92,9 +64,9 @@ AGENT_INIT_TEMPLATE = '''\
 {agent_display_name} 智能体模块
 """
 
-from .agent import create_{agent_name_snake}_agent
+from .agent import {agent_class_name}
 
-__all__ = ["create_{agent_name_snake}_agent"]
+__all__ = ["{agent_class_name}"]
 '''
 
 TOOL_TEMPLATE = '''\
@@ -141,13 +113,16 @@ API_APP_TEMPLATE = '''\
 """
 {project_name} - 框架装配入口
 
-仅做装配工作: 把项目自带的 Agent 注册到 ``AgentRegistry``，再交给
-``Bootstrap`` 驱动选定的 plugin (API / Notifications / Jobs / Studio)
-完成 init / install_routes / start / stop。框架自动加载强制 lifecycle
-组件 (``AgentsLifecycle`` / ``TracingLifecycle``)。
+只做装配：构造 ``Bootstrap`` 驱动选定的 plugin (API / Notifications /
+Jobs / Studio) 完成 init / install_routes / start / stop。框架在
+启动时自动扫描 ``agents/`` 目录下的所有 ``BaseAgent`` 子类并注册。
 
 启用具体插件由环境变量决定（如 ``ENABLE_STUDIO=true``）；不需要的插件
 保持默认即可，``Bootstrap`` 会跳过。
+
+UI 资源（``static/index.html`` + ``static/a2ui-renderer.js``）随项目
+分发，由本文件挂载到 ``/`` 与 ``/api/static``。如不需要内置 demo 页面，
+删除下方的 mount 与 static 目录即可。
 """
 
 from __future__ import annotations
@@ -155,6 +130,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -169,6 +145,8 @@ logging.basicConfig(
 )
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from ark_agentic.core.protocol.app_context import AppContext
 from ark_agentic.core.protocol.bootstrap import Bootstrap
@@ -177,18 +155,13 @@ from ark_agentic.plugins.jobs.plugin import JobsPlugin
 from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
 from ark_agentic.plugins.studio.plugin import StudioPlugin
 
-from .agents.{agent_name_snake}.agent import create_{agent_name_snake}_agent
-
 logger = logging.getLogger(__name__)
 
 # Bootstrap 自动加载 AgentsLifecycle + TracingLifecycle；
-# Plugin 是否启用由各自的 ENABLE_* 环境变量决定。
-# 把项目自带的 agent 注册到框架 registry（``start()`` 之前完成即可）。
+# AgentsLifecycle 在 start() 时扫描 ``agents/`` 目录下的所有
+# ``BaseAgent`` 子类并注册到 registry，无需手动注册。
 _bootstrap = Bootstrap(
     components=[APIPlugin(), NotificationsPlugin(), JobsPlugin(), StudioPlugin()],
-)
-_bootstrap.agent_registry.register(
-    "{agent_name_snake}", create_{agent_name_snake}_agent(),
 )
 
 
@@ -210,6 +183,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 _bootstrap.install_routes(app)
+
+# ── UI: project-bundled chat-demo page ───────────────────────────────
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_INDEX_HTML = _STATIC_DIR / "index.html"
+if _STATIC_DIR.is_dir():
+    app.mount("/api/static", StaticFiles(directory=str(_STATIC_DIR)), name="api-static")
+
+    @app.get("/", include_in_schema=False)
+    async def _index():
+        # ENABLE_STUDIO=true 时跳到 /studio playground，否则提供项目自带的 demo
+        if os.getenv("ENABLE_STUDIO", "").lower() == "true":
+            return RedirectResponse(url="/studio", status_code=302)
+        if _INDEX_HTML.is_file():
+            return FileResponse(str(_INDEX_HTML), media_type="text/html")
+        return {{"status": "ok", "message": "no UI bundled"}}
 
 
 def main() -> None:

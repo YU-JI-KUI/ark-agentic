@@ -70,28 +70,27 @@ def test_env_sample_does_not_include_provider_specific_clutter():
 
 # ── Template content contract ────────────────────────────────────────────
 
-@pytest.mark.skip(
-    reason="CLI templates migrate to BaseAgent in the follow-up commit; this "
-    "assertion is rewritten there.",
-)
-def test_agent_module_template_uses_build_standard_agent():
-    """AGENT_MODULE_TEMPLATE must use AgentDef + build_standard_agent (factory pattern), not manual wiring."""
+def test_agent_module_template_subclasses_base_agent():
+    """AGENT_MODULE_TEMPLATE must declare a ``BaseAgent`` subclass — no
+    factory function, no AgentDef, no manual wiring."""
     fmt = {
         "agent_name": "default",
         "agent_name_snake": "default",
         "agent_display_name": "Default",
+        "agent_class_name": "DefaultAgent",
     }
     rendered = AGENT_MODULE_TEMPLATE.format(**fmt)
-    assert "AgentDef" in rendered
-    assert "build_standard_agent" in rendered
-    assert "from ark_agentic import AgentDef, BaseAgent, build_standard_agent" in rendered
-    assert "_DEF = AgentDef(" in rendered
-    assert "_AGENT_DIR" in rendered
-    assert "skills_dir=_AGENT_DIR / \"skills\"" in rendered
+    assert "from ark_agentic import BaseAgent" in rendered
+    assert "class DefaultAgent(BaseAgent):" in rendered
+    assert 'agent_id = "default"' in rendered
+    assert 'agent_name = "Default"' in rendered
+    assert "def build_tools(self):" in rendered
     assert "from .tools import create_default_tools" in rendered
-    # Must NOT contain old manual wiring
+    # Old factory pattern must be gone
+    assert "AgentDef" not in rendered
+    assert "build_standard_agent" not in rendered
+    assert "_DEF = " not in rendered
     assert "create_chat_model(" not in rendered
-    assert "os.getenv(\"API_KEY\"" not in rendered
     assert "SkillConfig" not in rendered
     assert "SkillLoader" not in rendered
     assert "ToolRegistry()" not in rendered
@@ -100,29 +99,34 @@ def test_agent_module_template_uses_build_standard_agent():
     assert "PromptConfig(" not in rendered
 
 
-def test_api_app_template_uses_bootstrap_with_injected_agents_lifecycle():
-    """API_APP_TEMPLATE 应该体现 Bootstrap + 注入 AgentsLifecycle + AppContext 的装配方式，
-    而不是手挂 chat_api / setup_studio_from_env。"""
+def test_api_app_template_uses_bootstrap_with_auto_discovery():
+    """API_APP_TEMPLATE 装配 Bootstrap + AppContext，agent 由自动扫描发现，
+    不再手动 register。挂 ``/`` 与 ``/api/static`` 用项目自带的 static 目录。"""
     fmt = {
         "project_name": "TestProj",
         "package_name": "test_proj",
         "agent_name": "default",
         "agent_name_snake": "default",
         "agent_display_name": "Default",
+        "agent_class_name": "DefaultAgent",
     }
     rendered = API_APP_TEMPLATE.format(**fmt)
 
     # 新装配方式
     assert "from ark_agentic.core.protocol.bootstrap import Bootstrap" in rendered
     assert "from ark_agentic.core.protocol.app_context import AppContext" in rendered
-    assert (
-        "_bootstrap.agent_registry.register(\n"
-        "    \"default\", create_default_agent(),\n"
-        ")"
-    ) in rendered
     assert "_bootstrap.install_routes(app)" in rendered
     assert "_bootstrap.start(ctx)" in rendered
     assert "_bootstrap.stop()" in rendered
+
+    # UI mount points (project bundles its own static)
+    assert "/api/static" in rendered
+    assert "StaticFiles" in rendered
+    assert "/studio" in rendered  # studio playground redirect
+
+    # 自动扫描代替手动注册
+    assert "_bootstrap.agent_registry.register(" not in rendered
+    assert "create_default_agent" not in rendered
 
     # 旧的手挂 / 内联模型不应再出现
     assert "setup_studio_from_env" not in rendered
@@ -172,8 +176,8 @@ def test_cmd_init_creates_project_structure(tmp_path: Path):
     assert (pkg / "agents" / "default" / "agent.json").is_file(), "agent.json must always be generated"
 
     agent_py = (pkg / "agents" / "default" / "agent.py").read_text(encoding="utf-8")
-    assert "build_standard_agent" in agent_py
-    assert "AgentDef" in agent_py
+    assert "class DefaultAgent(BaseAgent):" in agent_py
+    assert 'agent_id = "default"' in agent_py
 
     tools_py = (pkg / "agents" / "default" / "tools" / "__init__.py").read_text(encoding="utf-8")
     assert "create_default_tools" in tools_py
@@ -183,7 +187,16 @@ def test_cmd_init_creates_project_structure(tmp_path: Path):
 
     app_py = (pkg / "app.py").read_text(encoding="utf-8")
     assert "Bootstrap" in app_py
-    assert "_bootstrap.agent_registry.register(" in app_py
+    # No manual register call — auto-discovery scans agents/ at start()
+    assert "_bootstrap.agent_registry.register(" not in app_py
+
+    # UI assets bundled into the project so users can edit them
+    static_dir = pkg / "static"
+    assert (static_dir / "index.html").is_file()
+    assert (static_dir / "a2ui-renderer.js").is_file()
+    index_html = (static_dir / "index.html").read_text(encoding="utf-8")
+    # Default agent_id is injected so the bundled chat-demo just works
+    assert 'window.ARK_AGENT_ID = "default"' in index_html
 
 
 def test_cmd_init_when_dir_exists_exits_with_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]):

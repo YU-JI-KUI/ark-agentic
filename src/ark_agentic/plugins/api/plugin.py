@@ -1,27 +1,25 @@
 """APIPlugin — built-in HTTP transport for the chat API.
 
 Owns the always-on chat router plus the surrounding HTTP plumbing it
-needs to be usable: ``/health``, the global middleware (CORS +
-a windows-probe drop), and a default ``/`` chat-demo page so end-users
-get something usable as soon as they enable the plugin.
-
-Scope is intentionally narrow — chat transport only. App-level state
-(``AppContext``) lives in ``core``; other plugins own their own routes
-and do not depend on this one.
+needs to be usable: ``/health``, the global middleware (CORS + a
+Windows-Update probe drop). Nothing else.
 
 Headless (CLI / worker) deployments simply omit this plugin and get no
 FastAPI plumbing.
+
+Note: this plugin no longer mounts ``/`` or ``/api/static``. The wheel
+ships no demo page; CLI-scaffolded projects bundle their own
+``static/index.html`` and mount it from their own ``app.py`` (see
+``ark-agentic init`` template). Framework-internal demos are served by
+the ``Portal`` lifecycle on the developer checkout.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from ...core.protocol.plugin import BasePlugin
 from ...core.utils.env import env_flag
-
-_STATIC_DIR = Path(__file__).parent / "static"
 
 
 class APIPlugin(BasePlugin):
@@ -34,8 +32,7 @@ class APIPlugin(BasePlugin):
 
     def install_routes(self, app: Any) -> None:
         from fastapi.middleware.cors import CORSMiddleware
-        from fastapi.responses import FileResponse, Response
-        from fastapi.staticfiles import StaticFiles
+        from fastapi.responses import Response
 
         app.add_middleware(
             CORSMiddleware,
@@ -59,21 +56,3 @@ class APIPlugin(BasePlugin):
         @app.get("/health")
         async def health_check():
             return {"status": "ok"}
-
-        # Default chat-demo page. The framework's own deployment may
-        # register a different ``/`` handler before this plugin's
-        # install_routes runs (registration order wins in Starlette);
-        # third-party deployments without that override see this page.
-        if _STATIC_DIR.is_dir():
-            app.mount(
-                "/api/static",
-                StaticFiles(directory=str(_STATIC_DIR)),
-                name="api-static",
-            )
-
-            @app.get("/", include_in_schema=False)
-            async def _index():
-                return FileResponse(
-                    str(_STATIC_DIR / "index.html"),
-                    media_type="text/html",
-                )

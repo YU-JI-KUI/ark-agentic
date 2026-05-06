@@ -10,7 +10,6 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from pathlib import Path
 
@@ -63,6 +62,7 @@ def _cmd_init(args: argparse.Namespace) -> None:
         agent_name="default",
         agent_name_snake="default",
         agent_display_name="Default",
+        agent_class_name="DefaultAgent",
     )
 
     _write(root / "pyproject.toml", PYPROJECT_TEMPLATE.format(**fmt))
@@ -79,13 +79,27 @@ def _cmd_init(args: argparse.Namespace) -> None:
     _write(default_agent / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
 
     _write(src / "app.py", API_APP_TEMPLATE.format(**fmt))
+
+    # Copy UI assets from the framework's cli/_assets dir into the
+    # project's static dir. Index.html reads window.ARK_AGENT_ID at
+    # runtime — inject the default agent_id via a small inline script.
     static_dest = src / "static"
     static_dest.mkdir(parents=True, exist_ok=True)
     try:
-        import ark_agentic as _ark
-        ark_index = Path(_ark.__file__).parent / "static" / "index.html"
-        if ark_index.is_file():
-            shutil.copy(ark_index, static_dest / "index.html")
+        from ark_agentic.cli import _assets as _cli_assets
+        assets_dir = Path(_cli_assets.__file__).parent
+        for asset_name in ("index.html", "a2ui-renderer.js"):
+            src_asset = assets_dir / asset_name
+            if not src_asset.is_file():
+                continue
+            content = src_asset.read_text(encoding="utf-8")
+            if asset_name == "index.html":
+                content = content.replace(
+                    "<head>",
+                    f'<head>\n  <script>window.ARK_AGENT_ID = "default";</script>',
+                    1,
+                )
+            (static_dest / asset_name).write_text(content, encoding="utf-8")
     except Exception:
         pass
 
@@ -131,10 +145,14 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
         print(f"错误: 智能体 '{agent_name}' 已存在", file=sys.stderr)
         sys.exit(1)
 
+    agent_class_name = (
+        "".join(w.capitalize() for w in agent_name_snake.split("_")) + "Agent"
+    )
     fmt = dict(
         agent_name=agent_name,
         agent_name_snake=agent_name_snake,
         agent_display_name=agent_display_name,
+        agent_class_name=agent_class_name,
     )
 
     _write(agents_dir / "__init__.py", AGENT_INIT_TEMPLATE.format(**fmt))
@@ -147,11 +165,8 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
     print()
     print("后续步骤:")
     print(f"  1. 在 src/{package_name}/agents/{agent_name_snake}/tools/__init__.py 中实现 create_{agent_name_snake}_tools()")
-    print("  2. 修改 _DEF 中的 agent_description，描述这个 agent 的职责")
-    print(f"  3. 在 src/{package_name}/app.py 的 _registry 中追加注册：")
-    print()
-    print(f'       from .agents.{agent_name_snake} import create_{agent_name_snake}_agent')
-    print(f'       _registry.register("{agent_name_snake}", create_{agent_name_snake}_agent())')
+    print(f"  2. 在 src/{package_name}/agents/{agent_name_snake}/agent.py 中修改 agent_description，描述这个 agent 的职责")
+    print("  3. 框架启动时自动扫描并注册 BaseAgent 子类，无需手动注册")
 
 
 # ── version ──────────────────────────────────────────────────────────
