@@ -64,7 +64,7 @@ class MCPServerCreateRequest(BaseModel):
     timeout: float = 30.0
     url: str | None = None
     command: str | None = None
-    args: list[str] = Field(default_factory=list)
+    args: list[str] | str = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     headers: dict[str, str] = Field(default_factory=dict)
 
@@ -78,7 +78,7 @@ class MCPServerUpdateRequest(BaseModel):
     timeout: float | None = None
     url: str | None = None
     command: str | None = None
-    args: list[str] | None = None
+    args: list[str] | str | None = None
     env: dict[str, str] | None = None
     headers: dict[str, str] | None = None
 

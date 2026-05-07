@@ -398,7 +398,7 @@ export interface MCPServerCreateInput {
     timeout?: number
     url?: string
     command?: string
-    args?: string[]
+    args?: string[] | string
     env?: Record<string, string>
     headers?: Record<string, string>
 }

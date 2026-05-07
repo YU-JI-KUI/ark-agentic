@@ -2076,7 +2076,12 @@ function MCPSection({ agentId }: { agentId: string }) {
     )
     setFormUrl(server.url || '')
     setFormCommand(server.command || '')
-    setFormArgs((server.args || []).join('\n'))
+    setFormArgs((server.args || []).map(arg => {
+      if (/[ \t\n"']/.test(arg)) {
+        return '"' + arg.replace(/"/g, '\\"') + '"'
+      }
+      return arg
+    }).join(' '))
     setFormHeaders(JSON.stringify(server.headers || {}, null, 2))
     setFormEnv(JSON.stringify(server.env || {}, null, 2))
     setFormTimeout(String(server.timeout || 30))
@@ -2129,7 +2134,7 @@ function MCPSection({ agentId }: { agentId: string }) {
       payload.headers = parseStringMap(formHeaders, 'Headers')
     } else {
       payload.command = formCommand
-      payload.args = formArgs.split('\n').map(item => item.trim()).filter(Boolean)
+      payload.args = formArgs
       payload.env = parseStringMap(formEnv, 'Env')
     }
     return payload
@@ -2371,12 +2376,10 @@ function MCPSection({ agentId }: { agentId: string }) {
                   />
                 </label>
                 <label className="form-field">
-                  <span>Args, one per line</span>
-                  <textarea
+                  <span>Arguments</span>
+                  <input
                     onChange={event => setFormArgs(event.target.value)}
-                    placeholder={`run\n--with\nmcp\n/path/to/server.py`}
-                    rows={4}
-                    spellCheck={false}
+                    placeholder="run --with mcp /path/to/server.py"
                     value={formArgs}
                   />
                 </label>

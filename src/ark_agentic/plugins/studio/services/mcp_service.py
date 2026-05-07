@@ -30,7 +30,7 @@ def create_server(
     timeout: float = 30.0,
     url: str | None = None,
     command: str | None = None,
-    args: list[str] | None = None,
+    args: list[str] | str | None = None,
     env: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -114,7 +114,7 @@ def update_server(
     timeout: float | None = None,
     url: str | None = None,
     command: str | None = None,
-    args: list[str] | None = None,
+    args: list[str] | str | None = None,
     env: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -273,7 +273,7 @@ def _build_server(
     timeout: float,
     url: str | None = None,
     command: str | None = None,
-    args: list[str] | None = None,
+    args: list[str] | str | None = None,
     env: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -375,7 +375,9 @@ def _normalise_transport(value: str) -> str:
     return transport
 
 
-def _normalise_args(args: list[str]) -> list[str]:
+def _normalise_args(args: list[str] | str) -> list[str]:
+    if isinstance(args, str):
+        return _split_shell_words(args)
     result: list[str] = []
     for arg in args:
         result.extend(_split_shell_words(str(arg)))

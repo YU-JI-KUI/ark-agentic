@@ -251,3 +251,17 @@ def test_delete_mcp_server_removes_config(
     assert data["mcp"]["servers"] == []
     with pytest.raises(KeyError):
         get_server(agents_root, "test_agent", "crm")
+
+def test_create_stdio_mcp_server_with_string_args(agents_root: Path) -> None:
+    create_server(
+        agents_root,
+        "test_agent",
+        "str_args",
+        transport="stdio",
+        command="uv",
+        args="run --with mcp server.py",
+    )
+
+    stored = get_server(agents_root, "test_agent", "str_args")
+    assert stored["command"] == "uv"
+    assert stored["args"] == ["run", "--with", "mcp", "server.py"]
