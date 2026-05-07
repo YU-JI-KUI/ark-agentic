@@ -196,13 +196,16 @@ async def test_name_collision_raises():
 # ── default-components contract ──────────────────────────────────────
 
 
-async def test_default_components_include_agents_and_tracing():
-    """Bootstrap with defaults always loads AgentsLifecycle first and
-    TracingLifecycle last — they're framework-mandatory."""
+async def test_default_components_include_storage_agents_and_tracing():
+    """Bootstrap with defaults loads CoreStorageLifecycle first (so the
+    central session/user-memory schema exists before any component touches
+    the DB), AgentsLifecycle second, and TracingLifecycle last — all three
+    are framework-mandatory and their ordering is not configurable."""
     bootstrap = Bootstrap()
     names = [c.name for c in bootstrap.components]
 
-    assert names[0] == "agent_registry"
+    assert names[0] == "core_storage"
+    assert names[1] == "agent_registry"
     assert names[-1] == "tracing"
 
 
@@ -211,9 +214,12 @@ async def test_user_plugins_sit_between_defaults():
     bootstrap = Bootstrap([plugin])
     names = [c.name for c in bootstrap.components]
 
-    assert names[0] == "agent_registry"
+    assert names[0] == "core_storage"
+    assert names[1] == "agent_registry"
     assert "custom" in names
     assert names[-1] == "tracing"
+    assert names.index("custom") > names.index("agent_registry")
+    assert names.index("custom") < names.index("tracing")
 
 
 async def test_agent_registry_property_seeds_framework_registry():

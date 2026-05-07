@@ -42,11 +42,19 @@ def augment_user_metadata(
 ) -> None:
     """Display-only metadata for the Studio user-message panel.
 
-    Only ``chat_request`` lives here; trace correlation is observability
-    cross-cut surfaced via the assistant message's ``trace.trace_id`` link.
+    Stamps ``chat_request`` (caller-supplied) and ``trace.trace_id`` from
+    the active OTel span. The user message is persisted from inside the
+    ``agent.run`` span, so capturing the trace_id here lets the Studio
+    "View in trace" button work on user turns too — without it, only
+    assistant turns can deep-link.
     """
+    from ..observability import current_trace_id_or_none
+
     if chat_request:
         msg.metadata["chat_request"] = chat_request
+    trace_id = current_trace_id_or_none()
+    if trace_id:
+        msg.metadata.setdefault("trace", {})["trace_id"] = trace_id
 
 
 def apply_state_delta(state: dict[str, Any], delta: dict[str, Any]) -> None:
