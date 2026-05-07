@@ -35,6 +35,12 @@ class MCPServerMeta(BaseModel):
     transport: str = ""
     enabled: bool = True
     required: bool = False
+    timeout: float = 30.0
+    url: str | None = None
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
     status: str = "unknown"
     error: str | None = None
     total_tools: int = 0
@@ -61,6 +67,20 @@ class MCPServerCreateRequest(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
 
 
+class MCPServerUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    transport: str | None = None
+    enabled: bool | None = None
+    required: bool | None = None
+    timeout: float | None = None
+    url: str | None = None
+    command: str | None = None
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    headers: dict[str, str] | None = None
+
+
 class MCPEnabledPatch(BaseModel):
     enabled: bool
 
@@ -69,8 +89,17 @@ class MCPEnabledPatch(BaseModel):
 async def list_mcp(agent_id: str, request: Request):
     _ensure_agent_exists(request, agent_id)
     manager = _get_mcp_manager(request)
+    try:
+        raw_servers = mcp_service.list_servers(get_agents_root(), agent_id)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent not found: {agent_id}",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return MCPListResponse(
-        servers=[MCPServerMeta(**item) for item in manager.snapshot(agent_id)]
+        servers=_merge_raw_and_runtime(raw_servers, manager.snapshot(agent_id))
     )
 
 
@@ -114,6 +143,52 @@ async def create_mcp_server(
     manager = _get_mcp_manager(request)
     await _reload_agent_config(manager, agent_id)
     return _get_server_or_404(manager, agent_id, str(created["id"]))
+
+
+@router.put(
+    "/agents/{agent_id}/mcp/servers/{server_id}",
+    response_model=MCPServerMeta,
+)
+async def replace_mcp_server(
+    agent_id: str,
+    server_id: str,
+    req: MCPServerUpdateRequest,
+    request: Request,
+    _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
+):
+    try:
+        mcp_service.update_server(
+            get_agents_root(),
+            agent_id,
+            server_id,
+            name=req.name,
+            description=req.description,
+            transport=req.transport,
+            enabled=req.enabled,
+            required=req.required,
+            timeout=req.timeout,
+            url=req.url,
+            command=req.command,
+            args=req.args,
+            env=req.env,
+            headers=req.headers,
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent not found: {agent_id}",
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"MCP server not found: {server_id}",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    manager = _get_mcp_manager(request)
+    await _reload_agent_config(manager, agent_id)
+    return _get_server_or_404(manager, agent_id, server_id)
 
 
 @router.patch(
@@ -190,6 +265,33 @@ async def update_mcp_tool(
     return _get_server_or_404(manager, agent_id, server_id)
 
 
+@router.delete("/agents/{agent_id}/mcp/servers/{server_id}")
+async def delete_mcp_server(
+    agent_id: str,
+    server_id: str,
+    request: Request,
+    _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
+):
+    try:
+        mcp_service.delete_server(get_agents_root(), agent_id, server_id)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent not found: {agent_id}",
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"MCP server not found: {server_id}",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    manager = _get_mcp_manager(request)
+    await _reload_agent_config(manager, agent_id)
+    return {"status": "deleted", "server_id": server_id}
+
+
 def _get_mcp_manager(request: Request) -> MCPManager:
     ctx = getattr(request.app.state, "ctx", None)
     manager = getattr(ctx, "mcp", None) if ctx is not None else None
@@ -233,15 +335,86 @@ async def _reload_agent_config(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+async def _refresh_agent_config(
+    manager: MCPManager,
+    agent_id: str,
+) -> None:
+    try:
+        await manager.refresh_agent(agent_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent not found: {agent_id}",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 def _get_server_or_404(
     manager: MCPManager,
     agent_id: str,
     server_id: str,
 ) -> MCPServerMeta:
-    for item in manager.snapshot(agent_id):
-        if item["id"] == server_id:
-            return MCPServerMeta(**item)
+    try:
+        raw_server = mcp_service.get_server(
+            get_agents_root(),
+            agent_id,
+            server_id,
+        )
+    except (FileNotFoundError, KeyError):
+        raw_server = None
+    runtime_by_id = {
+        item["id"]: item
+        for item in manager.snapshot(agent_id)
+    }
+    if raw_server is not None:
+        return MCPServerMeta(
+            **_merge_one_server(raw_server, runtime_by_id.get(server_id))
+        )
+    runtime = runtime_by_id.get(server_id)
+    if runtime is not None:
+        return MCPServerMeta(**runtime)
     raise HTTPException(
         status_code=404,
         detail=f"MCP server not found: {server_id}",
     )
+
+
+def _merge_raw_and_runtime(
+    raw_servers: list[dict[str, Any]],
+    runtime_servers: list[dict[str, Any]],
+) -> list[MCPServerMeta]:
+    runtime_by_id = {server["id"]: server for server in runtime_servers}
+    result = [
+        MCPServerMeta(
+            **_merge_one_server(raw, runtime_by_id.pop(raw["id"], None))
+        )
+        for raw in raw_servers
+        if raw.get("id")
+    ]
+    result.extend(MCPServerMeta(**server) for server in runtime_by_id.values())
+    return result
+
+
+def _merge_one_server(
+    raw: dict[str, Any],
+    runtime: dict[str, Any] | None,
+) -> dict[str, Any]:
+    merged = dict(runtime or {})
+    merged.update({
+        "id": raw.get("id"),
+        "name": raw.get("name") or raw.get("id"),
+        "description": raw.get("description") or "",
+        "transport": raw.get("transport") or "",
+        "enabled": raw.get("enabled", True),
+        "required": raw.get("required", False),
+        "timeout": raw.get("timeout", 30.0) or 30.0,
+        "url": raw.get("url"),
+        "command": raw.get("command"),
+        "args": raw.get("args") or [],
+        "env": raw.get("env") or {},
+        "headers": raw.get("headers") or {},
+    })
+    return merged

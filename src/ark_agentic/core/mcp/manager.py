@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable, TypeVar
 
 from ..runtime.base_agent import BaseAgent
 from ..runtime.registry import AgentRegistry
@@ -15,6 +16,8 @@ from .config import load_agent_mcp_config_for_agent, mcp_registered_tool_name
 from .tool import MCPTool
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -31,18 +34,34 @@ class MCPManager:
     def __init__(self) -> None:
         self._registry: AgentRegistry | None = None
         self._agents: dict[str, MCPAgentRuntime] = {}
+        self._retired_streamable_servers: list[MCPServerRuntime] = []
+        self._op_queue: asyncio.Queue[
+            tuple[Callable[[], Awaitable[Any]], asyncio.Future[Any]]
+        ] | None = None
+        self._worker_task: asyncio.Task[None] | None = None
 
     async def start(self, registry: AgentRegistry) -> None:
         self._registry = registry
+        self._start_worker()
         for agent_id in registry.list_ids():
             await self.refresh_agent(agent_id)
 
     async def close(self) -> None:
-        for agent_id in list(self._agents):
-            await self._close_agent_runtime(agent_id)
+        if self._worker_task is not None and (
+            asyncio.current_task() is not self._worker_task
+        ):
+            try:
+                await self._run_in_worker(self._close_inline)
+            finally:
+                await self._stop_worker()
+            return
+        await self._close_inline()
 
     async def refresh_agent(self, agent_id: str) -> None:
         """Re-read ``agent.json`` and remount MCP tools for one agent."""
+        await self._run_in_worker(lambda: self._refresh_agent_inline(agent_id))
+
+    async def _refresh_agent_inline(self, agent_id: str) -> None:
         if self._registry is None:
             raise RuntimeError("MCPManager has not been started")
         agent = self._registry.get(agent_id)
@@ -93,12 +112,17 @@ class MCPManager:
         Studio enable/disable mutations only affect exposure policy, so they
         must not tear down stdio transports opened by the startup task.
         """
+        await self._run_in_worker(
+            lambda: self._reload_agent_config_inline(agent_id)
+        )
+
+    async def _reload_agent_config_inline(self, agent_id: str) -> None:
         if self._registry is None:
             raise RuntimeError("MCPManager has not been started")
         agent = self._registry.get(agent_id)
         runtime = self._agents.get(agent_id)
         if runtime is None:
-            await self.refresh_agent(agent_id)
+            await self._refresh_agent_inline(agent_id)
             return
 
         configs = load_agent_mcp_config_for_agent(
@@ -108,16 +132,20 @@ class MCPManager:
         servers_by_id = {
             server.config.id: server for server in runtime.servers
         }
+        retained_server_ids: set[str] = set()
         next_servers: list[MCPServerRuntime] = []
         for config in configs:
             server = servers_by_id.get(config.id)
             if server is not None:
-                server.config = config
-                next_servers.append(server)
-                continue
+                if _same_connection_target(server.config, config):
+                    server.config = config
+                    next_servers.append(server)
+                    retained_server_ids.add(config.id)
+                    continue
 
             server = MCPServerRuntime(config)
             next_servers.append(server)
+            retained_server_ids.add(config.id)
             try:
                 await server.connect()
             except MCPDependencyError:
@@ -140,8 +168,83 @@ class MCPManager:
                     exc,
                 )
 
+        for server_id, server in servers_by_id.items():
+            if server_id not in retained_server_ids:
+                await self._retire_or_close_server(server)
+
         runtime.servers = next_servers
         self._remount_agent_tools(agent, runtime)
+
+    async def _retire_or_close_server(
+        self,
+        server: MCPServerRuntime,
+    ) -> None:
+        if server.config.transport == "streamable_http":
+            self._retired_streamable_servers.append(server)
+            logger.debug(
+                "Retired streamable HTTP MCP server %s without closing "
+                "transport to avoid MCP SDK async-generator shutdown noise",
+                server.config.id,
+            )
+            return
+        await server.close()
+
+    async def _close_inline(self) -> None:
+        for agent_id in list(self._agents):
+            await self._close_agent_runtime(agent_id)
+
+    def _start_worker(self) -> None:
+        if self._worker_task is not None:
+            return
+        self._op_queue = asyncio.Queue()
+        self._worker_task = asyncio.create_task(
+            self._worker_loop(),
+            name="ark-mcp-manager",
+        )
+
+    async def _stop_worker(self) -> None:
+        task = self._worker_task
+        self._worker_task = None
+        self._op_queue = None
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def _run_in_worker(
+        self,
+        operation: Callable[[], Awaitable[T]],
+    ) -> T:
+        if (
+            self._worker_task is None
+            or asyncio.current_task() is self._worker_task
+        ):
+            return await operation()
+        if self._op_queue is None:
+            raise RuntimeError("MCPManager worker is not initialised")
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[T] = loop.create_future()
+        await self._op_queue.put((operation, future))
+        return await future
+
+    async def _worker_loop(self) -> None:
+        if self._op_queue is None:
+            return
+        while True:
+            operation, future = await self._op_queue.get()
+            if future.cancelled():
+                continue
+            try:
+                result = await operation()
+            except Exception as exc:
+                if not future.cancelled():
+                    future.set_exception(exc)
+            else:
+                if not future.cancelled():
+                    future.set_result(result)
 
     def get_session(self, agent_id: str, server_id: str) -> Any:
         runtime = self._agents.get(agent_id)
@@ -208,6 +311,24 @@ def _agent_dir(agent: BaseAgent) -> Path:
         return Path(inspect.getfile(type(agent))).resolve().parent
     except TypeError:
         return Path.cwd()
+
+
+def _same_connection_target(
+    current: Any,
+    next_config: Any,
+) -> bool:
+    if current.transport != next_config.transport:
+        return False
+    if current.transport == "streamable_http":
+        return (
+            current.url == next_config.url
+            and current.headers == next_config.headers
+        )
+    return (
+        current.command == next_config.command
+        and current.args == next_config.args
+        and current.env == next_config.env
+    )
 
 
 def _server_snapshot(server: MCPServerRuntime) -> dict[str, Any]:

@@ -287,6 +287,12 @@ export interface MCPServerMeta {
     transport: string
     enabled: boolean
     required: boolean
+    timeout: number
+    url?: string | null
+    command?: string | null
+    args: string[]
+    env: Record<string, string>
+    headers: Record<string, string>
     status: string
     error?: string | null
     total_tools: number
@@ -396,6 +402,8 @@ export interface MCPServerCreateInput {
     env?: Record<string, string>
     headers?: Record<string, string>
 }
+
+export type MCPServerUpdateInput = Omit<MCPServerCreateInput, 'id'>
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     const res = await fetch(url, withAuth(init))
@@ -554,6 +562,18 @@ export const api = {
         fetchJSON<MCPServerMeta>(
             `${API_BASE}/agents/${agentId}/mcp/servers/${encodeURIComponent(serverId)}`,
             { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ enabled }) },
+        ),
+
+    replaceMCPServer: (agentId: string, serverId: string, data: MCPServerUpdateInput) =>
+        fetchJSON<MCPServerMeta>(
+            `${API_BASE}/agents/${agentId}/mcp/servers/${encodeURIComponent(serverId)}`,
+            { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(data) },
+        ),
+
+    deleteMCPServer: (agentId: string, serverId: string) =>
+        fetchJSON<{ status: string; server_id: string }>(
+            `${API_BASE}/agents/${agentId}/mcp/servers/${encodeURIComponent(serverId)}`,
+            { method: 'DELETE' },
         ),
 
     updateMCPTool: (agentId: string, serverId: string, toolName: string, enabled: boolean) =>

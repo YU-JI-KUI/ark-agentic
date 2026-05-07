@@ -786,10 +786,17 @@ a:hover { text-decoration: underline; }
 .mcp-server-enable {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
   color: var(--ink-3);
   font-size: 12px;
   font-weight: 600;
+}
+.mcp-server-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .mcp-switch {
   width: 38px;

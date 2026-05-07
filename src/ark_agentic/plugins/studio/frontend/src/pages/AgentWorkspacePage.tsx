@@ -11,6 +11,7 @@ import {
   api,
   type MCPServerCreateInput,
   type MCPServerMeta,
+  type MCPServerUpdateInput,
   type MCPToolMeta,
   type MemoryFileItem,
   type MessageItem,
@@ -2027,7 +2028,10 @@ function MCPSection({ agentId }: { agentId: string }) {
         if (requestedServerId && nextServers.some(server => server.id === requestedServerId)) {
           return requestedServerId
         }
-        return prev ?? nextServers[0]?.id ?? null
+        if (prev && nextServers.some(server => server.id === prev)) {
+          return prev
+        }
+        return nextServers[0]?.id ?? null
       })
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError))
@@ -2063,6 +2067,29 @@ function MCPSection({ agentId }: { agentId: string }) {
     setFormRequired(false)
   }
 
+  function loadServerForm(server: MCPServerMeta) {
+    setFormId(server.id)
+    setFormName(server.name || server.id)
+    setFormDescription(server.description || '')
+    setFormTransport(
+      server.transport === 'stdio' ? 'stdio' : 'streamable_http',
+    )
+    setFormUrl(server.url || '')
+    setFormCommand(server.command || '')
+    setFormArgs((server.args || []).join('\n'))
+    setFormHeaders(JSON.stringify(server.headers || {}, null, 2))
+    setFormEnv(JSON.stringify(server.env || {}, null, 2))
+    setFormTimeout(String(server.timeout || 30))
+    setFormEnabled(server.enabled)
+    setFormRequired(server.required)
+  }
+
+  useEffect(() => {
+    if (mode === 'edit' && selectedServer) {
+      loadServerForm(selectedServer)
+    }
+  }, [mode, selectedServer])
+
   function upsertServer(updated: MCPServerMeta) {
     setServers(current => {
       if (current.some(server => server.id === updated.id)) {
@@ -2087,33 +2114,79 @@ function MCPSection({ agentId }: { agentId: string }) {
     )
   }
 
+  function buildServerPayload(): MCPServerUpdateInput {
+    const timeout = Number.parseFloat(formTimeout)
+    const payload: MCPServerUpdateInput = {
+      name: formName,
+      description: formDescription,
+      transport: formTransport,
+      enabled: formEnabled,
+      required: formRequired,
+      timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : 30,
+    }
+    if (formTransport === 'streamable_http') {
+      payload.url = formUrl
+      payload.headers = parseStringMap(formHeaders, 'Headers')
+    } else {
+      payload.command = formCommand
+      payload.args = formArgs.split('\n').map(item => item.trim()).filter(Boolean)
+      payload.env = parseStringMap(formEnv, 'Env')
+    }
+    return payload
+  }
+
   async function handleCreateServer() {
     setBusyKey('server:create')
     setFeedback(null)
     try {
-      const timeout = Number.parseFloat(formTimeout)
       const payload: MCPServerCreateInput = {
+        ...buildServerPayload(),
         id: formId,
-        name: formName,
-        description: formDescription,
-        transport: formTransport,
-        enabled: formEnabled,
-        required: formRequired,
-        timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : 30,
-      }
-      if (formTransport === 'streamable_http') {
-        payload.url = formUrl
-        payload.headers = parseStringMap(formHeaders, 'Headers')
-      } else {
-        payload.command = formCommand
-        payload.args = formArgs.split('\n').map(item => item.trim()).filter(Boolean)
-        payload.env = parseStringMap(formEnv, 'Env')
       }
       const created = await api.createMCPServer(agentId, payload)
       upsertServer(created)
       setMode('view')
       resetCreateForm()
       setFeedback(`Created MCP server ${created.name || created.id}.`)
+    } catch (nextError) {
+      setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  async function handleUpdateServer() {
+    if (!selectedServer) return
+    setBusyKey(`server:update:${selectedServer.id}`)
+    setFeedback(null)
+    try {
+      const updated = await api.replaceMCPServer(
+        agentId,
+        selectedServer.id,
+        buildServerPayload(),
+      )
+      replaceServer(updated)
+      setMode('view')
+      setFeedback(`Updated MCP server ${updated.name || updated.id}.`)
+    } catch (nextError) {
+      setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  async function handleDeleteServer() {
+    if (!selectedServer) return
+    const deletedServer = selectedServer
+    setBusyKey(`server:delete:${selectedServer.id}`)
+    setFeedback(null)
+    try {
+      await api.deleteMCPServer(agentId, deletedServer.id)
+      const nextServers = await api.listMCPServers(agentId)
+      setServers(nextServers)
+      setSelectedId(nextServers[0]?.id ?? null)
+      setMode('view')
+      setFeedback(`Deleted MCP server ${deletedServer.name || deletedServer.id}.`)
     } catch (nextError) {
       setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
     } finally {
@@ -2222,15 +2295,19 @@ function MCPSection({ agentId }: { agentId: string }) {
       <div className="workspace-surface split-detail">
         {feedback && <div className="feedback-banner">{feedback}</div>}
 
-        {mode === 'create' && (
+        {(mode === 'create' || mode === 'edit') && (
           <div className="editor-sheet">
             <div className="surface-heading">
-              <span>Create MCP Server</span>
+              <span>{mode === 'create' ? 'Create MCP Server' : 'Edit MCP Server'}</span>
             </div>
             <div className="mcp-form-grid">
               <label className="form-field">
                 <span>Server ID</span>
-                <input onChange={event => setFormId(event.target.value)} value={formId} />
+                <input
+                  disabled={mode === 'edit'}
+                  onChange={event => setFormId(event.target.value)}
+                  value={formId}
+                />
               </label>
               <label className="form-field">
                 <span>Name</span>
@@ -2340,12 +2417,15 @@ function MCPSection({ agentId }: { agentId: string }) {
                 disabled={
                   !formId.trim() ||
                   busyKey === 'server:create' ||
+                  busyKey === `server:update:${selectedServer?.id}` ||
                   (formTransport === 'streamable_http' ? !formUrl.trim() : !formCommand.trim())
                 }
-                onClick={() => void handleCreateServer()}
+                onClick={() => void (
+                  mode === 'create' ? handleCreateServer() : handleUpdateServer()
+                )}
                 type="button"
               >
-                Create MCP Server
+                {mode === 'create' ? 'Create MCP Server' : 'Save MCP Server'}
               </button>
               <button className="action-button" onClick={() => setMode('view')} type="button">
                 Cancel
@@ -2363,13 +2443,34 @@ function MCPSection({ agentId }: { agentId: string }) {
                   <code className="skill-detail-path">{selectedServer.id}</code>
                 </div>
                 <div className="mcp-server-enable">
-                  <span>Enabled</span>
-                  <StudioSwitch
-                    checked={selectedServer.enabled}
-                    disabled={!canEdit || busyKey === `server:${selectedServer.id}`}
-                    label={`Toggle MCP server ${selectedServer.name || selectedServer.id}`}
-                    onChange={checked => void toggleServer(selectedServer, checked)}
-                  />
+                  {canEdit && (
+                    <div className="button-row">
+                      <button
+                        className="action-button"
+                        onClick={() => setMode('edit')}
+                        type="button"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="action-button action-button-danger"
+                        disabled={busyKey === `server:delete:${selectedServer.id}`}
+                        onClick={() => void handleDeleteServer()}
+                        type="button"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                  <div className="mcp-server-switch">
+                    <span>Enabled</span>
+                    <StudioSwitch
+                      checked={selectedServer.enabled}
+                      disabled={!canEdit || busyKey === `server:${selectedServer.id}`}
+                      label={`Toggle MCP server ${selectedServer.name || selectedServer.id}`}
+                      onChange={checked => void toggleServer(selectedServer, checked)}
+                    />
+                  </div>
                 </div>
               </div>
               <div className="skill-detail-chips">

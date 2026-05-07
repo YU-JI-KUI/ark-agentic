@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -11,6 +12,8 @@ import httpx
 
 from .config import MCPServerConfig
 from .tool import MCPRemoteTool, normalize_mcp_tool
+
+logger = logging.getLogger(__name__)
 
 
 class MCPDependencyError(RuntimeError):
@@ -67,7 +70,17 @@ class MCPServerRuntime:
 
     async def close(self) -> None:
         if self._stack is not None:
-            await self._stack.aclose()
+            try:
+                await self._stack.aclose()
+            except RuntimeError as exc:
+                if not _is_cancel_scope_close_error(exc):
+                    raise
+                logger.debug(
+                    "MCP server %s transport close raised an MCP SDK "
+                    "cancel-scope lifecycle error during shutdown: %s",
+                    self.config.id,
+                    exc,
+                )
         self._stack = None
         self._session = None
         if self.status != "error":
@@ -170,3 +183,15 @@ class MCPServerRuntime:
         if "headers" in parameters and headers:
             return {"headers": headers}
         return {}
+
+
+def _is_cancel_scope_close_error(exc: RuntimeError) -> bool:
+    message = str(exc)
+    return (
+        "cancel scope" in message
+        and (
+            "different task" in message
+            or "current tasks's current cancel scope" in message
+            or "current task's current cancel scope" in message
+        )
+    )

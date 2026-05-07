@@ -19,6 +19,22 @@ from ark_agentic.core.mcp.tool import MCPRemoteTool, MCPTool
 from ark_agentic.core.types import ToolCall
 
 
+class DifferentTaskCancelScopeStack:
+    async def aclose(self) -> None:
+        raise RuntimeError(
+            "Attempted to exit cancel scope in a different task than it was "
+            "entered in"
+        )
+
+
+class CurrentTaskCancelScopeStack:
+    async def aclose(self) -> None:
+        raise RuntimeError(
+            "Attempted to exit a cancel scope that isn't the current tasks's "
+            "current cancel scope"
+        )
+
+
 def test_load_agent_mcp_config_expands_env(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("CRM_URL", "http://crm.example/mcp")
     monkeypatch.setenv("CRM_TOKEN", "secret")
@@ -265,6 +281,52 @@ async def test_streamable_http_uses_legacy_headers_keyword(
         "url": "http://localhost:8000/mcp",
         "headers": {"Authorization": "Bearer token"},
     }
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_suppresses_cross_task_cancel_error() -> None:
+    runtime = MCPServerRuntime(
+        MCPServerConfig(
+            id="math",
+            name="Math",
+            description="",
+            transport="streamable_http",
+            url="http://127.0.0.1:8000/mcp",
+        )
+    )
+    runtime._stack = (  # type: ignore[assignment]
+        DifferentTaskCancelScopeStack()
+    )
+    runtime._session = object()
+    runtime.status = "connected"
+
+    await runtime.close()
+
+    assert runtime.status == "closed"
+    assert runtime._stack is None
+    assert runtime._session is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_suppresses_current_task_cancel_error() -> None:
+    runtime = MCPServerRuntime(
+        MCPServerConfig(
+            id="math",
+            name="Math",
+            description="",
+            transport="streamable_http",
+            url="http://127.0.0.1:8000/mcp",
+        )
+    )
+    runtime._stack = CurrentTaskCancelScopeStack()  # type: ignore[assignment]
+    runtime._session = object()
+    runtime.status = "connected"
+
+    await runtime.close()
+
+    assert runtime.status == "closed"
+    assert runtime._stack is None
+    assert runtime._session is None
 
 
 @pytest.mark.asyncio
