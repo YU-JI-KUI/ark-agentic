@@ -85,7 +85,7 @@ def studio_auth_context(
         db_dir = database_dir or tmp_path
         db_dir.mkdir(parents=True, exist_ok=True)
         engine = create_async_engine(
-            f"sqlite+aiosqlite:///{db_dir}/ark_studio.db",
+            f"sqlite+aiosqlite:///{db_dir}/studio_auth.db",
             future=True,
             connect_args={"check_same_thread": False},
         )

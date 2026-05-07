@@ -16,13 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.sql import ColumnElement
 
 from ..protocol import (
-    InvalidStudioRoleError,
     LastAdminError,
     StudioRole,
     StudioUserNotFoundError,
     StudioUserPage,
     StudioUserRecord,
-    VALID_STUDIO_ROLES,
+    validate_studio_role,
 )
 from .models import AuthBase, StudioUserRow
 
@@ -32,9 +31,7 @@ def _utcnow() -> datetime:
 
 
 def _validate_role(role: str) -> StudioRole:
-    if role not in VALID_STUDIO_ROLES:
-        raise InvalidStudioRoleError(f"Unsupported role: {role}")
-    return role  # type: ignore[return-value]
+    return validate_studio_role(role)
 
 
 def _row_to_record(row) -> StudioUserRecord:

@@ -1,8 +1,7 @@
 """StudioPlugin — optional admin console.
 
 Mounts every Studio API router + the React frontend dist (when built).
-``init_schema`` runs against Studio's dedicated SQLite engine regardless
-of DB_TYPE since it has its own ``AuthBase`` independent of core tables.
+``init_schema`` bootstraps Studio Auth using the active storage mode.
 """
 
 from __future__ import annotations

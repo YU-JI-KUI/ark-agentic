@@ -1,14 +1,21 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth'
 import ThemeToggle from '../components/ThemeToggle'
 import { SparkIcon } from '../components/StudioIcons'
 
 const LOGIN_URL = '/api/studio/auth/login'
 
+function safeNextPath(value: string | null): string {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/'
+  if (value === '/login' || value.startsWith('/login?')) return '/'
+  return value
+}
+
 export default function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -33,7 +40,7 @@ export default function LoginPage() {
 
       const user = await response.json()
       login(user)
-      navigate('/', { replace: true })
+      navigate(safeNextPath(searchParams.get('next')), { replace: true })
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError))
     } finally {
