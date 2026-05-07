@@ -15,9 +15,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from ark_agentic.plugins.api.deps import get_registry
+from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.core.session.format import RawJsonlValidationError, serialize_tool_result
 from ark_agentic.plugins.studio.services.auth import StudioPrincipal, require_studio_roles, require_studio_user
+from ._deps import get_registry
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +101,9 @@ def _message_to_item(msg: Any) -> MessageItem:
 async def list_agent_sessions(
     agent_id: str,
     user_id: str | None = Query(None, description="Filter by user_id; omit to list all users"),
+    registry: AgentRegistry = Depends(get_registry),
 ):
     """列出指定 Agent 的会话（以磁盘为准）。可选按 user_id 过滤。"""
-    registry = get_registry()
-
     try:
         runner = registry.get(agent_id)
     except KeyError:
@@ -134,10 +134,9 @@ async def get_session_detail(
     agent_id: str,
     session_id: str,
     user_id: str = Query(..., description="User ID that owns this session"),
+    registry: AgentRegistry = Depends(get_registry),
 ):
     """查看指定会话的详情和消息历史。"""
-    registry = get_registry()
-
     try:
         runner = registry.get(agent_id)
     except KeyError:
@@ -163,10 +162,9 @@ async def get_session_raw(
     agent_id: str,
     session_id: str,
     user_id: str = Query(..., description="User ID that owns this session"),
+    registry: AgentRegistry = Depends(get_registry),
 ):
     """返回该会话原始 JSONL 全文（仅读磁盘）。"""
-    registry = get_registry()
-
     try:
         runner = registry.get(agent_id)
     except KeyError:
@@ -184,11 +182,10 @@ async def put_session_raw(
     session_id: str,
     request: Request,
     user_id: str = Query(..., description="User ID that owns this session"),
+    registry: AgentRegistry = Depends(get_registry),
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """校验并全量写回会话 JSONL；写回后重载内存。"""
-    registry = get_registry()
-
     try:
         runner = registry.get(agent_id)
     except KeyError:

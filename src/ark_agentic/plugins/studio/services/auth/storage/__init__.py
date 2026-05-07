@@ -1,9 +1,10 @@
-"""Studio user-repository storage adapters (sqlite-only).
+"""Studio user-repository storage adapters.
 
-``StudioUserRow`` registers on the feature-local ``AuthBase`` metadata,
-created by ``studio.services.auth.engine.init_schema()``.
+File mode stores grants in ``data/ark_studio.json``. SQLite mode stores
+them in the shared core database through feature-local metadata.
 """
 
+from .file import FileStudioUserRepository
 from .sqlite import SqliteStudioUserRepository
 
-__all__ = ["SqliteStudioUserRepository"]
+__all__ = ["FileStudioUserRepository", "SqliteStudioUserRepository"]

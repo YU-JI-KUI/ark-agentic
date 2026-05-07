@@ -11,9 +11,10 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from ark_agentic.plugins.api.deps import get_registry
+from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.core.utils.env import get_agents_root
 from ark_agentic.plugins.studio.services.auth import StudioPrincipal, require_studio_roles, require_studio_user
+from ._deps import get_registry
 from ..services import skill_service
 from ..services.skill_service import SkillMeta
 
@@ -42,10 +43,10 @@ class SkillListResponse(BaseModel):
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-def _reload_skills(agent_id: str) -> None:
+def _reload_skills(registry: AgentRegistry, agent_id: str) -> None:
     """写操作后刷新对应 runner 的 skill 缓存"""
     try:
-        runner = get_registry().get(agent_id)
+        runner = registry.get(agent_id)
         if runner.skill_loader:
             runner.skill_loader.reload()
             logger.info("Reloaded skills for agent '%s'", agent_id)
@@ -70,6 +71,7 @@ async def list_skills(agent_id: str):
 async def create_skill(
     agent_id: str,
     req: SkillCreateRequest,
+    registry: AgentRegistry = Depends(get_registry),
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """创建新 Skill。"""
@@ -84,7 +86,7 @@ async def create_skill(
         raise HTTPException(status_code=409, detail=f"Skill already exists")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    _reload_skills(agent_id)
+    _reload_skills(registry, agent_id)
     return result
 
 
@@ -93,6 +95,7 @@ async def update_skill(
     agent_id: str,
     skill_id: str,
     req: SkillUpdateRequest,
+    registry: AgentRegistry = Depends(get_registry),
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """更新 Skill 内容。"""
@@ -104,7 +107,7 @@ async def update_skill(
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
-    _reload_skills(agent_id)
+    _reload_skills(registry, agent_id)
     return result
 
 
@@ -112,6 +115,7 @@ async def update_skill(
 async def delete_skill(
     agent_id: str,
     skill_id: str,
+    registry: AgentRegistry = Depends(get_registry),
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """删除 Skill。"""
@@ -122,5 +126,5 @@ async def delete_skill(
         raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    _reload_skills(agent_id)
+    _reload_skills(registry, agent_id)
     return {"status": "deleted", "skill_id": skill_id}

@@ -19,7 +19,7 @@ from ark_agentic.plugins.studio.services.auth import (
     InternalAuthProvider,
     StudioUser,
 )
-from ark_agentic.plugins.studio.services.authz_service import get_studio_user_repo
+from ark_agentic.plugins.studio.services.auth import get_studio_user_repo
 
 
 @pytest.fixture

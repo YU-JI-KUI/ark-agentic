@@ -13,9 +13,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from ark_agentic.plugins.api.deps import get_registry
 from ark_agentic.core.memory.manager import MemoryManager
+from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.plugins.studio.services.auth import StudioPrincipal, require_studio_roles, require_studio_user
+from ._deps import get_registry
 
 
 def _user_id_from_user_memory_rel_path(file_path: str) -> str | None:
@@ -126,8 +127,9 @@ def _resolve_memory_path(workspace: Path, file_path: str) -> Path:
     return resolved
 
 
-def _get_workspace_and_manager(agent_id: str) -> tuple[Path, MemoryManager]:
-    registry = get_registry()
+def _get_workspace_and_manager(
+    registry: AgentRegistry, agent_id: str,
+) -> tuple[Path, MemoryManager]:
     try:
         runner = registry.get(agent_id)
     except KeyError:
@@ -138,11 +140,6 @@ def _get_workspace_and_manager(agent_id: str) -> tuple[Path, MemoryManager]:
     return Path(mm.config.workspace_dir), mm
 
 
-def _get_workspace(agent_id: str) -> Path:
-    ws, _mm = _get_workspace_and_manager(agent_id)
-    return ws
-
-
 router = APIRouter(dependencies=[Depends(require_studio_user)])
 
 
@@ -150,9 +147,11 @@ router = APIRouter(dependencies=[Depends(require_studio_user)])
 
 
 @router.get("/agents/{agent_id}/memory/files", response_model=MemoryFilesResponse)
-async def list_memory_files(agent_id: str):
+async def list_memory_files(
+    agent_id: str,
+    registry: AgentRegistry = Depends(get_registry),
+):
     """List all discoverable memory files for this agent, grouped by user."""
-    registry = get_registry()
     try:
         runner = registry.get(agent_id)
     except KeyError:
@@ -174,9 +173,10 @@ async def get_memory_content(
     agent_id: str,
     file_path: str = Query(..., description="Relative file path within workspace"),
     user_id: str = Query("", description="User ID scope; empty for global files"),
+    registry: AgentRegistry = Depends(get_registry),
 ):
     """Read raw content of a memory file."""
-    workspace, mm = _get_workspace_and_manager(agent_id)
+    workspace, mm = _get_workspace_and_manager(registry, agent_id)
     uid = _user_id_from_user_memory_rel_path(file_path)
     if uid:
         content = await mm.read_memory(uid)
@@ -194,10 +194,11 @@ async def put_memory_content(
     request: Request,
     file_path: str = Query(..., description="Relative file path within workspace"),
     user_id: str = Query("", description="User ID scope; empty for global files"),
+    registry: AgentRegistry = Depends(get_registry),
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """Write content to a memory file."""
-    workspace, mm = _get_workspace_and_manager(agent_id)
+    workspace, mm = _get_workspace_and_manager(registry, agent_id)
     uid = _user_id_from_user_memory_rel_path(file_path)
     if uid:
         body = await request.body()

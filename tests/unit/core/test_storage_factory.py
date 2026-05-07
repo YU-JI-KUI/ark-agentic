@@ -22,7 +22,7 @@ async def test_build_memory_repository_sqlite_without_explicit_engine(monkeypatc
         engine = get_async_engine(cfg)
         await init_schema(engine)
 
-        repo = build_memory_repository(workspace_dir=tmp_path)
+        repo = build_memory_repository(workspace_dir=tmp_path, agent_id="test")
         assert repo is not None
     finally:
         reset_engine_cache()

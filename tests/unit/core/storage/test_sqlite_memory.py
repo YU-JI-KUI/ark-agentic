@@ -32,7 +32,7 @@ async def repo() -> SqliteMemoryRepository:
     )
     engine = get_async_engine(cfg)
     await init_schema(engine)
-    return SqliteMemoryRepository(engine)
+    return SqliteMemoryRepository(engine, agent_id="agent_a")
 
 
 async def test_implements_memory_repository_protocol(repo: SqliteMemoryRepository):

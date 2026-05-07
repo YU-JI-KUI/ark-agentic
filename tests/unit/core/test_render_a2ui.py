@@ -493,11 +493,12 @@ def test_blocks_schema_is_array_with_oneof(insurance_tool):
 
 
 def test_blocks_schema_uses_oneof_length_matches_types(insurance_tool):
-    """insurance 装配：oneOf == 4（Card + 3 个业务组件，不含任何原子块）。"""
+    """insurance 装配：oneOf == 5（Card + 4 个业务组件，不含任何原子块）。"""
     branches = _one_of(insurance_tool)
     type_names = [b["properties"]["type"]["const"] for b in branches]
     assert sorted(type_names) == [
         "Card",
+        "ChannelStepCard",
         "WithdrawPlanCard",
         "WithdrawSummaryHeader",
         "WithdrawSummarySection",

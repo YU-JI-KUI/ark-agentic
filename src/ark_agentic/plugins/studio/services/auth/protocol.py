@@ -1,8 +1,8 @@
 """StudioUserRepository Protocol — Studio role grants store.
 
-Studio is the operations console; users / roles live in DB regardless of
-``DB_TYPE``. The protocol is DB-agnostic so future PG migration is a
-one-file swap.
+Studio is the operations console; users / roles use the same storage mode
+selection as the rest of the service: file when ``DB_TYPE=file`` and the
+central SQL engine when ``DB_TYPE=sqlite``.
 """
 
 from __future__ import annotations
@@ -54,6 +54,13 @@ class LastAdminError(StudioAuthzError):
 
 class StudioUserNotFoundError(StudioAuthzError):
     """Target user grant does not exist."""
+
+
+def validate_studio_role(role: str) -> StudioRole:
+    """Return a validated Studio role literal."""
+    if role not in VALID_STUDIO_ROLES:
+        raise InvalidStudioRoleError(f"Unsupported role: {role}")
+    return role  # type: ignore[return-value]
 
 
 # ── Protocol ──────────────────────────────────────────────────────

@@ -61,7 +61,7 @@ Both live in `core/protocol/`. Structurally identical Protocols; the distinction
 - Package manager is `uv` only. Never `pip` or `poetry`.
 - I/O uses `httpx`. Never `requests`.
 - Inheritance depth ≤ 2; prefer composition.
-- Functions ≤ 80 lines, nesting ≤ 3 levels.
+- Functions ≤ 160 lines, nesting ≤ 3 levels.
 - Don't add files under `data/` — gitignored.
 - If you touch the frontend, run `npm run build` so `dist/` stays consistent (it ships in the wheel).
 

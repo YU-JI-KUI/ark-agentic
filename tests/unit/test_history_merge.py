@@ -389,7 +389,7 @@ class TestInjectMessages:
         self.sessions_dir = tmp_sessions_dir
 
     def _make_sm(self) -> tuple[SessionManager, str, str]:
-        sm = SessionManager(self.sessions_dir)
+        sm = SessionManager(self.sessions_dir, agent_id="test")
         session = sm.create_session_sync(user_id="u1")
         return sm, session.session_id, "u1"
 

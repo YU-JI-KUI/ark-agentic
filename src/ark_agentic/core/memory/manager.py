@@ -122,8 +122,12 @@ class MemoryManager:
         await self._repo.overwrite(user_id, content)
         self._memory[user_id] = content
 
-    async def list_user_ids(self) -> list[str]:
-        return await self._repo.list_users()
+    async def list_user_ids(
+        self, order_by_updated_desc: bool = True,
+    ) -> list[str]:
+        return await self._repo.list_users(
+            order_by_updated_desc=order_by_updated_desc,
+        )
 
     async def list_memory_summaries(self) -> list["MemorySummaryEntry"]:
         """Per-user (size_bytes, updated_at) — single-round-trip aggregation.
@@ -154,30 +158,26 @@ class MemoryManager:
 def build_memory_manager(
     memory_dir: str | Path | None = None,
     *,
+    agent_id: str,
     enable_dream: bool = False,
     session_manager: "SessionManager | None" = None,
     llm_factory: "Callable[[], BaseChatModel] | None" = None,
     dream_min_hours: float = 24.0,
     dream_min_sessions: int = 3,
 ) -> MemoryManager:
-    """Factory: builds a ``MemoryManager`` whose backend is picked by
-    ``DB_TYPE``.
+    """Backend picked by ``DB_TYPE``; repo bound to ``agent_id``.
 
-    ``memory_dir`` is required for the file backend; the SQLite backend
-    treats it as a logical workspace label (used by adjacent modules
-    like the proactive scanner). The directory itself is created lazily
-    by ``FileMemoryRepository`` only when file mode is active.
-
-    When ``enable_dream=True``, ``session_manager`` and ``llm_factory`` are
-    required so the manager can construct an internal ``MemoryDreamer``.
+    ``enable_dream=True`` requires ``session_manager`` and ``llm_factory``.
     """
+    if not agent_id:
+        raise ValueError("build_memory_manager requires a non-empty agent_id")
     if memory_dir is None:
         memory_dir = Path(tempfile.gettempdir()) / "ark_memory"
     memory_dir = Path(memory_dir)
 
     from ..storage.factory import build_memory_repository
 
-    repo = build_memory_repository(workspace_dir=memory_dir)
+    repo = build_memory_repository(agent_id=agent_id, workspace_dir=memory_dir)
     return MemoryManager(
         repository=repo,
         config=MemoryConfig(

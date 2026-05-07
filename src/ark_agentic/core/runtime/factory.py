@@ -139,6 +139,7 @@ def build_standard_agent(
         sessions_dir=sessions_dir,
         compaction_config=compaction,
         summarizer=LLMSummarizer(llm),
+        agent_id=defn.agent_id,
     )
 
     tool_registry = ToolRegistry()
@@ -152,7 +153,8 @@ def build_standard_agent(
         # supplies the ingredients (session_manager, llm) but never sees
         # the dreamer or any storage repositories.
         memory_manager = build_memory_manager(
-            memory_dir,
+            memory_dir=memory_dir,
+            agent_id=defn.agent_id,
             enable_dream=enable_dream,
             session_manager=session_manager,
             llm_factory=(lambda: llm) if enable_dream else None,

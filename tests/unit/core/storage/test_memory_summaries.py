@@ -36,7 +36,7 @@ async def test_sqlite_memory_summaries_returns_size_and_updated_at():
     )
     engine = get_async_engine(cfg)
     await init_schema(engine)
-    repo = SqliteMemoryRepository(engine)
+    repo = SqliteMemoryRepository(engine, agent_id="agent_a")
     await repo.overwrite("u1", "## Profile\nname: alice\n")
     await repo.overwrite("u2", "## Profile\nname: bob smith\n")
 

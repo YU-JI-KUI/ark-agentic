@@ -51,7 +51,7 @@ def _make_runner(
             cfg = SkillConfig(skill_directories=[tmpdir], load_mode=load_mode)
             loader = SkillLoader(cfg)
             loader.load_from_directories()
-            session_manager = SessionManager(tmp_sessions_dir)
+            session_manager = SessionManager(tmp_sessions_dir, agent_id="test")
             runner = AgentRunner(
                 llm=_MockLLM(),
                 session_manager=session_manager,
@@ -258,7 +258,7 @@ def _make_runner_with_llm_mock(
             cfg = SkillConfig(skill_directories=[tmpdir], load_mode=SkillLoadMode.dynamic)
             loader = SkillLoader(cfg)
             loader.load_from_directories()
-            session_manager = SessionManager(tmp_sessions_dir)
+            session_manager = SessionManager(tmp_sessions_dir, agent_id="test")
             runner = AgentRunner(
                 llm=_MockChatModelForRun(),  # type: ignore[arg-type]
                 session_manager=session_manager,
@@ -405,7 +405,7 @@ async def test_topic_switch_updates_active_skill(
 
         runner = AgentRunner(
             llm=_MockChatModelForRun(),  # type: ignore[arg-type]
-            session_manager=SessionManager(tmp_sessions_dir),
+            session_manager=SessionManager(tmp_sessions_dir, agent_id="test"),
             tool_registry=ToolRegistry(),
             skill_loader=loader,
             config=RunnerConfig(

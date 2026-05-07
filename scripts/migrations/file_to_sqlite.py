@@ -85,6 +85,7 @@ class MigrationStats:
 async def _migrate_sessions(
     engine: AsyncEngine,
     sessions_dir: Path,
+    agent_id: str,
     stats: MigrationStats,
     *,
     dry_run: bool,
@@ -93,7 +94,7 @@ async def _migrate_sessions(
         return
 
     src = FileSessionRepository(sessions_dir)
-    dst = SqliteSessionRepository(engine)
+    dst = SqliteSessionRepository(engine, agent_id=agent_id)
 
     for user_dir in sessions_dir.iterdir():
         if not user_dir.is_dir():
@@ -105,6 +106,7 @@ async def _migrate_sessions(
             async with engine.connect() as conn:
                 exists = (await conn.execute(
                     select(SessionMeta.session_id).where(
+                        SessionMeta.agent_id == agent_id,
                         SessionMeta.session_id == sid,
                     )
                 )).first()
@@ -135,6 +137,7 @@ async def _migrate_sessions(
 async def _migrate_memory(
     engine: AsyncEngine,
     memory_dir: Path,
+    agent_id: str,
     stats: MigrationStats,
     *,
     dry_run: bool,
@@ -149,12 +152,13 @@ async def _migrate_memory(
         return
 
     src = FileMemoryRepository(memory_dir)
-    dst = SqliteMemoryRepository(engine)
+    dst = SqliteMemoryRepository(engine, agent_id=agent_id)
 
     for user_id in await src.list_users():
         async with engine.connect() as conn:
             exists = (await conn.execute(
                 select(UserMemory.user_id).where(
+                    UserMemory.agent_id == agent_id,
                     UserMemory.user_id == user_id,
                 )
             )).first()
@@ -322,12 +326,16 @@ async def _migrate_notifications_for_agent(
 
 async def migrate(
     *,
+    agent_id: str,
     sessions_dir: Path | None,
     memory_dir: Path | None,
     notifications_dir: Path | None,
     db_url: str,
     dry_run: bool,
 ) -> MigrationStats:
+    """Per-agent migration: file dirs are agent-rooted; rows land under ``agent_id``."""
+    if not agent_id:
+        raise ValueError("migrate() requires a non-empty agent_id")
     cfg = DBConfig(connection_str=db_url)
     engine = get_async_engine(cfg)
     # Each domain owns its own schema; run them all so the migration target
@@ -341,10 +349,14 @@ async def migrate(
     stats = MigrationStats()
 
     if sessions_dir is not None:
-        await _migrate_sessions(engine, sessions_dir, stats, dry_run=dry_run)
+        await _migrate_sessions(
+            engine, sessions_dir, agent_id, stats, dry_run=dry_run,
+        )
 
     if memory_dir is not None:
-        await _migrate_memory(engine, memory_dir, stats, dry_run=dry_run)
+        await _migrate_memory(
+            engine, memory_dir, agent_id, stats, dry_run=dry_run,
+        )
         # Per-(user, job) last-run dotfiles still live under the legacy
         # memory_dir layout (``{agent}/{user}/.last_job_<id>``). They are
         # routed into the jobs feature's own table here. New file-mode
@@ -364,6 +376,11 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="file_to_sqlite",
         description="Idempotent migration from file backend to SQLite.",
     )
+    p.add_argument(
+        "--agent-id",
+        required=True,
+        help="Bind every migrated session/memory row to this agent_id.",
+    )
     p.add_argument("--sessions-dir", type=Path, default=None)
     p.add_argument("--memory-dir", type=Path, default=None)
     p.add_argument("--notifications-dir", type=Path, default=None)
@@ -381,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     stats = asyncio.run(
         migrate(
+            agent_id=args.agent_id,
             sessions_dir=args.sessions_dir,
             memory_dir=args.memory_dir,
             notifications_dir=args.notifications_dir,

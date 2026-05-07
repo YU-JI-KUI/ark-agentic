@@ -123,7 +123,7 @@ def test_api_template_studio_arrives_via_bootstrap_plugin_list():
 def test_cmd_init_default_creates_app_py_with_studio_via_bootstrap(tmp_path: Path):
     """默认 init 装配 server: app.py 通过 Bootstrap + plugin 列表接入 Studio。"""
     from ark_agentic.cli.main import _cmd_init
-    args = type("Args", (), {"project_name": "myproj", "no_api": False})()
+    args = type("Args", (), {"project_name": "myproj"})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
 
@@ -139,23 +139,12 @@ def test_cmd_init_default_creates_app_py_with_studio_via_bootstrap(tmp_path: Pat
 def test_cmd_init_default_has_agent_json(tmp_path: Path):
     """init 默认创建 agent.json，供 Studio 发现。"""
     from ark_agentic.cli.main import _cmd_init
-    args = type("Args", (), {"project_name": "myproj", "no_api": False})()
+    args = type("Args", (), {"project_name": "myproj"})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
 
     agent_json = tmp_path / "myproj" / "src" / "myproj" / "agents" / "default" / "agent.json"
     assert agent_json.is_file(), "agent.json must be created for Studio discovery"
-
-
-def test_cmd_init_no_api_also_has_agent_json(tmp_path: Path):
-    """即便 --no-api，agent.json 仍然生成（保证后续启用 server 时直接可用）。"""
-    from ark_agentic.cli.main import _cmd_init
-    args = type("Args", (), {"project_name": "myproj", "no_api": True})()
-    with patch.object(Path, "cwd", return_value=tmp_path):
-        _cmd_init(args)
-
-    agent_json = tmp_path / "myproj" / "src" / "myproj" / "agents" / "default" / "agent.json"
-    assert agent_json.is_file()
 
 
 # ── CLI add-agent generates agent.json ───────────────────────────────────────
@@ -164,7 +153,7 @@ def test_cmd_add_agent_generates_agent_json(tmp_path: Path):
     """add-agent must also generate agent.json for Studio discovery."""
     from ark_agentic.cli.main import _cmd_add_agent, _cmd_init
 
-    init_args = type("Args", (), {"project_name": "myproj", "no_api": False})()
+    init_args = type("Args", (), {"project_name": "myproj"})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(init_args)
 

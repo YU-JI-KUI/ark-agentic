@@ -19,60 +19,60 @@ class TestSessionManagerBasic:
         self.sessions_dir = tmp_sessions_dir
 
     def test_create_session_sync(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync(model="test-model", provider="test")
         assert session.session_id
         assert session.model == "test-model"
         assert session.provider == "test"
 
     def test_get_session(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         assert manager.get_session(session.session_id) == session
 
     def test_get_session_not_found(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         assert manager.get_session("non-existent") is None
 
     def test_get_session_required(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         assert manager.get_session_required(session.session_id) == session
 
     def test_get_session_required_raises(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         with pytest.raises(KeyError):
             manager.get_session_required("non-existent")
 
     def test_delete_session_sync(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         assert manager.delete_session_sync(session.session_id)
         assert manager.get_session(session.session_id) is None
 
     def test_delete_session_not_found(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         assert not manager.delete_session_sync("non-existent")
 
     def test_list_sessions(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         manager.create_session_sync()
         manager.create_session_sync()
         assert len(manager.list_sessions()) == 2
 
     def test_create_session_sync_with_custom_id(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync(session_id="custom-id-001")
         assert session.session_id == "custom-id-001"
         assert manager.get_session("custom-id-001") is session
 
     def test_create_session_sync_with_user_id(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync(user_id="user_42")
         assert session.user_id == "user_42"
 
     def test_create_session_sync_with_both_custom_id_and_user_id(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync(
             session_id="parent:sub:abc", user_id="user_99",
             state={"user:id": "user_99"},
@@ -91,7 +91,7 @@ class TestSessionManagerMessages:
         self.sessions_dir = tmp_sessions_dir
 
     def test_add_message_sync(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         manager.add_message_sync(session.session_id, AgentMessage.user("Hello"))
         messages = manager.get_messages(session.session_id)
@@ -99,7 +99,7 @@ class TestSessionManagerMessages:
         assert messages[0].content == "Hello"
 
     def test_get_messages_with_filter(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
 
         manager.add_message_sync(session.session_id, AgentMessage.system("System"))
@@ -113,7 +113,7 @@ class TestSessionManagerMessages:
         assert limited[0].content == "User 2"
 
     def test_clear_messages(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         manager.add_message_sync(session.session_id, AgentMessage.system("System"))
         manager.add_message_sync(session.session_id, AgentMessage.user("User"))
@@ -123,7 +123,7 @@ class TestSessionManagerMessages:
         assert messages[0].role == MessageRole.SYSTEM
 
     def test_clear_messages_all(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         manager.add_message_sync(session.session_id, AgentMessage.system("System"))
         manager.add_message_sync(session.session_id, AgentMessage.user("User"))
@@ -139,7 +139,7 @@ class TestSessionManagerTokens:
         self.sessions_dir = tmp_sessions_dir
 
     def test_update_token_usage(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         manager.update_token_usage(session.session_id, prompt_tokens=100, completion_tokens=50)
         usage = manager.get_token_usage(session.session_id)
@@ -148,7 +148,7 @@ class TestSessionManagerTokens:
         assert usage.total_tokens == 150
 
     def test_estimate_current_tokens(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         manager.add_message_sync(session.session_id, AgentMessage.user("Hello world"))
         assert manager.estimate_current_tokens(session.session_id) > 0
@@ -198,7 +198,7 @@ class TestSessionManagerSkills:
         self.sessions_dir = tmp_sessions_dir
 
     def test_set_active_skill_ids(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         manager.set_active_skill_ids(session.session_id, ["skill1", "skill2"])
         assert manager.get_active_skill_ids(session.session_id) == ["skill1", "skill2"]
@@ -214,13 +214,13 @@ class TestSessionManagerState:
         self.sessions_dir = tmp_sessions_dir
 
     def test_update_state(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         manager.update_state(session.session_id, {"key": "value"})
         assert manager.get_state(session.session_id)["key"] == "value"
 
     def test_get_session_stats(self) -> None:
-        manager = SessionManager(self.sessions_dir)
+        manager = SessionManager(self.sessions_dir, agent_id="test")
         session = manager.create_session_sync()
         manager.add_message_sync(session.session_id, AgentMessage.user("Hello"))
         stats = manager.get_session_stats(session.session_id)
@@ -245,6 +245,7 @@ class TestSessionManagerCompaction:
                 system_reserve=10,
                 trigger_threshold=0.5,
             ),
+            agent_id="test",
         )
         session = manager.create_session_sync()
         manager.add_message_sync(session.session_id, AgentMessage.user("Hi"))
@@ -255,6 +256,7 @@ class TestSessionManagerCompaction:
         manager = SessionManager(
             self.sessions_dir,
             compaction_config=CompactionConfig(preserve_recent=1),
+            agent_id="test",
         )
         session = manager.create_session_sync()
         for i in range(5):
@@ -270,7 +272,7 @@ class TestSessionManagerPersistence:
 
     @pytest.mark.asyncio
     async def test_create_session_with_persistence(self, tmp_sessions_dir: Path) -> None:
-        manager = SessionManager(sessions_dir=tmp_sessions_dir)
+        manager = SessionManager(sessions_dir=tmp_sessions_dir, agent_id="test")
         session = await manager.create_session(self.USER_ID, model="test-model")
         assert session.session_id
         session_file = tmp_sessions_dir / self.USER_ID / f"{session.session_id}.jsonl"
@@ -278,7 +280,7 @@ class TestSessionManagerPersistence:
 
     @pytest.mark.asyncio
     async def test_add_message_with_persistence(self, tmp_sessions_dir: Path) -> None:
-        manager = SessionManager(sessions_dir=tmp_sessions_dir)
+        manager = SessionManager(sessions_dir=tmp_sessions_dir, agent_id="test")
         session = await manager.create_session(self.USER_ID)
         await manager.add_message(session.session_id, self.USER_ID, AgentMessage.user("Hello"))
         session_file = tmp_sessions_dir / self.USER_ID / f"{session.session_id}.jsonl"
@@ -286,11 +288,11 @@ class TestSessionManagerPersistence:
 
     @pytest.mark.asyncio
     async def test_load_session(self, tmp_sessions_dir: Path) -> None:
-        manager1 = SessionManager(sessions_dir=tmp_sessions_dir)
+        manager1 = SessionManager(sessions_dir=tmp_sessions_dir, agent_id="test")
         session = await manager1.create_session(self.USER_ID)
         await manager1.add_message(session.session_id, self.USER_ID, AgentMessage.user("Test message"))
 
-        manager2 = SessionManager(sessions_dir=tmp_sessions_dir)
+        manager2 = SessionManager(sessions_dir=tmp_sessions_dir, agent_id="test")
         loaded = await manager2.load_session(session.session_id, self.USER_ID)
         assert loaded is not None
         assert len(loaded.messages) == 1
@@ -298,7 +300,7 @@ class TestSessionManagerPersistence:
 
     @pytest.mark.asyncio
     async def test_delete_session_with_persistence(self, tmp_sessions_dir: Path) -> None:
-        manager = SessionManager(sessions_dir=tmp_sessions_dir)
+        manager = SessionManager(sessions_dir=tmp_sessions_dir, agent_id="test")
         session = await manager.create_session(self.USER_ID)
         session_file = tmp_sessions_dir / self.USER_ID / f"{session.session_id}.jsonl"
         assert session_file.exists()
@@ -312,7 +314,7 @@ class TestRepositoryBackedPersistence:
     USER_ID = "u1"
 
     async def test_add_message_persists_immediately(self, tmp_sessions_dir: Path) -> None:
-        manager = SessionManager(sessions_dir=tmp_sessions_dir)
+        manager = SessionManager(sessions_dir=tmp_sessions_dir, agent_id="test")
         session = await manager.create_session(self.USER_ID)
 
         await manager.add_message(
@@ -320,7 +322,7 @@ class TestRepositoryBackedPersistence:
         )
 
         # New SessionManager with same dir must see the message via repository.
-        fresh = SessionManager(sessions_dir=tmp_sessions_dir)
+        fresh = SessionManager(sessions_dir=tmp_sessions_dir, agent_id="test")
         loaded = await fresh._repository.load_messages(session.session_id, self.USER_ID)
         assert any(m.content == "hello" for m in loaded), \
             "add_message must persist synchronously; pending-buffer is gone"
@@ -330,7 +332,7 @@ class TestEphemeralPathDoesNotPersist:
     async def test_add_message_in_memory_only_skips_disk(
         self, tmp_sessions_dir: Path,
     ) -> None:
-        manager = SessionManager(sessions_dir=tmp_sessions_dir)
+        manager = SessionManager(sessions_dir=tmp_sessions_dir, agent_id="test")
         session = manager.create_session_sync(user_id="u1")
 
         manager.add_message_in_memory_only(
@@ -350,7 +352,7 @@ class TestFinalizeIsCalled:
     async def test_finalize_triggered_after_compact(
         self, tmp_sessions_dir: Path,
     ) -> None:
-        manager = SessionManager(sessions_dir=tmp_sessions_dir)
+        manager = SessionManager(sessions_dir=tmp_sessions_dir, agent_id="test")
         session = await manager.create_session(self.USER_ID)
 
         called: list[tuple[str, str]] = []

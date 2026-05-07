@@ -20,6 +20,7 @@ build_divider = INSURANCE_BLOCKS["Divider"]
 build_withdraw_summary_header = INSURANCE_COMPONENTS["WithdrawSummaryHeader"]
 build_withdraw_summary_section = INSURANCE_COMPONENTS["WithdrawSummarySection"]
 build_withdraw_plan_card = INSURANCE_COMPONENTS["WithdrawPlanCard"]
+build_channel_step_card = INSURANCE_COMPONENTS["ChannelStepCard"]
 from ark_agentic.core.types import ToolCall
 
 
@@ -141,7 +142,12 @@ class TestActionButtonBlock:
 
 class TestInsuranceComponentsRegistry:
     def test_all_components_registered(self):
-        expected = {"WithdrawSummaryHeader", "WithdrawSummarySection", "WithdrawPlanCard"}
+        expected = {
+            "WithdrawSummaryHeader",
+            "WithdrawSummarySection",
+            "WithdrawPlanCard",
+            "ChannelStepCard",
+        }
         assert set(INSURANCE_COMPONENTS.keys()) == expected
 
 
@@ -401,6 +407,148 @@ class TestWithdrawPlanCard:
         )
         assert "¥0" not in output.llm_digest
         assert "¥12,000.00" in output.llm_digest
+
+
+_CHANNEL_FLOWS_RAW = {
+    "channel_flows": {
+        "bonus": {
+            "step": "amount",
+            "policy_no": "POL002",
+            "amount": 3000.0,
+            "bank_card": "6225 **** 1234",
+            "status": "active",
+        },
+        "survival_fund": {
+            "step": "policy",
+            "policy_no": "POL002",
+            "amount": 3000.0,
+            "bank_card": None,
+            "status": "paused",
+        },
+        "policy_loan": {
+            "step": "bank_card",
+            "policy_no": "POL001",
+            "amount": 4000.0,
+            "bank_card": "6225 **** 9876",
+            "status": "active",
+        },
+    },
+    "active_channel": "bonus",
+}
+
+
+def _texts_of(output) -> list[str]:
+    return [
+        str(c["component"]["Text"].get("text", {}).get("literalString", ""))
+        for c in output.components if "Text" in c.get("component", {})
+    ]
+
+
+def _buttons_of(output) -> list[dict]:
+    return [c["component"]["Button"] for c in output.components if "Button" in c.get("component", {})]
+
+
+class TestChannelStepCard:
+    def test_step_amount_renders_amount_field(self):
+        output = build_channel_step_card(
+            {"channel": "bonus"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        texts = _texts_of(output)
+
+        assert any("红利领取" in t and "确认金额" in t for t in texts)
+        assert "领取金额" in texts
+        assert "¥ 3,000.00" in texts
+        assert "channel=bonus" in output.llm_digest
+        assert "step=amount" in output.llm_digest
+        assert "status=active" in output.llm_digest
+        assert "active_channel=bonus" in output.llm_digest
+
+    def test_step_policy_renders_policy_no(self):
+        output = build_channel_step_card(
+            {"channel": "survival_fund"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        texts = _texts_of(output)
+
+        assert any("生存金领取" in t and "选择保单" in t for t in texts)
+        assert "保单号" in texts
+        assert "POL002" in texts
+        assert "step=policy" in output.llm_digest
+        assert "status=paused" in output.llm_digest
+
+    def test_step_bank_card_renders_bank(self):
+        output = build_channel_step_card(
+            {"channel": "policy_loan"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        texts = _texts_of(output)
+
+        assert any("保单贷款" in t and "确认收款银行卡" in t for t in texts)
+        assert "收款银行卡" in texts
+        assert "6225 **** 9876" in texts
+        assert "step=bank_card" in output.llm_digest
+
+    def test_step_policy_has_no_back_button(self):
+        output = build_channel_step_card(
+            {"channel": "survival_fund"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        queries = [b["action"]["args"]["literalString"] for b in _buttons_of(output)]
+
+        assert "__channel_step__:survival_fund:back" not in queries
+        assert "__channel_step__:survival_fund:confirm_policy" in queries
+        assert "__channel_step__:survival_fund:interrupt" in queries
+
+    def test_step_amount_has_back_next_interrupt(self):
+        output = build_channel_step_card(
+            {"channel": "bonus"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        buttons = _buttons_of(output)
+        queries = [b["action"]["args"]["literalString"] for b in buttons]
+
+        assert len(buttons) == 3
+        assert "__channel_step__:bonus:back" in queries
+        assert "__channel_step__:bonus:confirm_amount" in queries
+        assert "__channel_step__:bonus:interrupt" in queries
+
+    def test_step_bank_card_has_back_confirm_interrupt(self):
+        output = build_channel_step_card(
+            {"channel": "policy_loan"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        buttons = _buttons_of(output)
+        queries = [b["action"]["args"]["literalString"] for b in buttons]
+        texts = [b["text"]["literalString"] for b in buttons]
+
+        assert len(buttons) == 3
+        assert "__channel_step__:policy_loan:back" in queries
+        assert "__channel_step__:policy_loan:confirm_bank" in queries
+        assert "__channel_step__:policy_loan:interrupt" in queries
+        assert "确认提交" in texts
+
+    def test_explicit_step_overrides_state(self):
+        output = build_channel_step_card(
+            {"channel": "bonus", "step": "policy"},
+            _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        assert "step=policy" in output.llm_digest
+        assert "POL002" in _texts_of(output)
+
+    def test_unknown_channel_returns_empty(self):
+        output = build_channel_step_card(
+            {"channel": "partial_withdrawal"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        assert output.components == []
+        assert not output.llm_digest
+
+    def test_missing_flow_returns_empty(self):
+        output = build_channel_step_card(
+            {"channel": "bonus"}, _id_gen(), {"channel_flows": {}},
+        )
+        assert output.components == []
+
+    def test_progress_indicator(self):
+        output = build_channel_step_card(
+            {"channel": "bonus"}, _id_gen(), _CHANNEL_FLOWS_RAW,
+        )
+        texts = _texts_of(output)
+        assert any("第 2 步 / 共 3 步" in t for t in texts)
 
 
 class TestDeriveTitleTag:

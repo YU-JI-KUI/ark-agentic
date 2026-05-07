@@ -1,7 +1,7 @@
 """
 Unit tests for ark-agentic CLI.
 
-Covers: _to_package_name, _render_env_sample, template content contract,
+Covers: _to_package_name, ENV_SAMPLE_TEMPLATE, template content contract,
 _cmd_init, _cmd_add_agent, _cmd_version, and main() dispatch.
 """
 
@@ -17,14 +17,13 @@ from ark_agentic.cli.main import (
     _cmd_add_agent,
     _cmd_init,
     _cmd_version,
-    _render_env_sample,
     _to_package_name,
     main,
 )
 from ark_agentic.cli.templates import (
     AGENT_MODULE_TEMPLATE,
     API_APP_TEMPLATE,
-    MAIN_MODULE_TEMPLATE,
+    ENV_SAMPLE_TEMPLATE,
     PYPROJECT_TEMPLATE,
 )
 
@@ -43,24 +42,24 @@ def test_to_package_name_multiple_hyphens():
     assert _to_package_name("a-b-c") == "a_b_c"
 
 
-# ── _render_env_sample (clean defaults) ──────────────────────────────────
+# ── ENV_SAMPLE_TEMPLATE (Studio on by default) ───────────────────────────
 
-def test_render_env_sample_is_clean_minimal():
-    """env-sample 默认仅暴露 LLM 必填项 + 注释化的 server / 插件开关。"""
-    out = _render_env_sample()
-    # 必填项是“干净”的最小集
+def test_env_sample_studio_enabled_by_default():
+    """ENABLE_STUDIO 默认就是开的 —— init 之后开箱即跑 API+Studio。"""
+    out = ENV_SAMPLE_TEMPLATE
     assert "LLM_PROVIDER=openai" in out
     assert "MODEL_NAME=gpt-4o" in out
     assert "API_KEY=" in out
-    # Plugin 开关是注释化的 opt-in，不在默认状态启用
-    assert "# ENABLE_STUDIO=true" in out
+    # Studio 默认开（未注释）
+    assert "\nENABLE_STUDIO=true" in out
+    # 其它插件仍是 opt-in
     assert "# ENABLE_NOTIFICATIONS=true" in out
     assert "# ENABLE_JOB_MANAGER=true" in out
 
 
-def test_render_env_sample_does_not_include_provider_specific_clutter():
+def test_env_sample_does_not_include_provider_specific_clutter():
     """干净默认意味着不再夹带 PA-SX / PA-JT / Phoenix / Langfuse 等历史变量。"""
-    out = _render_env_sample()
+    out = ENV_SAMPLE_TEMPLATE
     assert "PA-SX" not in out
     assert "PA-JT" not in out
     assert "PA_JT_" not in out
@@ -70,23 +69,6 @@ def test_render_env_sample_does_not_include_provider_specific_clutter():
 
 
 # ── Template content contract ────────────────────────────────────────────
-
-def test_main_module_template_no_dead_imports():
-    """MAIN_MODULE_TEMPLATE must not import create_chat_model, ToolRegistry, SessionManager, PromptConfig."""
-    rendered = MAIN_MODULE_TEMPLATE.format(
-        project_name="TestProj",
-        package_name="test_proj",
-        agent_name="default",
-        agent_name_snake="default",
-        agent_display_name="Default",
-    )
-    assert "create_chat_model" not in rendered
-    assert "ToolRegistry" not in rendered
-    assert "SessionManager" not in rendered
-    assert "PromptConfig" not in rendered
-    assert "create_default_agent" in rendered
-    assert "load_dotenv" in rendered
-
 
 def test_agent_module_template_uses_build_standard_agent():
     """AGENT_MODULE_TEMPLATE must use AgentDef + build_standard_agent (factory pattern), not manual wiring."""
@@ -170,25 +152,20 @@ def test_pyproject_template_pins_server_extra():
 # ── _cmd_init ────────────────────────────────────────────────────────────
 
 def test_cmd_init_creates_project_structure(tmp_path: Path):
-    """init 默认装配 server: 必须生成 app.py + 默认 agent + .env-sample + agent.json。"""
-    args = type("Args", (), {
-        "project_name": "proj",
-        "no_api": False,
-    })()
+    """init 装配 API + Studio: 生成 app.py + 默认 agent + .env / .env-sample + agent.json，不再生成 main.py。"""
+    args = type("Args", (), {"project_name": "proj"})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
     root = tmp_path / "proj"
     assert root.is_dir()
     assert (root / "pyproject.toml").is_file()
     assert (root / ".env-sample").is_file()
+    assert (root / ".env").is_file(), ".env 必须直接生成，开箱即跑"
     pkg = root / "src" / "proj"
-    assert (pkg / "main.py").is_file()
+    assert not (pkg / "main.py").exists(), "默认入口是 app.py，不再生成 main.py"
     assert (pkg / "app.py").is_file(), "默认装配 server，应当生成 app.py"
     assert (pkg / "agents" / "default" / "agent.py").is_file()
     assert (pkg / "agents" / "default" / "agent.json").is_file(), "agent.json must always be generated"
-
-    main_py = (pkg / "main.py").read_text(encoding="utf-8")
-    assert "create_default_agent" in main_py
 
     agent_py = (pkg / "agents" / "default" / "agent.py").read_text(encoding="utf-8")
     assert "build_standard_agent" in agent_py
@@ -205,26 +182,10 @@ def test_cmd_init_creates_project_structure(tmp_path: Path):
     assert "_bootstrap.agent_registry.register(" in app_py
 
 
-def test_cmd_init_no_api_skips_app_py(tmp_path: Path):
-    """--no-api 时不生成 app.py，只保留 main.py 适合 CLI 场景。"""
-    args = type("Args", (), {
-        "project_name": "proj",
-        "no_api": True,
-    })()
-    with patch.object(Path, "cwd", return_value=tmp_path):
-        _cmd_init(args)
-    pkg = tmp_path / "proj" / "src" / "proj"
-    assert (pkg / "main.py").is_file()
-    assert not (pkg / "app.py").exists(), "--no-api 不应生成 app.py"
-
-
 def test_cmd_init_when_dir_exists_exits_with_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     """init when project dir already exists prints error and exits 1."""
     (tmp_path / "existing").mkdir()
-    args = type("Args", (), {
-        "project_name": "existing",
-        "no_api": False,
-    })()
+    args = type("Args", (), {"project_name": "existing"})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         with pytest.raises(SystemExit) as exc_info:
             _cmd_init(args)
@@ -237,10 +198,7 @@ def test_cmd_init_when_dir_exists_exits_with_error(tmp_path: Path, capsys: pytes
 
 def test_cmd_add_agent_creates_agent_files(tmp_path: Path):
     """add-agent 在已有项目里追加智能体目录骨架。"""
-    init_args = type("Args", (), {
-        "project_name": "proj",
-        "no_api": False,
-    })()
+    init_args = type("Args", (), {"project_name": "proj"})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(init_args)
 

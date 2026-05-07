@@ -27,6 +27,8 @@ from .submit_withdrawal import SubmitWithdrawalTool
 from .flow_evaluator import withdrawal_flow_evaluator
 from ark_agentic.core.flow.collect_user_fields import CollectUserFieldsTool
 from ark_agentic.core.flow.rollback_flow_stage import RollbackFlowStageTool
+from ark_agentic.core.flow.commit_flow_stage import CommitFlowStageTool
+from .channel_flow import ChannelFlowTool
 
 _A2UI_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "a2ui" / "templates"
 
@@ -45,6 +47,7 @@ _INSURANCE_STATE_KEYS = (
     "_rule_engine_result",
     "_policy_query_result",
     "_customer_info_result",
+    "_channel_flows",
 )
 
 
@@ -61,6 +64,10 @@ def _create_render_a2ui_tool() -> RenderA2UITool:
     )
 
 
+def _create_channel_flow_tool() -> ChannelFlowTool:
+    return ChannelFlowTool(theme=INSURANCE_THEME, components=_THEMED_COMPONENTS)
+
+
 __all__ = [
     "DataServiceClient",
     "MockDataServiceClient",
@@ -71,6 +78,8 @@ __all__ = [
     "RenderA2UITool",
     "SubmitWithdrawalTool",
     "CollectUserFieldsTool",
+    "ChannelFlowTool",
+    "CommitFlowStageTool",
     "withdrawal_flow_evaluator",
     "create_insurance_tools",
     "create_insurance_tools_minimal",
@@ -95,7 +104,10 @@ def create_insurance_tools(
         SubmitWithdrawalTool(),
         CollectUserFieldsTool(),
         RollbackFlowStageTool(),
-        ResumeTaskTool(sessions_dir=sessions_dir or "data/ark_sessions/insurance"),
+        CommitFlowStageTool(),
+        withdrawal_flow_evaluator,
+        ResumeTaskTool(sessions_dir=_sessions_dir),
+        _create_channel_flow_tool(),
     ]
 
 

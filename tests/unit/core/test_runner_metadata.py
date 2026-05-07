@@ -73,7 +73,7 @@ def _make_runner(
     llm = _StubLLM(responses=[AIMessage(content="ok")])
     return AgentRunner(
         llm=llm,  # type: ignore[arg-type]
-        session_manager=SessionManager(tmp_sessions_dir),
+        session_manager=SessionManager(tmp_sessions_dir, agent_id="test"),
         tool_registry=tool_registry or ToolRegistry(),
         config=RunnerConfig(
             max_turns=2, auto_compact=False, skill_router=skill_router,

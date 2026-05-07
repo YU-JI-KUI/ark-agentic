@@ -47,7 +47,7 @@ def test_session_manager_uses_file_backend_by_default(
 ):
     monkeypatch.delenv("DB_TYPE", raising=False)
 
-    sm = SessionManager(tmp_path)
+    sm = SessionManager(tmp_path, agent_id="test")
 
     assert isinstance(sm._repository, FileSessionRepository)
 
@@ -58,7 +58,7 @@ async def test_session_manager_uses_sqlite_when_db_type_sqlite(
     monkeypatch.setenv("DB_TYPE", "sqlite")
     await _setup_sqlite_engine("sqlite+aiosqlite:///:memory:")
 
-    sm = SessionManager(tmp_path)
+    sm = SessionManager(tmp_path, agent_id="test")
 
     assert isinstance(sm._repository, SqliteSessionRepository)
 
@@ -76,7 +76,7 @@ async def test_session_manager_e2e_under_sqlite(
     db_path = tmp_path / "ark.db"
     await _setup_sqlite_engine(f"sqlite+aiosqlite:///{db_path}")
 
-    sm = SessionManager(tmp_path / "sessions")
+    sm = SessionManager(tmp_path / "sessions", agent_id="test")
     s = await sm.create_session(user_id="u1", model="m", provider="p")
     await sm.add_message(
         s.session_id, "u1",
@@ -86,7 +86,7 @@ async def test_session_manager_e2e_under_sqlite(
     )
 
     # Fresh manager → exercises load path through the repository.
-    sm2 = SessionManager(tmp_path / "sessions")
+    sm2 = SessionManager(tmp_path / "sessions", agent_id="test")
     loaded = await sm2.load_session(s.session_id, "u1")
     assert loaded is not None
     assert [m.content for m in loaded.messages] == ["hi"]
@@ -105,11 +105,11 @@ async def test_session_manager_admin_list_all_users_under_sqlite(
     db_path = tmp_path / "ark.db"
     await _setup_sqlite_engine(f"sqlite+aiosqlite:///{db_path}")
 
-    sm = SessionManager(tmp_path / "sessions")
+    sm = SessionManager(tmp_path / "sessions", agent_id="test")
     await sm.create_session(user_id="alice")
     await sm.create_session(user_id="bob")
 
-    sm2 = SessionManager(tmp_path / "sessions")
+    sm2 = SessionManager(tmp_path / "sessions", agent_id="test")
     sessions = await sm2.list_sessions_from_disk(user_id=None)
 
     user_ids = {s.user_id for s in sessions}

@@ -105,7 +105,7 @@ def _make_runner(
     registry = ToolRegistry()
     tool = _MockTool()
     registry.register(tool)
-    session_mgr = SessionManager(sessions_dir)
+    session_mgr = SessionManager(sessions_dir, agent_id="test")
     config = RunnerConfig(
         max_turns=5,
         auto_compact=False,
@@ -360,7 +360,7 @@ async def test_execute_tools_on_step_uses_tool_thinking_hint(
     mock_llm = MockChatModel(responses=[], stream_responses=stream_responses)
     registry = ToolRegistry()
     registry.register(ToolWithHint())
-    session_mgr = SessionManager(tmp_sessions_dir)
+    session_mgr = SessionManager(tmp_sessions_dir, agent_id="test")
     runner = AgentRunner(
         llm=mock_llm,  # type: ignore[arg-type]
         session_manager=session_mgr,
@@ -439,7 +439,7 @@ async def test_state_delta_merge(tmp_sessions_dir: Path) -> None:
     mock_llm = MockChatModel(responses=responses)
     registry = ToolRegistry()
     registry.register(_StateDeltaTool())
-    session_mgr = SessionManager(tmp_sessions_dir)
+    session_mgr = SessionManager(tmp_sessions_dir, agent_id="test")
     config = RunnerConfig(max_turns=5, auto_compact=False)
     runner = AgentRunner(
         llm=mock_llm, session_manager=session_mgr, tool_registry=registry, config=config
@@ -501,7 +501,7 @@ def _make_runner_with_a2ui(sessions_dir: Path, responses: list[Any]) -> AgentRun
     mock_llm = MockChatModel(responses=responses)
     registry = ToolRegistry()
     registry.register(_A2UITool())
-    session_mgr = SessionManager(sessions_dir)
+    session_mgr = SessionManager(sessions_dir, agent_id="test")
     config = RunnerConfig(max_turns=5, auto_compact=False)
     return AgentRunner(
         llm=mock_llm, session_manager=session_mgr, tool_registry=registry, config=config
@@ -745,7 +745,7 @@ def test_mark_memory_dirty_is_noop_after_redesign(tmp_sessions_dir: Path) -> Non
     mock_llm = MockChatModel(responses=[])
     llm = mock_llm  # type: ignore[arg-type]
     mm = _FakeMemoryManager()
-    session_mgr = SessionManager(tmp_sessions_dir)
+    session_mgr = SessionManager(tmp_sessions_dir, agent_id="test")
     runner = AgentRunner(
         llm=llm,
         session_manager=session_mgr,

@@ -28,6 +28,7 @@ def _make_session_manager(sessions_dir: Path) -> SessionManager:
     return SessionManager(
         sessions_dir=sessions_dir,
         repository=FileSessionRepository(sessions_dir),
+        agent_id="test",
     )
 
 
@@ -287,9 +288,7 @@ class TestShouldDream:
             sessions.mkdir()
             memory_repo = FileMemoryRepository(workspace)
             session_repo = FileSessionRepository(sessions)
-            session_manager = SessionManager(
-                sessions_dir=sessions, repository=session_repo,
-            )
+            session_manager = SessionManager(sessions_dir=sessions, repository=session_repo, agent_id="test")
 
             last_ts = time.time() - 3600  # 1h ago
             await memory_repo.set_last_dream_at("U001", last_ts)

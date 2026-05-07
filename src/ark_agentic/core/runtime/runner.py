@@ -1182,15 +1182,36 @@ class AgentRunner:
         写入 session.active_skill_ids（SSOT），newest-wins 语义。
         Router 出错或决定为 None 时，保留原值不变。
         """
+        sid_short = session_id[:8]
         if self._skill_router is None or self.skill_loader is None:
+            logger.debug(
+                "[SKILL_ROUTE] session=%s skipped (router=%s loader=%s)",
+                sid_short,
+                self._skill_router is not None,
+                self.skill_loader is not None,
+            )
             return
 
         session = cb_ctx.session
+        current = session.current_active_skill_id
         candidates = self._match_skills(
             session.state, session_id, skill_load_mode="dynamic",
         )
         if not candidates:
+            logger.info(
+                "[SKILL_ROUTE] session=%s skipped reason=no_candidates current=%s",
+                sid_short, current or "<none>",
+            )
             return
+
+        candidate_ids = [s.id for s in candidates]
+        user_preview = (cb_ctx.user_input or "").replace("\n", " ")[:60]
+        logger.info(
+            "[SKILL_ROUTE] session=%s routing current=%s candidates=%d %s "
+            "user=%r",
+            sid_short, current or "<none>",
+            len(candidate_ids), candidate_ids, user_preview,
+        )
 
         history_window = self._skill_router.history_window
         history = (
@@ -1200,7 +1221,7 @@ class AgentRunner:
         ctx = RouteContext(
             user_input=cb_ctx.user_input,
             history=history,
-            current_active_skill_id=session.current_active_skill_id,
+            current_active_skill_id=current,
             candidate_skills=candidates,
         )
 
@@ -1208,18 +1229,34 @@ class AgentRunner:
             decision = await self._skill_router.route(ctx)
         except Exception as exc:  # Protocol violation defense
             logger.warning(
-                "Skill router raised (Protocol violation): %s", exc, exc_info=True,
+                "[SKILL_ROUTE] session=%s router raised (Protocol violation): %s",
+                sid_short, exc, exc_info=True,
             )
             return
 
-        current = session.current_active_skill_id
         if decision.skill_id and decision.skill_id != current:
             self.session_manager.set_active_skill_ids(
                 session.session_id, [decision.skill_id]
             )
+            verb = "switched" if current else "activated"
             logger.info(
-                "Skill routed: %s → %s (reason=%s)",
-                current or "<none>", decision.skill_id, decision.reason,
+                "[SKILL_ROUTE] session=%s %s %s → %s (reason=%s)",
+                sid_short, verb, current or "<none>",
+                decision.skill_id, decision.reason or "<empty>",
+            )
+        elif decision.skill_id is None and current is not None:
+            # Router said "no skill" but runner preserves current (sticky).
+            # Surface the divergence so it's not silent.
+            logger.info(
+                "[SKILL_ROUTE] session=%s kept %s (router returned null, "
+                "reason=%s)",
+                sid_short, current, decision.reason or "<empty>",
+            )
+        else:
+            logger.info(
+                "[SKILL_ROUTE] session=%s kept %s (reason=%s)",
+                sid_short, current or "<none>",
+                decision.reason or "<empty>",
             )
 
         add_span_attributes({
