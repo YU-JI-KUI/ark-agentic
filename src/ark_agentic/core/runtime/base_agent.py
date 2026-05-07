@@ -401,7 +401,9 @@ class BaseAgent(ABC):
                     sampling_override=extraction_sampling
                 )
             )
-            for tool in create_memory_tools(self._get_memory_for_user):
+            def _mem_lookup(_uid: str) -> "MemoryManager | None":
+                return self._memory_manager
+            for tool in create_memory_tools(_mem_lookup):
                 if not self.tool_registry.has(tool.name):
                     self.tool_registry.register(tool)
 
@@ -416,10 +418,6 @@ class BaseAgent(ABC):
 
     @property
     def memory_manager(self) -> "MemoryManager | None":
-        return self._memory_manager
-
-    def _get_memory_for_user(self, user_id: str) -> "MemoryManager | None":
-        """Return shared MemoryManager (one instance for all users)."""
         return self._memory_manager
 
     @traced_agent("agent.run", span_name_template="agent.run:{self.agent_id}")
@@ -659,10 +657,6 @@ class BaseAgent(ABC):
         await self.session_manager.sync_session_state(session_id, user_id)
         await self.session_manager.finalize_session(session_id, user_id)
 
-        await self._maybe_trigger_dream(user_id)
-
-    async def _maybe_trigger_dream(self, user_id: str) -> None:
-        """Delegate to memory subsystem; agent owns no dream state itself."""
         if self._memory_manager is not None:
             await self._memory_manager.maybe_consolidate(user_id)
 
@@ -720,6 +714,10 @@ class BaseAgent(ABC):
                 cb_ctx=cb_ctx,
             )
             if result is not None:
+                logger.info(
+                    "[RUN_END] session=%s turns=%d tool_calls=%d",
+                    session_id[:8], ls.turns, ls.total_tool_calls,
+                )
                 return result
 
         logger.warning(
@@ -759,7 +757,10 @@ class BaseAgent(ABC):
             skill_load_mode=skill_load_mode,
             session=session,
         )
-        tools = self._build_tools(state=state, session=session)
+        tools = [
+            t.get_json_schema()
+            for t in self._filter_tools(state, session=session)
+        ]
 
         tools_mounted = [
             (t.get("function", {}).get("name") or t.get("name") or "")
@@ -826,7 +827,7 @@ class BaseAgent(ABC):
         handler: AgentEventHandler | None,
         cb_ctx: CallbackContext | None,
     ) -> RunResult | None:
-        """before_loop_end → finalize. Returns None on RETRY."""
+        """before_loop_end → final result. Returns None on RETRY."""
         bc = await self._run_hooks(
             self._callbacks.before_loop_end,
             cb_ctx,
@@ -841,9 +842,7 @@ class BaseAgent(ABC):
                     session_id, session.user_id or "", bc.response,
                 )
             return None
-        return await self._finalize_response(
-            ls, response, session_id=session_id, handler=handler,
-        )
+        return ls.make_result(response)
 
     @traced_chain("agent.model_phase")
     async def _model_phase(
@@ -1107,23 +1106,6 @@ class BaseAgent(ABC):
 
         return None
 
-    async def _finalize_response(
-        self,
-        ls: _LoopState,
-        response: AgentMessage,
-        *,
-        session_id: str,
-        handler: AgentEventHandler | None,
-    ) -> RunResult:
-        """Final turn summary."""
-        logger.info(
-            "[RUN_END] session=%s turns=%d tool_calls=%d",
-            session_id[:8],
-            ls.turns,
-            ls.total_tool_calls,
-        )
-        return ls.make_result(response)
-
     async def _build_messages(
         self,
         session_id: str,
@@ -1349,15 +1331,6 @@ class BaseAgent(ABC):
         seen = {t.name for t in always}
         skill_tools = [t for t in all_tools if t.name in allowed and t.name not in seen]
         return always + skill_tools
-
-    def _build_tools(
-        self,
-        state: dict[str, Any] | None = None,
-        *,
-        session: SessionEntry | None = None,
-    ) -> list[dict[str, Any]]:
-        """Build API tools schema (thin wrapper over ``_filter_tools``)."""
-        return [t.get_json_schema() for t in self._filter_tools(state, session=session)]
 
     # ============ Session conveniences ============
 

@@ -396,16 +396,14 @@ async def test_dynamic_active_skill_switch_replaces_body(tmp_sessions_dir: Path)
 def test_filter_tools_and_build_tools_are_consistent(
     tmp_sessions_dir: Path,
 ) -> None:
-    """_build_tools 必须是 _filter_tools 的薄包装: 两者工具集永远一致（单一事实源）。"""
+    """JSON schemas exposed to the LLM must come from _filter_tools (SSOT)."""
     with _make_runner_with_two_skills(tmp_sessions_dir) as (runner, session_id):
         session = runner.session_manager.get_session_required(session_id)
         for active_ids in ([], ["skill_a"], ["skill_b"]):
             session.set_active_skill_ids(active_ids)
-            filtered = {t.name for t in runner._filter_tools({}, session=session)}
-            schema_names = {
-                t["function"]["name"]
-                for t in runner._build_tools({}, session=session)
-            }
+            tools = runner._filter_tools({}, session=session)
+            filtered = {t.name for t in tools}
+            schema_names = {t.get_json_schema()["function"]["name"] for t in tools}
             assert filtered == schema_names, f"mismatch at active={active_ids}"
 
 
