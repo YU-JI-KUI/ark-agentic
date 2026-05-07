@@ -10,25 +10,28 @@
 - RenderA2UITool: 统一 A2UI 渲染（blocks 动态组合 / card_type 模板加载）
 - CollectUserFieldsTool: 向当前流程阶段提交用户收集的字段（Flow 专用）
 - RollbackFlowStageTool: 回退到指定 checkpoint 阶段（Flow 专用）
+
+Flow 评估器（``withdrawal_flow_evaluator``）不再作为 AgentTool 暴露给 LLM：
+其推进由 ``FlowCallbacks.before_model_flow_eval`` Hook 自动驱动，
+agent.py 通过 ``FlowEvaluatorRegistry.register(...)`` 完成注册。
 """
 
 from pathlib import Path
 
 from ark_agentic.core.a2ui import A2UITheme
+from ark_agentic.core.flow.collect_user_fields import CollectUserFieldsTool
+from ark_agentic.core.flow.rollback_flow_stage import RollbackFlowStageTool
 from ark_agentic.core.tools import BlocksConfig, RenderA2UITool, TemplateConfig
 
 from ..a2ui import create_insurance_components
 from ..a2ui.components import BLOCK_DATA_SCHEMAS, COMPONENT_SCHEMAS
+from .channel_flow import ChannelFlowTool
+from .customer_info import CustomerInfoTool
 from .data_service import DataServiceClient, MockDataServiceClient, get_data_service_client
+from .flow_evaluator import withdrawal_flow_evaluator
 from .policy_query import PolicyQueryTool
 from .rule_engine import RuleEngineTool
-from .customer_info import CustomerInfoTool
 from .submit_withdrawal import SubmitWithdrawalTool
-from .flow_evaluator import withdrawal_flow_evaluator
-from ark_agentic.core.flow.collect_user_fields import CollectUserFieldsTool
-from ark_agentic.core.flow.rollback_flow_stage import RollbackFlowStageTool
-from ark_agentic.core.flow.commit_flow_stage import CommitFlowStageTool
-from .channel_flow import ChannelFlowTool
 
 _A2UI_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "a2ui" / "templates"
 
@@ -78,8 +81,8 @@ __all__ = [
     "RenderA2UITool",
     "SubmitWithdrawalTool",
     "CollectUserFieldsTool",
+    "RollbackFlowStageTool",
     "ChannelFlowTool",
-    "CommitFlowStageTool",
     "withdrawal_flow_evaluator",
     "create_insurance_tools",
     "create_insurance_tools_minimal",
@@ -91,8 +94,14 @@ def create_insurance_tools(
     *,
     sessions_dir: "str | Path | None" = None,
 ) -> list:
-    """创建保险工具集合（完整版）"""
+    """创建保险工具集合（完整版）。
+
+    ``sessions_dir`` 必须由调用方提供，``ResumeTaskTool`` 依赖它定位 active_tasks.json。
+    """
     from ark_agentic.core.tools.resume_task import ResumeTaskTool
+
+    if sessions_dir is None:
+        raise ValueError("create_insurance_tools requires sessions_dir for ResumeTaskTool")
 
     client = data_client or get_data_service_client()
 
@@ -104,9 +113,7 @@ def create_insurance_tools(
         SubmitWithdrawalTool(),
         CollectUserFieldsTool(),
         RollbackFlowStageTool(),
-        CommitFlowStageTool(),
-        withdrawal_flow_evaluator,
-        ResumeTaskTool(sessions_dir=_sessions_dir),
+        ResumeTaskTool(sessions_dir=sessions_dir),
         _create_channel_flow_tool(),
     ]
 
