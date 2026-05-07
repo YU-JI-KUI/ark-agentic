@@ -21,8 +21,8 @@ class MyAgent(BaseAgent):
 # 框架在 Bootstrap 启动时自动发现并实例化 BaseAgent 子类，
 # 没有显式工厂函数也没有注册钩子。直接构造也可以：
 agent = MyAgent()
-session_id = await agent.create_session(user_id="default")
-result = await agent.run(session_id, "你好", user_id="default")
+session = await agent.session_manager.create_session(user_id="default")
+result = await agent.run(session.session_id, "你好", user_id="default")
 ```
 
 ## 模块结构

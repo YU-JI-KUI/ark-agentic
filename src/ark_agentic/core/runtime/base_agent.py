@@ -1325,22 +1325,3 @@ class BaseAgent(ABC):
             enable_memory=self._memory_manager is not None,
             flow_hint=flow_hint,
         )
-
-    # ============ Session conveniences ============
-
-    async def create_session(
-        self,
-        user_id: str,
-        model: str = "Qwen3-80B-Instruct",
-        provider: str = "ark",
-        state: dict[str, Any] | None = None,
-    ) -> str:
-        """Create a new session and return its ID (async, persisted)."""
-        session = await self.session_manager.create_session(
-            user_id=user_id, model=model, provider=provider, state=state
-        )
-        return session.session_id
-
-    def register_tool(self, tool: AgentTool) -> None:
-        """Register a single tool."""
-        self.tool_registry.register(tool)

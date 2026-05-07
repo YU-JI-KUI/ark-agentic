@@ -138,10 +138,7 @@ async def test_compact_flush_writes_memory(
     monkeypatch.setattr(LLMCaller, "call_streaming", fake_call_llm)
 
     user_id = "compacttest"
-    session_id = await base_agent.create_session(
-        user_id=user_id,
-        state={"user:id": user_id},
-    )
+    session_id = (await base_agent.session_manager.create_session(user_id=user_id, state={"user:id": user_id})).session_id
 
     seed_file = memory_dir / user_id / "MEMORY.md"
     seed_file.parent.mkdir(parents=True, exist_ok=True)
@@ -191,10 +188,7 @@ async def test_memory_injected_into_system_prompt(
 
     base_agent.config.auto_compact = False
 
-    session_id = await base_agent.create_session(
-        user_id=user_id,
-        state={"user:id": user_id},
-    )
+    session_id = (await base_agent.session_manager.create_session(user_id=user_id, state={"user:id": user_id})).session_id
 
     await base_agent.run(
         session_id=session_id, user_input="你好",
@@ -241,10 +235,7 @@ async def test_memory_write_tool_works_in_runner(
     base_agent.config.auto_compact = False
 
     user_id = "writetest"
-    session_id = await base_agent.create_session(
-        user_id=user_id,
-        state={"user:id": user_id},
-    )
+    session_id = (await base_agent.session_manager.create_session(user_id=user_id, state={"user:id": user_id})).session_id
 
     r = await base_agent.run(
         session_id=session_id, user_input="太啰嗦了，简洁点",

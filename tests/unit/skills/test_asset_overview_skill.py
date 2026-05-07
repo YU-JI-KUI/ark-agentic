@@ -21,7 +21,8 @@ from ark_agentic.core.llm import create_chat_model
 
 async def run_eval(agent, prompt: str, eval_name: str, with_skill: bool):
     """运行单个评估"""
-    session_id = await agent.create_session()
+    session = await agent.session_manager.create_session(user_id="default")
+    session_id = session.session_id
 
     if not with_skill:
         agent.skill_loader = None

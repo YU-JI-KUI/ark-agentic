@@ -285,7 +285,7 @@ async def test_run_invokes_route_skill_phase_before_loop(
     with _make_runner_with_llm_mock(
         tmp_sessions_dir, skill_router=router,
     ) as runner:
-        session_id = await runner.create_session(user_id="u1")
+        session_id = (await runner.session_manager.create_session(user_id="u1")).session_id
         await runner.run(
             session_id=session_id,
             user_input="hello world",
@@ -374,7 +374,7 @@ async def test_followup_keeps_active_skill_sticky(
             RouteDecision(skill_id=skill_id, reason="followup"),
         ])
 
-        sid = await runner.create_session(user_id="u1")
+        sid = (await runner.session_manager.create_session(user_id="u1")).session_id
         await runner.run(session_id=sid, user_input="帮我看看", user_id="u1", stream=False)
         session = runner.session_manager.get_session_required(sid)
         assert session.current_active_skill_id == skill_id
@@ -419,7 +419,7 @@ async def test_topic_switch_updates_active_skill(
             RouteDecision(skill_id=ids[1], reason="topic_b"),
         ])
 
-        sid = await runner.create_session(user_id="u1")
+        sid = (await runner.session_manager.create_session(user_id="u1")).session_id
         await runner.run(session_id=sid, user_input="A 主题", user_id="u1", stream=False)
         await runner.run(session_id=sid, user_input="切到 B", user_id="u1", stream=False)
         session = runner.session_manager.get_session_required(sid)
@@ -440,7 +440,7 @@ async def test_router_sees_model_override_as_current_active(
         ])
         runner._skill_router = scripted
 
-        sid = await runner.create_session(user_id="u1")
+        sid = (await runner.session_manager.create_session(user_id="u1")).session_id
         await runner.run(session_id=sid, user_input="t1", user_id="u1", stream=False)
         # Simulate prior-turn activation of a skill on the SSOT
         session = runner.session_manager.get_session_required(sid)

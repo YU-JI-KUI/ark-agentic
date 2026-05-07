@@ -2,13 +2,14 @@
 PA 内部在线 RAG 知识库 API 工具
 
 可选工具：不在任何 agent 中默认注册。使用方在 agent 创建后
-通过 runner.register_tool() 按需注册，支持同时注册多个不同端点实例。
+通过 ``agent.tool_registry.register(...)`` 按需注册，支持同时注册多个
+不同端点实例。
 
 使用示例:
     from ark_agentic.core.tools import PAKnowledgeAPIConfig, create_pa_knowledge_api_tool
 
-    runner = create_insurance_agent(llm=llm)
-    runner.register_tool(create_pa_knowledge_api_tool(PAKnowledgeAPIConfig(
+    agent = InsuranceAgent()
+    agent.tool_registry.register(create_pa_knowledge_api_tool(PAKnowledgeAPIConfig(
         tool_name="search_product_faq",
         faq_url="https://pa-api.example/kn/knSearch",
         tenant_id="wfcz-yjdd",
