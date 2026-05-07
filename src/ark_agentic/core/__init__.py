@@ -3,7 +3,7 @@
 Public API surface — 外部项目应仅使用此模块及子模块 __all__ 中列出的符号。
 
 子模块:
-    core.runtime  — AgentRunner, AgentRegistry, RunnerCallbacks, AgentsLifecycle …
+    core.runtime  — BaseAgent, AgentRegistry, RunnerCallbacks, AgentsLifecycle …
     core.observability — OTel decorators, tracing setup, TracingLifecycle
     core.session  — SessionManager, JSONL 编解码, 上下文压缩
     core.protocol — Lifecycle / Plugin / Bootstrap / AppContext
@@ -50,8 +50,7 @@ from .runtime.callbacks import (
     RunnerCallbacks,
     merge_runner_callbacks,
 )
-from .runtime.runner import AgentRunner, RunnerConfig, RunResult
-from .runtime.factory import AgentDef, build_standard_agent
+from .runtime.base_agent import BaseAgent, RunnerConfig, RunResult
 from .session.manager import SessionManager
 from .session.compaction import (
     ContextCompactor,
@@ -118,13 +117,10 @@ __all__ = [
     "BeforeLoopEndCallback",
     "RunnerCallbacks",
     "merge_runner_callbacks",
-    # Runner
-    "AgentRunner",
+    # Agent
+    "BaseAgent",
     "RunnerConfig",
     "RunResult",
-    # Agent factory
-    "AgentDef",
-    "build_standard_agent",
     # Session
     "SessionManager",
     # Compaction

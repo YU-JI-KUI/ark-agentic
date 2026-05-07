@@ -262,10 +262,12 @@ async def test_agent_margin_context_e2e(tmp_sessions_dir: Path, monkeypatch):
     monkeypatch.setenv("SECURITIES_SERVICE_MOCK", "true")
     monkeypatch.setenv("SESSIONS_DIR", str(tmp_sessions_dir))
 
-    from ark_agentic.agents.securities.agent import create_securities_agent
+    from ark_agentic.agents.securities.agent import SecuritiesAgent
+    from unittest.mock import patch
 
     mock_llm = SmarterMockLLM()
-    agent = create_securities_agent(llm=mock_llm)
+    with patch.object(SecuritiesAgent, "build_llm", return_value=mock_llm):
+        agent = SecuritiesAgent()
     
     # Session setup
     session = await agent.session_manager.create_session("test_user")

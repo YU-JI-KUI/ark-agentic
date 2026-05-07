@@ -1097,7 +1097,11 @@
     (function () {
       'use strict';
 
-      const SESSION_STORAGE_KEY = 'ark_session_insurance';
+      // ``window.ARK_AGENT_ID`` lets the host page inject the active agent
+      // (set in the body of the rendered template). Defaults to "default"
+      // — matches the agent_id created by ``ark-agentic init``.
+      const selectedAgent = (window.ARK_AGENT_ID || 'default');
+      const SESSION_STORAGE_KEY = 'ark_session_' + selectedAgent;
       (function () {
         var navType = 'unknown', reloaded = false;
         try {
@@ -1115,7 +1119,6 @@
       let isSending = false;
       let userScrolled = false;
       let selectedUserId = sessionStorage.getItem('ark_user_id') || 'U001';
-      const selectedAgent = 'insurance';
       let tokenId = sessionStorage.getItem('ark_token_id') || 'MOCK_TOKEN_' + Date.now();
 
       // ---- DOM refs ----
@@ -1240,7 +1243,7 @@
       // 从后端拉取历史通知
       async function fetchNotifications(userId) {
         try {
-          const res = await fetch(`/api/notifications/insurance/${userId}?limit=50`);
+          const res = await fetch(`/api/notifications/${selectedAgent}/${userId}?limit=50`);
           if (!res.ok) return;
           const data = await res.json();
           notifications = (data.notifications || []).map(n => ({
@@ -1257,7 +1260,7 @@
       // 标记已读同步到后端
       async function markReadRemote(userId, ids) {
         try {
-          await fetch(`/api/notifications/insurance/${userId}/read`, {
+          await fetch(`/api/notifications/${selectedAgent}/${userId}/read`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ids }),
@@ -1275,7 +1278,7 @@
         renderNotifications();
         fetchNotifications(userId);
 
-        const src = new EventSource(`/api/notifications/insurance/${userId}/stream`);
+        const src = new EventSource(`/api/notifications/${selectedAgent}/${userId}/stream`);
         src.onmessage = (e) => {
           try {
             const msg = JSON.parse(e.data);

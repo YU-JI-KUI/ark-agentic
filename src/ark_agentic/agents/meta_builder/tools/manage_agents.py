@@ -162,7 +162,7 @@ class ManageAgentsTool(AgentTool):
         if action not in _ACTIONS:
             return _err(tool_call.id, f"action 必须为 {_ACTIONS} 之一，当前为：{action!r}")
 
-        agents_root = get_agents_root(__file__)
+        agents_root = get_agents_root()
 
         if action == "list":
             return await _do_list_agents(agents_root, tool_call.id)

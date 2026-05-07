@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from ark_agentic.core.llm.sampling import SamplingConfig
 from ark_agentic.core.types import AgentMessage, RunOptions, SessionEntry, SkillLoadMode
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig, RunResult
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig, RunResult
 from ark_agentic.core.skills.base import SkillConfig
 
 
@@ -37,10 +37,10 @@ class TestRunOptionsValidation:
 
 
 class TestRunnerConfigurationPrecedence:
-    """Test AgentRunner configuration precedence logic."""
+    """Test BaseAgent configuration precedence logic."""
 
     @pytest.fixture
-    def runner(self) -> AgentRunner:
+    def runner(self) -> BaseAgent:
         """Create a runner with known default config."""
         config = RunnerConfig(
             model="default-model",
@@ -49,7 +49,7 @@ class TestRunnerConfigurationPrecedence:
         )
         
         # Mock ALL required dependencies
-        runner = AgentRunner(
+        runner = BaseAgent._construct(
             llm=Mock(),
             session_manager=Mock(),
             tool_registry=Mock(),
@@ -78,7 +78,7 @@ class TestRunnerConfigurationPrecedence:
         return runner
 
     @pytest.mark.asyncio
-    async def test_run_options_override(self, runner: AgentRunner) -> None:
+    async def test_run_options_override(self, runner: BaseAgent) -> None:
         """Test that run_options overrides config defaults."""
         run_opts = RunOptions(model="override-model", temperature=0.1)
         
@@ -97,7 +97,7 @@ class TestRunnerConfigurationPrecedence:
         assert kwargs["sampling_override"].temperature == 0.1
 
     @pytest.mark.asyncio
-    async def test_run_options_partial_override(self, runner: AgentRunner) -> None:
+    async def test_run_options_partial_override(self, runner: BaseAgent) -> None:
         """Test partial override (only model)."""
         run_opts = RunOptions(model="override-model")
         
@@ -113,7 +113,7 @@ class TestRunnerConfigurationPrecedence:
         assert kwargs["sampling_override"] is None
 
     @pytest.mark.asyncio
-    async def test_no_options_uses_defaults(self, runner: AgentRunner) -> None:
+    async def test_no_options_uses_defaults(self, runner: BaseAgent) -> None:
         """Test behavior when run_options is None."""
         await runner.run(
             session_id="test-session",
@@ -127,7 +127,7 @@ class TestRunnerConfigurationPrecedence:
         assert kwargs["sampling_override"] is None
 
     @pytest.mark.asyncio
-    async def test_skill_load_mode_precedence(self, runner: AgentRunner) -> None:
+    async def test_skill_load_mode_precedence(self, runner: BaseAgent) -> None:
         """Test skill_load_mode comes from config only (no run_options, no env)."""
         # 1. Config default "full"
         await runner.run(session_id="s1", user_input="hi", user_id="test_user")
@@ -141,7 +141,7 @@ class TestRunnerConfigurationPrecedence:
         assert kwargs["skill_load_mode"] == "dynamic"
 
     @pytest.mark.asyncio
-    async def test_skill_load_mode_ignores_env(self, runner: AgentRunner) -> None:
+    async def test_skill_load_mode_ignores_env(self, runner: BaseAgent) -> None:
         """Test that skill_load_mode is taken from config only (env has no effect)."""
         runner.config.skill_config.load_mode = SkillLoadMode.full
         with patch.dict("os.environ", {"ARK_SKILL_LOAD_MODE": "dynamic"}, clear=False):

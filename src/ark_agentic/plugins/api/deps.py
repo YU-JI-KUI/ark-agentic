@@ -17,7 +17,7 @@ from fastapi import HTTPException, Request
 
 from ark_agentic.core.protocol.app_context import AppContext
 from ark_agentic.core.runtime.registry import AgentRegistry
-from ark_agentic.core.runtime.runner import AgentRunner
+from ark_agentic.core.runtime.base_agent import BaseAgent
 
 
 def _get_ctx(request: Request) -> AppContext:
@@ -37,8 +37,8 @@ def get_registry(request: Request) -> AgentRegistry:
     return ctx.agent_registry
 
 
-def get_agent(request: Request, agent_id: str) -> AgentRunner:
-    """Look up an ``AgentRunner`` by id; 404 if not registered."""
+def get_agent(request: Request, agent_id: str) -> BaseAgent:
+    """Look up a ``BaseAgent`` by id; 404 if not registered."""
     try:
         return get_registry(request).get(agent_id)
     except KeyError:

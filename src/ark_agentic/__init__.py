@@ -7,22 +7,22 @@ ark-agentic - 轻量级 ReAct 智能体框架
 ## 快速开始
 
 ```python
-from pathlib import Path
-from ark_agentic import AgentDef, build_standard_agent
+from ark_agentic import BaseAgent
 
-_DEF = AgentDef(
-    agent_id="default",
-    agent_name="Default",
-    agent_description="一个示例智能体",
-)
+class MyAgent(BaseAgent):
+    agent_id          = "my_agent"
+    agent_name        = "My Agent"
+    agent_description = "一个示例智能体"
 
-agent = build_standard_agent(
-    _DEF,
-    skills_dir=Path("./skills"),
-    tools=[],
-)
-session_id = await agent.create_session(user_id="default")
-result = await agent.run(session_id, "你好", user_id="default")
+    def build_tools(self):
+        return []  # 返回业务工具列表
+
+
+# 框架在 Bootstrap 启动时自动发现并实例化 BaseAgent 子类，
+# 没有显式工厂函数也没有注册钩子。直接构造也可以：
+agent = MyAgent()
+session = await agent.session_manager.create_session(user_id="default")
+result = await agent.run(session.session_id, "你好", user_id="default")
 ```
 
 ## 模块结构
@@ -39,8 +39,7 @@ result = await agent.run(session_id, "你好", user_id="default")
 __version__ = "0.1.0"
 
 from .core import (
-    AgentDef,
-    AgentRunner,
+    BaseAgent,
     RunnerConfig,
     RunResult,
     RunOptions,
@@ -50,7 +49,6 @@ from .core import (
     MessageRole,
     SkillLoadMode,
     PAModel,
-    build_standard_agent,
     create_chat_model,
     create_chat_model_from_env,
     CompactionConfig,
@@ -62,14 +60,11 @@ from .core.tools.registry import ToolRegistry
 
 __all__ = [
     "__version__",
-    # Runner
-    "AgentRunner",
+    # Agent
+    "BaseAgent",
     "RunnerConfig",
     "RunResult",
     "RunOptions",
-    # Agent factory
-    "AgentDef",
-    "build_standard_agent",
     # Session
     "SessionManager",
     # Types

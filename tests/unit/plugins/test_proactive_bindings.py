@@ -1,125 +1,85 @@
-"""验证 services/jobs/bindings.py 的解耦行为。
+"""Verify ``register_proactive_jobs`` directly registers per-agent jobs
+into the supplied ``JobManager``.
 
-测试不需要 apscheduler 也能跑(BaseJob mock 即可)。
+The previous warmup-hook indirection was deleted: agents no longer carry
+job-lifecycle state, and the hook chain was broken in practice (added
+*after* ``AgentsLifecycle`` had finished its warmup loop). Tests cover
+the new straight-line wiring.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
-from ark_agentic.plugins.jobs import (
-    apply_proactive_job_bindings,
-    build_proactive_job_bindings,
-)
-from ark_agentic.plugins.jobs.base import JobMeta
+
+def _make_registry_with_agent(agent_id: str, *, has_memory: bool) -> Any:
+    registry = MagicMock()
+    registry.list_ids.return_value = [agent_id]
+    runner = MagicMock()
+    runner.memory_manager = MagicMock() if has_memory else None
+    runner.llm = MagicMock()
+    runner.tool_registry = MagicMock()
+    registry.get.return_value = runner
+    return registry, runner
 
 
-class _FakeRunner:
-    """Minimal runner stub exposing the public ``add_warmup_hook`` surface."""
-
-    def __init__(self) -> None:
-        self.hooks: list = []
-
-    def add_warmup_hook(self, hook) -> None:
-        self.hooks.append(hook)
-
-
-def _make_fake_job(job_id: str = "test_job") -> Any:
-    job = MagicMock()
-    job.meta = JobMeta(job_id=job_id, cron="0 9 * * *")
-    return job
-
-
-def test_build_with_none_returns_empty_bindings() -> None:
-    bindings = build_proactive_job_bindings(job=None)
-    assert bindings.job is None
-
-
-def test_apply_no_op_when_job_is_none() -> None:
-    runner = _FakeRunner()
-    bindings = build_proactive_job_bindings(job=None)
-    result = apply_proactive_job_bindings(runner, bindings)
-    assert result is runner
-    assert runner.hooks == []
-
-
-def test_apply_registers_warmup_hook() -> None:
-    runner = _FakeRunner()
-    job = _make_fake_job()
-    apply_proactive_job_bindings(runner, build_proactive_job_bindings(job=job))
-
-    assert len(runner.hooks) == 1
-    assert callable(runner.hooks[0])
-
-
-def test_apply_appends_to_existing_hooks() -> None:
-    runner = _FakeRunner()
-    existing = AsyncMock()
-    runner.add_warmup_hook(existing)
-
-    job = _make_fake_job()
-    apply_proactive_job_bindings(runner, build_proactive_job_bindings(job=job))
-
-    assert len(runner.hooks) == 2
-    assert runner.hooks[0] is existing
-
-
-@pytest.mark.asyncio
-async def test_warmup_hook_skips_when_manager_none(
-    monkeypatch: pytest.MonkeyPatch,
+def test_register_proactive_jobs_skips_agents_without_memory(
+    tmp_path: Path,
 ) -> None:
-    """get_job_manager() 返回 None 时(未启用 ENABLE_JOB_MANAGER),应静默跳过。"""
-    runner = _FakeRunner()
-    job = _make_fake_job()
-    apply_proactive_job_bindings(runner, build_proactive_job_bindings(job=job))
+    """Memory-less agent → no job built / registered."""
+    from ark_agentic.plugins.jobs.proactive_setup import register_proactive_jobs
 
-    import ark_agentic.plugins.jobs.manager as manager_mod
-    monkeypatch.setattr(manager_mod, "get_job_manager", lambda: None)
+    registry, _ = _make_registry_with_agent("insurance", has_memory=False)
+    manager = MagicMock()
 
-    await runner.hooks[0]()
-    assert job.method_calls == []
+    register_proactive_jobs(
+        registry, manager, notifications_base_dir=tmp_path,
+    )
+
+    manager.register.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_warmup_hook_registers_when_manager_present(
-    monkeypatch: pytest.MonkeyPatch,
+def test_register_proactive_jobs_registers_insurance_with_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """get_job_manager() 返回实例时,应调用 register(job)。"""
-    runner = _FakeRunner()
-    job = _make_fake_job(job_id="reg_test")
-    apply_proactive_job_bindings(runner, build_proactive_job_bindings(job=job))
+    """Memory-enabled insurance agent → InsuranceProactiveJob registered."""
+    from ark_agentic.plugins.jobs import proactive_setup
 
-    fake_manager = MagicMock()
-    import ark_agentic.plugins.jobs.manager as manager_mod
-    monkeypatch.setattr(manager_mod, "get_job_manager", lambda: fake_manager)
+    registry, runner = _make_registry_with_agent("insurance", has_memory=True)
+    manager = MagicMock()
 
-    await runner.hooks[0]()
-    fake_manager.register.assert_called_once_with(job)
+    fake_job = MagicMock()
+    fake_job_cls = MagicMock(return_value=fake_job)
+    monkeypatch.setattr(
+        "ark_agentic.agents.insurance.proactive_job.InsuranceProactiveJob",
+        fake_job_cls,
+    )
 
+    register_proactive_jobs = proactive_setup.register_proactive_jobs
+    register_proactive_jobs(
+        registry, manager, notifications_base_dir=tmp_path,
+    )
 
-@pytest.mark.asyncio
-async def test_runner_warmup_runs_every_hook() -> None:
-    """AgentRunner.warmup() 调用所有通过 add_warmup_hook 注册的回调。"""
-    from ark_agentic.core.runtime.runner import AgentRunner
-
-    runner = MagicMock(spec=AgentRunner)
-    runner._warmup_hooks = [AsyncMock(), AsyncMock()]
-    runner.warmup = AgentRunner.warmup.__get__(runner)
-
-    await runner.warmup()
-    for hook in runner._warmup_hooks:
-        hook.assert_awaited_once()
+    fake_job_cls.assert_called_once()
+    manager.register.assert_called_once_with(fake_job)
 
 
-@pytest.mark.asyncio
-async def test_runner_warmup_with_no_hooks_is_a_noop() -> None:
-    from ark_agentic.core.runtime.runner import AgentRunner
+def test_register_proactive_jobs_skips_unregistered_agents(
+    tmp_path: Path,
+) -> None:
+    """Agents not in the registry are silently skipped (no KeyError)."""
+    from ark_agentic.plugins.jobs.proactive_setup import register_proactive_jobs
 
-    runner = MagicMock(spec=AgentRunner)
-    runner._warmup_hooks = []
-    runner.warmup = AgentRunner.warmup.__get__(runner)
+    registry = MagicMock()
+    registry.list_ids.return_value = []  # nothing registered
+    manager = MagicMock()
 
-    await runner.warmup()
+    register_proactive_jobs(
+        registry, manager, notifications_base_dir=tmp_path,
+    )
+
+    manager.register.assert_not_called()

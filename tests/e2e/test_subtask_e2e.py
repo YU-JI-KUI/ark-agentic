@@ -24,7 +24,7 @@ load_dotenv()
 
 os.environ.setdefault("DATA_SERVICE_MOCK", "true")
 
-from ark_agentic.agents.insurance import create_insurance_agent
+from ark_agentic.agents.insurance import InsuranceAgent
 from ark_agentic.core.types import ToolCall
 
 logging.basicConfig(
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     logger.info("Creating insurance agent with enable_subtasks=True ...")
-    agent = create_insurance_agent()
+    agent = InsuranceAgent()
 
     if not agent.tool_registry.has("spawn_subtasks"):
         logger.error("spawn_subtasks not registered — check enable_subtasks in RunnerConfig")

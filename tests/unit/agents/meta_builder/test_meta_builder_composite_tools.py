@@ -6,7 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ark_agentic.agents.meta_builder import create_meta_builder_from_env
+from unittest.mock import patch
+
+from ark_agentic.agents.meta_builder import MetaBuilderAgent
 from ark_agentic.agents.meta_builder.tools.manage_agents import ManageAgentsTool
 from ark_agentic.agents.meta_builder.tools.manage_skills import ManageSkillsTool
 from ark_agentic.agents.meta_builder.tools.manage_tools import ManageToolsTool
@@ -18,11 +20,15 @@ class _MockLLM:
         return None
 
 
-def test_factory_registers_three_composite_tools(tmp_path, monkeypatch):
-    """方案 A：factory 注册 manage_agents / manage_skills / manage_tools；Runner 可能额外注册 read_skill。"""
+def test_meta_builder_registers_three_composite_tools(tmp_path, monkeypatch):
+    """MetaBuilderAgent registers manage_agents / manage_skills / manage_tools.
+
+    Full skill_load_mode means no auto-registered read_skill tool.
+    """
     monkeypatch.setenv("SESSIONS_DIR", str(tmp_path))
-    runner = create_meta_builder_from_env(llm=_MockLLM())
-    tools = runner.tool_registry.list_all()
+    with patch.object(MetaBuilderAgent, "build_llm", return_value=_MockLLM()):
+        agent = MetaBuilderAgent()
+    tools = agent.tool_registry.list_all()
     names = {t.name for t in tools}
     assert {"manage_agents", "manage_skills", "manage_tools"}.issubset(names)
     assert len(tools) >= 3

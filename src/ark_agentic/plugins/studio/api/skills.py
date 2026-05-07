@@ -59,7 +59,7 @@ def _reload_skills(registry: AgentRegistry, agent_id: str) -> None:
 @router.get("/agents/{agent_id}/skills", response_model=SkillListResponse)
 async def list_skills(agent_id: str):
     """列出 Agent 的所有 Skills。"""
-    root = get_agents_root(__file__)
+    root = get_agents_root()
     try:
         skills = skill_service.list_skills(root, agent_id)
     except FileNotFoundError:
@@ -75,7 +75,7 @@ async def create_skill(
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """创建新 Skill。"""
-    root = get_agents_root(__file__)
+    root = get_agents_root()
     try:
         result = skill_service.create_skill(
             root, agent_id, req.name, req.description, req.content,
@@ -99,7 +99,7 @@ async def update_skill(
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """更新 Skill 内容。"""
-    root = get_agents_root(__file__)
+    root = get_agents_root()
     try:
         result = skill_service.update_skill(
             root, agent_id, skill_id,
@@ -119,7 +119,7 @@ async def delete_skill(
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
     """删除 Skill。"""
-    root = get_agents_root(__file__)
+    root = get_agents_root()
     try:
         skill_service.delete_skill(root, agent_id, skill_id)
     except FileNotFoundError:

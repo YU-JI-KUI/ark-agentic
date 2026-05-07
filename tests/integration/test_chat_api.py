@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ark_agentic.app import app
-from ark_agentic.core.runtime.runner import RunResult
+from ark_agentic.core.runtime.base_agent import RunResult
 from ark_agentic.core.types import AgentMessage, MessageRole
 
 

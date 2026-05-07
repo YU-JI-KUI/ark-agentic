@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from ark_agentic.core.runtime.registry import AgentRegistry
-from ark_agentic.core.runtime.runner import AgentRunner
+from ark_agentic.core.runtime.base_agent import BaseAgent
 
 
 @pytest.fixture
@@ -20,14 +20,14 @@ def registry() -> AgentRegistry:
 
 
 @pytest.fixture
-def mock_runner() -> AgentRunner:
-    return MagicMock(spec=AgentRunner)
+def mock_runner() -> BaseAgent:
+    return MagicMock(spec=BaseAgent)
 
 
 class TestAgentRegistry:
     """Unit tests for AgentRegistry."""
 
-    def test_register_and_get(self, registry: AgentRegistry, mock_runner: AgentRunner):
+    def test_register_and_get(self, registry: AgentRegistry, mock_runner: BaseAgent):
         """P0: Register an agent, then retrieve it by ID."""
         # Arrange & Act
         registry.register("test-agent", mock_runner)
@@ -45,7 +45,7 @@ class TestAgentRegistry:
         """P1: list_ids() on empty registry should return empty list."""
         assert registry.list_ids() == []
 
-    def test_list_ids_after_registrations(self, registry: AgentRegistry, mock_runner: AgentRunner):
+    def test_list_ids_after_registrations(self, registry: AgentRegistry, mock_runner: BaseAgent):
         """P0: list_ids() should return all registered agent IDs."""
         registry.register("alpha", mock_runner)
         registry.register("beta", mock_runner)
@@ -55,8 +55,8 @@ class TestAgentRegistry:
 
     def test_register_overwrites_existing(self, registry: AgentRegistry):
         """P1: Registering the same ID twice should silently overwrite."""
-        runner_v1 = MagicMock(spec=AgentRunner)
-        runner_v2 = MagicMock(spec=AgentRunner)
+        runner_v1 = MagicMock(spec=BaseAgent)
+        runner_v2 = MagicMock(spec=BaseAgent)
 
         registry.register("same-id", runner_v1)
         registry.register("same-id", runner_v2)
