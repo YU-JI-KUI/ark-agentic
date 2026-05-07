@@ -58,7 +58,7 @@ class SecuritiesProactiveJob(ProactiveServiceJob):
     调用 security_info_search 工具查询实时行情，主动推送通知。
 
     使用示例（在 create_securities_agent 中）：
-        runner = AgentRunner(...)
+        runner = BaseAgent(...)
         runner.set_proactive_job_class(SecuritiesProactiveJob)
     """
 

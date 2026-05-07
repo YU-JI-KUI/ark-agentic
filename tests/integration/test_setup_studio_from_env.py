@@ -130,7 +130,8 @@ def test_cmd_init_default_creates_app_py_with_studio_via_bootstrap(tmp_path: Pat
     app_py = (tmp_path / "myproj" / "src" / "myproj" / "app.py").read_text(encoding="utf-8")
     assert "StudioPlugin()" in app_py
     assert "Bootstrap" in app_py
-    assert "AgentRegistry" in app_py
+    # Auto-discovery via AgentsLifecycle replaces explicit registry seeding.
+    assert "_bootstrap.agent_registry.register(" not in app_py
     # 旧的手挂方式不应再出现
     assert "setup_studio_from_env" not in app_py
     assert "include_router(chat_api.router)" not in app_py

@@ -33,6 +33,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,12 @@ from .base_evaluator import BaseFlowEvaluator, FlowEvalResult, FlowEvaluatorRegi
 from .task_registry import TaskRegistry
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=128)
+def _read_reference_file(path: str) -> str:
+    """读取并缓存 reference 文件内容（进程级缓存，文件为只读静态资源）。"""
+    return Path(path).read_text(encoding="utf-8")
 
 
 # ── 消息注入辅助 ──────────────────────────────────────────────────────────────
@@ -439,7 +446,6 @@ class FlowCallbacks:
             logger.warning("[FlowEval] reference file not found: %s", ref_path)
             return None
         try:
-            from ..runtime.runner import _read_reference_file  # 复用运行器侧的 lru_cache
             ref_content = _read_reference_file(str(ref_path))
         except Exception as e:
             logger.warning("[FlowEval] failed to read reference %s: %s", ref_path, e)

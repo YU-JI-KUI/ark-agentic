@@ -12,6 +12,7 @@ Python ≥3.12 (uv, hatchling) · FastAPI + SQLAlchemy + APScheduler · React 19
 - **Simplicity first.** No abstractions, configurability, or error handling that wasn't asked for. Wrong abstraction is worse than duplication — extract on the third repetition, not the first.
 - **Surgical changes.** Match existing style. Don't refactor working code outside the task. See "Scope of change" for the hard rule.
 - **Goal-driven.** Bug → write the regression test that fails first. Feature → define the boundary case before coding. Refactor → existing tests must pass before and after.
+- **Comments that describe WHAT become method names.** When you find yourself writing a comment to label what a block of code does (`# Phase 3: build session manager`, `# validate the input`, `# wire the engine`), that block wants to be a named method instead. The method name is the comment, the body is the code — and the next reader sees the structure at a glance instead of scrolling through prose. Comments stay for the WHY (non-obvious constraints, hidden invariants, workarounds for specific bugs) — never for the WHAT.
 
 ## Project layout
 

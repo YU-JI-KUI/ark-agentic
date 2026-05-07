@@ -1,4 +1,4 @@
-"""Contract tests for AgentRunner._build_messages tool-role content."""
+"""Contract tests for BaseAgent._build_messages tool-role content."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ from typing import Any
 
 import pytest
 
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime._runner_helpers import serialize_messages_for_llm
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.tools.registry import ToolRegistry
 from ark_agentic.core.types import (
@@ -31,8 +32,8 @@ def tmp_sessions_dir(tmp_path: Path) -> Path:
     return d
 
 
-def _make_runner(tmp_sessions_dir: Path) -> AgentRunner:
-    return AgentRunner(
+def _make_runner(tmp_sessions_dir: Path) -> BaseAgent:
+    return BaseAgent._construct(
         llm=_NoopChatModel(),
         session_manager=SessionManager(tmp_sessions_dir, agent_id="test"),
         tool_registry=ToolRegistry(),
@@ -62,7 +63,7 @@ async def test_build_messages_uses_llm_digest_for_tool_role(tmp_sessions_dir: Pa
         ])
     )
 
-    messages = await runner._build_messages(session.session_id, session.state)
+    messages = serialize_messages_for_llm(session, await runner._build_system_prompt(session.state, session_id=session.session_id, session=session))
     tool_msg = _tool_msg_for(messages, "tc_json_1")
     assert json.loads(tool_msg["content"]) == {"key": "保单值"}
 
@@ -84,7 +85,7 @@ async def test_build_messages_uses_explicit_digest_when_set(tmp_sessions_dir: Pa
         ])
     )
 
-    messages = await runner._build_messages(session.session_id, session.state)
+    messages = serialize_messages_for_llm(session, await runner._build_system_prompt(session.state, session_id=session.session_id, session=session))
     tool_msg = _tool_msg_for(messages, "tc_dig_1")
     assert tool_msg["content"] == "[business] 1 result"
 
@@ -105,7 +106,7 @@ async def test_build_messages_a2ui_uses_factory_default_digest(tmp_sessions_dir:
         ])
     )
 
-    messages = await runner._build_messages(session.session_id, session.state)
+    messages = serialize_messages_for_llm(session, await runner._build_system_prompt(session.state, session_id=session.session_id, session=session))
     tool_msg = _tool_msg_for(messages, "tc_a2ui_1")
     assert tool_msg["content"] == "[已向用户展示卡片]"
     assert "99999" not in tool_msg["content"]
@@ -127,7 +128,7 @@ async def test_build_messages_a2ui_error_not_swallowed(tmp_sessions_dir: Path) -
         ])
     )
 
-    messages = await runner._build_messages(session.session_id, session.state)
+    messages = serialize_messages_for_llm(session, await runner._build_system_prompt(session.state, session_id=session.session_id, session=session))
     tool_msg = _tool_msg_for(messages, "tc_a2ui_err")
     assert "Template not found" in tool_msg["content"]
     assert "withdraw_summary.json" in tool_msg["content"]
@@ -152,7 +153,7 @@ async def test_build_messages_a2ui_tool_call_args_preserved(tmp_sessions_dir: Pa
         ])
     )
 
-    messages = await runner._build_messages(session.session_id, session.state)
+    messages = serialize_messages_for_llm(session, await runner._build_system_prompt(session.state, session_id=session.session_id, session=session))
     assistant_msgs = [
         m for m in messages
         if m["role"] == "assistant" and m.get("tool_calls")

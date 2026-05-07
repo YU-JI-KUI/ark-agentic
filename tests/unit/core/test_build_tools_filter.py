@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime._runner_helpers import filter_visible_tools
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.tools.base import AgentTool, ToolParameter
@@ -65,7 +66,7 @@ def _make_runner(
     tools: list[AgentTool],
     all_skills: list[SkillEntry] | None = None,
     load_mode: SkillLoadMode = SkillLoadMode.dynamic,
-) -> AgentRunner:
+) -> BaseAgent:
     mock_llm = MagicMock()
     registry = ToolRegistry()
     for t in tools:
@@ -80,7 +81,7 @@ def _make_runner(
         )
 
     skill_config = SkillConfig(load_mode=load_mode)
-    runner = AgentRunner(
+    runner = BaseAgent._construct(
         llm=mock_llm,
         tool_registry=registry,
         session_manager=SessionManager(tmp_path, agent_id="test"),
@@ -103,7 +104,7 @@ class TestBuildToolsFullMode:
             all_skills=all_skills,
             load_mode=SkillLoadMode.full,
         )
-        schemas = runner._build_tools(state={}, session=_session_with_active(["s1"]))
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active(["s1"]))]
         names = {s["function"]["name"] for s in schemas}
         assert names == {"tool_a", "tool_b", "read_skill"}
 
@@ -113,14 +114,14 @@ class TestBuildToolsFullMode:
             [_Tool("tool_a"), _Tool("tool_b")],
             load_mode=SkillLoadMode.full,
         )
-        schemas = runner._build_tools()
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, None)]
         names = {s["function"]["name"] for s in schemas}
         assert names == {"tool_a", "tool_b"}
 
 
 class TestBuildToolsDynamicMode:
     """
-    AgentRunner 在 dynamic 模式下会自动注册 ReadSkillTool（visibility=always）。
+    BaseAgent 在 dynamic 模式下会自动注册 ReadSkillTool（visibility=always）。
     测试工具列表里不要重复传 read_skill，让 runner 自行注册。
     """
 
@@ -132,7 +133,7 @@ class TestBuildToolsDynamicMode:
             [_Tool("business_tool")],
             all_skills=all_skills,
         )
-        schemas = runner._build_tools(state={}, session=_session_with_active([]))
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active([]))]
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names  # auto-registered by runner
         assert "business_tool" not in names
@@ -145,7 +146,7 @@ class TestBuildToolsDynamicMode:
             [_Tool("business_tool")],
             all_skills=all_skills,
         )
-        schemas = runner._build_tools(state=None, session=None)
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, None)]
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names
         assert "business_tool" not in names
@@ -161,7 +162,7 @@ class TestBuildToolsDynamicMode:
             [_Tool("tool_a"), _Tool("tool_b"), _Tool("tool_c")],
             all_skills=all_skills,
         )
-        schemas = runner._build_tools(state={}, session=_session_with_active(["s1"]))
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active(["s1"]))]
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names
         assert "tool_a" in names
@@ -180,7 +181,7 @@ class TestBuildToolsDynamicMode:
             all_skills=all_skills,
         )
         # 末元素 s2 → tool_b 暴露，tool_a 不暴露
-        schemas = runner._build_tools(state={}, session=_session_with_active(["s1", "s2"]))
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active(["s1", "s2"]))]
         names = {s["function"]["name"] for s in schemas}
         assert "tool_b" in names
         assert "tool_a" not in names
@@ -195,7 +196,7 @@ class TestBuildToolsDynamicMode:
         )
         for active_ids in [[], ["s1"], ["unknown"]]:
             session = _session_with_active(active_ids)
-            schemas = runner._build_tools(state={}, session=session)
+            schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)]
             names = {s["function"]["name"] for s in schemas}
             assert "read_skill" in names, f"read_skill missing for active={active_ids}"
             assert "memory_write" in names, f"memory_write missing for active={active_ids}"
@@ -208,7 +209,7 @@ class TestBuildToolsDynamicMode:
             [_Tool("biz_tool")],
             all_skills=all_skills,
         )
-        schemas = runner._build_tools(state={}, session=_session_with_active(["nonexistent"]))
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active(["nonexistent"]))]
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names
         assert "biz_tool" not in names
@@ -216,7 +217,7 @@ class TestBuildToolsDynamicMode:
 
 class TestInsuranceScenario:
 
-    def _make_insurance_runner(self, tmp_path: Path) -> AgentRunner:
+    def _make_insurance_runner(self, tmp_path: Path) -> BaseAgent:
         withdraw = _make_skill(
             "insurance.withdraw_money",
             required_tools=["customer_info", "rule_engine", "render_a2ui"],
@@ -237,9 +238,14 @@ class TestInsuranceScenario:
     def test_withdraw_money_active(self, tmp_path: Path) -> None:
         """withdraw_money 加载后: render_a2ui 可见，submit_withdrawal 不可见。"""
         runner = self._make_insurance_runner(tmp_path)
-        schemas = runner._build_tools(
-            state={}, session=_session_with_active(["insurance.withdraw_money"])
-        )
+        schemas = [
+            t.get_json_schema()
+            for t in filter_visible_tools(
+                runner.tool_registry, runner.skill_loader,
+                runner.config.skill_config.load_mode,
+                _session_with_active(["insurance.withdraw_money"]),
+            )
+        ]
         names = {s["function"]["name"] for s in schemas}
 
         assert "render_a2ui" in names
@@ -252,9 +258,14 @@ class TestInsuranceScenario:
     def test_execute_withdrawal_active(self, tmp_path: Path) -> None:
         """execute_withdrawal 加载后: submit_withdrawal 可见，render_a2ui 不可见。"""
         runner = self._make_insurance_runner(tmp_path)
-        schemas = runner._build_tools(
-            state={}, session=_session_with_active(["insurance.execute_withdrawal"])
-        )
+        schemas = [
+            t.get_json_schema()
+            for t in filter_visible_tools(
+                runner.tool_registry, runner.skill_loader,
+                runner.config.skill_config.load_mode,
+                _session_with_active(["insurance.execute_withdrawal"]),
+            )
+        ]
         names = {s["function"]["name"] for s in schemas}
 
         assert "submit_withdrawal" in names
@@ -267,7 +278,7 @@ class TestInsuranceScenario:
     def test_no_skill_loaded_shows_only_framework_tools(self, tmp_path: Path) -> None:
         """未加载任何技能时 LLM 只能调框架工具。"""
         runner = self._make_insurance_runner(tmp_path)
-        schemas = runner._build_tools(state={}, session=_session_with_active([]))
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active([]))]
         names = {s["function"]["name"] for s in schemas}
 
         assert "read_skill" in names

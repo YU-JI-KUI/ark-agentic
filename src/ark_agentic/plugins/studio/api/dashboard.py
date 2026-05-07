@@ -222,7 +222,7 @@ async def _collect_agents() -> list[Any]:
     counts match the listing exactly even when the registry hasn't
     discovered every directory yet (e.g. a freshly added agent).
     """
-    agents_root = get_agents_root(__file__)
+    agents_root = get_agents_root()
     metas: list[Any] = []
     if not agents_root.is_dir():
         return metas
@@ -670,7 +670,7 @@ def _build_activity(
 
 async def _build_summary(registry: AgentRegistry) -> DashboardSummary:
     agents = await _collect_agents()
-    agents_root = get_agents_root(__file__)
+    agents_root = get_agents_root()
     skill_pairs = _collect_skills(agents_root, agents)
     tool_pairs = _collect_tools(agents_root, agents)
     session_pairs = await _collect_sessions(registry, agents)

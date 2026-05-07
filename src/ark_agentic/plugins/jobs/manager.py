@@ -22,7 +22,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 全局单例：app.py 启动时设置，AgentRunner.warmup() 时取用
+# 全局单例：JobsPlugin.start() 时设置；测试 / 内部代码可通过
+# get_job_manager() 安全访问（未启用时返回 None）。
 _global_job_manager: "JobManager | None" = None
 
 

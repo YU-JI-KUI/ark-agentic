@@ -160,11 +160,6 @@ class DummyAgentRunner:
     def memory_manager(self):
         return self._memory_manager
 
-    def mark_memory_dirty(self) -> None:
-        if self._memory_manager:
-            self._memory_manager.mark_dirty()
-
-
 # ── Test setup ──────────────────────────────────────────────────────
 
 app = FastAPI()

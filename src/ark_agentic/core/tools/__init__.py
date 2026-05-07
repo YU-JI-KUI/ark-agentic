@@ -36,7 +36,7 @@ __all__ = [
     # Memory tools
     "MemoryWriteTool",
     "create_memory_tools",
-    # PA Knowledge API tool (optional, register via runner.register_tool())
+    # PA Knowledge API tool (optional, register via agent.tool_registry.register())
     "PAKnowledgeAPIConfig",
     "PAKnowledgeAPITool",
     "create_pa_knowledge_api_tool",

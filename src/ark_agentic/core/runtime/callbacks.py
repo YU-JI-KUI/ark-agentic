@@ -33,7 +33,7 @@ from typing import Any, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..llm.errors import LLMError
-    from .runner import RunResult
+    from .base_agent import RunResult
     from ..types import AgentMessage, AgentToolResult, SessionEntry, ToolCall
 
 
@@ -219,7 +219,7 @@ class BeforeLoopEndCallback(Protocol):
 
 @dataclass
 class RunnerCallbacks:
-    """封装所有 hook 列表，注入到 AgentRunner。"""
+    """封装所有 hook 列表，注入到 BaseAgent。"""
     before_agent: list[BeforeAgentCallback] = field(default_factory=list)
     after_agent: list[AfterAgentCallback] = field(default_factory=list)
     before_model: list[BeforeModelCallback] = field(default_factory=list)

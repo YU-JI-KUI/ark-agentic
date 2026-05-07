@@ -1,27 +1,26 @@
 """
 Agent 注册表
 
-管理 AgentRunner 实例的注册与查找。
-从 app.py 提取，供 api/ 和 studio/ 共享使用。
+管理 BaseAgent 实例的注册与查找。
 """
 
 from __future__ import annotations
 
-from .runner import AgentRunner
+from .base_agent import BaseAgent
 
 
 class AgentRegistry:
     """Agent 注册表"""
 
     def __init__(self) -> None:
-        self._agents: dict[str, AgentRunner] = {}
+        self._agents: dict[str, BaseAgent] = {}
 
-    def get(self, agent_id: str) -> AgentRunner:
+    def get(self, agent_id: str) -> BaseAgent:
         if agent_id not in self._agents:
             raise KeyError(agent_id)
         return self._agents[agent_id]
 
-    def register(self, agent_id: str, agent: AgentRunner) -> None:
+    def register(self, agent_id: str, agent: BaseAgent) -> None:
         self._agents[agent_id] = agent
 
     def list_ids(self) -> list[str]:

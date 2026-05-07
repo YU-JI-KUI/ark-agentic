@@ -1,19 +1,19 @@
-"""Tests for build_standard_agent's skill_router wiring.
+"""Tests for ``BaseAgent.build_skill_router`` default + override.
 
-Covers:
-  - dynamic + skill_router=None  → factory wires LLMSkillRouter
-  - dynamic + explicit instance  → that instance verbatim
-  - full    + skill_router=None  → no router
-  - full    + any instance       → ValueError (fail-fast at factory)
+The old factory had four branches (dynamic-default / dynamic-explicit /
+full-default / full-explicit-raises). After folding into ``BaseAgent``,
+the wiring is a single hook. Subclasses opt into a custom router by
+overriding ``build_skill_router()``.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from ark_agentic.core.runtime.factory import AgentDef, build_standard_agent
+from ark_agentic.core.runtime.base_agent import BaseAgent
 from ark_agentic.core.skills.router import (
     LLMSkillRouter,
     RouteContext,
@@ -29,15 +29,14 @@ def _force_file_db_type_router_tests(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _FakeLLM:
-    """Minimal langchain-compatible stub. We only need attribute access here;
-    no .ainvoke is exercised in these tests (router never gets called)."""
+    """Minimal langchain-compatible stub."""
 
     def bind_tools(self, *_args, **_kwargs):
         return self
 
 
 class _DummyRouter:
-    """Custom router used to verify the explicit-instance branch."""
+    """Custom router used to verify override behavior."""
 
     history_window = 0
     timeout = 0.0
@@ -46,68 +45,53 @@ class _DummyRouter:
         return RouteDecision(skill_id=None, reason="dummy")
 
 
-@pytest.fixture
-def empty_skills_dir(tmp_path: Path) -> Path:
-    d = tmp_path / "skills"
-    d.mkdir()
-    return d
+def _make_agent(
+    *, load_mode: SkillLoadMode, custom_router: SkillRouter | None = None
+):
+    """Create a BaseAgent subclass with ClassVar overrides + optional router."""
+
+    attrs: dict = {
+        "agent_id": "router_wiring_test",
+        "agent_name": "T",
+        "agent_description": "t",
+        "skill_load_mode": load_mode,
+    }
+    if custom_router is not None:
+        attrs["build_skill_router"] = lambda self, _r=custom_router: _r
+    return type("Test_Router", (BaseAgent,), attrs)
 
 
-def _defn(load_mode: SkillLoadMode) -> AgentDef:
-    return AgentDef(
-        agent_id="router_wiring_test",
-        agent_name="Test",
-        agent_description="t",
-        skill_load_mode=load_mode,
-    )
+def _instantiate(cls, tmp_path: Path) -> BaseAgent:
+    fake_llm = _FakeLLM()
+    with patch.object(BaseAgent, "build_llm", return_value=fake_llm), \
+         patch(
+             "ark_agentic.core.runtime.base_agent.prepare_agent_data_dir",
+             return_value=tmp_path,
+         ), \
+         patch(
+             "ark_agentic.core.runtime.base_agent.get_memory_base_dir",
+             return_value=tmp_path,
+         ):
+        return cls()
 
 
-def test_dynamic_default_wires_llm_skill_router(empty_skills_dir: Path) -> None:
-    """dynamic mode + no skill_router arg → factory creates LLMSkillRouter."""
-    runner = build_standard_agent(
-        _defn(SkillLoadMode.dynamic),
-        empty_skills_dir,
-        tools=[],
-        llm=_FakeLLM(),
-        enable_dream=False,
-    )
-    assert isinstance(runner._skill_router, LLMSkillRouter)
+def test_dynamic_default_wires_llm_skill_router(tmp_path: Path) -> None:
+    """dynamic mode + default ``build_skill_router`` → ``LLMSkillRouter``."""
+    cls = _make_agent(load_mode=SkillLoadMode.dynamic)
+    agent = _instantiate(cls, tmp_path)
+    assert isinstance(agent._skill_router, LLMSkillRouter)
 
 
-def test_full_default_no_router(empty_skills_dir: Path) -> None:
-    """full mode + no skill_router arg → no router wired."""
-    runner = build_standard_agent(
-        _defn(SkillLoadMode.full),
-        empty_skills_dir,
-        tools=[],
-        llm=_FakeLLM(),
-        enable_dream=False,
-    )
-    assert runner._skill_router is None
+def test_full_default_no_router(tmp_path: Path) -> None:
+    """full mode + default ``build_skill_router`` → ``None``."""
+    cls = _make_agent(load_mode=SkillLoadMode.full)
+    agent = _instantiate(cls, tmp_path)
+    assert agent._skill_router is None
 
 
-def test_explicit_custom_router_used(empty_skills_dir: Path) -> None:
-    """Explicit custom router instance is used as-is."""
-    custom: SkillRouter = _DummyRouter()
-    runner = build_standard_agent(
-        _defn(SkillLoadMode.dynamic),
-        empty_skills_dir,
-        tools=[],
-        llm=_FakeLLM(),
-        enable_dream=False,
-        skill_router=custom,
-    )
-    assert runner._skill_router is custom
-
-
-def test_full_mode_with_router_raises(empty_skills_dir: Path) -> None:
-    """full mode + skill_router=<instance> → factory raises ValueError."""
-    with pytest.raises(ValueError, match="dynamic mode"):
-        build_standard_agent(
-            _defn(SkillLoadMode.full),
-            empty_skills_dir,
-            tools=[],
-            llm=_FakeLLM(),
-            enable_dream=False,
-            skill_router=_DummyRouter(),
-        )
+def test_dynamic_override_uses_custom_router(tmp_path: Path) -> None:
+    """Subclass overriding ``build_skill_router`` returns a custom instance."""
+    custom = _DummyRouter()
+    cls = _make_agent(load_mode=SkillLoadMode.dynamic, custom_router=custom)
+    agent = _instantiate(cls, tmp_path)
+    assert agent._skill_router is custom

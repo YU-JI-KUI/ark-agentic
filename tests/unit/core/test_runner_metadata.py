@@ -14,7 +14,7 @@ from ark_agentic.core.runtime.callbacks import (
     HookAction,
     RunnerCallbacks,
 )
-from ark_agentic.core.runtime.runner import AgentRunner, RunnerConfig
+from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.tools.base import AgentTool
 from ark_agentic.core.tools.registry import ToolRegistry
@@ -69,9 +69,9 @@ def _make_runner(
     callbacks: RunnerCallbacks | None = None,
     tool_registry: ToolRegistry | None = None,
     skill_router: Any = None,
-) -> AgentRunner:
+) -> BaseAgent:
     llm = _StubLLM(responses=[AIMessage(content="ok")])
-    return AgentRunner(
+    return BaseAgent._construct(
         llm=llm,  # type: ignore[arg-type]
         session_manager=SessionManager(tmp_sessions_dir, agent_id="test"),
         tool_registry=tool_registry or ToolRegistry(),
