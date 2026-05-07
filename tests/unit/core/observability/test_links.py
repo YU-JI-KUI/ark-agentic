@@ -55,22 +55,25 @@ def test_template_override_must_contain_placeholder(monkeypatch):
     assert "{trace_id}" in template
 
 
-def test_phoenix_template_constructed_from_endpoint(monkeypatch):
+def test_phoenix_template_uses_redirects_route(monkeypatch):
+    """Phoenix UI's /projects/{id}/traces/... requires a Relay GlobalID, not a
+    project name — so we link via the /redirects/traces/{trace_id} loader,
+    which resolves the project server-side from the otel trace id."""
     monkeypatch.setenv("TRACING", "phoenix")
     monkeypatch.setenv(
         "PHOENIX_COLLECTOR_ENDPOINT", "http://phoenix.local:6006/v1/traces"
     )
-    monkeypatch.setenv("PHOENIX_PROJECT_NAME", "my-project")
+    monkeypatch.setenv("PHOENIX_PROJECT_NAME", "my-project")  # ignored by URL
     assert (
         resolve_trace_link_template()
-        == "http://phoenix.local:6006/projects/my-project/traces/{trace_id}"
+        == "http://phoenix.local:6006/redirects/traces/{trace_id}"
     )
 
 
-def test_phoenix_template_default_project_when_unset(monkeypatch):
+def test_phoenix_template_default_endpoint_when_unset(monkeypatch):
     monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://x:6006/v1/traces")
     template = resolve_trace_link_template()
-    assert template == "http://x:6006/projects/ark-agentic/traces/{trace_id}"
+    assert template == "http://x:6006/redirects/traces/{trace_id}"
 
 
 def test_langfuse_template_uses_default_host(monkeypatch):

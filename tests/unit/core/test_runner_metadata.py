@@ -131,8 +131,25 @@ async def test_user_message_carries_chat_request_on_abort(tmp_sessions_dir: Path
 
 
 @pytest.mark.asyncio
-async def test_user_message_carries_no_trace_block(tmp_sessions_dir: Path) -> None:
-    """Trace correlation is observability cross-cut — not stored on user messages."""
+async def test_user_message_carries_trace_id_when_span_active(
+    tmp_sessions_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the user message must carry ``trace.trace_id`` so the
+    Studio "View in trace" button works on user turns (previously only
+    assistant turns had this stamped, leaving the button disabled with
+    'No trace_id captured for this message' for users).
+
+    Patches ``current_trace_id_or_none`` rather than installing a real OTel
+    TracerProvider — OTel's global provider is a process-wide singleton
+    that other test modules contend for, and we only need to verify the
+    runner consults the helper and writes its return value through.
+    """
+    fake_trace_id = "a" * 32
+    monkeypatch.setattr(
+        "ark_agentic.core.observability.current_trace_id_or_none",
+        lambda: fake_trace_id,
+    )
+
     runner = _make_runner(tmp_sessions_dir)
     session = await runner.session_manager.create_session(user_id="u1")
     await runner.run(
@@ -143,6 +160,34 @@ async def test_user_message_carries_no_trace_block(tmp_sessions_dir: Path) -> No
             "user:id": "u1",
             "meta:chat_request": {"message_id": "m"},
         },
+        stream=False,
+    )
+    user_msgs = [m for m in session.messages if m.role.value == "user"]
+    assert user_msgs[-1].metadata["trace"]["trace_id"] == fake_trace_id
+
+    asst_msgs = [m for m in session.messages if m.role.value == "assistant"]
+    assert asst_msgs[-1].metadata["trace"]["trace_id"] == fake_trace_id
+
+
+@pytest.mark.asyncio
+async def test_user_message_omits_trace_block_when_helper_returns_none(
+    tmp_sessions_dir: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When no trace span is active (helper returns None) the user message
+    must not gain a stale empty trace block — Studio renders the button as
+    disabled in that case."""
+    monkeypatch.setattr(
+        "ark_agentic.core.observability.current_trace_id_or_none",
+        lambda: None,
+    )
+
+    runner = _make_runner(tmp_sessions_dir)
+    session = await runner.session_manager.create_session(user_id="u1")
+    await runner.run(
+        session_id=session.session_id,
+        user_input="hello",
+        user_id="u1",
+        input_context={"user:id": "u1", "meta:chat_request": {"message_id": "m"}},
         stream=False,
     )
     user_msgs = [m for m in session.messages if m.role.value == "user"]

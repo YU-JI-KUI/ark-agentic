@@ -35,7 +35,11 @@ def resolve_trace_link_template() -> str | None:
        override; recommended primary path because Phoenix UI URL paths vary
        across versions/deployments.
     2. Phoenix auto-construction when ``TRACING`` mentions phoenix or
-       ``PHOENIX_COLLECTOR_ENDPOINT`` is set. Best-effort.
+       ``PHOENIX_COLLECTOR_ENDPOINT`` is set. Uses the ``/redirects/traces``
+       loader, which resolves project-by-otel-trace-id server-side — avoids
+       needing the project's Relay GlobalID (the UI's
+       ``/projects/{globalId}/traces/{trace_id}`` route does NOT accept the
+       project name).
     3. Langfuse auto-construction when ``TRACING`` mentions langfuse or
        ``LANGFUSE_PUBLIC_KEY`` is set. Stable across versions.
     """
@@ -50,8 +54,7 @@ def resolve_trace_link_template() -> str | None:
             "PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:6006/v1/traces"
         )
         ui_base = ep.split("/v1/traces")[0].rstrip("/")
-        project = os.getenv("PHOENIX_PROJECT_NAME", "ark-agentic")
-        return f"{ui_base}/projects/{project}/traces/{{trace_id}}"
+        return f"{ui_base}/redirects/traces/{{trace_id}}"
 
     if "langfuse" in enabled or os.getenv("LANGFUSE_PUBLIC_KEY"):
         host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com").rstrip("/")
