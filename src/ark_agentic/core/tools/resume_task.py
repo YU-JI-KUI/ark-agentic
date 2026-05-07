@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import AgentTool, ToolParameter
+from ..flow.base_evaluator import FlowEvaluatorRegistry
 from ..types import AgentToolResult, ToolCall, ToolResultType
 
 logger = logging.getLogger(__name__)
@@ -103,8 +104,7 @@ class ResumeTaskTool(AgentTool):
                 "current_stage": task.get("current_stage"),
                 "message": (
                     f"已恢复【{task.get('skill_name')}】流程，"
-                    f"当前在【{task.get('current_stage')}】阶段，"
-                    f"请调用对应的 flow_evaluator 查看当前进度。"
+                    f"当前在【{task.get('current_stage')}】阶段。"
                 ),
             },
             metadata={"state_delta": state_delta},
@@ -126,67 +126,60 @@ class ResumeTaskTool(AgentTool):
             logger.warning("Failed to discard task flow_id=%s: %s", flow_id, e)
             return AgentToolResult.error_result(tool_call.id, f"废弃任务失败: {e}")
 
+        skill_name = task.get("skill_name", "")
+        # 清空 _flow_context：防止 persist_flow_context 在本轮 after_agent 阶段
+        # 用旧数据把刚删除的任务记录重新写回。pending 检测已改为每轮直检 registry，
+        # 不再依赖 _pending_checked_<skill> flag，因此无需在此重置。
+        state_delta: dict[str, Any] = {"_flow_context": {}}
+
         return AgentToolResult(
             tool_call_id=tool_call.id,
             result_type=ToolResultType.JSON,
             content={
                 "status": "discarded",
                 "flow_id": flow_id,
-                "skill_name": task.get("skill_name"),
+                "skill_name": skill_name,
                 "message": (
-                    f"【{task.get('skill_name')}】流程已废弃。"
+                    f"【{skill_name}】流程已废弃。"
                     f"如需重新开始，请重新发起该业务流程。"
                 ),
             },
+            metadata={"state_delta": state_delta},
         )
 
     @staticmethod
     def _snapshot_to_flow_context(task: dict[str, Any]) -> dict[str, Any]:
-        """将 active_tasks.json snapshot 格式转换回 _flow_context 运行时格式。
+        """将 `flow_context_snapshot` 还原为运行时 `_flow_context`（扁平，与持久化同形）。
 
-        snapshot 格式（get_restorable_state 产出）:
-            {
-              "flow_id": "...",
-              "stages": {
-                "identity_verify": {"status": "completed", "data": {...}, "delta": {...}},
-                ...
-              }
-            }
-
-        _flow_context 运行时格式（evaluator 读取）:
-            {
-              "flow_id": "...",
-              "skill_name": "...",
-              "stage_identity_verify": {...},        # 展平，key = stage_{id}
-              "stage_identity_verify_delta": {...},  # 原始工具输出快照，key = stage_{id}_delta
-              ...
-            }
+        期望与 `BaseFlowEvaluator.get_persistable_context(flow_ctx)` 写入的结构一致：
+        flow_id / skill_name / current_stage / stage_<id> / stage_<id>_delta / checkpoints / …
         """
-        snapshot = task.get("flow_context_snapshot", {})
-        flow_ctx: dict[str, Any] = {
-            "flow_id": task["flow_id"],
-            "skill_name": task["skill_name"],
-        }
-        for stage_id, stage_info in snapshot.get("stages", {}).items():
-            if stage_info.get("status") == "completed" and stage_info.get("data"):
-                flow_ctx[f"stage_{stage_id}"] = stage_info["data"]
-            if stage_info.get("delta"):
-                flow_ctx[f"stage_{stage_id}_delta"] = stage_info["delta"]
-        return flow_ctx
+        snapshot: dict[str, Any] = dict(task.get("flow_context_snapshot") or {})
+        snapshot.setdefault("flow_id", task["flow_id"])
+        snapshot.setdefault("skill_name", task["skill_name"])
+        snapshot.setdefault(
+            "current_stage", task.get("current_stage", "__completed__")
+        )
+        for key in list(snapshot.keys()):
+            if key.startswith("_user_input_"):
+                snapshot.pop(key, None)
+        return snapshot
 
     @staticmethod
     def _extract_delta_state(task: dict[str, Any]) -> dict[str, Any]:
-        """从所有已完成阶段的 delta 中提取原始工具 state 键，还原到 session.state 顶层。
-
-        这样 render_a2ui 等通过 state_keys 读取工具输出的工具，
-        在流程恢复后仍能在 session.state 中找到所需数据。
-
-        只处理 status="completed" 的阶段；delta 键发生冲突时后续阶段覆盖前序阶段。
-        旧格式快照（无 delta 字段）降级为空 dict，保持向后兼容。
-        """
-        snapshot = task.get("flow_context_snapshot", {})
+        """从所有 `stage_*_delta` 合并到 session.state 顶层（后出现的 key 覆盖先前的）。"""
+        snapshot: dict[str, Any] = dict(task.get("flow_context_snapshot") or {})
+        ev = FlowEvaluatorRegistry.get(task.get("skill_name") or "")
         result: dict[str, Any] = {}
-        for stage_info in snapshot.get("stages", {}).values():
-            if stage_info.get("status") == "completed":
-                result.update(stage_info.get("delta", {}))
+        if ev is not None:
+            for state_key, raw in ev.iter_delta_state(snapshot):
+                result[state_key] = raw
+            return result
+        for key, value in snapshot.items():
+            if (
+                key.startswith("stage_")
+                and key.endswith("_delta")
+                and isinstance(value, dict)
+            ):
+                result.update(value)
         return result

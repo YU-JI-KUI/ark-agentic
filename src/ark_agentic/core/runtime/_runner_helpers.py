@@ -2,19 +2,16 @@
 
 Moved out of the BaseAgent class to keep the agent module focused on
 identity + orchestration. Most are pure transformations; a few touch
-side state (``enrich_skills_with_stage_reference`` reads files,
-``run_hooks`` invokes async callables) but none take ``self`` — they
-operate only on the arguments they receive.
+mutable arguments (e.g. ``apply_state_delta`` mutates the session-state
+dict; ``run_hooks`` invokes async callables) but none take ``self`` —
+they operate only on the arguments they receive.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import warnings
-from dataclasses import replace
 from datetime import datetime
-from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from ..llm.errors import LLMError, LLMErrorReason
@@ -169,53 +166,6 @@ def dispatch_event(
         handler.on_ui_component(event.data)
     else:
         handler.on_custom_event(event.type, event.data)
-
-
-def enrich_skills_with_stage_reference(
-    skills: list, current_stage_id: str,
-) -> list:
-    """Inject stage-specific reference content into matching ``SkillEntry.content``.
-
-    Looks up the registered ``FlowEvaluator`` (by skill id, full or short),
-    reads the active stage's ``reference_file``, and appends its body.
-    Missing files emit a warning but don't abort the turn.
-    """
-    from ..flow.base_evaluator import FlowEvaluatorRegistry
-
-    enriched = []
-    for skill in skills:
-        skill_short = skill.id.split(".")[-1]
-        evaluator = (
-            FlowEvaluatorRegistry.get(skill.id)
-            or FlowEvaluatorRegistry.get(skill_short)
-        )
-
-        ref_filename: str | None = None
-        if evaluator:
-            stage_def = next(
-                (s for s in evaluator.stages if s.id == current_stage_id), None,
-            )
-            ref_filename = stage_def.reference_file if stage_def else None
-
-        if ref_filename:
-            ref_path = Path(skill.path) / "references" / ref_filename
-            if ref_path.exists():
-                ref_content = ref_path.read_text(encoding="utf-8")
-                enriched.append(replace(
-                    skill,
-                    content=(
-                        skill.content
-                        + f"\n\n---\n### 当前阶段参考: {current_stage_id}\n\n"
-                        + ref_content
-                    ),
-                ))
-                continue
-            warnings.warn(
-                f"[FlowEvaluator] reference file not found: {ref_path}",
-                stacklevel=4,
-            )
-        enriched.append(skill)
-    return enriched
 
 
 def resolve_run_params(

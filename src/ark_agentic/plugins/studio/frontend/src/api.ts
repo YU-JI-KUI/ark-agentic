@@ -8,6 +8,41 @@ const CHAT_URL = '/chat'
 // ── Auth helpers ─────────────────────────────────────────────────
 
 const AUTH_STORAGE_KEY = 'ark_studio_user'
+const STUDIO_BASE_PATH = '/studio'
+const STUDIO_LOGIN_PATH = `${STUDIO_BASE_PATH}/login`
+
+function clearStoredAuth(): void {
+    try {
+        localStorage.removeItem(AUTH_STORAGE_KEY)
+    } catch {
+        // Ignore storage failures; the redirect still moves the user out of the protected app.
+    }
+}
+
+function getStudioNextPath(): string {
+    const { pathname, search, hash } = window.location
+    let nextPath = pathname
+    if (pathname === STUDIO_BASE_PATH) {
+        nextPath = '/'
+    } else if (pathname.startsWith(`${STUDIO_BASE_PATH}/`)) {
+        nextPath = pathname.slice(STUDIO_BASE_PATH.length)
+    }
+    if (!nextPath.startsWith('/')) nextPath = `/${nextPath}`
+    return `${nextPath}${search}${hash}`
+}
+
+function shouldRedirectToLogin(status: number, detail: string): boolean {
+    return status === 401 || (status === 403 && detail.includes('Studio user is not authorized'))
+}
+
+function redirectToLogin(): void {
+    if (window.location.pathname === STUDIO_LOGIN_PATH) return
+    clearStoredAuth()
+    const loginUrl = new URL(STUDIO_LOGIN_PATH, window.location.origin)
+    const nextPath = getStudioNextPath()
+    if (nextPath !== '/login') loginUrl.searchParams.set('next', nextPath)
+    window.location.replace(`${loginUrl.pathname}${loginUrl.search}`)
+}
 
 export function getAuthUserId(): string | undefined {
     try {
@@ -327,10 +362,17 @@ export interface ToolScaffoldInput {
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     const res = await fetch(url, withAuth(init))
     if (!res.ok) {
-        const detail = await res.text()
-        throw new Error(`API Error ${res.status}: ${detail}`)
+        await raiseAPIError(res)
     }
     return res.json()
+}
+
+async function raiseAPIError(res: Response): Promise<never> {
+    const detail = await res.text()
+    if (shouldRedirectToLogin(res.status, detail)) {
+        redirectToLogin()
+    }
+    throw new Error(`API Error ${res.status}: ${detail}`)
 }
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
@@ -414,8 +456,7 @@ export const api = {
             withAuth(),
         )
         if (!res.ok) {
-            const t = await res.text()
-            throw new Error(`API Error ${res.status}: ${t}`)
+            await raiseAPIError(res)
         }
         return res.text()
     },
@@ -427,8 +468,7 @@ export const api = {
             body,
         })).then(async res => {
             if (!res.ok) {
-                const t = await res.text()
-                throw new Error(`API Error ${res.status}: ${t}`)
+                await raiseAPIError(res)
             }
             return res.json() as Promise<{ status: string; session_id: string }>
         }),
@@ -447,8 +487,7 @@ export const api = {
             withAuth(),
         )
         if (!res.ok) {
-            const t = await res.text()
-            throw new Error(`API Error ${res.status}: ${t}`)
+            await raiseAPIError(res)
         }
         return res.text()
     },
@@ -459,8 +498,7 @@ export const api = {
             withAuth({ method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body }),
         )
         if (!res.ok) {
-            const t = await res.text()
-            throw new Error(`API Error ${res.status}: ${t}`)
+            await raiseAPIError(res)
         }
         return res.json()
     },

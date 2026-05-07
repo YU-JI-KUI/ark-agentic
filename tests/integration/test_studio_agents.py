@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from ark_agentic.plugins.studio.api import agents as agents_api
 from ark_agentic.plugins.studio.api.agents import AgentMeta, _read_agent_meta, _write_agent_meta
-from ark_agentic.plugins.studio.services.authz_service import get_studio_user_repo
+from ark_agentic.plugins.studio.services.auth import get_studio_user_repo
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────

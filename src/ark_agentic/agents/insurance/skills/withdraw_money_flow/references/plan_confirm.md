@@ -38,30 +38,8 @@
    | `selected_option` | 选中的方案，含 `channels`（渠道列表）和 `target`（目标金额） |
    | `amount` | 最终取款金额（元） |
 
-## 阶段提交
+## 异常处理
 
-用户确认后，调用 `commit_flow_stage` 提交本阶段：
-
-```
-commit_flow_stage(
-    stage_id="plan_confirm",
-    user_data={
-        "confirmed": true,
-        "selected_option": {
-            "channels": ["survival_fund", "bonus"],
-            "target": 50000
-        },
-        "amount": 50000.0
-    }
-)
-```
-
-> 所有字段均为 **user 来源**，必须通过 user_data 提供。
-
-提交后调用 `withdraw_money_flow_evaluator` → 进入 execute 阶段。
-
-## 完成条件
-
-- `confirmed = true`
-- `selected_option` 包含用户选择的渠道和目标金额
-- `amount` > 0
+- 用户明确拒绝所有方案 → 询问是否需要修改取款金额或终止流程，不调用 collect_user_fields
+- 用户要求修改金额 → 重新调用 `rule_engine` 查询（返回阶段 2）再重新展示方案卡片
+- `render_a2ui` 渲染失败 → 以文本形式向用户描述方案内容，继续收集确认信息

@@ -48,9 +48,14 @@ class TaskRegistry:
         current_stage: str,
         last_session_id: str,
         flow_context_snapshot: dict[str, Any],
+        task_name: str | None = None,
         resume_ttl_hours: int = DEFAULT_TTL_HOURS,
     ) -> None:
-        """新增或更新一条 active task 记录。"""
+        """新增或更新一条 active task 记录。
+
+        task_name 可选；未传时记录中不写该字段，读取方（pending task 渲染）
+        会在缺失时 fallback 到 skill_name，保持对旧记录的读兼容。
+        """
         tasks = self._load(user_id)
         now_ms = int(time.time() * 1000)
 
@@ -64,6 +69,8 @@ class TaskRegistry:
             "resume_ttl_hours": resume_ttl_hours,
             "flow_context_snapshot": flow_context_snapshot,
         }
+        if task_name:
+            record["task_name"] = task_name
         if existing:
             tasks[tasks.index(existing)] = record
         else:
@@ -73,6 +80,24 @@ class TaskRegistry:
             tasks = [t for t in tasks if t["flow_id"] != flow_id]
 
         self._save(user_id, tasks)
+
+    def generate_flow_id(self, user_id: str) -> str:
+        """生成 `YYMMDD-HHHH` 格式的短 flow_id，per-user 查重。
+
+        日期前缀让日志/人工排查更直观；4 位 hex 后缀在 per-user 活跃任务集合中
+        碰撞概率几乎为 0（65536 空间 vs 典型数个活跃任务）。
+        极低概率碰撞时重试最多 8 次，兜底扩至 8 位 hex。
+        """
+        import uuid
+        from datetime import datetime
+
+        date_prefix = datetime.now().strftime("%y%m%d")
+        existing = {t["flow_id"] for t in self._load(user_id)}
+        for _ in range(8):
+            candidate = f"{date_prefix}-{uuid.uuid4().hex[:4]}"
+            if candidate not in existing:
+                return candidate
+        return f"{date_prefix}-{uuid.uuid4().hex[:8]}"
 
     def get(self, user_id: str, flow_id: str) -> dict[str, Any] | None:
         """按 flow_id 查询单条记录（不过滤 TTL）。"""
