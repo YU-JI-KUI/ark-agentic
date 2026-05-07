@@ -24,13 +24,25 @@ from ark_agentic.plugins.studio.api.sessions import router as sessions_router
 # ── Dummy objects ───────────────────────────────────────────────────
 
 class DummyMessage:
-    def __init__(self, role, content, tool_calls=None, tool_results=None, thinking=None, metadata=None):
+    def __init__(
+        self,
+        role,
+        content,
+        tool_calls=None,
+        tool_results=None,
+        thinking=None,
+        metadata=None,
+        turn_context=None,
+        finish_reason=None,
+    ):
         self.role = role
         self.content = content
         self.tool_calls = tool_calls or []
         self.tool_results = tool_results or []
         self.thinking = thinking
         self.metadata = metadata or {}
+        self.turn_context = turn_context
+        self.finish_reason = finish_reason
 
 
 class DummySession:

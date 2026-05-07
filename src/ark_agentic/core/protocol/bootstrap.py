@@ -53,9 +53,10 @@ class Bootstrap:
     successfully started so ``stop`` only tears down what really started.
 
     Public API: pass the user-selectable ``components`` list. The framework
-    defaults — ``AgentsLifecycle`` (first) and ``TracingLifecycle``
-    (last) — are added unconditionally; their ordering matters and is
-    not configurable. User components sit between them.
+    defaults — ``CoreStorageLifecycle`` (first), ``AgentsLifecycle``
+    (second) and ``TracingLifecycle`` (last) — are added unconditionally;
+    their ordering matters and is not configurable. User components sit
+    between ``AgentsLifecycle`` and ``TracingLifecycle``.
 
     Hosts that need to seed agents before start populate
     ``Bootstrap.agent_registry`` directly.
