@@ -49,6 +49,7 @@ class CashAssetsTool(AgentTool):
     name = "cash_assets"
     description = "查询用户的现金资产信息，包括现金总额、可用资金、可取资金、今日收益、冻结资金等。支持普通账户和两融账户。"
     thinking_hint = "正在查询现金资产…"
+    data_source = True
     parameters = [
         ToolParameter(
             name="account_type",

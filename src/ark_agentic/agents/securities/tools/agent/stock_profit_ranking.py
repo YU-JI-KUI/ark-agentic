@@ -49,6 +49,7 @@ class StockProfitRankingTool(AgentTool):
         "pft_type 指定查盈利还是亏损排行，period 指定时间范围。"
     )
     thinking_hint = "正在查询股票盈亏排行…"
+    data_source = True
     parameters = [
         ToolParameter(
             name="pft_type",

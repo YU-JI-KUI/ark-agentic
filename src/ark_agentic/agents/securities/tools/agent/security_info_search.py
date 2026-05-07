@@ -33,6 +33,7 @@ class SecurityInfoSearchTool(AgentTool):
         "当输入模糊时返回多个候选供确认。"
     )
     thinking_hint = "正在查询股票信息…"
+    data_source = True
     parameters = [
         ToolParameter(
             name="query",

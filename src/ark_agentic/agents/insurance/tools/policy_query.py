@@ -32,6 +32,7 @@ class PolicyQueryTool(AgentTool):
     description = "查询用户的保单信息，包括保单列表、保单详情、现金价值、可取款额度等"
     thinking_hint = "正在查询保单信息…"
     group = "insurance"
+    data_source = True
 
     parameters = [
         ToolParameter(

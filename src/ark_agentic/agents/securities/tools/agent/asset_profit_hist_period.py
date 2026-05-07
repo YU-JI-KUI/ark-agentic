@@ -78,6 +78,7 @@ class AssetProfitHistPeriodTool(AgentTool):
         "year_to_date（年初至今）/ past_year（过去一年）/ since_inception（开户以来）。"
         "支持普通账户和两融账户。"
     )
+    data_source = True
     thinking_hint = "正在查询资产历史收益曲线…"
     parameters = [
         ToolParameter(

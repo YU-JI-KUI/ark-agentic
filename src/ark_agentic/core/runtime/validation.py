@@ -350,17 +350,34 @@ def _build_fact_sources(
     return sources
 
 
-def _match_claim_sources(
+def match_claim_sources(
     claim: ExtractedClaim,
     fact_sources: dict[str, str],
 ) -> list[str]:
-    """在扁平化事实来源中查找 claim 的支撑来源。"""
+    """Search flat fact_sources for keys that contain any normalized form of claim.
+
+    Args:
+        claim:        An ExtractedClaim with ``.value`` and optional
+                      ``.normalized_values``.
+        fact_sources: ``{"tool_<name>": text, ...}`` or any string-keyed corpus.
+
+    Returns:
+        List of matched source keys (may be empty).
+    """
     matched: list[str] = []
     candidates = claim.normalized_values or [claim.value]
     for source, text in fact_sources.items():
         if any(candidate and candidate in text for candidate in candidates):
             matched.append(source)
     return matched
+
+
+def _match_claim_sources(
+    claim: ExtractedClaim,
+    fact_sources: dict[str, str],
+) -> list[str]:
+    """Deprecated alias — use match_claim_sources instead."""
+    return match_claim_sources(claim, fact_sources)
 
 
 # ============ 二阶段补校验辅助 ============
@@ -453,11 +470,30 @@ def _build_context_from_session(
     return "\n".join(recent)
 
 
-def _build_tool_sources_from_session(session: Any) -> dict[str, str]:
-    """从 session.messages 中最后一条 USER 之后的 ASSISTANT（tool_calls）+ TOOL 消息构建事实语料。
+def build_tool_sources_from_session(
+    session: Any,
+    *,
+    tool_registry: Any | None = None,
+    context_turns: int | None = None,
+) -> dict[str, str]:
+    """Build factual evidence corpus from tool call results in the current session turn.
 
-    按 tool_call_id 将 ASSISTANT.tool_calls 的 name 与 TOOL.tool_results 的 content 配对，
-    同名工具多次调用用 ``\\n---\\n`` 拼接。返回 ``{tool_<name>: normalized_text}``。
+    Scans session.messages from the last USER message onward.  Pairs each
+    ASSISTANT.tool_calls entry with the corresponding TOOL.tool_results by
+    tool_call_id, then returns ``{"tool_<name>": normalized_text, ...}``.
+
+    When *tool_registry* is provided, only tool_call results from tools that
+    declare ``data_source=True`` are included.  This ensures display-only,
+    control, and flow tools do not pollute the evidence corpus.
+
+    Multiple calls to the same tool within the turn are joined with ``\\n---\\n``.
+
+    Args:
+        session:       Active session with a ``.messages`` attribute.
+        tool_registry: Optional ToolRegistry (or any dict-like mapping
+                       tool name → AgentTool).  Passed to filter by
+                       ``AgentTool.data_source``.
+        context_turns: Unused; reserved for future multi-turn expansion.
     """
     from ..types import MessageRole
     from ..utils.dates import normalize_tool_source
@@ -480,6 +516,8 @@ def _build_tool_sources_from_session(session: Any) -> dict[str, str]:
         elif msg.role == MessageRole.TOOL and msg.tool_results:
             for tr in msg.tool_results:
                 name = tc_name_by_id.get(tr.tool_call_id, "unknown")
+                if tool_registry is not None and not _is_data_source_tool(tool_registry, name):
+                    continue
                 c = tr.content
                 text = json.dumps(c, ensure_ascii=False) if isinstance(c, (dict, list)) else str(c)
                 merged.setdefault(name, []).append(normalize_tool_source(text))
@@ -487,6 +525,24 @@ def _build_tool_sources_from_session(session: Any) -> dict[str, str]:
     return {
         f"tool_{name}": "\n---\n".join(chunks) for name, chunks in merged.items()
     }
+
+
+def _is_data_source_tool(tool_registry: Any, name: str) -> bool:
+    """Return True if the named tool declares data_source=True in the registry."""
+    tool = None
+    if hasattr(tool_registry, "get"):
+        tool = tool_registry.get(name)
+    elif hasattr(tool_registry, "__getitem__"):
+        try:
+            tool = tool_registry[name]
+        except (KeyError, TypeError):
+            pass
+    return bool(tool is not None and getattr(tool, "data_source", False))
+
+
+def _build_tool_sources_from_session(session: Any) -> dict[str, str]:
+    """Deprecated alias — use build_tool_sources_from_session instead."""
+    return build_tool_sources_from_session(session)
 
 
 # ============ 框架级 Hook 工厂 ============
@@ -528,7 +584,7 @@ def create_citation_validation_hook(
 
         if ctx.session.state.get(_REFLECT_FLAG):
             logger.info(
-                "[CITATION_HOOK] skip validation (already reflected once this user turn)"
+                "[GROUNDING_HOOK] skip validation (already reflected once this user turn)"
             )
             return None
 
@@ -549,7 +605,7 @@ def create_citation_validation_hook(
         )
 
         logger.info(
-            "[CITATION_HOOK] phase1 route=%s score=%.2f errors=%d",
+            "[GROUNDING_HOOK] phase1 route=%s score=%.2f errors=%d",
             result.route,
             result.score,
             len(result.errors),
@@ -568,7 +624,7 @@ def create_citation_validation_hook(
                 still_bad = _fallback_match_ungrounded(ungrounded, history_only, _extractors)
                 result = _recompute_result(all_claims, still_bad)
                 logger.info(
-                    "[CITATION_HOOK] phase2 fallback route=%s score=%.2f still_ungrounded=%d",
+                    "[GROUNDING_HOOK] phase2 fallback route=%s score=%.2f still_ungrounded=%d",
                     result.route,
                     result.score,
                     len(still_bad),
@@ -577,7 +633,7 @@ def create_citation_validation_hook(
         if result.errors:
             for e in result.errors:
                 logger.warning(
-                    "[CITATION_HOOK] %s value=%r source=%s",
+                    "[GROUNDING_HOOK] %s value=%r source=%s",
                     e.type,
                     e.value,
                     e.source or "N/A",

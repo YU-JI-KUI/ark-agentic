@@ -12,6 +12,7 @@ import logging
 
 from ark_agentic import BaseAgent
 from ark_agentic.agents.insurance.tools.flow_evaluator import withdrawal_flow_evaluator
+from ark_agentic.core.citation import create_cite_annotation_hook
 from ark_agentic.core.flow.base_evaluator import FlowEvaluatorRegistry
 from ark_agentic.core.flow.callbacks import FlowCallbacks
 from ark_agentic.core.runtime.callbacks import RunnerCallbacks
@@ -53,8 +54,10 @@ class InsuranceAgent(BaseAgent):
             sessions_dir=self.sessions_dir,
             skill_loader=self.skill_loader,
         )
+        cite_hook = create_cite_annotation_hook(tool_registry=self.tool_registry)
         return RunnerCallbacks(
             before_model=[flow_callbacks.before_model_flow_eval],
             before_tool=[flow_callbacks.before_tool_stage_guard],
+            before_loop_end=[cite_hook],
             after_agent=[flow_callbacks.persist_flow_context],
         )

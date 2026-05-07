@@ -90,7 +90,7 @@ def extract_number_tokens(text: str) -> list[tuple[float, bool]]:
     if not text:
         return []
     cleaned = re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
-    pattern = re.compile(r"(?<!\w)(-?\d+(?:\.\d+)?)(\s*[%％])?(?!\w)")
+    pattern = re.compile(r"(?<!\d)(-?\d+(?:\.\d+)?)(\s*[%％])?(?!\d)")
     results: list[tuple[float, bool]] = []
     for m in pattern.finditer(cleaned):
         raw, pct = m.group(1), m.group(2)
@@ -103,6 +103,48 @@ def extract_number_tokens(text: str) -> list[tuple[float, bool]]:
         except ValueError:
             pass
     return results
+
+
+# 在原文中定位数字（含千分位），与 extract_number_tokens 使用相同的业务过滤规则
+_NUMBER_SPAN_RE = re.compile(
+    r"(?<!\d)"
+    r"(?P<num>-?(?:(?:\d{1,3}(?:,\d{3})+)(?:\.\d+)?|\d+(?:\.\d+)?))"
+    r"(?P<pct>\s*[%％])?"
+    r"(?!\d)",
+)
+
+
+def canonical_number_claim_value(number: float) -> str:
+    """与 ``NumberClaimExtractor.extract_claims`` 中 claim.value 规则一致。"""
+    return str(int(number)) if float(number).is_integer() else str(number)
+
+
+def iter_number_spans_in_text(text: str):
+    """在原文中迭代数字 token 的字符区间与面值（支持千分位显示）。
+
+    与 ``extract_number_tokens`` / ``NumberClaimExtractor`` 一致：过滤年份、
+    YYYYMMDD、以及低于 ``MIN_BUSINESS_NUMBER`` 的非百分数数。
+
+    Yields:
+        (start, end, raw_text, numeric_value, is_percent)
+    """
+    if not text:
+        return
+    for m in _NUMBER_SPAN_RE.finditer(text):
+        raw = m.group("num")
+        pct = m.group("pct") is not None
+        compact = raw.replace(",", "")
+        if re.fullmatch(r"\d{4}", compact) and 1900 <= int(compact) <= 2100:
+            continue
+        if YYYYMMDD_RE.fullmatch(compact):
+            continue
+        try:
+            numeric = float(compact)
+        except ValueError:
+            continue
+        if abs(numeric) < MIN_BUSINESS_NUMBER and not pct:
+            continue
+        yield (m.start(), m.end(), m.group(0), numeric, pct)
 
 
 def extract_numbers_from_text(text: str) -> list[float]:
@@ -124,7 +166,7 @@ class NumberClaimExtractor:
         for number, is_percent in extract_number_tokens(text):
             if abs(number) < MIN_BUSINESS_NUMBER and not is_percent:
                 continue
-            value = str(int(number)) if float(number).is_integer() else str(number)
+            value = canonical_number_claim_value(number)
             if value in seen:
                 continue
             seen.add(value)
@@ -132,7 +174,10 @@ class NumberClaimExtractor:
                 ExtractedClaim(
                     value=value,
                     type="NUMBER",
-                    normalized_values=normalize_number_forms(value, percent=is_percent),
+                    normalized_values=normalize_number_forms(
+                        value,
+                        percent=is_percent,
+                    ),
                 )
             )
         return claims

@@ -36,6 +36,7 @@ class StockDailyProfitRangeTool(AgentTool):
         "begin_time 和 end_time 格式均为 YYYYMMDD（如 20260301）。"
         "支持普通账户和两融账户。"
     )
+    data_source = True
     thinking_hint = "正在查询股票每日收益明细…"
     parameters = [
         ToolParameter(

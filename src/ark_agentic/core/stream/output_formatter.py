@@ -73,6 +73,8 @@ _AGUI_TO_INTERNAL: dict[str, str] = {
     "text_message_content": "response.content.delta",
     "tool_call_start": "response.tool_call.start",
     "tool_call_result": "response.tool_call.result",
+    "citation": "response.citation",
+    "citation_list": "response.citation_list",
     "custom": "response.ui.component",
     "run_finished": "response.completed",
     "run_error": "response.failed",
@@ -145,6 +147,10 @@ class LegacyInternalFormatter:
             base["tool_calls"] = event.tool_calls
         elif internal_type == "response.failed":
             base["error_message"] = event.error_message
+        elif internal_type == "response.citation":
+            base["citation_span"] = event.citation_span
+        elif internal_type == "response.citation_list":
+            base["citations"] = event.citations
 
         return {k: v for k, v in base.items() if v is not None}
 
@@ -330,6 +336,12 @@ class EnterpriseAGUIFormatter:
             dp.code = "500"
             dp.ui_protocol = "text"
             dp.ui_data = event.error_message or ""
+        elif event.type == "citation":
+            dp.ui_protocol = "json"
+            dp.ui_data = event.citation_span
+        elif event.type == "citation_list":
+            dp.ui_protocol = "json"
+            dp.ui_data = event.citations
         else:
             # text_message_start/end, state_snapshot, etc. — no ui_data needed
             dp.ui_protocol = "text"

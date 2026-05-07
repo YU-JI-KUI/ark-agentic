@@ -894,6 +894,7 @@ class BaseAgent(ABC):
                     sampling_override=sampling_override,
                     handler=handler,
                     turn=ls.turns,
+                    state=state,
                 )
             except LLMError as e:
                 return await self._handle_llm_error(
@@ -950,24 +951,29 @@ class BaseAgent(ABC):
         sampling_override: SamplingConfig | None,
         handler: AgentEventHandler | None,
         turn: int,
+        state: dict[str, Any] | None = None,
     ) -> AgentMessage:
         """Streaming / non-streaming LLM dispatch. Errors propagate to caller."""
+
         def _on_content(text: str, _t: int = turn) -> None:
-            if handler:
+            if handler is not None:
                 handler.on_content_delta(text, _t)
 
         if use_streaming:
-            return await self._llm_caller.call_streaming(
+            result = await self._llm_caller.call_streaming(
                 messages, tools,
                 model_override=model_override,
                 sampling_override=sampling_override,
                 content_callback=_on_content,
             )
-        return await self._llm_caller.call(
-            messages, tools,
-            model_override=model_override,
-            sampling_override=sampling_override,
-        )
+        else:
+            result = await self._llm_caller.call(
+                messages, tools,
+                model_override=model_override,
+                sampling_override=sampling_override,
+            )
+
+        return result
 
     async def _handle_llm_error(
         self,

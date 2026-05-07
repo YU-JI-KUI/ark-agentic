@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from ..types import AgentToolResult, ToolCall
 
@@ -67,6 +67,10 @@ class AgentTool(ABC):
 
     # 工具调用时展示给用户的状态提示（UI only，不传给 LLM）
     thinking_hint: str = ""
+
+    # 当 True 时，此工具的调用结果被计入 citation / grounding 证据语料；
+    # 展示、Flow、控制类工具保持默认 False。
+    data_source: ClassVar[bool] = False
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)

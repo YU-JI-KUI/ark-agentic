@@ -55,6 +55,9 @@ EventType = Literal[
     "thinking_message_start",
     "thinking_message_content",
     "thinking_message_end",
+    # 引用标记
+    "citation",
+    "citation_list",
     # 自定义 / 原始透传 (§3.3 #16-17)
     "custom",
     "raw",
@@ -113,3 +116,7 @@ class AgentStreamEvent(BaseModel):
 
     # run_error
     error_message: str | None = Field(None, description="错误信息")
+
+    # citation / citation_list
+    citations: list[dict[str, Any]] | None = Field(None, description="引用标记数据（citation 类型时为单位数，citation_list 类型时为列表）")
+    citation_span: dict[str, Any] | None = Field(None, description="单个引用 span（citation 类型时使用）")

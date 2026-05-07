@@ -36,6 +36,7 @@ class AssetProfitHistRangeTool(AgentTool):
         "支持普通账户和两融账户。"
     )
     thinking_hint = "正在查询资产历史收益曲线…"
+    data_source = True
     parameters = [
         ToolParameter(
             name="begin_time",

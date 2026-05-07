@@ -56,6 +56,14 @@ class AgentEventHandler(Protocol):
         """A2UI 组件描述。"""
         ...
 
+    def on_citation(self, span: Any) -> None:
+        """流式引用标记（inline citation span）。"""
+        ...
+
+    def on_citation_list(self, citations: list[Any]) -> None:
+        """文末引用汇总（citation list event）。"""
+        ...
+
     def on_custom_event(self, custom_type: str, custom_data: dict[str, Any]) -> None:
         """自定义业务事件（如准入拦截）。"""
         ...
@@ -212,6 +220,37 @@ class StreamEventBus:
             custom_type=custom_type,
             custom_data=custom_data,
         )
+
+    def on_citation(self, span: Any) -> None:
+        """流式引用标记 — 将 CitationSpan 转为 citation 事件。"""
+        span_dict: dict[str, Any]
+        if hasattr(span, "source_id"):
+            span_dict = {
+                "source_id": span.source_id,
+                "tool_name": span.tool_name,
+                "start": span.start,
+                "end": span.end,
+                "matched_text": span.matched_text,
+            }
+        elif isinstance(span, dict):
+            span_dict = span
+        else:
+            span_dict = {"data": str(span)}
+        self.on_custom_event("citation", span_dict)
+
+    def on_citation_list(self, citations: list[Any]) -> None:
+        """文末引用汇总 — 将 CitationEntry 列表转为 citation_list 事件。"""
+        entries: list[dict[str, Any]] = []
+        for c in citations:
+            if hasattr(c, "source_id"):
+                entries.append({
+                    "source_id": c.source_id,
+                    "tool_name": c.tool_name,
+                    "matched_text": c.matched_text,
+                })
+            elif isinstance(c, dict):
+                entries.append(c)
+        self.on_custom_event("citation_list", {"entries": entries})
 
     # ---- 生命周期事件（由 app.py 直接调用）----
 

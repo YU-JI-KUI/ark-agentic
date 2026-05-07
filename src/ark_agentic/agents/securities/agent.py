@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ark_agentic import BaseAgent
+from ark_agentic.core.citation.hook import create_cite_annotation_hook
 from ark_agentic.core.runtime.callbacks import (
     CallbackContext,
     CallbackEvent,
@@ -70,7 +71,8 @@ class SecuritiesAgent(BaseAgent):
     def build_callbacks(self) -> RunnerCallbacks | None:
         trie = EntityTrie()
         trie.load_from_csv(_STOCKS_CSV)
+        cite_hook = create_cite_annotation_hook(tool_registry=self.tool_registry)
         return RunnerCallbacks(
             before_agent=[_enrich_context, _auth_check],
-            before_loop_end=[create_citation_validation_hook(entity_trie=trie)],
+            before_loop_end=[cite_hook, create_citation_validation_hook(entity_trie=trie)],
         )
