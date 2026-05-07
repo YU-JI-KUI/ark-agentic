@@ -118,6 +118,7 @@ def build_standard_agent(
         enable_eligibility_check=True,
         load_mode=defn.skill_load_mode,
     )
+    
     skill_loader = SkillLoader(skill_config)
     try:
         skill_loader.load_from_directories()

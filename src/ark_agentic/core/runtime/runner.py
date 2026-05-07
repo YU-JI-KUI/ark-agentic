@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple, TYPE_CHECKING
 from uuid import uuid4
@@ -32,6 +33,7 @@ from ..skills.base import SkillConfig
 from ..skills.loader import SkillLoader
 from ..skills.matcher import SkillMatcher
 from ..skills.router import RouteContext, SkillRouter
+from ..state_utils import apply_state_delta
 from ..stream.event_bus import AgentEventHandler
 from ..tools.base import AgentTool
 from ..tools.executor import ToolExecutor
@@ -163,6 +165,12 @@ class _LoopState:
             tool_results=self.all_tool_results,
             **overrides,
         )
+
+
+@functools.lru_cache(maxsize=128)
+def _read_reference_file(path: str) -> str:
+    """读取并缓存 reference 文件内容（进程级缓存，文件为只读静态资源）。"""
+    return Path(path).read_text(encoding="utf-8")
 
 
 # ============ Agent Runner ============
@@ -560,7 +568,7 @@ class AgentRunner:
         for tr in tool_results:
             state_delta = tr.state_delta if tr.state_delta is not None else tr.metadata.get("state_delta")
             if state_delta and isinstance(state_delta, dict):
-                AgentRunner._apply_state_delta(session.state, state_delta)
+                apply_state_delta(session.state, state_delta)
                 session.updated_at = __import__("datetime").datetime.now()
 
     @staticmethod
@@ -592,26 +600,6 @@ class AgentRunner:
                     continue
                 if effect.op == "activate_skill":
                     session.set_active_skill_ids(effect.skill_ids)
-
-    @staticmethod
-    def _apply_state_delta(state: dict[str, Any], delta: dict[str, Any]) -> None:
-        """支持点路径（dot-path）的深度合并。
-
-        普通 key → state[key] = value（浅覆盖）
-        点路径 key（如 "_flow_context.stage_identity_verify"）→ 逐层 setdefault({}) 后赋值，
-        不整体替换父对象，避免清空同级其他 key。
-        """
-        for key, value in delta.items():
-            if "." in key:
-                parts = key.split(".")
-                obj = state
-                for part in parts[:-1]:
-                    if not isinstance(obj.get(part), dict):
-                        obj[part] = {}
-                    obj = obj[part]
-                obj[parts[-1]] = value
-            else:
-                state[key] = value
 
     @staticmethod
     def _merge_input_context(
@@ -1194,15 +1182,36 @@ class AgentRunner:
         写入 session.active_skill_ids（SSOT），newest-wins 语义。
         Router 出错或决定为 None 时，保留原值不变。
         """
+        sid_short = session_id[:8]
         if self._skill_router is None or self.skill_loader is None:
+            logger.debug(
+                "[SKILL_ROUTE] session=%s skipped (router=%s loader=%s)",
+                sid_short,
+                self._skill_router is not None,
+                self.skill_loader is not None,
+            )
             return
 
         session = cb_ctx.session
+        current = session.current_active_skill_id
         candidates = self._match_skills(
             session.state, session_id, skill_load_mode="dynamic",
         )
         if not candidates:
+            logger.info(
+                "[SKILL_ROUTE] session=%s skipped reason=no_candidates current=%s",
+                sid_short, current or "<none>",
+            )
             return
+
+        candidate_ids = [s.id for s in candidates]
+        user_preview = (cb_ctx.user_input or "").replace("\n", " ")[:60]
+        logger.info(
+            "[SKILL_ROUTE] session=%s routing current=%s candidates=%d %s "
+            "user=%r",
+            sid_short, current or "<none>",
+            len(candidate_ids), candidate_ids, user_preview,
+        )
 
         history_window = self._skill_router.history_window
         history = (
@@ -1212,7 +1221,7 @@ class AgentRunner:
         ctx = RouteContext(
             user_input=cb_ctx.user_input,
             history=history,
-            current_active_skill_id=session.current_active_skill_id,
+            current_active_skill_id=current,
             candidate_skills=candidates,
         )
 
@@ -1220,18 +1229,34 @@ class AgentRunner:
             decision = await self._skill_router.route(ctx)
         except Exception as exc:  # Protocol violation defense
             logger.warning(
-                "Skill router raised (Protocol violation): %s", exc, exc_info=True,
+                "[SKILL_ROUTE] session=%s router raised (Protocol violation): %s",
+                sid_short, exc, exc_info=True,
             )
             return
 
-        current = session.current_active_skill_id
         if decision.skill_id and decision.skill_id != current:
             self.session_manager.set_active_skill_ids(
                 session.session_id, [decision.skill_id]
             )
+            verb = "switched" if current else "activated"
             logger.info(
-                "Skill routed: %s → %s (reason=%s)",
-                current or "<none>", decision.skill_id, decision.reason,
+                "[SKILL_ROUTE] session=%s %s %s → %s (reason=%s)",
+                sid_short, verb, current or "<none>",
+                decision.skill_id, decision.reason or "<empty>",
+            )
+        elif decision.skill_id is None and current is not None:
+            # Router said "no skill" but runner preserves current (sticky).
+            # Surface the divergence so it's not silent.
+            logger.info(
+                "[SKILL_ROUTE] session=%s kept %s (router returned null, "
+                "reason=%s)",
+                sid_short, current, decision.reason or "<empty>",
+            )
+        else:
+            logger.info(
+                "[SKILL_ROUTE] session=%s kept %s (reason=%s)",
+                sid_short, current or "<none>",
+                decision.reason or "<empty>",
             )
 
         add_span_attributes({
@@ -1296,10 +1321,11 @@ class AgentRunner:
             if active_id:
                 active_skill = self.skill_loader.get_skill(active_id)
 
-        # Dynamic reference 注入: 有 _flow_stage 时按阶段按需追加 reference 内容
-        current_stage_id = state.get("_flow_stage")
-        if current_stage_id and current_stage_id != "__completed__" and skills:
-            skills = self._enrich_skills_with_stage_reference(skills, current_stage_id)
+        # 将本轮匹配的 skill id 写入 state，供 before_model hook 判断活跃流程
+        state["_turn_matched_skills"] = {s.id for s in skills}
+
+        # Reference 注入：现已统一由 FlowCallbacks.before_model_flow_eval 按当前阶段注入，
+        # 这里不再做 enrichment，避免 loader 全量 dump + runner enrich 的双重加载。
 
         prompt_config = self.config.prompt_config
 
@@ -1375,53 +1401,6 @@ class AgentRunner:
     ) -> list[dict[str, Any]]:
         """构建 API tools schema（`_filter_tools` 的薄包装）。"""
         return [t.get_json_schema() for t in self._filter_tools(state, session=session)]
-
-    @staticmethod
-    def _enrich_skills_with_stage_reference(
-        skills: list, current_stage_id: str
-    ) -> list:
-        """根据 _flow_stage，将当前阶段 reference 文件内容追加到对应 SkillEntry.content。
-
-        通过 FlowEvaluatorRegistry 反查 evaluator，使用 StageDefinition.reference_file
-        （而非直接拼接 stage.id），避免文件名与 stage.id 不一致导致静默失败。
-        """
-        from ..flow.base_evaluator import FlowEvaluatorRegistry
-
-        enriched = []
-        for skill in skills:
-            # 尝试用完整 id 和短 id（去掉 agent 前缀）查找 evaluator
-            skill_short = skill.id.split(".")[-1]
-            evaluator = FlowEvaluatorRegistry.get(skill.id) or FlowEvaluatorRegistry.get(skill_short)
-
-            ref_filename: str | None = None
-            if evaluator:
-                stage_def = next(
-                    (s for s in evaluator.stages if s.id == current_stage_id), None
-                )
-                ref_filename = stage_def.reference_file if stage_def else None
-
-            if ref_filename:
-                from pathlib import Path
-                ref_path = Path(skill.path) / "references" / ref_filename
-                if ref_path.exists():
-                    ref_content = ref_path.read_text(encoding="utf-8")
-                    enriched.append(replace(
-                        skill,
-                        content=(
-                            skill.content
-                            + f"\n\n---\n### 当前阶段参考: {current_stage_id}\n\n"
-                            + ref_content
-                        ),
-                    ))
-                    continue
-                else:
-                    import warnings
-                    warnings.warn(
-                        f"[FlowEvaluator] reference file not found: {ref_path}",
-                        stacklevel=4,
-                    )
-            enriched.append(skill)
-        return enriched
 
     def _get_llm(
         self,

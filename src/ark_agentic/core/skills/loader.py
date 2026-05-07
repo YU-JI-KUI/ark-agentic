@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 from ..types import SkillEntry, SkillMetadata
-from .base import SkillConfig
+from .base import SkillConfig, _escape_xml
 
 logger = logging.getLogger(__name__)
 
@@ -91,11 +91,20 @@ class SkillLoader:
         # 解析 frontmatter
         frontmatter, body = self._parse_frontmatter(content)
 
-        # FULL 模式：自动扫描 references/ 子目录，将所有 .md 文件追加到 body
-        # Dynamic 模式：references/ 由 AgentRunner._enrich_skills_with_stage_reference 按阶段注入
+        # references/ 全量追加策略：
+        # - 普通 skill：启动期一次性把所有 reference 拼进 body（兼顾上下文一次到位）
+        # - flow-managed skill（FlowEvaluatorRegistry 已注册）：references 由
+        #   FlowCallbacks.before_model_flow_eval 按当前阶段动态注入，启动期不预加载，
+        #   避免未激活阶段的 reference 污染提示词、并消除"加载两次"问题
         references_dir = file_path.parent / "references"
         if references_dir.exists() and references_dir.is_dir():
-            body = self._append_references_full(body, references_dir)
+            if not self._is_flow_managed(skill_id):
+                body = self._append_references_full(body, references_dir)
+            else:
+                logger.debug(
+                    "skill '%s' is flow-managed, defer references to runtime injection",
+                    skill_id,
+                )
 
         # 构建元数据
         metadata = self._build_metadata(frontmatter, skill_id)
@@ -112,16 +121,35 @@ class SkillLoader:
             enabled=frontmatter.get("enabled", True),
         )
 
-    def _append_references_full(self, body: str, references_dir: Path) -> str:
-        """FULL 模式：将 references/ 目录下所有 .md 文件内容追加到 SKILL body。
+    def _is_flow_managed(self, skill_id: str) -> bool:
+        """skill 是否被 FlowEvaluatorRegistry 接管。
 
-        注: Dynamic 模式下此结果会被 _enrich_skills_with_stage_reference 覆盖替换，
-        但 FULL 模式下（无 _flow_stage）所有 reference 全量注入。
+        Registry 在 agent 工厂里于 SkillLoader 之前注册，因此这里查询时 evaluator 已就绪。
+        同时检查短名（skill_id）和全名（agent_id.skill_id），与 Registry 的别名机制对齐。
+        """
+        from ..flow.base_evaluator import FlowEvaluatorRegistry
+
+        if FlowEvaluatorRegistry.get(skill_id) is not None:
+            return True
+        if self.config.agent_id:
+            full_id = f"{self.config.agent_id}.{skill_id}"
+            if FlowEvaluatorRegistry.get(full_id) is not None:
+                return True
+        return False
+
+    def _append_references_full(self, body: str, references_dir: Path) -> str:
+        """将 references/ 目录下所有 .md 文件内容追加到 SKILL body（一次性预加载）。
+
+        注：flow-managed skill 已在 `_load_skill_file` 里被 `_is_flow_managed` 过滤掉，
+        由 `FlowCallbacks.before_model_flow_eval` 按当前阶段动态注入，不走此路径。
         """
         sections = [body]
         for ref_file in sorted(references_dir.glob("*.md")):
             ref_content = ref_file.read_text(encoding="utf-8")
-            sections.append(f"\n\n---\n### Reference: {ref_file.stem}\n\n{ref_content}")
+            fn = _escape_xml(ref_file.name)
+            sections.append(
+                f'\n\n<skill_reference file="{fn}">\n{ref_content}\n</skill_reference>'
+            )
         return "".join(sections)
 
     def _parse_frontmatter(self, content: str) -> tuple[dict[str, Any], str]:

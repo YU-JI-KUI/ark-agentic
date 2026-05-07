@@ -1,8 +1,8 @@
 ---
-enabled: True
+enabled: False
 name: 渠道办理
-description: 在 PlanCard 上选定渠道（生存金/红利/保单贷款）后，通过 channel_flow 推进/中断/恢复三步办理。channel_flow 同时完成状态变更与 ChannelStepCard 渲染——LLM 不调用任何其他工具。
-version: "2.0.0"
+description: PlanCard（[卡片:方案]）已展示后，或处于已有渠道流（[卡片:渠道步骤]/[渠道流:…]）中。用户表达办理/确认/好/是的/选某渠道/继续/上一步/下一步/中断/暂停/恢复 等意图时使用。覆盖：生存金 / 红利 / 保单贷款 三步办理（保单→金额→银行卡）。
+version: "2.1.0"
 invocation_policy: auto
 group: insurance
 tags:
@@ -23,16 +23,19 @@ required_tools:
 
 三步：`policy`（保单确认） → `amount`（金额确认） → `bank_card`（银行卡确认）。
 
-## 触发门禁（同时满足）
+## 触发门禁
 
-1. 最近 digest 含 `[卡片:方案 …]` 或 `[卡片:渠道步骤 …]` 或 `[渠道流:…]`
-2. 用户消息为下列之一：
-   - 含办理动词 + 渠道（"领生存金"、"办贷款"、"办红利"）
-   - 推进/后退/中断 强意图词（见下表）
-   - 按钮 query：以 `__channel_step__:` 开头
-3. 渠道 ∈ {`survival_fund`/生存金, `bonus`/红利, `policy_loan`/保单贷款}
+**前置条件（必须）**：最近 digest 含 `[卡片:方案 …]` 或 `[卡片:渠道步骤 …]` 或 `[渠道流:…]`
 
-`partial_withdrawal` / `surrender` 不走此技能。
+**用户消息任一即可**：
+- 含办理动词 + 渠道（"领生存金"、"办贷款"、"办红利"）
+- 含光秃秃的办理 / 接受意图（"办理"、"确认"、"好"、"好的"、"是的"、"可以"、"就这个"、"选这个"、"这个"、"对"）
+- 含步骤导航词（"下一步"、"上一步"、"继续"、"返回"、"暂停"、"中断"、"恢复"、"回到"）
+- 按钮 query：以 `__channel_step__:` 开头
+
+**让位**：用户明确表达调整意图（"换方案"、"少取"、"多取"、"不要贷款"等）→ 不触发本技能，由「保险取款」ADJUST。
+
+`partial_withdrawal` / `surrender` 不在本技能覆盖范围内。
 
 ## 状态定位（必须先做）
 
@@ -63,8 +66,9 @@ action 取值与含义：
 | `back` | 后退（amount→policy；bank_card→amount，自动清银行卡） |
 | `interrupt` | 暂停当前 active 渠道 |
 
-### STEP 1 — 自然语言推进 / 后退
+### STEP 1 — 自然语言推进 / 后退（已存在渠道流时）
 
+**仅在最近 digest 是 `[卡片:渠道步骤 …]` 或 `[渠道流:…]` 时适用**（即已经在三步流程中）。
 读 `active_channel=X`、`step=Y`，按下表映射：
 
 **强意图词**（严格匹配，命中才动状态）：
@@ -81,7 +85,7 @@ action 取值与含义：
 
 **禁止把寒暄/弱应答当成强意图**：单字"好"、"嗯"、"行"、"OK"，半句"我看下"、"等等"、"再说"——**都不调工具**，正常回复即可。
 
-### STEP 2 — 启动 / 切换 / 恢复
+### STEP 2 — 启动 / 切换 / 恢复（用户明确指渠道）
 
 用户含办理类动词 + 渠道 Y（"领 Y"、"办 Y"、"继续 Y"、"回到 Y"）：
 
@@ -92,6 +96,24 @@ channel_flow(channel=Y, action=start)
 - 工具自动判断「新建」（首次）vs「恢复」（已存在 paused/active）
 - 工具自动暂停其他 active 渠道
 - 不需要先判断当前是哪种情况
+
+### STEP 2.5 — PlanCard 上的光秃秃确认（关键路径）
+
+**最近 digest 是 `[卡片:方案 …]`**（PlanCard 已展示，但还没进入三步流程），
+用户表达办理意图但**没指明渠道**："办理"、"确认"、"好"、"好的"、"是的"、"可以"、
+"就这个"、"选这个"、"这个"、"对"、"成"、"行"。
+
+操作：
+
+1. 从最近 `[卡片:方案 channels=[A,B,C] …]` digest 读 channels 列表
+2. 过滤：只保留 `{survival_fund, bonus, policy_loan}` 内的渠道
+3. 分支：
+   - 过滤后 **1 个** 渠道 X：`channel_flow(channel=X, action=start)`
+   - 过滤后 **>1 个** 渠道：**不调工具**，回复："本方案含 N 项，您想先办哪个？"
+     列出每个渠道的中文名 + 金额（从 digest 读，不要复述全部细节，每行 ≤15 字）
+   - 过滤后 **0 个** 渠道：回复："当前方案不含三步办理渠道（仅支持生存金/红利/贷款），如需办理部分领取或退保请告诉我。"
+
+> ⚠️ 这一步是用户"重复确认死循环"的修复点。看到 `[卡片:方案]` digest 又遇到光秃秃的"确认"/"好"——**直接走这一步**，不要反过来再问"想办什么"。
 
 ### STEP 3 — 单纯中断
 
@@ -219,6 +241,35 @@ confirm_bank 与 interrupt 由工具自带文案，不用再加。
 用户: "领红利"
 助手: → channel_flow(channel="红利", action="start")
        # 工具内部 normalize 到 "bonus"
+```
+
+### 例 5：PlanCard 单渠道 + 光秃秃确认（修复重复确认死循环）
+
+```
+最近 digest: [卡片:方案 title="★ 推荐: 生存金领取" channels=[survival_fund] total=10000]
+
+用户: "确认"   或 "好"   或 "好的"   或 "就这个"
+助手（STEP 2.5，channels=[survival_fund] 仅 1 个支持渠道）:
+  → channel_flow(channel=survival_fund, action=start)
+  ↳ A2UI 卡 + digest: [渠道流:启动 channel=survival_fund step=policy active_channel=survival_fund]
+  回复: "请确认保单。"
+```
+
+### 例 6：PlanCard 多渠道 + 光秃秃确认 → 让用户挑
+
+```
+最近 digest: [卡片:方案 channels=[survival_fund,bonus] total=17200] 生存金 ¥12,000.00 · 红利 ¥5,200.00
+
+用户: "确认"
+助手（STEP 2.5，>1 个支持渠道，先列出让用户选）:
+  不调工具
+  回复: "本方案含两项，您想先办哪个？
+         1. 生存金 ¥12,000
+         2. 红利 ¥5,200"
+
+用户: "先办生存金"
+助手（STEP 2，渠道明确）:
+  → channel_flow(channel=survival_fund, action=start)
 ```
 
 ---
