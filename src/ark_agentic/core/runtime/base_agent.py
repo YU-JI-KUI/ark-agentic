@@ -223,9 +223,12 @@ class BaseAgent(ABC):
         self.skill_loader: SkillLoader | None = SkillLoader(skill_config)
         try:
             self.skill_loader.load_from_directories()
+            all_skills = self.skill_loader.list_skills(include_disabled=True)
+            enabled_count = sum(1 for s in all_skills if s.enabled)
             logger.info(
-                "Loaded %d skills for agent '%s'",
-                len(self.skill_loader.list_skills()),
+                "Loaded %d skills (%d enabled) for agent '%s'",
+                len(all_skills),
+                enabled_count,
                 self.agent_id,
             )
         except Exception as exc:

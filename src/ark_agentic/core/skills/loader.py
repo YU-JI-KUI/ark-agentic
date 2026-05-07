@@ -199,17 +199,33 @@ class SkillLoader:
             tags=frontmatter.get("tags", []),
         )
 
-    def get_skill(self, skill_id: str) -> SkillEntry | None:
-        """获取指定技能"""
-        return self._skills.get(skill_id)
+    def get_skill(
+        self, skill_id: str, *, include_disabled: bool = False,
+    ) -> SkillEntry | None:
+        """获取指定技能。
 
-    def list_skills(self) -> list[SkillEntry]:
-        """列出所有技能"""
-        return list(self._skills.values())
+        默认过滤 ``enabled=False`` 的技能 — 任何会进入 prompt / 工具激活路径的查询
+        都应走默认行为，避免禁用 skill 通过 ``read_skill`` 或残留的 active_skill_id
+        被注入。仅管理面 / 重载 / 诊断需要看全集时显式传 ``include_disabled=True``。
+        """
+        skill = self._skills.get(skill_id)
+        if skill is None:
+            return None
+        if not include_disabled and not skill.enabled:
+            return None
+        return skill
 
-    def list_skill_ids(self) -> list[str]:
-        """列出所有技能 ID"""
-        return list(self._skills.keys())
+    def list_skills(self, *, include_disabled: bool = False) -> list[SkillEntry]:
+        """列出所有技能。默认过滤 ``enabled=False``。"""
+        if include_disabled:
+            return list(self._skills.values())
+        return [s for s in self._skills.values() if s.enabled]
+
+    def list_skill_ids(self, *, include_disabled: bool = False) -> list[str]:
+        """列出所有技能 ID。默认过滤 ``enabled=False``。"""
+        if include_disabled:
+            return list(self._skills.keys())
+        return [sid for sid, s in self._skills.items() if s.enabled]
 
     def reload(self) -> dict[str, SkillEntry]:
         """重新加载所有技能"""

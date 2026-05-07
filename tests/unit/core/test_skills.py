@@ -450,6 +450,71 @@ class TestSkillLoader:
             assert loader.get_skill("gone") is None
 
 
+class TestSkillLoaderEnabledFilter:
+    """Disabled skills must not leak through loader queries by default.
+
+    Covers the dynamic-mode skill router contract: ``read_skill`` activation,
+    ``active_skill`` injection in system prompt, and full-mode bulk activation
+    all go through these three loader entry points.
+    """
+
+    def _create_skill_directory(
+        self, tmpdir: str, skill_id: str, content: str, frontmatter: str = "",
+    ) -> None:
+        skill_dir = Path(tmpdir) / skill_id
+        skill_dir.mkdir(parents=True)
+        body = content
+        if frontmatter:
+            body = f"---\n{frontmatter}\n---\n\n{content}"
+        (skill_dir / "SKILL.md").write_text(body)
+
+    def test_list_skills_excludes_disabled_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._create_skill_directory(
+                tmpdir, "active", "Body", "name: A\nenabled: True",
+            )
+            self._create_skill_directory(
+                tmpdir, "retired", "Body", "name: R\nenabled: False",
+            )
+
+            loader = SkillLoader(SkillConfig(skill_directories=[tmpdir]))
+            loader.load_from_directories()
+
+            assert {s.id for s in loader.list_skills()} == {"active"}
+            assert loader.list_skill_ids() == ["active"]
+
+    def test_list_skills_include_disabled_returns_all(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._create_skill_directory(
+                tmpdir, "active", "Body", "enabled: True",
+            )
+            self._create_skill_directory(
+                tmpdir, "retired", "Body", "enabled: False",
+            )
+
+            loader = SkillLoader(SkillConfig(skill_directories=[tmpdir]))
+            loader.load_from_directories()
+
+            assert {
+                s.id for s in loader.list_skills(include_disabled=True)
+            } == {"active", "retired"}
+            assert set(loader.list_skill_ids(include_disabled=True)) == {
+                "active", "retired",
+            }
+
+    def test_get_skill_returns_none_for_disabled_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._create_skill_directory(
+                tmpdir, "retired", "Body", "enabled: False",
+            )
+
+            loader = SkillLoader(SkillConfig(skill_directories=[tmpdir]))
+            loader.load_from_directories()
+
+            assert loader.get_skill("retired") is None
+            assert loader.get_skill("retired", include_disabled=True) is not None
+
+
 class TestLoadSkillsFromDirectory:
     """Tests for convenience function."""
 
