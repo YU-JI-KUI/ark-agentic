@@ -107,10 +107,12 @@ class MCPManager:
         self._remount_agent_tools(agent, runtime)
 
     async def reload_agent_config(self, agent_id: str) -> None:
-        """Re-read config and remount MCP tools without closing sessions.
+        """Re-read config and remount tools without closing unchanged sessions.
 
         Studio enable/disable mutations only affect exposure policy, so they
-        must not tear down stdio transports opened by the startup task.
+        reuse existing transports. Deleted or replaced streamable HTTP servers
+        are retained instead of closed because the current MCP SDK can log
+        async-generator cancel-scope errors when those transports are closed.
         """
         await self._run_in_worker(
             lambda: self._reload_agent_config_inline(agent_id)
@@ -132,20 +134,19 @@ class MCPManager:
         servers_by_id = {
             server.config.id: server for server in runtime.servers
         }
-        retained_server_ids: set[str] = set()
+        retired_servers: list[MCPServerRuntime] = []
         next_servers: list[MCPServerRuntime] = []
         for config in configs:
-            server = servers_by_id.get(config.id)
+            server = servers_by_id.pop(config.id, None)
             if server is not None:
                 if _same_connection_target(server.config, config):
                     server.config = config
                     next_servers.append(server)
-                    retained_server_ids.add(config.id)
                     continue
+                retired_servers.append(server)
 
             server = MCPServerRuntime(config)
             next_servers.append(server)
-            retained_server_ids.add(config.id)
             try:
                 await server.connect()
             except MCPDependencyError:
@@ -168,9 +169,9 @@ class MCPManager:
                     exc,
                 )
 
-        for server_id, server in servers_by_id.items():
-            if server_id not in retained_server_ids:
-                await self._retire_or_close_server(server)
+        retired_servers.extend(servers_by_id.values())
+        for server in retired_servers:
+            await self._retire_or_close_server(server)
 
         runtime.servers = next_servers
         self._remount_agent_tools(agent, runtime)

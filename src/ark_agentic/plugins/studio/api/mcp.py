@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -89,15 +91,8 @@ class MCPEnabledPatch(BaseModel):
 async def list_mcp(agent_id: str, request: Request):
     _ensure_agent_exists(request, agent_id)
     manager = _get_mcp_manager(request)
-    try:
+    with _service_errors(agent_id):
         raw_servers = mcp_service.list_servers(get_agents_root(), agent_id)
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent not found: {agent_id}",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
     return MCPListResponse(
         servers=_merge_raw_and_runtime(raw_servers, manager.snapshot(agent_id))
     )
@@ -110,7 +105,7 @@ async def create_mcp_server(
     request: Request,
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
-    try:
+    with _service_errors(agent_id, conflict_server_id=req.id):
         created = mcp_service.create_server(
             get_agents_root(),
             agent_id,
@@ -127,18 +122,6 @@ async def create_mcp_server(
             env=req.env,
             headers=req.headers,
         )
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent not found: {agent_id}",
-        )
-    except FileExistsError:
-        raise HTTPException(
-            status_code=409,
-            detail=f"MCP server already exists: {req.id}",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
 
     manager = _get_mcp_manager(request)
     await _reload_agent_config(manager, agent_id)
@@ -156,7 +139,7 @@ async def replace_mcp_server(
     request: Request,
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
-    try:
+    with _service_errors(agent_id, server_id=server_id):
         mcp_service.update_server(
             get_agents_root(),
             agent_id,
@@ -173,18 +156,6 @@ async def replace_mcp_server(
             env=req.env,
             headers=req.headers,
         )
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent not found: {agent_id}",
-        )
-    except KeyError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"MCP server not found: {server_id}",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
 
     manager = _get_mcp_manager(request)
     await _reload_agent_config(manager, agent_id)
@@ -202,25 +173,13 @@ async def update_mcp_server(
     request: Request,
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
-    try:
+    with _service_errors(agent_id, server_id=server_id):
         mcp_service.update_server_enabled(
             get_agents_root(),
             agent_id,
             server_id,
             patch.enabled,
         )
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent not found: {agent_id}",
-        )
-    except KeyError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"MCP server not found: {server_id}",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
 
     manager = _get_mcp_manager(request)
     await _reload_agent_config(manager, agent_id)
@@ -239,7 +198,7 @@ async def update_mcp_tool(
     request: Request,
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
-    try:
+    with _service_errors(agent_id, server_id=server_id):
         mcp_service.update_tool_enabled(
             get_agents_root(),
             agent_id,
@@ -247,18 +206,6 @@ async def update_mcp_tool(
             tool_name,
             patch.enabled,
         )
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent not found: {agent_id}",
-        )
-    except KeyError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"MCP server not found: {server_id}",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
 
     manager = _get_mcp_manager(request)
     await _reload_agent_config(manager, agent_id)
@@ -272,20 +219,8 @@ async def delete_mcp_server(
     request: Request,
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
-    try:
+    with _service_errors(agent_id, server_id=server_id):
         mcp_service.delete_server(get_agents_root(), agent_id, server_id)
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent not found: {agent_id}",
-        )
-    except KeyError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"MCP server not found: {server_id}",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
 
     manager = _get_mcp_manager(request)
     await _reload_agent_config(manager, agent_id)
@@ -335,20 +270,31 @@ async def _reload_agent_config(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-async def _refresh_agent_config(
-    manager: MCPManager,
+@contextmanager
+def _service_errors(
     agent_id: str,
-) -> None:
+    *,
+    server_id: str | None = None,
+    conflict_server_id: str | None = None,
+) -> Iterator[None]:
     try:
-        await manager.refresh_agent(agent_id)
-    except KeyError:
+        yield
+    except FileNotFoundError:
         raise HTTPException(
             status_code=404,
             detail=f"Agent not found: {agent_id}",
         )
+    except FileExistsError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"MCP server already exists: {conflict_server_id}",
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"MCP server not found: {server_id}",
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 

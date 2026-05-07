@@ -165,6 +165,61 @@ async def test_reload_agent_config_removes_deleted_server_without_closing(
 
 
 @pytest.mark.asyncio
+async def test_reload_agent_config_retires_replaced_streamable_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "agent.json").write_text(
+        json.dumps({
+            "id": "sales",
+            "mcp": {
+                "servers": [
+                    {
+                        "id": "crm",
+                        "transport": "streamable_http",
+                        "url": "http://127.0.0.1:8001/mcp",
+                    }
+                ]
+            },
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "ark_agentic.core.mcp.manager._agent_dir",
+        lambda _agent: tmp_path,
+    )
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(
+        "ark_agentic.core.mcp.manager.MCPServerRuntime",
+        RecordingServer,
+    )
+
+    agent = FakeAgent()
+    registry = AgentRegistry()
+    registry.register("sales", agent)  # type: ignore[arg-type]
+    manager = MCPManager()
+    manager._registry = registry
+
+    old_config = MCPServerConfig(
+        id="crm",
+        name="CRM",
+        description="",
+        transport="streamable_http",
+        url="http://127.0.0.1:8000/mcp",
+    )
+    old_server = FakeServer(old_config)
+    runtime = MCPAgentRuntime(agent_id="sales", agent_dir=tmp_path)
+    runtime.servers.append(old_server)  # type: ignore[arg-type]
+    manager._agents["sales"] = runtime
+
+    await manager.reload_agent_config("sales")
+
+    assert not old_server.closed
+    assert manager._retired_streamable_servers == [old_server]
+    assert manager.snapshot("sales")[0]["id"] == "crm"
+
+
+@pytest.mark.asyncio
 async def test_reload_agent_config_closes_removed_stdio_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

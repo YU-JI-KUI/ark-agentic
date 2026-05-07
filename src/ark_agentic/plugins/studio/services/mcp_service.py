@@ -120,18 +120,7 @@ def update_server(
 ) -> dict[str, Any]:
     data, meta_file = _load_agent_json(agents_root, agent_id)
     servers = _get_servers(data)
-    found_index = -1
-    existing: dict[str, Any] | None = None
-    for index, server in enumerate(servers):
-        if (
-            isinstance(server, dict)
-            and str(server.get("id") or "") == server_id
-        ):
-            found_index = index
-            existing = server
-            break
-    if existing is None:
-        raise KeyError(server_id)
+    found_index, existing = _find_server_index(servers, server_id)
 
     final_transport = _normalise_transport(
         transport
@@ -192,17 +181,8 @@ def delete_server(
 ) -> None:
     data, meta_file = _load_agent_json(agents_root, agent_id)
     servers = _get_servers(data)
-    next_servers = [
-        server
-        for server in servers
-        if not (
-            isinstance(server, dict)
-            and str(server.get("id") or "") == server_id
-        )
-    ]
-    if len(next_servers) == len(servers):
-        raise KeyError(server_id)
-    data.setdefault("mcp", {})["servers"] = next_servers
+    found_index, _ = _find_server_index(servers, server_id)
+    del servers[found_index]
     _write_agent_json(meta_file, data)
 
 
@@ -265,13 +245,20 @@ def _load_agent_json(
 
 
 def _find_server(data: dict[str, Any], server_id: str) -> dict[str, Any]:
-    servers = _get_servers(data)
-    for server in servers:
+    _, server = _find_server_index(_get_servers(data), server_id)
+    return server
+
+
+def _find_server_index(
+    servers: list[Any],
+    server_id: str,
+) -> tuple[int, dict[str, Any]]:
+    for index, server in enumerate(servers):
         if (
             isinstance(server, dict)
             and str(server.get("id") or "") == server_id
         ):
-            return server
+            return index, server
     raise KeyError(server_id)
 
 
