@@ -12,7 +12,7 @@ from ark_agentic.core.runtime.callbacks import (
     CallbackResult,
     RunnerCallbacks,
 )
-from ark_agentic.core.runtime._runner_helpers import dispatch_event
+from ark_agentic.core.runtime._runner_helpers import dispatch_event, run_hooks
 from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig, RunResult, _LoopState
 from ark_agentic.core.skills.base import SkillConfig
 from ark_agentic.core.types import AgentMessage, SessionEntry, SkillLoadMode, ToolCall
@@ -97,7 +97,7 @@ class TestRunHooksEventDispatch:
             input_context={},
             session=SessionEntry(session_id="s1", user_id="u1"),
         )
-        await minimal_runner._run_hooks(
+        await run_hooks(
             minimal_runner._callbacks.before_agent,
             cb_ctx,
             context={},
@@ -121,7 +121,7 @@ class TestRunHooksEventDispatch:
             input_context={},
             session=SessionEntry(session_id="s1", user_id="u1"),
         )
-        await minimal_runner._run_hooks(
+        await run_hooks(
             minimal_runner._callbacks.before_agent,
             cb_ctx,
             context={},

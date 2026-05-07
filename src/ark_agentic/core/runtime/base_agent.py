@@ -19,7 +19,6 @@ Customize via ``ClassVar`` attributes and ``build_*`` hooks.
 from __future__ import annotations
 
 import inspect
-import json
 import logging
 from abc import ABC
 from pathlib import Path
@@ -30,15 +29,17 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from ._runner_helpers import (
     apply_session_effects,
-    apply_state_delta,
     augment_user_metadata,
-    dispatch_event,
     enrich_skills_with_stage_reference,
+    filter_visible_tools,
     merge_input_context,
     merge_tool_state_deltas,
+    resolve_run_params,
+    run_hooks,
+    serialize_messages_for_llm,
     user_friendly_error_message,
 )
-from ._runner_types import _LoopState, _RunParams, RunResult, RunnerConfig
+from ._runner_types import _LoopState, RunResult, RunnerConfig
 from .callbacks import (
     CallbackContext,
     CallbackResult,
@@ -439,7 +440,7 @@ class BaseAgent(ABC):
         Lifecycle: resolve → prepare → execute → finalize
         """
         input_context = input_context or {}
-        params = self._resolve_run_params(run_options)
+        params = resolve_run_params(self.config, run_options)
         run_id = uuid4().hex
         run_metadata: dict[str, Any] = {
             "user_id": user_id,
@@ -517,7 +518,7 @@ class BaseAgent(ABC):
         """
         user_message = AgentMessage.user(user_input)
         self.session_manager.add_message_in_memory_only(session_id, user_message)
-        params = self._resolve_run_params(None)
+        params = resolve_run_params(self.config, None)
         return await self._run_loop(
             session_id,
             use_streaming=False,
@@ -527,21 +528,6 @@ class BaseAgent(ABC):
         )
 
     # ---- run() lifecycle phases ----
-
-    def _resolve_run_params(self, run_options: RunOptions | None) -> _RunParams:
-        """Pure parameter resolution from run_options + config defaults."""
-        model = (run_options.model if run_options else None) or self.config.model
-        sampling_override: SamplingConfig | None = None
-        if run_options and run_options.temperature is not None:
-            sampling_override = self.config.sampling.model_copy(
-                update={"temperature": run_options.temperature}
-            )
-        skill_load_mode = self.config.skill_config.load_mode.value
-        return _RunParams(
-            model=model,
-            sampling_override=sampling_override,
-            skill_load_mode=skill_load_mode,
-        )
 
     async def _prepare_session(
         self,
@@ -573,7 +559,7 @@ class BaseAgent(ABC):
             metadata=run_metadata,
         )
 
-        r = await self._run_hooks(
+        r = await run_hooks(
             self._callbacks.before_agent,
             cb_ctx,
             context=input_context,
@@ -587,7 +573,7 @@ class BaseAgent(ABC):
             resp = r.response or AgentMessage.assistant("")
             await self.session_manager.add_message(session_id, user_id, resp)
             result = RunResult(response=resp)
-            cb_result = await self._run_hooks(
+            cb_result = await run_hooks(
                 self._callbacks.after_agent,
                 cb_ctx,
                 response=result.response,
@@ -643,7 +629,7 @@ class BaseAgent(ABC):
         handler: AgentEventHandler | None,
     ) -> None:
         """after_agent hooks + session state cleanup."""
-        cb_result = await self._run_hooks(
+        cb_result = await run_hooks(
             self._callbacks.after_agent,
             cb_ctx,
             response=result.response,
@@ -659,32 +645,6 @@ class BaseAgent(ABC):
 
         if self._memory_manager is not None:
             await self._memory_manager.maybe_consolidate(user_id)
-
-    async def _run_hooks(
-        self,
-        hooks: list,
-        cb_ctx: CallbackContext | None,
-        *,
-        context: dict[str, Any] | None = None,
-        handler: AgentEventHandler | None = None,
-        **kwargs: Any,
-    ) -> CallbackResult | None:
-        """Run hooks in order. Apply context_updates/event for each non-None result."""
-        if not hooks or cb_ctx is None:
-            return None
-        last: CallbackResult | None = None
-        for cb in hooks:
-            r = await cb(cb_ctx, **kwargs)
-            if r is None:
-                continue
-            if r.context_updates and context is not None:
-                context.update(r.context_updates)
-            if r.event and handler:
-                dispatch_event(handler, r.event)
-            last = r
-            if r.action != HookAction.PASS:
-                return r
-        return last
 
     async def _run_loop(
         self,
@@ -752,14 +712,19 @@ class BaseAgent(ABC):
         ):
             session.set_active_skill_ids(self.skill_loader.list_skill_ids())
         state = session.state
-        messages = await self._build_messages(
-            session_id, state,
+        system_prompt = await self._build_system_prompt(
+            state,
+            session_id=session_id,
             skill_load_mode=skill_load_mode,
             session=session,
         )
+        messages = serialize_messages_for_llm(session, system_prompt)
         tools = [
             t.get_json_schema()
-            for t in self._filter_tools(state, session=session)
+            for t in filter_visible_tools(
+                self.tool_registry, self.skill_loader,
+                self.config.skill_config.load_mode, session,
+            )
         ]
 
         tools_mounted = [
@@ -828,7 +793,7 @@ class BaseAgent(ABC):
         cb_ctx: CallbackContext | None,
     ) -> RunResult | None:
         """before_loop_end → final result. Returns None on RETRY."""
-        bc = await self._run_hooks(
+        bc = await run_hooks(
             self._callbacks.before_loop_end,
             cb_ctx,
             response=response,
@@ -869,7 +834,7 @@ class BaseAgent(ABC):
             "ark.model": model_override or self.config.model,
         })
         add_span_input({"messages": messages})
-        bm = await self._run_hooks(
+        bm = await run_hooks(
             self._callbacks.before_model,
             cb_ctx,
             turn=ls.turns,
@@ -906,7 +871,7 @@ class BaseAgent(ABC):
                         sampling_override=sampling_override,
                     )
             except LLMError as e:
-                await self._run_hooks(
+                await run_hooks(
                     self._callbacks.on_model_error,
                     cb_ctx,
                     turn=ls.turns,
@@ -934,7 +899,7 @@ class BaseAgent(ABC):
                     handler.on_content_delta(user_message, ls.turns)
                 return ls.make_result(error_response, stopped_by_limit=False)
 
-        am = await self._run_hooks(
+        am = await run_hooks(
             self._callbacks.after_model,
             cb_ctx,
             turn=ls.turns,
@@ -1016,7 +981,7 @@ class BaseAgent(ABC):
             for tc in tool_calls
         ])
 
-        bt = await self._run_hooks(
+        bt = await run_hooks(
             self._callbacks.before_tool,
             cb_ctx,
             turn=ls.turns,
@@ -1043,7 +1008,7 @@ class BaseAgent(ABC):
         merge_tool_state_deltas(session, tool_results)
         apply_session_effects(session, tool_results)
 
-        at = await self._run_hooks(
+        at = await run_hooks(
             self._callbacks.after_tool,
             cb_ctx,
             turn=ls.turns,
@@ -1105,68 +1070,6 @@ class BaseAgent(ABC):
             handler.on_step("信息收集完毕，正在为您总结…")
 
         return None
-
-    async def _build_messages(
-        self,
-        session_id: str,
-        state: dict[str, Any],
-        *,
-        skill_load_mode: str = "full",
-        session: SessionEntry | None = None,
-    ) -> list[dict[str, Any]]:
-        """Build the LLM message list."""
-        if session is None:
-            session = self.session_manager.get_session_required(session_id)
-        messages: list[dict[str, Any]] = []
-
-        system_prompt = await self._build_system_prompt(
-            state,
-            session_id=session_id,
-            skill_load_mode=skill_load_mode,
-            session=session,
-        )
-        messages.append({"role": "system", "content": system_prompt})
-
-        for msg in session.messages:
-            if msg.role == MessageRole.SYSTEM:
-                continue
-
-            if msg.role == MessageRole.USER:
-                messages.append({"role": "user", "content": msg.content})
-
-            elif msg.role == MessageRole.ASSISTANT:
-                assistant_msg: dict[str, Any] = {
-                    "role": "assistant",
-                    "content": msg.content or "",
-                }
-                if msg.tool_calls:
-                    assistant_msg["tool_calls"] = [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": json.dumps(
-                                    tc.arguments, ensure_ascii=False
-                                ),
-                            },
-                        }
-                        for tc in msg.tool_calls
-                    ]
-                messages.append(assistant_msg)
-
-            elif msg.role == MessageRole.TOOL:
-                if msg.tool_results:
-                    for tr in msg.tool_results:
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tr.tool_call_id,
-                                "content": tr.llm_digest,
-                            }
-                        )
-
-        return messages
 
     @traced_chain("agent.skill_route")
     async def _route_skill_phase(
@@ -1259,7 +1162,7 @@ class BaseAgent(ABC):
         session: SessionEntry | None = None,
     ) -> str:
         """Build the system prompt."""
-        tools = self._filter_tools(state, session=session)
+        tools = filter_visible_tools(self.tool_registry, self.skill_loader, self.config.skill_config.load_mode, session)
 
         skills = self._match_skills(
             state, session_id, skill_load_mode=skill_load_mode,
@@ -1304,33 +1207,6 @@ class BaseAgent(ABC):
             enable_memory=self._memory_manager is not None,
             flow_hint=flow_hint,
         )
-
-    def _filter_tools(
-        self,
-        state: dict[str, Any] | None = None,
-        *,
-        session: SessionEntry | None = None,
-    ) -> list[AgentTool]:
-        """Per-skill tool visibility filter (single source of truth)."""
-        all_tools = self.tool_registry.list_all()
-
-        if (
-            not self.skill_loader
-            or self.config.skill_config.load_mode == SkillLoadMode.full
-        ):
-            return all_tools
-
-        always = [t for t in all_tools if getattr(t, "visibility", "auto") == "always"]
-
-        active_skill_id = session.current_active_skill_id if session else None
-        if not active_skill_id:
-            return always
-
-        skill = self.skill_loader.get_skill(active_skill_id)
-        allowed = set(skill.metadata.required_tools or []) if skill else set()
-        seen = {t.name for t in always}
-        skill_tools = [t for t in all_tools if t.name in allowed and t.name not in seen]
-        return always + skill_tools
 
     # ============ Session conveniences ============
 

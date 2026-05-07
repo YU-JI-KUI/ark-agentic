@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from ark_agentic.core.runtime._runner_helpers import filter_visible_tools
 from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
@@ -356,7 +357,7 @@ async def test_dynamic_active_skill_injects_body_and_gates_tools(
         )
         assert "ALPHA_BODY_MARKER" not in prompt_none
         assert "<active_skill" not in prompt_none
-        tools_none = {t.name for t in runner._filter_tools({}, session=session)}
+        tools_none = {t.name for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)}
         assert "read_skill" in tools_none
         assert "echo_auto" not in tools_none
 
@@ -369,7 +370,7 @@ async def test_dynamic_active_skill_injects_body_and_gates_tools(
         assert 'id="skill_a"' in prompt_a
         assert "ALPHA_BODY_MARKER" in prompt_a
         assert "BETA_BODY_MARKER" not in prompt_a
-        tools_a = {t.name for t in runner._filter_tools({}, session=session)}
+        tools_a = {t.name for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)}
         assert "echo_auto" in tools_a
         assert "read_skill" in tools_a
 
@@ -401,7 +402,7 @@ def test_filter_tools_and_build_tools_are_consistent(
         session = runner.session_manager.get_session_required(session_id)
         for active_ids in ([], ["skill_a"], ["skill_b"]):
             session.set_active_skill_ids(active_ids)
-            tools = runner._filter_tools({}, session=session)
+            tools = filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)
             filtered = {t.name for t in tools}
             schema_names = {t.get_json_schema()["function"]["name"] for t in tools}
             assert filtered == schema_names, f"mismatch at active={active_ids}"
@@ -416,7 +417,7 @@ async def test_dynamic_unknown_active_skill_id_is_safe(tmp_sessions_dir: Path) -
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "<active_skill" not in prompt
-        tools = {t.name for t in runner._filter_tools({}, session=session)}
+        tools = {t.name for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)}
         assert "echo_auto" not in tools  # 未知 id => allowed=空 => auto 工具不放行
 
 
@@ -431,7 +432,7 @@ async def test_dynamic_active_skill_cleared_unloads_body_and_tools(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "ALPHA_BODY_MARKER" in prompt_on
-        assert "echo_auto" in {t.name for t in runner._filter_tools({}, session=session)}
+        assert "echo_auto" in {t.name for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)}
 
         session.set_active_skill_ids([])
         prompt_off = await runner._build_system_prompt(
@@ -439,7 +440,7 @@ async def test_dynamic_active_skill_cleared_unloads_body_and_tools(
         )
         assert "<active_skill" not in prompt_off
         assert "ALPHA_BODY_MARKER" not in prompt_off
-        assert "echo_auto" not in {t.name for t in runner._filter_tools({}, session=session)}
+        assert "echo_auto" not in {t.name for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)}
 
 
 async def test_multi_turn_active_skill_evolution_then_prompt_and_tools(
@@ -456,7 +457,7 @@ async def test_multi_turn_active_skill_evolution_then_prompt_and_tools(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "<active_skill" not in p0
-        assert "echo_auto" not in {t.name for t in runner._filter_tools({}, session=session)}
+        assert "echo_auto" not in {t.name for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)}
 
         # Turn 1 — 激活 skill_a（等同 read_skill 调用后 SSOT 写入）
         session.set_active_skill_ids(["skill_a"])
@@ -464,7 +465,7 @@ async def test_multi_turn_active_skill_evolution_then_prompt_and_tools(
             {}, session_id=session_id, skill_load_mode="dynamic", session=session,
         )
         assert "ALPHA_BODY_MARKER" in p1
-        assert "echo_auto" in {t.name for t in runner._filter_tools({}, session=session)}
+        assert "echo_auto" in {t.name for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)}
 
         # Turn 2 — 切换 skill_b（无 required_tools => echo_auto 重新门控掉）
         session.set_active_skill_ids(["skill_b"])
@@ -473,4 +474,4 @@ async def test_multi_turn_active_skill_evolution_then_prompt_and_tools(
         )
         assert "BETA_BODY_MARKER" in p2
         assert "ALPHA_BODY_MARKER" not in p2
-        assert "echo_auto" not in {t.name for t in runner._filter_tools({}, session=session)}
+        assert "echo_auto" not in {t.name for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)}

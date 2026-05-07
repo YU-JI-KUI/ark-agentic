@@ -9,6 +9,7 @@ import asyncio
 
 import json
 
+from ark_agentic.core.runtime._runner_helpers import serialize_messages_for_llm
 from ark_agentic.core.runtime.callbacks import CallbackContext, CallbackResult, RunnerCallbacks
 from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig, RunResult
 from ark_agentic.core.session import SessionManager
@@ -529,7 +530,7 @@ async def test_a2ui_history_marker_is_neutral(tmp_sessions_dir: Path) -> None:
 
     # Inspect what _build_messages produces for the A2UI tool result
     state = session.state
-    messages = await runner._build_messages(session.session_id, state)
+    messages = serialize_messages_for_llm(session, await runner._build_system_prompt(state, session_id=session.session_id, session=session))
     tool_messages = [
         m
         for m in messages
@@ -653,7 +654,7 @@ async def test_a2ui_tool_call_args_preserved_in_history(tmp_sessions_dir: Path) 
     )
     session.add_message(AgentMessage.assistant(content="需要办理吗？"))
 
-    messages = await runner._build_messages(session.session_id, session.state)
+    messages = serialize_messages_for_llm(session, await runner._build_system_prompt(session.state, session_id=session.session_id, session=session))
     assistant_msgs = [
         m for m in messages if m["role"] == "assistant" and m.get("tool_calls")
     ]
@@ -698,7 +699,7 @@ async def test_non_a2ui_tool_call_args_not_redacted(tmp_sessions_dir: Path) -> N
     )
     session.add_message(AgentMessage.assistant(content="Result."))
 
-    messages = await runner._build_messages(session.session_id, session.state)
+    messages = serialize_messages_for_llm(session, await runner._build_system_prompt(session.state, session_id=session.session_id, session=session))
     assistant_msgs = [
         m for m in messages if m["role"] == "assistant" and m.get("tool_calls")
     ]

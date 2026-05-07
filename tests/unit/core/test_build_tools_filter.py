@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ark_agentic.core.runtime._runner_helpers import filter_visible_tools
 from ark_agentic.core.runtime.base_agent import BaseAgent, RunnerConfig
 from ark_agentic.core.session import SessionManager
 from ark_agentic.core.skills.base import SkillConfig
@@ -103,7 +104,7 @@ class TestBuildToolsFullMode:
             all_skills=all_skills,
             load_mode=SkillLoadMode.full,
         )
-        schemas = [t.get_json_schema() for t in runner._filter_tools(state={}, session=_session_with_active(["s1"]))]
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active(["s1"]))]
         names = {s["function"]["name"] for s in schemas}
         assert names == {"tool_a", "tool_b", "read_skill"}
 
@@ -113,7 +114,7 @@ class TestBuildToolsFullMode:
             [_Tool("tool_a"), _Tool("tool_b")],
             load_mode=SkillLoadMode.full,
         )
-        schemas = [t.get_json_schema() for t in runner._filter_tools()]
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, None)]
         names = {s["function"]["name"] for s in schemas}
         assert names == {"tool_a", "tool_b"}
 
@@ -132,7 +133,7 @@ class TestBuildToolsDynamicMode:
             [_Tool("business_tool")],
             all_skills=all_skills,
         )
-        schemas = [t.get_json_schema() for t in runner._filter_tools(state={}, session=_session_with_active([]))]
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active([]))]
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names  # auto-registered by runner
         assert "business_tool" not in names
@@ -145,7 +146,7 @@ class TestBuildToolsDynamicMode:
             [_Tool("business_tool")],
             all_skills=all_skills,
         )
-        schemas = [t.get_json_schema() for t in runner._filter_tools(state=None, session=None)]
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, None)]
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names
         assert "business_tool" not in names
@@ -161,7 +162,7 @@ class TestBuildToolsDynamicMode:
             [_Tool("tool_a"), _Tool("tool_b"), _Tool("tool_c")],
             all_skills=all_skills,
         )
-        schemas = [t.get_json_schema() for t in runner._filter_tools(state={}, session=_session_with_active(["s1"]))]
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active(["s1"]))]
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names
         assert "tool_a" in names
@@ -180,7 +181,7 @@ class TestBuildToolsDynamicMode:
             all_skills=all_skills,
         )
         # 末元素 s2 → tool_b 暴露，tool_a 不暴露
-        schemas = [t.get_json_schema() for t in runner._filter_tools(state={}, session=_session_with_active(["s1", "s2"]))]
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active(["s1", "s2"]))]
         names = {s["function"]["name"] for s in schemas}
         assert "tool_b" in names
         assert "tool_a" not in names
@@ -195,7 +196,7 @@ class TestBuildToolsDynamicMode:
         )
         for active_ids in [[], ["s1"], ["unknown"]]:
             session = _session_with_active(active_ids)
-            schemas = [t.get_json_schema() for t in runner._filter_tools(state={}, session=session)]
+            schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, session)]
             names = {s["function"]["name"] for s in schemas}
             assert "read_skill" in names, f"read_skill missing for active={active_ids}"
             assert "memory_write" in names, f"memory_write missing for active={active_ids}"
@@ -208,7 +209,7 @@ class TestBuildToolsDynamicMode:
             [_Tool("biz_tool")],
             all_skills=all_skills,
         )
-        schemas = [t.get_json_schema() for t in runner._filter_tools(state={}, session=_session_with_active(["nonexistent"]))]
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active(["nonexistent"]))]
         names = {s["function"]["name"] for s in schemas}
         assert "read_skill" in names
         assert "biz_tool" not in names
@@ -239,8 +240,10 @@ class TestInsuranceScenario:
         runner = self._make_insurance_runner(tmp_path)
         schemas = [
             t.get_json_schema()
-            for t in runner._filter_tools(
-                state={}, session=_session_with_active(["insurance.withdraw_money"]),
+            for t in filter_visible_tools(
+                runner.tool_registry, runner.skill_loader,
+                runner.config.skill_config.load_mode,
+                _session_with_active(["insurance.withdraw_money"]),
             )
         ]
         names = {s["function"]["name"] for s in schemas}
@@ -257,8 +260,10 @@ class TestInsuranceScenario:
         runner = self._make_insurance_runner(tmp_path)
         schemas = [
             t.get_json_schema()
-            for t in runner._filter_tools(
-                state={}, session=_session_with_active(["insurance.execute_withdrawal"]),
+            for t in filter_visible_tools(
+                runner.tool_registry, runner.skill_loader,
+                runner.config.skill_config.load_mode,
+                _session_with_active(["insurance.execute_withdrawal"]),
             )
         ]
         names = {s["function"]["name"] for s in schemas}
@@ -273,7 +278,7 @@ class TestInsuranceScenario:
     def test_no_skill_loaded_shows_only_framework_tools(self, tmp_path: Path) -> None:
         """未加载任何技能时 LLM 只能调框架工具。"""
         runner = self._make_insurance_runner(tmp_path)
-        schemas = [t.get_json_schema() for t in runner._filter_tools(state={}, session=_session_with_active([]))]
+        schemas = [t.get_json_schema() for t in filter_visible_tools(runner.tool_registry, runner.skill_loader, runner.config.skill_config.load_mode, _session_with_active([]))]
         names = {s["function"]["name"] for s in schemas}
 
         assert "read_skill" in names

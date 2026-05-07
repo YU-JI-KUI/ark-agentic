@@ -1,13 +1,15 @@
 """Stateless helpers extracted from ``BaseAgent``.
 
-These are all pure transformations on session / tool-result / event data
-— moved out of the BaseAgent class to keep the agent module focused on
-identity + orchestration. None of them touch ``self``; they take only
-the values they operate on.
+Moved out of the BaseAgent class to keep the agent module focused on
+identity + orchestration. Most are pure transformations; a few touch
+side state (``enrich_skills_with_stage_reference`` reads files,
+``run_hooks`` invokes async callables) but none take ``self`` — they
+operate only on the arguments they receive.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import warnings
 from dataclasses import replace
@@ -16,11 +18,23 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from ..llm.errors import LLMError, LLMErrorReason
+from ..llm.sampling import SamplingConfig
 from ..stream.event_bus import AgentEventHandler
-from ..types import AgentMessage, AgentToolResult, SessionEntry
+from ..types import (
+    AgentMessage,
+    AgentToolResult,
+    MessageRole,
+    RunOptions,
+    SessionEntry,
+)
 
 if TYPE_CHECKING:
-    from .callbacks import CallbackEvent
+    from ..skills.loader import SkillLoader
+    from ..tools.base import AgentTool
+    from ..tools.registry import ToolRegistry
+    from ..types import SkillLoadMode
+    from ._runner_types import _RunParams, RunnerConfig
+    from .callbacks import CallbackContext, CallbackEvent, CallbackResult
 
 logger = logging.getLogger(__name__)
 
@@ -202,3 +216,138 @@ def enrich_skills_with_stage_reference(
             )
         enriched.append(skill)
     return enriched
+
+
+def resolve_run_params(
+    config: "RunnerConfig", run_options: RunOptions | None,
+) -> "_RunParams":
+    """Compute (model, sampling_override, skill_load_mode) for one run.
+
+    Pure: combines static ``RunnerConfig`` with per-call ``RunOptions``
+    overrides. ``temperature`` override produces a derived
+    ``SamplingConfig`` via ``model_copy``.
+    """
+    from ._runner_types import _RunParams  # local import: avoid cycle
+
+    model = (run_options.model if run_options else None) or config.model
+    sampling_override: SamplingConfig | None = None
+    if run_options and run_options.temperature is not None:
+        sampling_override = config.sampling.model_copy(
+            update={"temperature": run_options.temperature}
+        )
+    return _RunParams(
+        model=model,
+        sampling_override=sampling_override,
+        skill_load_mode=config.skill_config.load_mode.value,
+    )
+
+
+async def run_hooks(
+    hooks: list,
+    cb_ctx: "CallbackContext | None",
+    *,
+    context: dict[str, Any] | None = None,
+    handler: AgentEventHandler | None = None,
+    **kwargs: Any,
+) -> "CallbackResult | None":
+    """Run callback hooks in order, applying ``context_updates`` and dispatching
+    events on each non-``None`` result.
+
+    Returns the first result whose action is not ``PASS`` (subsequent hooks
+    skipped) or the last non-``None`` result, whichever comes first.
+    """
+    from .callbacks import HookAction  # local import: avoid cycle
+
+    if not hooks or cb_ctx is None:
+        return None
+    last: "CallbackResult | None" = None
+    for cb in hooks:
+        r = await cb(cb_ctx, **kwargs)
+        if r is None:
+            continue
+        if r.context_updates and context is not None:
+            context.update(r.context_updates)
+        if r.event and handler:
+            dispatch_event(handler, r.event)
+        last = r
+        if r.action != HookAction.PASS:
+            return r
+    return last
+
+
+def serialize_messages_for_llm(
+    session: SessionEntry, system_prompt: str,
+) -> list[dict[str, Any]]:
+    """Convert ``session.messages`` into the OpenAI-compatible message list.
+
+    Caller supplies the already-built ``system_prompt`` so this stays a
+    pure transformation over ``session`` content. Skips ``SYSTEM`` messages
+    in history (the supplied prompt is the SSOT).
+    """
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt}
+    ]
+    for msg in session.messages:
+        if msg.role == MessageRole.SYSTEM:
+            continue
+        if msg.role == MessageRole.USER:
+            messages.append({"role": "user", "content": msg.content})
+        elif msg.role == MessageRole.ASSISTANT:
+            assistant_msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": msg.content or "",
+            }
+            if msg.tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ]
+            messages.append(assistant_msg)
+        elif msg.role == MessageRole.TOOL:
+            if msg.tool_results:
+                for tr in msg.tool_results:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tr.tool_call_id,
+                        "content": tr.llm_digest,
+                    })
+    return messages
+
+
+def filter_visible_tools(
+    tool_registry: "ToolRegistry",
+    skill_loader: "SkillLoader | None",
+    skill_load_mode: "SkillLoadMode",
+    session: SessionEntry | None,
+) -> list["AgentTool"]:
+    """Skill-aware tool visibility filter (single source of truth).
+
+    full mode: every registered tool is visible.
+    dynamic mode: ``visibility="always"`` tools are always visible; the
+    rest are gated on the session's active skill — only tools listed in
+    ``skill.metadata.required_tools`` come through.
+    """
+    from ..types import SkillLoadMode as _SkillLoadMode  # local: type narrowing
+
+    all_tools = tool_registry.list_all()
+
+    if not skill_loader or skill_load_mode == _SkillLoadMode.full:
+        return all_tools
+
+    always = [t for t in all_tools if getattr(t, "visibility", "auto") == "always"]
+    active_skill_id = session.current_active_skill_id if session else None
+    if not active_skill_id:
+        return always
+
+    skill = skill_loader.get_skill(active_skill_id)
+    allowed = set(skill.metadata.required_tools or []) if skill else set()
+    seen = {t.name for t in always}
+    skill_tools = [t for t in all_tools if t.name in allowed and t.name not in seen]
+    return always + skill_tools
