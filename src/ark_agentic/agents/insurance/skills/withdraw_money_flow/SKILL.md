@@ -1,6 +1,7 @@
 ---
+enabled: True
 name: 保险取款流程（Flow）
-description: 通过 4 阶段 SOP 流程处理保险取款：身份核验 → 方案查询 → 方案确认 → 执行取款。支持跨会话中断恢复。
+description: 当用户表达取款意图时使用：询问可取金额、查询总览、指定金额/渠道取款、调整已有方案。 通过 5 阶段 SOP 处理保险取款：身份核验 → 方案查询 → 方案确认 → 二次确认 → 执行取款。支持跨会话中断恢复。
 version: "1.0.0"
 invocation_policy: auto
 group: insurance
@@ -10,51 +11,74 @@ tags:
   - flow
   - financial
 required_tools:
-  - withdraw_money_flow_evaluator
-  - commit_flow_stage
+  - collect_user_fields
+  - rollback_flow_stage
   - customer_info
   - policy_query
   - rule_engine
   - render_a2ui
   - submit_withdrawal
   - resume_task
-enabled: False
 ---
 
-# 保险取款流程（Agentic Native Flow）
+# 保险取款流程（Flow）
 
-通过结构化 4 阶段 SOP 处理取款业务，流程由 `withdraw_money_flow_evaluator` 驱动。
+用户已进入「取款办理」闭环时，按阶段完成核验、算费、交互确认与提交。**每轮发言前**须结合系统提示中的 **`<flow_evaluation>`**（块首为通用 **「流程评估约定」**，块内 fenced JSON 为结构化状态），再按 `<flow_reference>` 做本阶段话术与参数。
 
-## 核心规则
+---
 
-1. **每次回复前先调用** `withdraw_money_flow_evaluator` 评估当前阶段
-2. 根据 evaluator 返回的 `current_stage.suggested_tools`，按阶段参考文档的操作指引执行
-3. 若 evaluator 响应包含 `user_required_fields`，需向用户展示方案并收集对应字段
-4. 收集完成后调用 `commit_flow_stage(stage_id=<stage_id>, user_data={...})` 提交阶段数据
-5. 再次调用 `withdraw_money_flow_evaluator` 确认阶段推进
-6. evaluator 返回 `flow_status=completed` 时流程结束
+## 决策依据（流程状态 JSON）
 
-## 流程总览
+通用行动规则（outstanding、阶段守卫、工具边界）见 `<flow_evaluation>` 内 **「流程评估约定」**。下表仅补充 **JSON 字段语义**（对象在该块内 fenced JSON 中）。
 
-| 阶段 | ID | 工具 | 字段来源 |
-|------|-----|------|---------|
-| 身份核验 | identity_verify | customer_info, policy_query | 全部 tool |
-| 方案查询 | options_query | rule_engine | 全部 tool |
-| 方案确认 | plan_confirm | render_a2ui | 全部 user（需从用户收集） |
-| 执行取款 | execute | submit_withdrawal | 全部 tool |
+| 字段路径 | 含义与行动 |
+|----------|------------|
+| `flow_status === "completed"` | 本流程已在系统内闭环结束。 |
+| `current_stage` 存在 | 仍在办理中。必须处理完本阶段再进入下一阶段。 |
+| `current_stage.result === "invalid"` | `outstanding_fields` 中存在 `status: "error"` 的项。先根据其中的 `error`（及 `hint`）修正数据、重试工具或向用户澄清，**不要**无视错误继续往下走。 |
+| `current_stage.result === "incomplete"` | `outstanding_fields` 中为待补数据。对每一项：`hint` 若说明需 `collect_user_fields`，则在和用户确认取值后调用；否则用 `suggested_tools` 中的工具从系统侧补齐。 |
+| `outstanding_fields` 为空对象且 `result` 仍为 `incomplete` | 少见；仍遵守 `suggested_tools` 与阶段参考文档，直至下轮 JSON 更新。 |
 
-## 跨会话恢复
+若在未完成当前阶段时调用了**仅属于后面阶段**的工具，你会收到短小拒绝话术（阶段未完成）；此时应回到上表，先清掉 `outstanding_fields`。
 
-用户离开后重新进入时，若检测到未完成的流程：
-1. 调用 `resume_task(flow_id=<flow_id>)` 恢复上下文
-2. 调用 `withdraw_money_flow_evaluator` 查看当前阶段
-3. 按阶段 SOP 继续执行
+---
 
-## commit_flow_stage 使用约定
+## 阶段顺序与参考（`id` 与 JSON 中 `current_stage.id` 一致）
 
-每个阶段的业务工具调用完成后，调用 `commit_flow_stage` 提交阶段数据：
+| 顺序 | `id` | 要点 |
+|------|------|------|
+| 1 | `identity_verify` | `customer_info`、`policy_query`；见 `identity_verify.md` |
+| 2 | `options_query` | `rule_engine`；见 `options_query.md` |
+| 3 | `plan_confirm` | `render_a2ui` + 用户确认；见 `plan_confirm.md` |
+| 4 | `double_confirm` | 用户再次确认；见 `double_confirm.md` |
+| 5 | `execute` | `submit_withdrawal`；见 `execute.md` |
 
-- **tool 来源字段**（如 `user_id`、`available_options`）：框架自动从 session.state 提取，**无需传递**
-- **user 来源字段**（如 `confirmed`、`amount`）：必须通过 `user_data` 参数提供
+各阶段的详细字段、卡片与话术以 `references/` 为准。
 
-各阶段的字段来源详见对应阶段参考文档。
+---
+
+## 待恢复任务列表（与流程状态 JSON 并列时）
+
+当系统提示中出现 **「检测到未完成的流程任务」** 及 JSON 数组（含 `flow_id`、`task_name` 等）时：
+
+- **必须先向用户说明选项并征得明确答复**，再调用 `resume_task`。
+- `flow_id` **必须**来自该数组中的条目。
+- 用户表示继续办理 → `resume_task(flow_id="…", action="resume")`；表示放弃/重做 → `resume_task(flow_id="…", action="discard")`。
+- 在用户表态前**不要**调用 `resume_task`。
+
+---
+
+## 回退（用户要改已确认内容）
+
+当用户明确要求修改已走过阶段的关键结论（如方案、金额、渠道）：
+
+1. 本流程的 checkpoint 阶段为 **`plan_confirm`**（方案确认）；回退目标一般回到该阶段或用户明确指向的更早阶段。
+2. 向用户说明将回退到哪个阶段、会清空哪些后续数据，**得到确认后再**调用 `rollback_flow_stage(stage_id="…")`。
+3. `stage_id` 须为**已完成的 checkpoint 阶段 id**（与工具描述一致）；调用后按**新**的状态 JSON 从该阶段继续。
+
+---
+
+## 沟通与风险
+
+- 关键信息不足时，明确告知缺什么，不要虚构数据。
+- 敏感操作提示风险；工具只返回纯 `tool_call` 时不要夹带长解释（见全局协议）。

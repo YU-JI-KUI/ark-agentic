@@ -15,11 +15,16 @@ from pathlib import Path
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from ark_agentic.core.runtime.factory import AgentDef, build_standard_agent
-from ark_agentic.core.runtime.callbacks import RunnerCallbacks
+from ark_agentic.agents.insurance.tools.flow_evaluator import withdrawal_flow_evaluator
+from ark_agentic.core.flow.base_evaluator import FlowEvaluatorRegistry
 from ark_agentic.core.flow.callbacks import FlowCallbacks
 from ark_agentic.core.paths import prepare_agent_data_dir
+from ark_agentic.core.runtime.callbacks import RunnerCallbacks, merge_runner_callbacks
+from ark_agentic.core.runtime.factory import AgentDef, build_standard_agent
 from ark_agentic.core.runtime.runner import AgentRunner
+from ark_agentic.core.skills.base import SkillConfig
+from ark_agentic.core.skills.loader import SkillLoader
+from ark_agentic.core.types import SkillLoadMode
 
 from .tools import create_insurance_tools
 
@@ -41,6 +46,7 @@ _DEF = AgentDef(
     agent_description="专业的保险咨询和业务处理助手。",
     system_protocol=_INSURANCE_PROTOCOL,
     enable_subtasks=True,
+    skill_load_mode=SkillLoadMode.full,
 )
 
 
@@ -58,11 +64,29 @@ def create_insurance_agent(
         enable_dream: 是否启用 Dream 后台蒸馏（需 enable_memory=True 才有效）
     """
     sessions_dir = prepare_agent_data_dir(_DEF.agent_id)
-    flow_callbacks = FlowCallbacks(sessions_dir=sessions_dir)
-    callbacks = RunnerCallbacks(
-        # before_agent=[flow_callbacks.inject_flow_hint,],
-        # after_agent=[flow_callbacks.persist_flow_context],
+
+    FlowEvaluatorRegistry.register(withdrawal_flow_evaluator, namespace="insurance")
+
+    skill_config = SkillConfig(
+        skill_directories=[str(_AGENT_DIR / "skills")],
+        agent_id=_DEF.agent_id,
+        enable_eligibility_check=True,
+        load_mode=_DEF.skill_load_mode,
     )
+    skill_loader = SkillLoader(skill_config)
+    try:
+        skill_loader.load_from_directories()
+        logger.info("Loaded %d insurance skills", len(skill_loader.list_skills()))
+    except Exception as exc:
+        logger.warning("Failed to load insurance skills: %s", exc)
+
+    flow_callbacks = FlowCallbacks(sessions_dir=sessions_dir, skill_loader=skill_loader)
+    callbacks = RunnerCallbacks(
+            before_model=[flow_callbacks.before_model_flow_eval],
+            before_tool=[flow_callbacks.before_tool_stage_guard],
+            after_agent=[flow_callbacks.persist_flow_context],
+    )
+    
     return build_standard_agent(
         _DEF,
         skills_dir=_AGENT_DIR / "skills",
