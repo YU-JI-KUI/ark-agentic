@@ -39,6 +39,7 @@ AGENT_MODULE_TEMPLATE = '''\
 环境变量:
     SESSIONS_DIR: 会话持久化基础目录（默认 data/ark_sessions）
     MEMORY_DIR:   Memory 数据基础目录（默认 data/ark_memory）
+    CONFIG_DIR:   Agent 配置基础目录（默认 data/ark_config）
 """
 
 from __future__ import annotations
@@ -99,6 +100,11 @@ API_KEY=
 # API_HOST=0.0.0.0
 # API_PORT=8080
 
+# ---- Data paths ----
+# CONFIG_DIR=data/ark_config
+# SESSIONS_DIR=data/ark_sessions
+# MEMORY_DIR=data/ark_memory
+
 # ---- Plugins (opt-in via ENABLE_*) ----
 ENABLE_STUDIO=true
 # ENABLE_NOTIFICATIONS=true
@@ -113,8 +119,8 @@ API_APP_TEMPLATE = '''\
 """
 {project_name} - 框架装配入口
 
-只做装配：构造 ``Bootstrap`` 驱动选定的 plugin (API / Notifications /
-Jobs / Studio) 完成 init / install_routes / start / stop。框架在
+只做装配：构造 ``Bootstrap`` 驱动选定的 plugin (MCP / API /
+Notifications / Jobs / Studio) 完成 init / install_routes / start / stop。框架在
 启动时自动扫描 ``agents/`` 目录下的所有 ``BaseAgent`` 子类并注册。
 
 启用具体插件由环境变量决定（如 ``ENABLE_STUDIO=true``）；不需要的插件
@@ -136,7 +142,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+_log_level = getattr(
+    logging,
+    os.getenv("LOG_LEVEL", "INFO").upper(),
+    logging.INFO,
+)
 logging.basicConfig(
     level=_log_level,
     format="%(asctime)s %(levelname)-5s %(name)s %(message)s",
@@ -152,6 +162,7 @@ from ark_agentic.core.protocol.app_context import AppContext
 from ark_agentic.core.protocol.bootstrap import Bootstrap
 from ark_agentic.plugins.api.plugin import APIPlugin
 from ark_agentic.plugins.jobs.plugin import JobsPlugin
+from ark_agentic.plugins.mcp.plugin import MCPPlugin
 from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
 from ark_agentic.plugins.studio.plugin import StudioPlugin
 
@@ -161,7 +172,13 @@ logger = logging.getLogger(__name__)
 # AgentsLifecycle 在 start() 时扫描 ``agents/`` 目录下的所有
 # ``BaseAgent`` 子类并注册到 registry，无需手动注册。
 _bootstrap = Bootstrap(
-    components=[APIPlugin(), NotificationsPlugin(), JobsPlugin(), StudioPlugin()],
+    components=[
+        MCPPlugin(),
+        APIPlugin(),
+        NotificationsPlugin(),
+        JobsPlugin(),
+        StudioPlugin(),
+    ],
 )
 
 
@@ -188,7 +205,11 @@ _bootstrap.install_routes(app)
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _INDEX_HTML = _STATIC_DIR / "index.html"
 if _STATIC_DIR.is_dir():
-    app.mount("/api/static", StaticFiles(directory=str(_STATIC_DIR)), name="api-static")
+    app.mount(
+        "/api/static",
+        StaticFiles(directory=str(_STATIC_DIR)),
+        name="api-static",
+    )
 
     @app.get("/", include_in_schema=False)
     async def _index():

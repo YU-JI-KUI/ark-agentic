@@ -271,6 +271,29 @@ export interface TraceLinkConfig {
     template: string | null
 }
 
+export interface MCPToolMeta {
+    name: string
+    registered_name: string
+    description: string
+    enabled: boolean
+    input_schema: Record<string, unknown>
+    parameter_count: number
+}
+
+export interface MCPServerMeta {
+    id: string
+    name: string
+    description: string
+    transport: string
+    enabled: boolean
+    required: boolean
+    status: string
+    error?: string | null
+    total_tools: number
+    enabled_tools: number
+    tools: MCPToolMeta[]
+}
+
 // ── Dashboard summary ─────────────────────────────────────────────
 
 export interface DashboardTrendPoint {
@@ -357,6 +380,21 @@ export interface ToolScaffoldInput {
     name: string
     description?: string
     parameters?: { name: string; description?: string; type?: string; required?: boolean }[]
+}
+
+export interface MCPServerCreateInput {
+    id: string
+    name?: string
+    description?: string
+    transport: 'stdio' | 'streamable_http'
+    enabled?: boolean
+    required?: boolean
+    timeout?: number
+    url?: string
+    command?: string
+    args?: string[]
+    env?: Record<string, string>
+    headers?: Record<string, string>
 }
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -502,6 +540,27 @@ export const api = {
         }
         return res.json()
     },
+
+    // MCP
+    listMCPServers: (agentId: string) =>
+        fetchJSON<{ servers: MCPServerMeta[] }>(`${API_BASE}/agents/${agentId}/mcp`).then(r => r.servers),
+
+    createMCPServer: (agentId: string, data: MCPServerCreateInput) =>
+        fetchJSON<MCPServerMeta>(`${API_BASE}/agents/${agentId}/mcp/servers`, {
+            method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data),
+        }),
+
+    updateMCPServer: (agentId: string, serverId: string, enabled: boolean) =>
+        fetchJSON<MCPServerMeta>(
+            `${API_BASE}/agents/${agentId}/mcp/servers/${encodeURIComponent(serverId)}`,
+            { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ enabled }) },
+        ),
+
+    updateMCPTool: (agentId: string, serverId: string, toolName: string, enabled: boolean) =>
+        fetchJSON<MCPServerMeta>(
+            `${API_BASE}/agents/${agentId}/mcp/servers/${encodeURIComponent(serverId)}/tools/${encodeURIComponent(toolName)}`,
+            { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ enabled }) },
+        ),
 
     // Dashboard
     getDashboardSummary: () =>

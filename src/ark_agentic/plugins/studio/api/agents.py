@@ -1,7 +1,7 @@
 """
 Studio Agent CRUD API
 
-基于文件系统扫描 agents/ 目录下的 agent.json 实现 Agent 列表与详情。
+基于 agents/ 目录发现 Agent，并从 CONFIG_DIR 读取 agent.json。
 """
 
 from __future__ import annotations
@@ -14,8 +14,16 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ark_agentic.core.paths import (
+    get_agent_config_file,
+    resolve_agent_config_file,
+)
 from ark_agentic.core.utils.env import get_agents_root, resolve_agent_dir
-from ark_agentic.plugins.studio.services.auth import StudioPrincipal, require_studio_roles, require_studio_user
+from ark_agentic.plugins.studio.services.auth import (
+    StudioPrincipal,
+    require_studio_roles,
+    require_studio_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +57,12 @@ class AgentListResponse(BaseModel):
 # ── 辅助函数 ──────────────────────────────────────────────────────────
 
 def _read_agent_meta(agent_dir: Path) -> AgentMeta | None:
-    """从 agent 目录读取 agent.json。"""
-    meta_file = agent_dir / "agent.json"
-    if not meta_file.is_file():
+    """从 CONFIG_DIR 读取 agent.json，缺失时兼容旧 agent 目录。"""
+    meta_file = resolve_agent_config_file(
+        agent_dir.name,
+        legacy_agent_dir=agent_dir,
+    )
+    if meta_file is None or not meta_file.is_file():
         return None
     try:
         data = json.loads(meta_file.read_text(encoding="utf-8"))
@@ -63,8 +74,8 @@ def _read_agent_meta(agent_dir: Path) -> AgentMeta | None:
 
 
 def _write_agent_meta(agent_dir: Path, meta: AgentMeta) -> None:
-    """将 AgentMeta 写入 agent.json。"""
-    meta_file = agent_dir / "agent.json"
+    """将 AgentMeta 写入 CONFIG_DIR/<agent>/agent.json。"""
+    meta_file = get_agent_config_file(meta.id or agent_dir.name, create=True)
     meta_file.write_text(
         json.dumps(meta.model_dump(), indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -96,7 +107,10 @@ async def get_agent(agent_id: str):
     agents_root = get_agents_root()
     agent_dir = resolve_agent_dir(agents_root, agent_id)
     if not agent_dir:
-        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent not found: {agent_id}",
+        )
     meta = _read_agent_meta(agent_dir)
     if not meta:
         return AgentMeta(id=agent_id, name=agent_id)
@@ -108,11 +122,14 @@ async def create_agent(
     request: AgentCreateRequest,
     _: StudioPrincipal = Depends(require_studio_roles("admin", "editor")),
 ):
-    """创建新的 Agent 目录和 agent.json。"""
+    """创建新的 Agent 代码目录和 CONFIG_DIR 元数据。"""
     agents_root = get_agents_root()
     agent_dir = agents_root / request.id
     if agent_dir.exists():
-        raise HTTPException(status_code=409, detail=f"Agent already exists: {request.id}")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Agent already exists: {request.id}",
+        )
 
     # 创建目录结构
     agent_dir.mkdir(parents=True)

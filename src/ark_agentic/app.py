@@ -37,6 +37,7 @@ from ark_agentic.core.protocol.app_context import AppContext
 from ark_agentic.core.protocol.lifecycle import Lifecycle
 from ark_agentic.plugins.api.plugin import APIPlugin
 from ark_agentic.plugins.jobs.plugin import JobsPlugin
+from ark_agentic.plugins.mcp.plugin import MCPPlugin
 from ark_agentic.plugins.notifications.plugin import NotificationsPlugin
 from ark_agentic.plugins.studio.plugin import StudioPlugin
 from ark_agentic.portal import Portal
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 _components: list[Lifecycle] = [
     Portal(),
+    MCPPlugin(),
     APIPlugin(),
     NotificationsPlugin(),
     JobsPlugin(),

@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ..mcp import MCPManager
     from ..runtime.registry import AgentRegistry
 
 
@@ -24,3 +25,4 @@ class AppContext:
     """Runtime container; core slots are typed, plugin slots are dynamic."""
 
     agent_registry: "AgentRegistry | None" = None
+    mcp: "MCPManager | None" = None

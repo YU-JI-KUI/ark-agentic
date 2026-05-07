@@ -13,7 +13,11 @@ from ark_agentic.core.memory.user_profile import (
     truncate_profile,
     upsert_profile_by_heading,
 )
-from ark_agentic.core.paths import get_memory_base_dir
+from ark_agentic.core.paths import (
+    get_agent_config_file,
+    get_config_base_dir,
+    get_memory_base_dir,
+)
 from ark_agentic.core.prompt.builder import SystemPromptBuilder
 
 
@@ -183,6 +187,18 @@ class TestGetMemoryBaseDir:
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MEMORY_DIR", "/custom/memory")
         assert get_memory_base_dir() == Path("/custom/memory")
+
+
+class TestGetConfigBaseDir:
+    def test_default_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("CONFIG_DIR", raising=False)
+        assert get_config_base_dir() == Path("data/ark_config")
+
+    def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CONFIG_DIR", "/custom/config")
+        assert get_agent_config_file("insurance") == (
+            Path("/custom/config") / "insurance" / "agent.json"
+        )
 
 
 # ============ SystemPromptBuilder.add_user_profile ============

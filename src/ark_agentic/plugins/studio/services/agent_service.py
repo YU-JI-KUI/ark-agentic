@@ -17,6 +17,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from ark_agentic.core.paths import (
+    get_agent_config_dir,
+    get_agent_config_file,
+    resolve_agent_config_file,
+)
 from ark_agentic.core.utils.env import resolve_agent_dir
 
 from .skill_service import create_skill, slugify
@@ -87,7 +92,7 @@ def scaffold_agent(
     (agent_dir / "skills").mkdir()
     (agent_dir / "tools").mkdir()
 
-    # 写入 agent.json
+    # 写入 CONFIG_DIR/<agent>/agent.json
     now = datetime.now(timezone.utc).isoformat()
     meta = {
         "id": slug,
@@ -100,7 +105,7 @@ def scaffold_agent(
     if spec.llm_config:
         meta["llm_config"] = spec.llm_config
 
-    (agent_dir / "agent.json").write_text(
+    get_agent_config_file(slug, create=True).write_text(
         json.dumps(meta, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -116,7 +121,11 @@ def scaffold_agent(
                 content=skill_spec.get("content", ""),
             )
         except Exception as e:
-            logger.warning("Failed to create skill '%s': %s", skill_spec.get("name"), e)
+            logger.warning(
+                "Failed to create skill '%s': %s",
+                skill_spec.get("name"),
+                e,
+            )
 
     # 创建初始 Tools
     for tool_spec in spec.tools:
@@ -131,7 +140,11 @@ def scaffold_agent(
                 parameters=params,
             )
         except Exception as e:
-            logger.warning("Failed to scaffold tool '%s': %s", tool_spec.get("name"), e)
+            logger.warning(
+                "Failed to scaffold tool '%s': %s",
+                tool_spec.get("name"),
+                e,
+            )
 
     logger.info("Scaffolded agent: %s at %s", slug, agent_dir)
     return agent_dir
@@ -178,15 +191,21 @@ def delete_agent(agents_root: Path, agent_id: str) -> None:
         raise ValueError(f"Path safety check failed: {agent_id}")
 
     shutil.rmtree(agent_dir)
+    config_dir = get_agent_config_dir(agent_id)
+    if config_dir.is_dir():
+        shutil.rmtree(config_dir)
     logger.info("Deleted agent: %s at %s", agent_id, agent_dir)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
 def _read_agent_meta(agent_dir: Path) -> AgentMeta | None:
-    """从 agent 目录读取 agent.json，失败返回 None。"""
-    meta_file = agent_dir / "agent.json"
-    if not meta_file.is_file():
+    """从 CONFIG_DIR 读取 agent.json，缺失时兼容旧 agent 目录。"""
+    meta_file = resolve_agent_config_file(
+        agent_dir.name,
+        legacy_agent_dir=agent_dir,
+    )
+    if meta_file is None or not meta_file.is_file():
         return None
     try:
         data = json.loads(meta_file.read_text(encoding="utf-8"))
