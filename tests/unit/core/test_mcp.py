@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import sys
+from contextlib import AsyncExitStack, asynccontextmanager
+from types import ModuleType
 from types import SimpleNamespace
 
 import pytest
 
+from ark_agentic.core.mcp.client import MCPServerRuntime
 from ark_agentic.core.mcp.config import (
+    MCPServerConfig,
     load_agent_mcp_config,
     load_agent_mcp_config_for_agent,
     mcp_registered_tool_name,
@@ -153,6 +158,113 @@ def test_mcp_registered_tool_name_is_stable() -> None:
         mcp_registered_tool_name("lark", "bitable_v1_app_create")
         == "mcp__lark__bitable_v1_app_create"
     )
+
+
+@pytest.mark.asyncio
+async def test_streamable_http_uses_http_client_for_new_sdk_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    @asynccontextmanager
+    async def streamable_http_client(
+        url: str,
+        *,
+        http_client=None,
+        terminate_on_close: bool = True,
+    ):
+        seen["url"] = url
+        seen["authorization"] = http_client.headers.get("Authorization")
+        seen["trust_env"] = http_client._trust_env
+        yield "read", "write", lambda: None
+
+    transport_module = ModuleType("mcp.client.streamable_http")
+    transport_module.streamable_http_client = streamable_http_client
+    client_module = ModuleType("mcp.client")
+    client_module.streamable_http = transport_module
+    mcp_module = ModuleType("mcp")
+
+    monkeypatch.setitem(sys.modules, "mcp", mcp_module)
+    monkeypatch.setitem(sys.modules, "mcp.client", client_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "mcp.client.streamable_http",
+        transport_module,
+    )
+
+    runtime = MCPServerRuntime(
+        MCPServerConfig(
+            id="crm",
+            name="CRM",
+            description="",
+            transport="streamable_http",
+            url="http://localhost:8000/mcp",
+            headers={"Authorization": "Bearer token"},
+        )
+    )
+
+    stack = AsyncExitStack()
+    try:
+        read, write = await runtime._open_transport(stack)
+    finally:
+        await stack.aclose()
+
+    assert (read, write) == ("read", "write")
+    assert seen == {
+        "url": "http://localhost:8000/mcp",
+        "authorization": "Bearer token",
+        "trust_env": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_streamable_http_uses_legacy_headers_keyword(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    @asynccontextmanager
+    async def streamable_http_client(url: str, *, headers=None):
+        seen["url"] = url
+        seen["headers"] = headers
+        yield "read", "write"
+
+    transport_module = ModuleType("mcp.client.streamable_http")
+    transport_module.streamable_http_client = streamable_http_client
+    client_module = ModuleType("mcp.client")
+    client_module.streamable_http = transport_module
+    mcp_module = ModuleType("mcp")
+
+    monkeypatch.setitem(sys.modules, "mcp", mcp_module)
+    monkeypatch.setitem(sys.modules, "mcp.client", client_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "mcp.client.streamable_http",
+        transport_module,
+    )
+
+    runtime = MCPServerRuntime(
+        MCPServerConfig(
+            id="crm",
+            name="CRM",
+            description="",
+            transport="streamable_http",
+            url="http://localhost:8000/mcp",
+            headers={"Authorization": "Bearer token"},
+        )
+    )
+
+    stack = AsyncExitStack()
+    try:
+        read, write = await runtime._open_transport(stack)
+    finally:
+        await stack.aclose()
+
+    assert (read, write) == ("read", "write")
+    assert seen == {
+        "url": "http://localhost:8000/mcp",
+        "headers": {"Authorization": "Bearer token"},
+    }
 
 
 @pytest.mark.asyncio

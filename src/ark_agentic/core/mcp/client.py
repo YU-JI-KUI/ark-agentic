@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from contextlib import AsyncExitStack
 from typing import Any
+
+import httpx
 
 from .config import MCPServerConfig
 from .tool import MCPRemoteTool, normalize_mcp_tool
@@ -125,12 +128,45 @@ class MCPServerRuntime:
                 "MCP HTTP transport is unavailable in the installed MCP SDK"
             )
 
+        kwargs = await self._streamable_http_client_kwargs(
+            streamable_http_client,
+            stack,
+        )
         opened = await stack.enter_async_context(
-            streamable_http_client(
-                self.config.url or "",
-                headers=self.config.headers or None,
-            )
+            streamable_http_client(self.config.url or "", **kwargs)
         )
         read = opened[0]
         write = opened[1]
         return read, write
+
+    async def _streamable_http_client_kwargs(
+        self,
+        streamable_http_client: Any,
+        stack: AsyncExitStack,
+    ) -> dict[str, Any]:
+        headers = self.config.headers or None
+
+        try:
+            parameters = inspect.signature(
+                streamable_http_client,
+            ).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+
+        if "http_client" in parameters:
+            timeout = httpx.Timeout(
+                self.config.timeout,
+                read=max(300.0, self.config.timeout),
+            )
+            client = await stack.enter_async_context(
+                httpx.AsyncClient(
+                    follow_redirects=True,
+                    headers=headers,
+                    timeout=timeout,
+                    trust_env=False,
+                )
+            )
+            return {"http_client": client}
+        if "headers" in parameters and headers:
+            return {"headers": headers}
+        return {}
