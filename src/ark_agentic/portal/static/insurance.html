@@ -1443,6 +1443,145 @@
         }
       }
 
+      // ---- Silent send (for in-card actions like 上一步/下一步) ----
+      // Goes through the same /chat endpoint so the conversation stays a single
+      // coherent session (history, state_delta, digest all recorded normally),
+      // but suppresses chat-feed rendering: no user bubble, no thinking card,
+      // no text reply. The new a2ui card replaces the previous one in place,
+      // because the renderer auto-dedupes by stable surfaceId.
+      async function sendMessageSilent(text) {
+        if (!text || isSending) return;
+        isSending = true;
+        $sendBtn.disabled = true;
+
+        const payload = {
+          message: text,
+          stream: isStreaming,
+          protocol: 'enterprise',
+          agent_id: selectedAgent,
+          user_id: selectedUserId,
+          context: { user_id: selectedUserId, token_id: tokenId },
+        };
+        if (sessionId) payload.session_id = sessionId;
+
+        try {
+          if (isStreaming) {
+            await sendStreamingSilent(payload);
+          } else {
+            await sendNonStreamingSilent(payload);
+          }
+        } catch (err) {
+          appendErrorMessage(err.message || String(err));
+        } finally {
+          isSending = false;
+          $sendBtn.disabled = false;
+        }
+      }
+
+      // Shared a2ui action dispatcher. Card-internal navigations
+      // (__channel_step__:…) go silent; everything else is a normal user query.
+      function cardAction(name, args) {
+        if (name === 'query') {
+          const query = typeof args === 'object' ? (args.queryMsg || '') : String(args);
+          if (!query) return;
+          if (query.startsWith('__channel_step__:')) {
+            sendMessageSilent(query);
+          } else {
+            $input.value = query;
+            sendMessage();
+          }
+        } else if (name === 'openLink') {
+          const url = typeof args === 'object' ? (args.url || '') : String(args);
+          if (url) window.open(url, '_blank', 'noopener');
+        } else {
+          console.log('[A2UI action]', name, args);
+        }
+      }
+
+      async function sendNonStreamingSilent(payload) {
+        const resp = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          const detail = await resp.text();
+          throw new Error('HTTP ' + resp.status + ': ' + detail);
+        }
+        const data = await resp.json();
+        if (data.session_id) {
+          sessionId = data.session_id;
+          sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+          updateSessionIdLabel();
+        }
+        // Non-streaming silent: nothing to repaint here — the a2ui card lives
+        // in the streaming SSE channel. If non-streaming is chosen, the user
+        // gets no visible update; that's an acceptable degradation since the
+        // card flow is designed for streaming UX.
+      }
+
+      async function sendStreamingSilent(payload) {
+        const resp = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          const detail = await resp.text();
+          throw new Error('HTTP ' + resp.status + ': ' + detail);
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          let currentEventType = null;
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('event:')) { currentEventType = trimmed.slice(6).trim(); continue; }
+            if (!trimmed.startsWith('data:')) continue;
+            const jsonStr = trimmed.slice(5).trim();
+            if (!jsonStr) continue;
+
+            let envelope;
+            try { envelope = JSON.parse(jsonStr); } catch { continue; }
+            const eventType = envelope.event || currentEventType || '';
+            const d = envelope.data || {};
+            currentEventType = null;
+
+            if (d.conversation_id && !sessionId) {
+              sessionId = d.conversation_id;
+              sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+              updateSessionIdLabel();
+            }
+
+            // Repaint the existing surface in place; drop everything else.
+            if (eventType === 'text_message_content' && d.ui_protocol === 'A2UI') {
+              const comp = d.ui_data;
+              if (!comp || !comp.surfaceId) continue;
+              const existing = A2UIRenderer.getSurface(comp.surfaceId);
+              const container = existing && existing.container;
+              if (!container) continue;
+              try {
+                A2UIRenderer.render(container, comp, { onAction: cardAction });
+              } catch (err) {
+                console.error('[A2UI] silent render error:', err);
+              }
+            } else if (eventType === 'run_error') {
+              appendErrorMessage((typeof d.ui_data === 'string' ? d.ui_data : '') || '未知错误');
+            }
+          }
+        }
+      }
+
       // ---- Non-streaming ----
       async function sendNonStreaming(payload) {
         $statusText.textContent = '请求中…';
@@ -1598,19 +1737,7 @@
                   if (comp && a2uiContainer) {
                     a2uiContainer.classList.remove('hidden');
                     try {
-                      A2UIRenderer.render(a2uiContainer, comp, {
-                        onAction: function(name, args) {
-                          if (name === 'query') {
-                            var query = typeof args === 'object' ? (args.queryMsg || '') : String(args);
-                            if (query) { $input.value = query; sendMessage(); }
-                          } else if (name === 'openLink') {
-                            var url = typeof args === 'object' ? (args.url || '') : String(args);
-                            if (url) window.open(url, '_blank', 'noopener');
-                          } else {
-                            console.log('[A2UI action]', name, args);
-                          }
-                        }
-                      });
+                      A2UIRenderer.render(a2uiContainer, comp, { onAction: cardAction });
                     } catch (err) {
                       console.error('[A2UI] render error:', err);
                       var pre = document.createElement('pre');
