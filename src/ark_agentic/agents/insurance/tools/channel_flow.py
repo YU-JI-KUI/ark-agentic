@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import itertools
 import logging
-import uuid
 from typing import Any
 
 from ark_agentic.core.a2ui.blocks import _comp
@@ -428,8 +427,11 @@ class ChannelFlowTool(AgentTool):
             "children": {"explicitList": [output.components[0]["id"]]},
         })
 
+        # Stable surfaceId per (session, channel) — lets the a2ui renderer
+        # treat re-renders of the same step card as in-place updates rather
+        # than appending a new card to the chat feed.
         session_prefix = str(ctx.get("session_id", "") or "channelflow")[:8]
-        surface_id = f"chflow-{session_prefix}-{uuid.uuid4().hex[:8]}"
+        surface_id = f"chflow-{session_prefix}-{channel}"
 
         payload = {
             "event": "beginRendering",
