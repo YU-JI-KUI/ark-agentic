@@ -716,7 +716,7 @@ export default function AgentWorkspacePage() {
               onFocus={() => focusSection(item)}
               to={`/agents/${agentId}/${item}`}
             >
-              {item}
+              {item === 'mcp' ? 'MCP' : item}
             </NavLink>
           ))}
         </nav>
@@ -2000,6 +2000,8 @@ function MCPSection({ agentId }: { agentId: string }) {
   const [formTimeout, setFormTimeout] = useState('30')
   const [formEnabled, setFormEnabled] = useState(true)
   const [formRequired, setFormRequired] = useState(false)
+  const [mcpRawMode, setMcpRawMode] = useState(false)
+  const [mcpRawDraft, setMcpRawDraft] = useState('')
 
   const requestedServerId = searchParams.get('mcp')
   const selectedServer = useMemo(
@@ -2065,6 +2067,7 @@ function MCPSection({ agentId }: { agentId: string }) {
     setFormTimeout('30')
     setFormEnabled(true)
     setFormRequired(false)
+    setMcpRawMode(false)
   }
 
   function loadServerForm(server: MCPServerMeta) {
@@ -2087,7 +2090,15 @@ function MCPSection({ agentId }: { agentId: string }) {
     setFormTimeout(String(server.timeout || 30))
     setFormEnabled(server.enabled)
     setFormRequired(server.required)
+
+    // Prepare raw JSON for viewing/editing
+    const { id, status, error, total_tools, enabled_tools, tools, ...config } = server
+    setMcpRawDraft(JSON.stringify(config, null, 2))
   }
+
+  useEffect(() => {
+    setMcpRawMode(false)
+  }, [selectedId])
 
   useEffect(() => {
     if (mode === 'edit' && selectedServer) {
@@ -2173,6 +2184,27 @@ function MCPSection({ agentId }: { agentId: string }) {
       replaceServer(updated)
       setMode('view')
       setFeedback(`Updated MCP server ${updated.name || updated.id}.`)
+    } catch (nextError) {
+      setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  async function handleSaveRaw() {
+    if (!selectedServer) return
+    setBusyKey(`server:update:${selectedServer.id}`)
+    setFeedback(null)
+    try {
+      const payload = JSON.parse(mcpRawDraft) as MCPServerUpdateInput
+      const updated = await api.replaceMCPServer(
+        agentId,
+        selectedServer.id,
+        payload,
+      )
+      replaceServer(updated)
+      setMcpRawMode(false)
+      setFeedback(`Updated MCP server ${updated.name || updated.id} from raw JSON.`)
     } catch (nextError) {
       setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
     } finally {
@@ -2450,10 +2482,25 @@ function MCPSection({ agentId }: { agentId: string }) {
                     <div className="button-row">
                       <button
                         className="action-button"
-                        onClick={() => setMode('edit')}
+                        onClick={() => {
+                          setMode('edit')
+                          setMcpRawMode(false)
+                        }}
                         type="button"
                       >
                         Edit
+                      </button>
+                      <button
+                        className={`action-button ${mcpRawMode ? 'action-button-active' : ''}`}
+                        onClick={() => {
+                          if (!mcpRawMode) {
+                            loadServerForm(selectedServer)
+                          }
+                          setMcpRawMode(!mcpRawMode)
+                        }}
+                        type="button"
+                      >
+                        Raw
                       </button>
                       <button
                         className="action-button action-button-danger"
@@ -2462,6 +2509,22 @@ function MCPSection({ agentId }: { agentId: string }) {
                         type="button"
                       >
                         Delete
+                      </button>
+                    </div>
+                  )}
+                  {!canEdit && (
+                    <div className="button-row">
+                      <button
+                        className={`action-button ${mcpRawMode ? 'action-button-active' : ''}`}
+                        onClick={() => {
+                          if (!mcpRawMode) {
+                            loadServerForm(selectedServer)
+                          }
+                          setMcpRawMode(!mcpRawMode)
+                        }}
+                        type="button"
+                      >
+                        Raw
                       </button>
                     </div>
                   )}
@@ -2488,6 +2551,39 @@ function MCPSection({ agentId }: { agentId: string }) {
 
             {selectedServer.description && (
               <p className="detail-description">{selectedServer.description}</p>
+            )}
+
+            {mcpRawMode && (
+              <div className="mcp-raw-container" style={{ marginTop: '1rem' }}>
+                <div className="surface-heading" style={{ borderBottom: 'none', paddingLeft: 0, paddingRight: 0 }}>
+                  <span>Raw Config JSON</span>
+                  <div className="button-row">
+                    {canEdit && (
+                      <button
+                        className="action-button action-button-primary"
+                        disabled={busyKey === `server:update:${selectedServer.id}`}
+                        onClick={() => void handleSaveRaw()}
+                        type="button"
+                      >
+                        Save
+                      </button>
+                    )}
+                    <button className="action-button" onClick={() => setMcpRawMode(false)} type="button">
+                      Close
+                    </button>
+                  </div>
+                </div>
+                <CodeBody value={mcpRawDraft}>
+                  <textarea
+                    className="code-textarea"
+                    onChange={event => setMcpRawDraft(event.target.value)}
+                    readOnly={!canEdit}
+                    spellCheck={false}
+                    style={{ minHeight: '300px' }}
+                    value={mcpRawDraft}
+                  />
+                </CodeBody>
+              </div>
             )}
             {selectedServer.error && (
               <div className="feedback-banner" role="alert">{selectedServer.error}</div>
