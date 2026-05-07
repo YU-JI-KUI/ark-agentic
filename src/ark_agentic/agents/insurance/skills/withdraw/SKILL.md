@@ -1,5 +1,5 @@
 ---
-enabled: True
+enabled: False
 name: 保险取款
 description: 取款的完整生命周期：查询可取金额、生成方案（PlanCard）、调整方案、三步办理（保单→金额→银行卡）、中断与恢复。覆盖渠道：生存金、红利、保单贷款（三步），以及部分领取、退保（仅出方案）。
 version: "3.1.0"

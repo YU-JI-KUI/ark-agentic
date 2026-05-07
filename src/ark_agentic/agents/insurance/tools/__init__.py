@@ -93,6 +93,9 @@ def create_insurance_tools(
     from ark_agentic.core.tools.resume_task import ResumeTaskTool
 
     client = data_client or get_data_service_client()
+    task_registry_base = (
+        Path(sessions_dir) if sessions_dir else Path("data/ark_sessions") / "insurance"
+    )
 
     return [
         PolicyQueryTool(client=client),
@@ -102,7 +105,7 @@ def create_insurance_tools(
         SubmitWithdrawalTool(),
         CollectUserFieldsTool(),
         RollbackFlowStageTool(),
-        ResumeTaskTool(sessions_dir=sessions_dir),
+        ResumeTaskTool(sessions_dir=task_registry_base),
         _create_channel_flow_tool(),
     ]
 

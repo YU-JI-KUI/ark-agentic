@@ -1322,6 +1322,13 @@ class BaseAgent(ABC):
             state, session_id, skill_load_mode=skill_load_mode,
         )
 
+        # Matcher 输出的 skill id（含 agent 前缀）需与 FlowEvaluatorRegistry 别名对齐，
+        # 供 FlowCallbacks.before_model_flow_eval 在尚无 _flow_context.skill_name 时解析 evaluator。
+        from ..flow.base_evaluator import FlowEvaluatorRegistry
+        state["_turn_matched_skills"] = [
+            s.id for s in skills if FlowEvaluatorRegistry.get(s.id) is not None
+        ]
+
         active_skill: SkillEntry | None = None
         if skill_load_mode != SkillLoadMode.full.value and self.skill_loader:
             active_id = session.current_active_skill_id if session else None
