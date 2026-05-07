@@ -720,3 +720,68 @@ async def test_non_a2ui_tool_call_args_not_redacted(tmp_sessions_dir: Path) -> N
 # tests/unit/core/test_runner_build_messages.py for the replacement contract.
 
 
+# ============ LLMError regression (locked-in behavior for upcoming split) ============
+
+
+@pytest.mark.asyncio
+async def test_run_returns_user_friendly_error_on_llm_quota_failure(
+    tmp_sessions_dir: Path,
+) -> None:
+    """When the LLM raises ``LLMError(reason=QUOTA)``, the loop:
+      * persists an assistant message with ``metadata['error']['reason'] == 'quota'``
+      * returns ``RunResult.stopped_by_limit=False``
+      * surfaces the user-friendly ZH message to the handler
+
+    Pinned here so the imminent ``_model_phase`` split (commit 3c) cannot
+    silently regress this — there is no other end-to-end test of this branch.
+    """
+    from ark_agentic.core.llm.errors import LLMError, LLMErrorReason
+
+    runner, _ = _make_runner(tmp_sessions_dir)
+    session = runner.session_manager.create_session_sync()
+
+    captured: list[tuple[str, int]] = []
+
+    class _Handler:
+        def on_content_delta(self, delta: str, turn: int = 1) -> None:
+            captured.append((delta, turn))
+
+        def on_tool_call_start(self, tool_call_id: str, name: str, args: str) -> None:
+            pass
+
+        def on_tool_call_result(self, tool_call_id: str, name: str, result: str) -> None:
+            pass
+
+        def on_step(self, status: str) -> None:
+            pass
+
+        def on_ui_component(self, payload: dict) -> None:
+            pass
+
+        def on_custom_event(self, event_type: str, data: dict) -> None:
+            pass
+
+    runner._llm_caller.call = AsyncMock(
+        side_effect=LLMError(
+            reason=LLMErrorReason.QUOTA,
+            message="quota exceeded",
+            retryable=False,
+        ),
+    )
+
+    result = await runner.run(
+        session.session_id,
+        "anything",
+        user_id="u1",
+        stream=False,
+        handler=_Handler(),
+    )
+
+    assert result.stopped_by_limit is False
+    assert result.response.metadata["error"]["reason"] == "quota"
+    assert result.response.metadata["error"]["retryable"] is False
+    assert "余额不足" in result.response.content  # user-friendly ZH message
+    assert len(captured) == 1
+    assert "余额不足" in captured[0][0]
+
+

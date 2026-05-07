@@ -566,59 +566,98 @@ class BaseAgent(ABC):
             handler=handler,
         )
         if r and r.action == HookAction.ABORT:
-            merge_input_context(session, input_context)
-            user_message = AgentMessage.user(user_input, metadata=input_context)
-            augment_user_metadata(user_message, chat_request_meta)
-            await self.session_manager.add_message(session_id, user_id, user_message)
-            resp = r.response or AgentMessage.assistant("")
-            await self.session_manager.add_message(session_id, user_id, resp)
-            result = RunResult(response=resp)
-            cb_result = await run_hooks(
-                self._callbacks.after_agent,
-                cb_ctx,
-                response=result.response,
-                result=result,
-                context=cb_ctx.input_context,
+            return await self._handle_abort_path(
+                cb_ctx, r, input_context, chat_request_meta,
+                session_id=session_id, user_id=user_id, user_input=user_input,
                 handler=handler,
             )
-            if cb_result and cb_result.response is not None:
-                result.response = cb_result.response
-            return result
 
         input_context = cb_ctx.input_context
         merge_input_context(session, input_context)
-
-        if history and self.config.accept_external_history and use_history:
-            from ..session.history_merge import merge_external_history
-
-            ops = merge_external_history(session.messages, history)
-            if ops:
-                await self.session_manager.inject_messages(session_id, user_id, ops)
-                logger.info("Merged %d external history message(s)", len(ops))
+        await self._merge_external_history_if_any(
+            session_id, user_id, session, history, use_history=use_history,
+        )
 
         user_message = AgentMessage.user(user_input, metadata=input_context)
         augment_user_metadata(user_message, chat_request_meta)
         await self.session_manager.add_message(session_id, user_id, user_message)
 
-        if self.config.auto_compact:
-            flush_cb = (
-                self._flusher.make_pre_compact_callback(
-                    user_id,
-                    self.config.prompt_config,
-                    self._memory_manager,
-                )
-                if self._flusher and self._memory_manager
-                else None
-            )
-            await self.session_manager.auto_compact_if_needed(
-                session_id,
-                user_id,
-                pre_compact_callback=flush_cb,
-            )
+        await self._run_auto_compact_if_needed(session_id, user_id)
 
         session.state["temp:user_input"] = user_input
-
         return cb_ctx
+
+    async def _handle_abort_path(
+        self,
+        cb_ctx: CallbackContext,
+        abort_result: CallbackResult,
+        input_context: dict[str, Any],
+        chat_request_meta: dict[str, Any] | None,
+        *,
+        session_id: str,
+        user_id: str,
+        user_input: str,
+        handler: AgentEventHandler | None,
+    ) -> RunResult:
+        """before_agent ABORT short-circuit: persist user msg + abort response,
+        run after_agent hooks, return final RunResult."""
+        session = cb_ctx.session
+        merge_input_context(session, input_context)
+        user_message = AgentMessage.user(user_input, metadata=input_context)
+        augment_user_metadata(user_message, chat_request_meta)
+        await self.session_manager.add_message(session_id, user_id, user_message)
+        resp = abort_result.response or AgentMessage.assistant("")
+        await self.session_manager.add_message(session_id, user_id, resp)
+        result = RunResult(response=resp)
+        cb_result = await run_hooks(
+            self._callbacks.after_agent,
+            cb_ctx,
+            response=result.response,
+            result=result,
+            context=cb_ctx.input_context,
+            handler=handler,
+        )
+        if cb_result and cb_result.response is not None:
+            result.response = cb_result.response
+        return result
+
+    async def _merge_external_history_if_any(
+        self,
+        session_id: str,
+        user_id: str,
+        session: SessionEntry,
+        history: list[dict[str, Any]] | None,
+        *,
+        use_history: bool,
+    ) -> None:
+        """No-op when history is absent / disabled; otherwise compute merge ops
+        and inject them into the session."""
+        if not (history and self.config.accept_external_history and use_history):
+            return
+        from ..session.history_merge import merge_external_history
+
+        ops = merge_external_history(session.messages, history)
+        if ops:
+            await self.session_manager.inject_messages(session_id, user_id, ops)
+            logger.info("Merged %d external history message(s)", len(ops))
+
+    async def _run_auto_compact_if_needed(
+        self, session_id: str, user_id: str,
+    ) -> None:
+        """Trigger auto-compact with the memory pre-compact callback (when
+        memory subsystem is wired)."""
+        if not self.config.auto_compact:
+            return
+        flush_cb = (
+            self._flusher.make_pre_compact_callback(
+                user_id, self.config.prompt_config, self._memory_manager,
+            )
+            if self._flusher and self._memory_manager
+            else None
+        )
+        await self.session_manager.auto_compact_if_needed(
+            session_id, user_id, pre_compact_callback=flush_cb,
+        )
 
     async def _finalize_run(
         self,
@@ -848,56 +887,19 @@ class BaseAgent(ABC):
         if bm and bm.action == HookAction.OVERRIDE and bm.response:
             response = bm.response
         else:
-            turn = ls.turns
-
-            def _on_content(text: str, _t: int = turn) -> None:
-                if handler:
-                    handler.on_content_delta(text, _t)
-
             try:
-                if use_streaming:
-                    response = await self._llm_caller.call_streaming(
-                        messages,
-                        tools,
-                        model_override=model_override,
-                        sampling_override=sampling_override,
-                        content_callback=_on_content,
-                    )
-                else:
-                    response = await self._llm_caller.call(
-                        messages,
-                        tools,
-                        model_override=model_override,
-                        sampling_override=sampling_override,
-                    )
-            except LLMError as e:
-                await run_hooks(
-                    self._callbacks.on_model_error,
-                    cb_ctx,
-                    turn=ls.turns,
-                    error=e,
+                response = await self._call_llm(
+                    messages, tools,
+                    use_streaming=use_streaming,
+                    model_override=model_override,
+                    sampling_override=sampling_override,
                     handler=handler,
+                    turn=ls.turns,
                 )
-                logger.error(
-                    "[LLM_ERROR] turn=%d reason=%s retryable=%s",
-                    ls.turns,
-                    e.reason.value,
-                    e.retryable,
+            except LLMError as e:
+                return await self._handle_llm_error(
+                    e, ls, session_id=session_id, cb_ctx=cb_ctx, handler=handler,
                 )
-                user_message = user_friendly_error_message(e)
-                error_response = AgentMessage.assistant(content=user_message)
-                error_response.metadata["error"] = {
-                    "reason": e.reason.value,
-                    "message": str(e),
-                    "retryable": e.retryable,
-                }
-                session_for_persist = self.session_manager.get_session_required(session_id)
-                await self.session_manager.add_message(
-                    session_id, session_for_persist.user_id or "", error_response,
-                )
-                if handler:
-                    handler.on_content_delta(user_message, ls.turns)
-                return ls.make_result(error_response, stopped_by_limit=False)
 
         am = await run_hooks(
             self._callbacks.after_model,
@@ -910,26 +912,15 @@ class BaseAgent(ABC):
         if am and am.response:
             response = am.response
 
-        from ..observability import current_trace_id_or_none
-        trace_id = current_trace_id_or_none()
-        if trace_id:
-            response.metadata.setdefault("trace", {})["trace_id"] = trace_id
+        await self._persist_assistant_message(response, session_id, turn_context)
 
         finish_reason = response.finish_reason
         logger.info(
             "Turn %d | finish_reason=%s content_len=%d tool_calls=%d",
-            ls.turns,
-            finish_reason,
+            ls.turns, finish_reason,
             len(response.content or ""),
             len(response.tool_calls or []),
         )
-
-        session_for_persist = self.session_manager.get_session_required(session_id)
-        response.turn_context = turn_context
-        await self.session_manager.add_message(
-            session_id, session_for_persist.user_id or "", response,
-        )
-
         add_span_attributes({
             "ark.finish_reason": finish_reason,
             "ark.response_content_length": len(response.content or ""),
@@ -950,6 +941,99 @@ class BaseAgent(ABC):
 
         return response
 
+    async def _call_llm(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        use_streaming: bool,
+        model_override: str | None,
+        sampling_override: SamplingConfig | None,
+        handler: AgentEventHandler | None,
+        turn: int,
+    ) -> AgentMessage:
+        """Streaming / non-streaming LLM dispatch. Errors propagate to caller."""
+        def _on_content(text: str, _t: int = turn) -> None:
+            if handler:
+                handler.on_content_delta(text, _t)
+
+        if use_streaming:
+            return await self._llm_caller.call_streaming(
+                messages, tools,
+                model_override=model_override,
+                sampling_override=sampling_override,
+                content_callback=_on_content,
+            )
+        return await self._llm_caller.call(
+            messages, tools,
+            model_override=model_override,
+            sampling_override=sampling_override,
+        )
+
+    async def _handle_llm_error(
+        self,
+        error: LLMError,
+        ls: _LoopState,
+        *,
+        session_id: str,
+        cb_ctx: CallbackContext | None,
+        handler: AgentEventHandler | None,
+    ) -> RunResult:
+        """on_model_error hooks + persist user-friendly error message + return RunResult.
+
+        Uses ``stopped_by_limit=False``: the loop did not exhaust its turn
+        budget, it terminated on a transport-level fault. Tests pin this
+        invariant so the metadata['error'] payload survives any future
+        refactor of ``_model_phase``.
+        """
+        await run_hooks(
+            self._callbacks.on_model_error,
+            cb_ctx,
+            turn=ls.turns,
+            error=error,
+            handler=handler,
+        )
+        logger.error(
+            "[LLM_ERROR] turn=%d reason=%s retryable=%s",
+            ls.turns, error.reason.value, error.retryable,
+        )
+        user_message = user_friendly_error_message(error)
+        error_response = AgentMessage.assistant(content=user_message)
+        error_response.metadata["error"] = {
+            "reason": error.reason.value,
+            "message": str(error),
+            "retryable": error.retryable,
+        }
+        session_for_persist = self.session_manager.get_session_required(session_id)
+        await self.session_manager.add_message(
+            session_id, session_for_persist.user_id or "", error_response,
+        )
+        if handler:
+            handler.on_content_delta(user_message, ls.turns)
+        return ls.make_result(error_response, stopped_by_limit=False)
+
+    async def _persist_assistant_message(
+        self,
+        response: AgentMessage,
+        session_id: str,
+        turn_context: TurnContext,
+    ) -> None:
+        """Stamp trace_id + turn_context on the response, then persist.
+
+        Order is mandatory: trace_id MUST be written **before** ``add_message``
+        because session backends snapshot metadata at persistence time.
+        """
+        from ..observability import current_trace_id_or_none
+
+        trace_id = current_trace_id_or_none()
+        if trace_id:
+            response.metadata.setdefault("trace", {})["trace_id"] = trace_id
+        response.turn_context = turn_context
+        session_for_persist = self.session_manager.get_session_required(session_id)
+        await self.session_manager.add_message(
+            session_id, session_for_persist.user_id or "", response,
+        )
+
     @traced_chain("agent.tool_phase")
     async def _tool_phase(
         self,
@@ -966,9 +1050,7 @@ class BaseAgent(ABC):
         tool_calls = response.tool_calls or []
         logger.info(
             "[TOOLS] turn=%d count=%d names=%s",
-            ls.turns,
-            len(tool_calls),
-            [tc.name for tc in tool_calls],
+            ls.turns, len(tool_calls), [tc.name for tc in tool_calls],
         )
         ls.all_tool_calls.extend(tool_calls)
         add_span_attributes({
@@ -981,51 +1063,16 @@ class BaseAgent(ABC):
             for tc in tool_calls
         ])
 
-        bt = await run_hooks(
-            self._callbacks.before_tool,
-            cb_ctx,
-            turn=ls.turns,
-            tool_calls=tool_calls,
-            context=state,
-            handler=handler,
+        tool_results = await self._execute_with_before_after_hooks(
+            tool_calls, session_id=session_id, session=session, state=state,
+            cb_ctx=cb_ctx, handler=handler,
         )
-        if bt and bt.action == HookAction.OVERRIDE and bt.tool_results is not None:
-            tool_results = bt.tool_results
-        else:
-            tool_results = await self._tool_executor.execute(
-                tool_calls,
-                {
-                    **state,
-                    "session_id": session_id,
-                    "_active_skill_id": session.current_active_skill_id,
-                },
-                handler=handler,
-            )
-
         ls.total_tool_calls += len(tool_calls)
         ls.all_tool_results.extend(tool_results)
 
-        merge_tool_state_deltas(session, tool_results)
-        apply_session_effects(session, tool_results)
-
-        at = await run_hooks(
-            self._callbacks.after_tool,
-            cb_ctx,
-            turn=ls.turns,
-            results=tool_results,
-            context=state,
-            handler=handler,
-        )
-        if at and at.tool_results is not None:
-            tool_results = at.tool_results
-            merge_tool_state_deltas(session, tool_results)
-            apply_session_effects(session, tool_results)
-
-        tool_message = AgentMessage.tool(tool_results)
         await self.session_manager.add_message(
-            session_id, session.user_id or "", tool_message,
+            session_id, session.user_id or "", AgentMessage.tool(tool_results),
         )
-
         add_span_attributes({
             "ark.result_count": len(tool_results),
             "ark.error_count": sum(1 for r in tool_results if r.is_error),
@@ -1043,33 +1090,104 @@ class BaseAgent(ABC):
             for r in tool_results
         ])
 
-        stop_results = [
-            tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP
-        ]
-        if stop_results:
-            stop_content_parts = [
-                str(tr.content) for tr in stop_results if tr.content and not tr.is_error
-            ]
-            stop_content = "\n".join(stop_content_parts)
-            if stop_content and handler:
-                handler.on_content_delta(stop_content, ls.turns)
-            if not stop_content and not any(tr.events for tr in stop_results):
-                logger.warning(
-                    "[TOOL_STOP] tool signaled STOP but both content and events are empty"
-                )
-            stop_response = AgentMessage.assistant(content=stop_content or "")
-            await self.session_manager.add_message(
-                session_id, session.user_id or "", stop_response,
-            )
-            return ls.make_result(stop_response)
+        stop_result = await self._detect_stop_response(
+            tool_results, ls,
+            session_id=session_id, session=session, handler=handler,
+        )
+        if stop_result is not None:
+            return stop_result
 
         if all(tr.is_error for tr in tool_results):
             logger.warning("[TOOLS_FAIL] turn=%d all_failed=True", ls.turns)
-
         if handler:
             handler.on_step("信息收集完毕，正在为您总结…")
-
         return None
+
+    async def _execute_with_before_after_hooks(
+        self,
+        tool_calls: list,
+        *,
+        session_id: str,
+        session: SessionEntry,
+        state: dict[str, Any],
+        cb_ctx: CallbackContext | None,
+        handler: AgentEventHandler | None,
+    ) -> list:
+        """Run before_tool / execute / merge state deltas / after_tool — return final results.
+
+        Both override paths (``before_tool`` OVERRIDE, ``after_tool``
+        replacing tool_results) re-run ``merge_tool_state_deltas`` +
+        ``apply_session_effects``. Keeping the double-merge logic inside
+        a single method ensures it can't be silently dropped.
+        """
+        bt = await run_hooks(
+            self._callbacks.before_tool,
+            cb_ctx,
+            turn=cb_ctx.metadata.get("turn", 0) if cb_ctx else 0,
+            tool_calls=tool_calls,
+            context=state,
+            handler=handler,
+        )
+        if bt and bt.action == HookAction.OVERRIDE and bt.tool_results is not None:
+            tool_results = bt.tool_results
+        else:
+            tool_results = await self._tool_executor.execute(
+                tool_calls,
+                {
+                    **state,
+                    "session_id": session_id,
+                    "_active_skill_id": session.current_active_skill_id,
+                },
+                handler=handler,
+            )
+
+        merge_tool_state_deltas(session, tool_results)
+        apply_session_effects(session, tool_results)
+
+        at = await run_hooks(
+            self._callbacks.after_tool,
+            cb_ctx,
+            results=tool_results,
+            context=state,
+            handler=handler,
+        )
+        if at and at.tool_results is not None:
+            tool_results = at.tool_results
+            merge_tool_state_deltas(session, tool_results)
+            apply_session_effects(session, tool_results)
+        return tool_results
+
+    async def _detect_stop_response(
+        self,
+        tool_results: list,
+        ls: _LoopState,
+        *,
+        session_id: str,
+        session: SessionEntry,
+        handler: AgentEventHandler | None,
+    ) -> RunResult | None:
+        """If any tool signalled ``ToolLoopAction.STOP``, build / persist the
+        terminal assistant response and return RunResult; else return None."""
+        stop_results = [
+            tr for tr in tool_results if tr.loop_action == ToolLoopAction.STOP
+        ]
+        if not stop_results:
+            return None
+        stop_content_parts = [
+            str(tr.content) for tr in stop_results if tr.content and not tr.is_error
+        ]
+        stop_content = "\n".join(stop_content_parts)
+        if stop_content and handler:
+            handler.on_content_delta(stop_content, ls.turns)
+        if not stop_content and not any(tr.events for tr in stop_results):
+            logger.warning(
+                "[TOOL_STOP] tool signaled STOP but both content and events are empty"
+            )
+        stop_response = AgentMessage.assistant(content=stop_content or "")
+        await self.session_manager.add_message(
+            session_id, session.user_id or "", stop_response,
+        )
+        return ls.make_result(stop_response)
 
     @traced_chain("agent.skill_route")
     async def _route_skill_phase(
