@@ -2,7 +2,7 @@
 ark-agentic CLI entry point.
 
 Subcommands:
-  init <project_name>       Scaffold a new agent project
+  init <project_name>       Scaffold a new agent project (API + Studio, ready to run)
   add-agent <agent_name>    Add an agent module to an existing project
   version                   Print framework version
 """
@@ -74,15 +74,9 @@ def _cmd_init(args: argparse.Namespace) -> None:
 
     _write(default_agent / "__init__.py", AGENT_INIT_TEMPLATE.format(**fmt))
     _write(default_agent / "agent.py", AGENT_MODULE_TEMPLATE.format(**fmt))
-    _write(
-        default_agent / "tools" / "__init__.py",
-        TOOL_TEMPLATE.format(**fmt),
-    )
+    _write(default_agent / "tools" / "__init__.py", TOOL_TEMPLATE.format(**fmt))
     _touch(default_agent / "skills" / ".gitkeep")
-    _write(
-        root / "data" / "ark_config" / "default" / "agent.json",
-        AGENT_JSON_TEMPLATE.format(**fmt),
-    )
+    _write(root / "data" / "ark_config" / "default" / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
 
     _write(src / "app.py", API_APP_TEMPLATE.format(**fmt))
 
@@ -129,10 +123,7 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
 
     pyproject = Path.cwd() / "pyproject.toml"
     if not pyproject.exists():
-        print(
-            "错误: 当前目录未找到 pyproject.toml，请在项目根目录下运行",
-            file=sys.stderr,
-        )
+        print("错误: 当前目录未找到 pyproject.toml，请在项目根目录下运行", file=sys.stderr)
         sys.exit(1)
 
     src_dir = Path.cwd() / "src"
@@ -174,20 +165,11 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
         AGENT_JSON_TEMPLATE.format(**fmt),
     )
 
-    print(
-        f"[OK] 智能体 '{agent_name}' 已添加到 "
-        f"src/{package_name}/agents/{agent_name_snake}/"
-    )
+    print(f"[OK] 智能体 '{agent_name}' 已添加到 src/{package_name}/agents/{agent_name_snake}/")
     print()
     print("后续步骤:")
-    print(
-        f"  1. 在 src/{package_name}/agents/{agent_name_snake}/tools/"
-        f"__init__.py 中实现 create_{agent_name_snake}_tools()"
-    )
-    print(
-        f"  2. 在 src/{package_name}/agents/{agent_name_snake}/agent.py "
-        "中修改 agent_description，描述这个 agent 的职责"
-    )
+    print(f"  1. 在 src/{package_name}/agents/{agent_name_snake}/tools/__init__.py 中实现 create_{agent_name_snake}_tools()")
+    print(f"  2. 在 src/{package_name}/agents/{agent_name_snake}/agent.py 中修改 agent_description，描述这个 agent 的职责")
     print("  3. 框架启动时自动扫描并注册 BaseAgent 子类，无需手动注册")
 
 
