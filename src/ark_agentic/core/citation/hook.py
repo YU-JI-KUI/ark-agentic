@@ -22,15 +22,17 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..runtime.callbacks import BeforeLoopEndCallback, CallbackContext, CallbackResult
+    from ..tools.registry import ToolRegistry
+    from ..utils.entities import EntityTrie
     from .protocol import CiteAnnotator
 
 logger = logging.getLogger(__name__)
 
 
 def create_cite_annotation_hook(
-    tool_registry: Any,
+    tool_registry: "ToolRegistry",
     annotator: "CiteAnnotator | None" = None,
-    entity_trie: Any | None = None,
+    entity_trie: "EntityTrie | None" = None,
 ) -> "BeforeLoopEndCallback":
     """Return a BeforeLoopEndCallback that annotates the final answer with citations.
 
@@ -42,7 +44,7 @@ def create_cite_annotation_hook(
     """
     from .annotator import DefaultCiteAnnotator
 
-    _annotator: CiteAnnotator = annotator or DefaultCiteAnnotator(entity_trie=entity_trie)
+    _annotator: "CiteAnnotator" = annotator or DefaultCiteAnnotator(entity_trie=entity_trie)
 
     async def _hook(
         ctx: "CallbackContext",
