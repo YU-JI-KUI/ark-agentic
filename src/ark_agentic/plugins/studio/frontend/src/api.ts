@@ -271,6 +271,39 @@ export interface TraceLinkConfig {
     template: string | null
 }
 
+export interface StudioFeaturesConfig {
+    mcp_enabled: boolean
+}
+
+export interface MCPToolMeta {
+    name: string
+    registered_name: string
+    description: string
+    enabled: boolean
+    input_schema: Record<string, unknown>
+    parameter_count: number
+}
+
+export interface MCPServerMeta {
+    id: string
+    name: string
+    description: string
+    transport: string
+    enabled: boolean
+    required: boolean
+    timeout: number
+    url?: string | null
+    command?: string | null
+    args: string[]
+    env: Record<string, string>
+    headers: Record<string, string>
+    status: string
+    error?: string | null
+    total_tools: number
+    enabled_tools: number
+    tools: MCPToolMeta[]
+}
+
 // ── Dashboard summary ─────────────────────────────────────────────
 
 export interface DashboardTrendPoint {
@@ -358,6 +391,23 @@ export interface ToolScaffoldInput {
     description?: string
     parameters?: { name: string; description?: string; type?: string; required?: boolean }[]
 }
+
+export interface MCPServerCreateInput {
+    id: string
+    name?: string
+    description?: string
+    transport: 'stdio' | 'streamable_http'
+    enabled?: boolean
+    required?: boolean
+    timeout?: number
+    url?: string
+    command?: string
+    args?: string[] | string
+    env?: Record<string, string>
+    headers?: Record<string, string>
+}
+
+export type MCPServerUpdateInput = Omit<MCPServerCreateInput, 'id'>
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     const res = await fetch(url, withAuth(init))
@@ -477,6 +527,9 @@ export const api = {
     getTraceLinkConfig: () =>
         fetchJSON<TraceLinkConfig>(`${API_BASE}/config/trace-link`),
 
+    getStudioFeaturesConfig: () =>
+        fetchJSON<StudioFeaturesConfig>(`${API_BASE}/config/features`),
+
     // Memory
     listMemoryFiles: (agentId: string) =>
         fetchJSON<{ files: MemoryFileItem[] }>(`${API_BASE}/agents/${agentId}/memory/files`).then(r => r.files),
@@ -502,6 +555,39 @@ export const api = {
         }
         return res.json()
     },
+
+    // MCP
+    listMCPServers: (agentId: string) =>
+        fetchJSON<{ servers: MCPServerMeta[] }>(`${API_BASE}/agents/${agentId}/mcp`).then(r => r.servers),
+
+    createMCPServer: (agentId: string, data: MCPServerCreateInput) =>
+        fetchJSON<MCPServerMeta>(`${API_BASE}/agents/${agentId}/mcp/servers`, {
+            method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data),
+        }),
+
+    updateMCPServer: (agentId: string, serverId: string, enabled: boolean) =>
+        fetchJSON<MCPServerMeta>(
+            `${API_BASE}/agents/${agentId}/mcp/servers/${encodeURIComponent(serverId)}`,
+            { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ enabled }) },
+        ),
+
+    replaceMCPServer: (agentId: string, serverId: string, data: MCPServerUpdateInput) =>
+        fetchJSON<MCPServerMeta>(
+            `${API_BASE}/agents/${agentId}/mcp/servers/${encodeURIComponent(serverId)}`,
+            { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(data) },
+        ),
+
+    deleteMCPServer: (agentId: string, serverId: string) =>
+        fetchJSON<{ status: string; server_id: string }>(
+            `${API_BASE}/agents/${agentId}/mcp/servers/${encodeURIComponent(serverId)}`,
+            { method: 'DELETE' },
+        ),
+
+    updateMCPTool: (agentId: string, serverId: string, toolName: string, enabled: boolean) =>
+        fetchJSON<MCPServerMeta>(
+            `${API_BASE}/agents/${agentId}/mcp/servers/${encodeURIComponent(serverId)}/tools/${encodeURIComponent(toolName)}`,
+            { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ enabled }) },
+        ),
 
     // Dashboard
     getDashboardSummary: () =>

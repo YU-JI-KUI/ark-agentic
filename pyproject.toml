@@ -28,6 +28,7 @@ server = [
     "opentelemetry-exporter-otlp-proto-http",
     "openinference-instrumentation-langchain",
     "arize-phoenix-otel",
+    "mcp>=1,<2",
 ]
 # db: 切换到 PostgreSQL 时加装（默认 SQLite 不需要）
 db = [

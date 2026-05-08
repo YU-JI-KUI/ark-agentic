@@ -9,6 +9,10 @@ import {
 import { NavLink, Navigate, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import {
   api,
+  type MCPServerCreateInput,
+  type MCPServerMeta,
+  type MCPServerUpdateInput,
+  type MCPToolMeta,
   type MemoryFileItem,
   type MessageItem,
   type SessionDetail,
@@ -21,7 +25,9 @@ import { canEditStudio, useAuth } from '../auth'
 import type { StudioShellContextValue } from '../layouts/StudioShell'
 import { ChevronRightIcon, CopyIcon, DownloadIcon, ExpandIcon, PlusIcon, SearchIcon } from '../components/StudioIcons'
 
-const VALID_SECTIONS = new Set(['overview', 'skills', 'tools', 'sessions', 'memory'])
+const VALID_SECTIONS = new Set(['overview', 'skills', 'tools', 'sessions', 'memory', 'mcp'])
+const AGENT_SECTIONS = ['overview', 'skills', 'tools', 'sessions', 'memory', 'mcp']
+const AGENT_SECTIONS_WITHOUT_MCP = AGENT_SECTIONS.filter(item => item !== 'mcp')
 
 function formatRelativeTime(value: string | null) {
   if (!value) return 'unknown'
@@ -665,11 +671,25 @@ type ViewMode = 'view' | 'create' | 'edit' | 'scaffold'
 
 export default function AgentWorkspacePage() {
   const { agentId, section } = useParams<{ agentId: string; section: string }>()
-  const { activeSection, selectedAgent } = useOutletContext<StudioShellContextValue>()
+  const {
+    activeSection,
+    featuresLoading,
+    mcpEnabled,
+    selectedAgent,
+  } = useOutletContext<StudioShellContextValue>()
   const navigate = useNavigate()
+  const agentSections = mcpEnabled ? AGENT_SECTIONS : AGENT_SECTIONS_WITHOUT_MCP
 
   if (!agentId || !section || !VALID_SECTIONS.has(section)) {
     return <Navigate replace to={agentId ? `/agents/${agentId}/overview` : '/'} />
+  }
+
+  if (section === 'mcp' && featuresLoading) {
+    return <div className="empty-surface">Loading Studio configuration...</div>
+  }
+
+  if (section === 'mcp' && !mcpEnabled) {
+    return <Navigate replace to={`/agents/${agentId}/overview`} />
   }
 
   function focusSection(targetSection: string) {
@@ -703,7 +723,7 @@ export default function AgentWorkspacePage() {
         </div>
 
         <nav aria-label="Agent sections" className="workspace-tab-row">
-          {['overview', 'skills', 'tools', 'sessions', 'memory'].map(item => (
+          {agentSections.map(item => (
             <NavLink
               aria-label={`${item} section`}
               className={({ isActive }) => `workspace-tab ${isActive ? 'active' : ''}`}
@@ -711,7 +731,7 @@ export default function AgentWorkspacePage() {
               onFocus={() => focusSection(item)}
               to={`/agents/${agentId}/${item}`}
             >
-              {item}
+              {item === 'mcp' ? 'MCP' : item}
             </NavLink>
           ))}
         </nav>
@@ -722,6 +742,7 @@ export default function AgentWorkspacePage() {
       {activeSection === 'tools' && <ToolsSection key={agentId} agentId={agentId} />}
       {activeSection === 'sessions' && <SessionsSection key={agentId} agentId={agentId} />}
       {activeSection === 'memory' && <MemorySection key={agentId} agentId={agentId} />}
+      {activeSection === 'mcp' && mcpEnabled && <MCPSection key={agentId} agentId={agentId} />}
     </div>
   )
 }
@@ -1936,6 +1957,691 @@ function SessionsSection({ agentId }: { agentId: string }) {
               </>
             )}
           </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+
+function StudioSwitch({
+  checked,
+  disabled = false,
+  label,
+  onChange,
+}: {
+  checked: boolean
+  disabled?: boolean
+  label: string
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <button
+      aria-checked={checked}
+      aria-label={label}
+      className={`mcp-switch ${checked ? 'on' : ''}`}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      role="switch"
+      type="button"
+    >
+      <span className="mcp-switch-knob" />
+    </button>
+  )
+}
+
+
+function MCPSection({ agentId }: { agentId: string }) {
+  const [searchParams] = useSearchParams()
+  const { user } = useAuth()
+  const canEdit = canEditStudio(user?.role)
+  const [servers, setServers] = useState<MCPServerMeta[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [mode, setMode] = useState<ViewMode>('view')
+  const [loading, setLoading] = useState(true)
+  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [formId, setFormId] = useState('')
+  const [formName, setFormName] = useState('')
+  const [formDescription, setFormDescription] = useState('')
+  const [formTransport, setFormTransport] = useState<MCPServerCreateInput['transport']>('streamable_http')
+  const [formUrl, setFormUrl] = useState('')
+  const [formCommand, setFormCommand] = useState('')
+  const [formArgs, setFormArgs] = useState('')
+  const [formHeaders, setFormHeaders] = useState('{}')
+  const [formEnv, setFormEnv] = useState('{}')
+  const [formTimeout, setFormTimeout] = useState('30')
+  const [formEnabled, setFormEnabled] = useState(true)
+  const [formRequired, setFormRequired] = useState(false)
+  const [mcpRawMode, setMcpRawMode] = useState(false)
+  const [mcpRawDraft, setMcpRawDraft] = useState('')
+
+  const requestedServerId = searchParams.get('mcp')
+  const selectedServer = useMemo(
+    () => servers.find(server => server.id === selectedId) ?? null,
+    [selectedId, servers],
+  )
+  const filteredServers = useMemo(() => {
+    const value = query.trim().toLowerCase()
+    if (!value) return servers
+    return servers.filter(server => (
+      server.id.toLowerCase().includes(value) ||
+      server.name.toLowerCase().includes(value) ||
+      (server.description || '').toLowerCase().includes(value) ||
+      server.transport.toLowerCase().includes(value)
+    ))
+  }, [query, servers])
+
+  const loadServers = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    setFeedback(null)
+    try {
+      const nextServers = await api.listMCPServers(agentId)
+      setServers(nextServers)
+      setSelectedId(prev => {
+        if (requestedServerId && nextServers.some(server => server.id === requestedServerId)) {
+          return requestedServerId
+        }
+        if (prev && nextServers.some(server => server.id === prev)) {
+          return prev
+        }
+        return nextServers[0]?.id ?? null
+      })
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setLoading(false)
+    }
+  }, [agentId, requestedServerId])
+
+  useEffect(() => {
+    void loadServers()
+  }, [loadServers])
+
+  useEffect(() => {
+    if (!requestedServerId) return
+    const match = servers.find(server => server.id === requestedServerId)
+    if (!match) return
+    setSelectedId(match.id)
+    setMode('view')
+  }, [requestedServerId, servers])
+
+  function resetCreateForm() {
+    setFormId('')
+    setFormName('')
+    setFormDescription('')
+    setFormTransport('streamable_http')
+    setFormUrl('')
+    setFormCommand('')
+    setFormArgs('')
+    setFormHeaders('{}')
+    setFormEnv('{}')
+    setFormTimeout('30')
+    setFormEnabled(true)
+    setFormRequired(false)
+    setMcpRawMode(false)
+  }
+
+  function loadServerForm(server: MCPServerMeta) {
+    setFormId(server.id)
+    setFormName(server.name || server.id)
+    setFormDescription(server.description || '')
+    setFormTransport(
+      server.transport === 'stdio' ? 'stdio' : 'streamable_http',
+    )
+    setFormUrl(server.url || '')
+    setFormCommand(server.command || '')
+    setFormArgs((server.args || []).map(arg => {
+      if (/[ \t\n"']/.test(arg)) {
+        return '"' + arg.replace(/"/g, '\\"') + '"'
+      }
+      return arg
+    }).join(' '))
+    setFormHeaders(JSON.stringify(server.headers || {}, null, 2))
+    setFormEnv(JSON.stringify(server.env || {}, null, 2))
+    setFormTimeout(String(server.timeout || 30))
+    setFormEnabled(server.enabled)
+    setFormRequired(server.required)
+
+    // Prepare raw JSON for viewing/editing
+    const config: Partial<MCPServerMeta> = { ...server }
+    delete config.id
+    delete config.status
+    delete config.error
+    delete config.total_tools
+    delete config.enabled_tools
+    delete config.tools
+    setMcpRawDraft(JSON.stringify(config, null, 2))
+  }
+
+  useEffect(() => {
+    setMcpRawMode(false)
+  }, [selectedId])
+
+  useEffect(() => {
+    if (mode === 'edit' && selectedServer) {
+      loadServerForm(selectedServer)
+    }
+  }, [mode, selectedServer])
+
+  function upsertServer(updated: MCPServerMeta) {
+    setServers(current => {
+      if (current.some(server => server.id === updated.id)) {
+        return current.map(server => (
+          server.id === updated.id ? updated : server
+        ))
+      }
+      return [...current, updated]
+    })
+    setSelectedId(updated.id)
+  }
+
+  function parseStringMap(value: string, label: string) {
+    const trimmed = value.trim()
+    if (!trimmed) return {}
+    const parsed = JSON.parse(trimmed) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`${label} must be a JSON object.`)
+    }
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, nextValue]) => [key, String(nextValue)]),
+    )
+  }
+
+  function buildServerPayload(): MCPServerUpdateInput {
+    const timeout = Number.parseFloat(formTimeout)
+    const payload: MCPServerUpdateInput = {
+      name: formName,
+      description: formDescription,
+      transport: formTransport,
+      enabled: formEnabled,
+      required: formRequired,
+      timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : 30,
+    }
+    if (formTransport === 'streamable_http') {
+      payload.url = formUrl
+      payload.headers = parseStringMap(formHeaders, 'Headers')
+    } else {
+      payload.command = formCommand
+      payload.args = formArgs
+      payload.env = parseStringMap(formEnv, 'Env')
+    }
+    return payload
+  }
+
+  async function handleCreateServer() {
+    setBusyKey('server:create')
+    setFeedback(null)
+    try {
+      const payload: MCPServerCreateInput = {
+        ...buildServerPayload(),
+        id: formId,
+      }
+      const created = await api.createMCPServer(agentId, payload)
+      upsertServer(created)
+      setMode('view')
+      resetCreateForm()
+      setFeedback(`Created MCP server ${created.name || created.id}.`)
+    } catch (nextError) {
+      setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  async function handleUpdateServer() {
+    if (!selectedServer) return
+    setBusyKey(`server:update:${selectedServer.id}`)
+    setFeedback(null)
+    try {
+      const updated = await api.replaceMCPServer(
+        agentId,
+        selectedServer.id,
+        buildServerPayload(),
+      )
+      replaceServer(updated)
+      setMode('view')
+      setFeedback(`Updated MCP server ${updated.name || updated.id}.`)
+    } catch (nextError) {
+      setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  async function handleSaveRaw() {
+    if (!selectedServer) return
+    setBusyKey(`server:update:${selectedServer.id}`)
+    setFeedback(null)
+    try {
+      const payload = JSON.parse(mcpRawDraft) as MCPServerUpdateInput
+      const updated = await api.replaceMCPServer(
+        agentId,
+        selectedServer.id,
+        payload,
+      )
+      replaceServer(updated)
+      setMcpRawMode(false)
+      setFeedback(`Updated MCP server ${updated.name || updated.id} from raw JSON.`)
+    } catch (nextError) {
+      setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  async function handleDeleteServer() {
+    if (!selectedServer) return
+    const deletedServer = selectedServer
+    setBusyKey(`server:delete:${selectedServer.id}`)
+    setFeedback(null)
+    try {
+      await api.deleteMCPServer(agentId, deletedServer.id)
+      const nextServers = await api.listMCPServers(agentId)
+      setServers(nextServers)
+      setSelectedId(nextServers[0]?.id ?? null)
+      setMode('view')
+      setFeedback(`Deleted MCP server ${deletedServer.name || deletedServer.id}.`)
+    } catch (nextError) {
+      setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  function replaceServer(updated: MCPServerMeta) {
+    setServers(current => current.map(server => (
+      server.id === updated.id ? updated : server
+    )))
+    setSelectedId(updated.id)
+  }
+
+  async function toggleServer(server: MCPServerMeta, enabled: boolean) {
+    setBusyKey(`server:${server.id}`)
+    setFeedback(null)
+    try {
+      const updated = await api.updateMCPServer(agentId, server.id, enabled)
+      replaceServer(updated)
+      setFeedback(`${updated.name} ${updated.enabled ? 'enabled' : 'disabled'}.`)
+    } catch (nextError) {
+      setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  async function toggleTool(server: MCPServerMeta, tool: MCPToolMeta, enabled: boolean) {
+    setBusyKey(`tool:${server.id}:${tool.name}`)
+    setFeedback(null)
+    try {
+      const updated = await api.updateMCPTool(agentId, server.id, tool.name, enabled)
+      replaceServer(updated)
+      setFeedback(`${tool.name} ${enabled ? 'enabled' : 'disabled'}.`)
+    } catch (nextError) {
+      setFeedback(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  if (loading) return <div className="empty-surface">Loading MCP servers...</div>
+  if (error) return <div className="empty-surface">{error}</div>
+
+  return (
+    <section className="workspace-split">
+      <div className="workspace-surface split-list">
+        <div className="surface-heading">
+          <span>MCP Servers</span>
+          <span>{servers.length}</span>
+        </div>
+        <div className="filter-bar">
+          <label className="search">
+            <SearchIcon />
+            <input
+              aria-label="Search MCP servers"
+              onChange={event => setQuery(event.target.value)}
+              placeholder="Search MCP servers"
+              value={query}
+            />
+          </label>
+          {canEdit && (
+            <button
+              aria-label="Create new MCP server"
+              className="panel-icon-button"
+              onClick={() => {
+                setMode('create')
+                setSelectedId(null)
+                resetCreateForm()
+              }}
+              title="New MCP server"
+              type="button"
+            >
+              <PlusIcon />
+            </button>
+          )}
+        </div>
+        <div className="document-list">
+          {filteredServers.map(server => (
+            <button
+              className={`document-card document-button mcp-list-card ${
+                selectedId === server.id && mode === 'view' ? 'active' : ''
+              }`}
+              key={server.id}
+              onClick={() => {
+                setSelectedId(server.id)
+                setMode('view')
+              }}
+              type="button"
+            >
+              <div className="skill-list-card-top">
+                <strong>{server.name || server.id}</strong>
+                <span className={`mcp-count-chip ${server.enabled ? '' : 'off'}`}>
+                  {server.enabled_tools} / {server.total_tools}
+                </span>
+              </div>
+              <p>{server.description || `${server.transport} · ${server.status}`}</p>
+            </button>
+          ))}
+          {servers.length === 0 && <div className="empty-surface">No MCP servers configured.</div>}
+          {servers.length > 0 && filteredServers.length === 0 && <div className="empty-surface">No matching MCP servers.</div>}
+        </div>
+      </div>
+
+      <div className="workspace-surface split-detail">
+        {feedback && <div className="feedback-banner">{feedback}</div>}
+
+        {(mode === 'create' || mode === 'edit') && (
+          <div className="editor-sheet">
+            <div className="surface-heading">
+              <span>{mode === 'create' ? 'Create MCP Server' : 'Edit MCP Server'}</span>
+            </div>
+            <div className="mcp-form-grid">
+              <label className="form-field">
+                <span>Server ID</span>
+                <input
+                  disabled={mode === 'edit'}
+                  onChange={event => setFormId(event.target.value)}
+                  value={formId}
+                />
+              </label>
+              <label className="form-field">
+                <span>Name</span>
+                <input onChange={event => setFormName(event.target.value)} value={formName} />
+              </label>
+            </div>
+            <label className="form-field">
+              <span>Description</span>
+              <textarea
+                onChange={event => setFormDescription(event.target.value)}
+                rows={3}
+                value={formDescription}
+              />
+            </label>
+            <div className="mcp-form-grid">
+              <label className="form-field">
+                <span>Transport</span>
+                <select
+                  onChange={event => setFormTransport(event.target.value as MCPServerCreateInput['transport'])}
+                  value={formTransport}
+                >
+                  <option value="streamable_http">streamable_http</option>
+                  <option value="stdio">stdio</option>
+                </select>
+              </label>
+              <label className="form-field">
+                <span>Timeout</span>
+                <input
+                  min="1"
+                  onChange={event => setFormTimeout(event.target.value)}
+                  type="number"
+                  value={formTimeout}
+                />
+              </label>
+            </div>
+
+            {formTransport === 'streamable_http' ? (
+              <>
+                <label className="form-field">
+                  <span>URL</span>
+                  <input onChange={event => setFormUrl(event.target.value)} value={formUrl} />
+                </label>
+                <label className="form-field">
+                  <span>Headers JSON</span>
+                  <textarea
+                    onChange={event => setFormHeaders(event.target.value)}
+                    rows={6}
+                    spellCheck={false}
+                    value={formHeaders}
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                <label className="form-field">
+                  <span>Command</span>
+                  <input
+                    onChange={event => setFormCommand(event.target.value)}
+                    placeholder="uv"
+                    value={formCommand}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Arguments</span>
+                  <input
+                    onChange={event => setFormArgs(event.target.value)}
+                    placeholder="run --with mcp /path/to/server.py"
+                    value={formArgs}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Env JSON</span>
+                  <textarea
+                    onChange={event => setFormEnv(event.target.value)}
+                    rows={6}
+                    spellCheck={false}
+                    value={formEnv}
+                  />
+                </label>
+              </>
+            )}
+
+            <div className="mcp-form-switches">
+              <label>
+                <span>Enabled</span>
+                <StudioSwitch
+                  checked={formEnabled}
+                  label="Toggle new MCP server enabled"
+                  onChange={setFormEnabled}
+                />
+              </label>
+              <label>
+                <span>Required</span>
+                <StudioSwitch
+                  checked={formRequired}
+                  label="Toggle new MCP server required"
+                  onChange={setFormRequired}
+                />
+              </label>
+            </div>
+
+            <div className="button-row">
+              <button
+                className="action-button action-button-primary"
+                disabled={
+                  !formId.trim() ||
+                  busyKey === 'server:create' ||
+                  busyKey === `server:update:${selectedServer?.id}` ||
+                  (formTransport === 'streamable_http' ? !formUrl.trim() : !formCommand.trim())
+                }
+                onClick={() => void (
+                  mode === 'create' ? handleCreateServer() : handleUpdateServer()
+                )}
+                type="button"
+              >
+                {mode === 'create' ? 'Create MCP Server' : 'Save MCP Server'}
+              </button>
+              <button className="action-button" onClick={() => setMode('view')} type="button">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'view' && selectedServer && (
+          <div className="editor-sheet">
+            <div className="skill-detail-header">
+              <div className="skill-detail-title-row">
+                <div className="skill-detail-title-copy">
+                  <h2 className="skill-detail-name">{selectedServer.name || selectedServer.id}</h2>
+                  <code className="skill-detail-path">{selectedServer.id}</code>
+                </div>
+                <div className="mcp-server-enable">
+                  {canEdit && (
+                    <div className="button-row">
+                      <button
+                        className="action-button"
+                        onClick={() => {
+                          setMode('edit')
+                          setMcpRawMode(false)
+                        }}
+                        type="button"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className={`action-button ${mcpRawMode ? 'action-button-active' : ''}`}
+                        onClick={() => {
+                          if (!mcpRawMode) {
+                            loadServerForm(selectedServer)
+                          }
+                          setMcpRawMode(!mcpRawMode)
+                        }}
+                        type="button"
+                      >
+                        Raw
+                      </button>
+                      <button
+                        className="action-button action-button-danger"
+                        disabled={busyKey === `server:delete:${selectedServer.id}`}
+                        onClick={() => void handleDeleteServer()}
+                        type="button"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                  {!canEdit && (
+                    <div className="button-row">
+                      <button
+                        className={`action-button ${mcpRawMode ? 'action-button-active' : ''}`}
+                        onClick={() => {
+                          if (!mcpRawMode) {
+                            loadServerForm(selectedServer)
+                          }
+                          setMcpRawMode(!mcpRawMode)
+                        }}
+                        type="button"
+                      >
+                        Raw
+                      </button>
+                    </div>
+                  )}
+                  <div className="mcp-server-switch">
+                    <span>Enabled</span>
+                    <StudioSwitch
+                      checked={selectedServer.enabled}
+                      disabled={!canEdit || busyKey === `server:${selectedServer.id}`}
+                      label={`Toggle MCP server ${selectedServer.name || selectedServer.id}`}
+                      onChange={checked => void toggleServer(selectedServer, checked)}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="skill-detail-chips">
+                <span className={`badge ${selectedServer.status === 'connected' ? 'accent' : ''}`}>
+                  {selectedServer.status}
+                </span>
+                <span className="chip">{selectedServer.transport}</span>
+                {selectedServer.required && <span className="chip">required</span>}
+                <span className="chip">{selectedServer.enabled_tools}/{selectedServer.total_tools} active</span>
+              </div>
+            </div>
+
+            {selectedServer.description && (
+              <p className="detail-description">{selectedServer.description}</p>
+            )}
+
+            {mcpRawMode && (
+              <div className="mcp-raw-container" style={{ marginTop: '1rem' }}>
+                <div className="surface-heading" style={{ borderBottom: 'none', paddingLeft: 0, paddingRight: 0 }}>
+                  <span>Raw Config JSON</span>
+                  <div className="button-row">
+                    {canEdit && (
+                      <button
+                        className="action-button action-button-primary"
+                        disabled={busyKey === `server:update:${selectedServer.id}`}
+                        onClick={() => void handleSaveRaw()}
+                        type="button"
+                      >
+                        Save
+                      </button>
+                    )}
+                    <button className="action-button" onClick={() => setMcpRawMode(false)} type="button">
+                      Close
+                    </button>
+                  </div>
+                </div>
+                <CodeBody value={mcpRawDraft}>
+                  <textarea
+                    className="code-textarea"
+                    onChange={event => setMcpRawDraft(event.target.value)}
+                    readOnly={!canEdit}
+                    spellCheck={false}
+                    style={{ minHeight: '300px' }}
+                    value={mcpRawDraft}
+                  />
+                </CodeBody>
+              </div>
+            )}
+            {selectedServer.error && (
+              <div className="feedback-banner" role="alert">{selectedServer.error}</div>
+            )}
+
+            <div className="mcp-method-list">
+              {selectedServer.tools.map(tool => {
+                const disabled = !canEdit || !selectedServer.enabled ||
+                  busyKey === `tool:${selectedServer.id}:${tool.name}`
+                return (
+                  <div className="mcp-method-row" key={tool.name}>
+                    <div className="mcp-method-main">
+                      <div className="mcp-method-title-row">
+                        <strong>{tool.name}</strong>
+                        <span className="chip">{tool.parameter_count} params</span>
+                      </div>
+                      <p>{tool.description || 'No description provided.'}</p>
+                      <code>{tool.registered_name}</code>
+                    </div>
+                    <StudioSwitch
+                      checked={tool.enabled}
+                      disabled={disabled}
+                      label={`Toggle MCP method ${tool.name}`}
+                      onChange={checked => void toggleTool(selectedServer, tool, checked)}
+                    />
+                  </div>
+                )
+              })}
+              {selectedServer.tools.length === 0 && (
+                <div className="empty-surface">No MCP methods discovered.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {mode === 'view' && !selectedServer && (
+          <div className="empty-surface">Select an MCP server or create a new one.</div>
         )}
       </div>
     </section>

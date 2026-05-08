@@ -23,8 +23,9 @@ from ark_agentic.plugins.studio.services.auth import get_studio_user_repo
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 @pytest.fixture
-def temp_agents_dir(tmp_path: Path) -> Path:
+def temp_agents_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a temporary agents root directory with sample agents."""
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
     agents_root = tmp_path / "agents"
     agents_root.mkdir()
 
@@ -89,8 +90,9 @@ class TestReadWriteAgentMeta:
         meta = _read_agent_meta(bad_dir)
         assert meta is None
 
-    def test_write_then_read(self, tmp_path: Path):
+    def test_write_then_read(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """P0: Write agent.json then read it back."""
+        monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
         agent_dir = tmp_path / "test-agent"
         agent_dir.mkdir()
 
@@ -185,7 +187,7 @@ class TestCreateAgentEndpoint:
         # Verify file system
         agent_dir = temp_agents_dir / "new-agent"
         assert agent_dir.is_dir()
-        assert (agent_dir / "agent.json").is_file()
+        assert (temp_agents_dir.parent / "config" / "new-agent" / "agent.json").is_file()
         assert (agent_dir / "skills").is_dir()
         assert (agent_dir / "tools").is_dir()
 

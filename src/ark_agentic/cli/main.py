@@ -76,7 +76,7 @@ def _cmd_init(args: argparse.Namespace) -> None:
     _write(default_agent / "agent.py", AGENT_MODULE_TEMPLATE.format(**fmt))
     _write(default_agent / "tools" / "__init__.py", TOOL_TEMPLATE.format(**fmt))
     _touch(default_agent / "skills" / ".gitkeep")
-    _write(default_agent / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
+    _write(root / "data" / "ark_config" / "default" / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
 
     _write(src / "app.py", API_APP_TEMPLATE.format(**fmt))
 
@@ -94,11 +94,12 @@ def _cmd_init(args: argparse.Namespace) -> None:
                 continue
             content = src_asset.read_text(encoding="utf-8")
             if asset_name == "index.html":
-                content = content.replace(
-                    "<head>",
-                    f'<head>\n  <script>window.ARK_AGENT_ID = "default";</script>',
-                    1,
+                agent_script = (
+                    '<head>\n  <script>'
+                    'window.ARK_AGENT_ID = "default";'
+                    '</script>'
                 )
+                content = content.replace("<head>", agent_script, 1)
             (static_dest / asset_name).write_text(content, encoding="utf-8")
     except Exception:
         pass
@@ -159,7 +160,10 @@ def _cmd_add_agent(args: argparse.Namespace) -> None:
     _write(agents_dir / "agent.py", AGENT_MODULE_TEMPLATE.format(**fmt))
     _write(agents_dir / "tools" / "__init__.py", TOOL_TEMPLATE.format(**fmt))
     _touch(agents_dir / "skills" / ".gitkeep")
-    _write(agents_dir / "agent.json", AGENT_JSON_TEMPLATE.format(**fmt))
+    _write(
+        Path.cwd() / "data" / "ark_config" / agent_name_snake / "agent.json",
+        AGENT_JSON_TEMPLATE.format(**fmt),
+    )
 
     print(f"[OK] 智能体 '{agent_name}' 已添加到 src/{package_name}/agents/{agent_name_snake}/")
     print()

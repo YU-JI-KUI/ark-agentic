@@ -144,7 +144,7 @@ def test_cmd_init_default_has_agent_json(tmp_path: Path):
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
 
-    agent_json = tmp_path / "myproj" / "src" / "myproj" / "agents" / "default" / "agent.json"
+    agent_json = tmp_path / "myproj" / "data" / "ark_config" / "default" / "agent.json"
     assert agent_json.is_file(), "agent.json must be created for Studio discovery"
 
 
@@ -163,7 +163,7 @@ def test_cmd_add_agent_generates_agent_json(tmp_path: Path):
     with patch.object(Path, "cwd", return_value=proj_root):
         _cmd_add_agent(add_args)
 
-    agent_json = proj_root / "src" / "myproj" / "agents" / "billing" / "agent.json"
+    agent_json = proj_root / "data" / "ark_config" / "billing" / "agent.json"
     assert agent_json.is_file(), "add-agent must generate agent.json"
     content = agent_json.read_text(encoding="utf-8")
     assert '"billing"' in content

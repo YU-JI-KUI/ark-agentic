@@ -40,6 +40,7 @@ def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
     from .api import tools as tools_api
     from .api import sessions as sessions_api
     from .api import memory as memory_api
+    from .api import mcp as mcp_api
     from .api import users as users_api
 
     # 挂载 Studio API 路由
@@ -50,6 +51,7 @@ def setup_studio(app: FastAPI, registry: AgentRegistry | None = None) -> None:
     app.include_router(tools_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(sessions_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(memory_api.router, prefix="/api/studio", tags=["studio"])
+    app.include_router(mcp_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(dashboard_api.router, prefix="/api/studio", tags=["studio"])
     app.include_router(config_api.router, prefix="/api/studio", tags=["studio"])
 
