@@ -28,6 +28,7 @@ server = [
     "opentelemetry-exporter-otlp-proto-http",
     "openinference-instrumentation-langchain",
     "arize-phoenix-otel",
+    "mcp>=1,<2",
 ]
 # db: 切换到 PostgreSQL 时加装（默认 SQLite 不需要）
 db = [
@@ -35,9 +36,6 @@ db = [
 ]
 pa-jt = [
     "pycryptodome>=3.20.0",
-]
-mcp = [
-    "mcp>=1,<2",
 ]
 
 [project.scripts]
