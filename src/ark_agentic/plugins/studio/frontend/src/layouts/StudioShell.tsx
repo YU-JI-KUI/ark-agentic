@@ -20,6 +20,8 @@ export interface StudioShellContextValue {
   agents: AgentMeta[]
   agentsError: string | null
   agentsLoading: boolean
+  featuresLoading: boolean
+  mcpEnabled: boolean
   refreshAgents: () => Promise<void>
   selectedAgent: AgentMeta | null
 }
@@ -45,6 +47,8 @@ export default function StudioShell() {
   const [agents, setAgents] = useState<AgentMeta[]>([])
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [agentsError, setAgentsError] = useState<string | null>(null)
+  const [featuresLoading, setFeaturesLoading] = useState(true)
+  const [mcpEnabled, setMcpEnabled] = useState(false)
   const [query, setQuery] = useState('')
   const [agentRadarWidth, setAgentRadarWidth] = useState(AGENT_RADAR_DEFAULT_WIDTH)
   const [isAgentRadarResizing, setIsAgentRadarResizing] = useState(false)
@@ -67,6 +71,27 @@ export default function StudioShell() {
 
   useEffect(() => {
     void refreshAgents()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadStudioFeatures() {
+      setFeaturesLoading(true)
+      try {
+        const features = await api.getStudioFeaturesConfig()
+        if (!cancelled) setMcpEnabled(features.mcp_enabled)
+      } catch {
+        if (!cancelled) setMcpEnabled(false)
+      } finally {
+        if (!cancelled) setFeaturesLoading(false)
+      }
+    }
+
+    void loadStudioFeatures()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -108,6 +133,9 @@ export default function StudioShell() {
     [agentId, agents],
   )
   const activeSection = section ?? DEFAULT_SECTION
+  const agentNavigationSection = activeSection === 'mcp' && !mcpEnabled
+    ? DEFAULT_SECTION
+    : activeSection
   const filteredAgents = useMemo(() => {
     const value = query.trim().toLowerCase()
     if (!value) return agents
@@ -241,7 +269,9 @@ export default function StudioShell() {
 
           <div aria-label="可用 Agent" className="agent-radar-list">
             {filteredAgents.map(agent => {
-              const targetSection = activeSection === DEFAULT_SECTION ? DEFAULT_SECTION : activeSection
+              const targetSection = agentNavigationSection === DEFAULT_SECTION
+                ? DEFAULT_SECTION
+                : agentNavigationSection
               const target = `/agents/${agent.id}/${targetSection}`
               const isActive = selectedAgent?.id === agent.id
               return (
@@ -288,6 +318,8 @@ export default function StudioShell() {
               agents,
               agentsError,
               agentsLoading,
+              featuresLoading,
+              mcpEnabled,
               refreshAgents,
               selectedAgent,
             } satisfies StudioShellContextValue}

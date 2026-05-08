@@ -27,6 +27,7 @@ import { ChevronRightIcon, CopyIcon, DownloadIcon, ExpandIcon, PlusIcon, SearchI
 
 const VALID_SECTIONS = new Set(['overview', 'skills', 'tools', 'sessions', 'memory', 'mcp'])
 const AGENT_SECTIONS = ['overview', 'skills', 'tools', 'sessions', 'memory', 'mcp']
+const AGENT_SECTIONS_WITHOUT_MCP = AGENT_SECTIONS.filter(item => item !== 'mcp')
 
 function formatRelativeTime(value: string | null) {
   if (!value) return 'unknown'
@@ -670,11 +671,25 @@ type ViewMode = 'view' | 'create' | 'edit' | 'scaffold'
 
 export default function AgentWorkspacePage() {
   const { agentId, section } = useParams<{ agentId: string; section: string }>()
-  const { activeSection, selectedAgent } = useOutletContext<StudioShellContextValue>()
+  const {
+    activeSection,
+    featuresLoading,
+    mcpEnabled,
+    selectedAgent,
+  } = useOutletContext<StudioShellContextValue>()
   const navigate = useNavigate()
+  const agentSections = mcpEnabled ? AGENT_SECTIONS : AGENT_SECTIONS_WITHOUT_MCP
 
   if (!agentId || !section || !VALID_SECTIONS.has(section)) {
     return <Navigate replace to={agentId ? `/agents/${agentId}/overview` : '/'} />
+  }
+
+  if (section === 'mcp' && featuresLoading) {
+    return <div className="empty-surface">Loading Studio configuration...</div>
+  }
+
+  if (section === 'mcp' && !mcpEnabled) {
+    return <Navigate replace to={`/agents/${agentId}/overview`} />
   }
 
   function focusSection(targetSection: string) {
@@ -708,7 +723,7 @@ export default function AgentWorkspacePage() {
         </div>
 
         <nav aria-label="Agent sections" className="workspace-tab-row">
-          {AGENT_SECTIONS.map(item => (
+          {agentSections.map(item => (
             <NavLink
               aria-label={`${item} section`}
               className={({ isActive }) => `workspace-tab ${isActive ? 'active' : ''}`}
@@ -727,7 +742,7 @@ export default function AgentWorkspacePage() {
       {activeSection === 'tools' && <ToolsSection key={agentId} agentId={agentId} />}
       {activeSection === 'sessions' && <SessionsSection key={agentId} agentId={agentId} />}
       {activeSection === 'memory' && <MemorySection key={agentId} agentId={agentId} />}
-      {activeSection === 'mcp' && <MCPSection key={agentId} agentId={agentId} />}
+      {activeSection === 'mcp' && mcpEnabled && <MCPSection key={agentId} agentId={agentId} />}
     </div>
   )
 }
@@ -2092,7 +2107,13 @@ function MCPSection({ agentId }: { agentId: string }) {
     setFormRequired(server.required)
 
     // Prepare raw JSON for viewing/editing
-    const { id, status, error, total_tools, enabled_tools, tools, ...config } = server
+    const config: Partial<MCPServerMeta> = { ...server }
+    delete config.id
+    delete config.status
+    delete config.error
+    delete config.total_tools
+    delete config.enabled_tools
+    delete config.tools
     setMcpRawDraft(JSON.stringify(config, null, 2))
   }
 

@@ -271,6 +271,10 @@ export interface TraceLinkConfig {
     template: string | null
 }
 
+export interface StudioFeaturesConfig {
+    mcp_enabled: boolean
+}
+
 export interface MCPToolMeta {
     name: string
     registered_name: string
@@ -522,6 +526,9 @@ export const api = {
     // Config
     getTraceLinkConfig: () =>
         fetchJSON<TraceLinkConfig>(`${API_BASE}/config/trace-link`),
+
+    getStudioFeaturesConfig: () =>
+        fetchJSON<StudioFeaturesConfig>(`${API_BASE}/config/features`),
 
     // Memory
     listMemoryFiles: (agentId: string) =>
