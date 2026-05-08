@@ -17,11 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from ark_agentic.core.paths import (
-    get_agent_config_dir,
-    get_agent_config_file,
-    resolve_agent_config_file,
-)
+from ark_agentic.core.paths import get_agent_config_dir
 from ark_agentic.core.utils.env import resolve_agent_dir
 
 from .skill_service import create_skill, slugify
@@ -92,7 +88,7 @@ def scaffold_agent(
     (agent_dir / "skills").mkdir()
     (agent_dir / "tools").mkdir()
 
-    # 写入 CONFIG_DIR/<agent>/agent.json
+    # 写入 agent.json
     now = datetime.now(timezone.utc).isoformat()
     meta = {
         "id": slug,
@@ -105,7 +101,7 @@ def scaffold_agent(
     if spec.llm_config:
         meta["llm_config"] = spec.llm_config
 
-    get_agent_config_file(slug, create=True).write_text(
+    (agent_dir / "agent.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -200,12 +196,9 @@ def delete_agent(agents_root: Path, agent_id: str) -> None:
 # ── Helpers ─────────────────────────────────────────────────────────
 
 def _read_agent_meta(agent_dir: Path) -> AgentMeta | None:
-    """从 CONFIG_DIR 读取 agent.json，缺失时兼容旧 agent 目录。"""
-    meta_file = resolve_agent_config_file(
-        agent_dir.name,
-        legacy_agent_dir=agent_dir,
-    )
-    if meta_file is None or not meta_file.is_file():
+    """从 agent 目录读取 agent.json，失败返回 None。"""
+    meta_file = agent_dir / "agent.json"
+    if not meta_file.is_file():
         return None
     try:
         data = json.loads(meta_file.read_text(encoding="utf-8"))

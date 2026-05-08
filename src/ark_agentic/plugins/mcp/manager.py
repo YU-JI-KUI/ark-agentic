@@ -58,7 +58,7 @@ class MCPManager:
         await self._close_inline()
 
     async def refresh_agent(self, agent_id: str) -> None:
-        """Re-read ``agent.json`` and remount MCP tools for one agent."""
+        """Re-read ``mcp.json`` and remount MCP tools for one agent."""
         await self._run_in_worker(lambda: self._refresh_agent_inline(agent_id))
 
     async def _refresh_agent_inline(self, agent_id: str) -> None:

@@ -26,7 +26,16 @@ def agents_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def test_create_http_mcp_server_updates_agent_json(agents_root: Path) -> None:
+def _mcp_config_file(agents_root: Path) -> Path:
+    return agents_root / "config" / "test_agent" / "mcp.json"
+
+
+def _read_mcp_config(agents_root: Path) -> dict:
+    content = _mcp_config_file(agents_root).read_text(encoding="utf-8")
+    return json.loads(content)
+
+
+def test_create_http_mcp_server_updates_mcp_json(agents_root: Path) -> None:
     created = create_server(
         agents_root,
         "test_agent",
@@ -38,22 +47,24 @@ def test_create_http_mcp_server_updates_agent_json(agents_root: Path) -> None:
         headers={"Authorization": "Bearer ${CRM_TOKEN}"},
     )
 
-    data = json.loads(
-        (agents_root / "config" / "test_agent" / "agent.json").read_text(
-            encoding="utf-8",
-        )
-    )
+    data = _read_mcp_config(agents_root)
 
-    [server] = data["mcp"]["servers"]
+    [server] = data["servers"]
     assert created["id"] == "crm"
     assert server["name"] == "CRM"
     assert server["transport"] == "streamable_http"
     assert server["url"] == "http://127.0.0.1:9000/mcp"
     assert server["headers"]["Authorization"] == "Bearer ${CRM_TOKEN}"
     assert server["enabled"] is True
+    agent_data = json.loads(
+        (agents_root / "test_agent" / "agent.json").read_text(
+            encoding="utf-8",
+        )
+    )
+    assert "mcp" not in agent_data
 
 
-def test_list_mcp_servers_without_agent_json_is_empty(
+def test_list_mcp_servers_without_mcp_json_is_empty(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -63,7 +74,7 @@ def test_list_mcp_servers_without_agent_json_is_empty(
     assert list_servers(tmp_path, "empty_agent") == []
 
 
-def test_create_stdio_mcp_server_updates_agent_json(agents_root: Path) -> None:
+def test_create_stdio_mcp_server_updates_mcp_json(agents_root: Path) -> None:
     create_server(
         agents_root,
         "test_agent",
@@ -75,13 +86,9 @@ def test_create_stdio_mcp_server_updates_agent_json(agents_root: Path) -> None:
         enabled=False,
     )
 
-    data = json.loads(
-        (agents_root / "config" / "test_agent" / "agent.json").read_text(
-            encoding="utf-8",
-        )
-    )
+    data = _read_mcp_config(agents_root)
 
-    [server] = data["mcp"]["servers"]
+    [server] = data["servers"]
     assert server["command"] == "uvx"
     assert server["args"] == ["mcp-server", "--project", "."]
     assert server["env"]["API_TOKEN"] == "${API_TOKEN}"
@@ -100,13 +107,9 @@ def test_create_stdio_mcp_server_splits_full_command(
         args=["tests/mcp/math-server.py"],
     )
 
-    data = json.loads(
-        (agents_root / "config" / "test_agent" / "agent.json").read_text(
-            encoding="utf-8",
-        )
-    )
+    data = _read_mcp_config(agents_root)
 
-    [server] = data["mcp"]["servers"]
+    [server] = data["servers"]
     assert server["command"] == "uv"
     assert server["args"] == [
         "run",
@@ -165,9 +168,9 @@ def test_update_http_mcp_server_preserves_tool_policy(
         transport="streamable_http",
         url="http://127.0.0.1:9000/mcp",
     )
-    data_file = agents_root / "config" / "test_agent" / "agent.json"
+    data_file = _mcp_config_file(agents_root)
     data = json.loads(data_file.read_text(encoding="utf-8"))
-    data["mcp"]["servers"][0]["tools"] = {"enabled": {"lookup": False}}
+    data["servers"][0]["tools"] = {"enabled": {"lookup": False}}
     data_file.write_text(json.dumps(data), encoding="utf-8")
 
     updated = update_server(
@@ -243,14 +246,11 @@ def test_delete_mcp_server_removes_config(
 
     delete_server(agents_root, "test_agent", "crm")
 
-    data = json.loads(
-        (agents_root / "config" / "test_agent" / "agent.json").read_text(
-            encoding="utf-8",
-        )
-    )
-    assert data["mcp"]["servers"] == []
+    data = _read_mcp_config(agents_root)
+    assert data["servers"] == []
     with pytest.raises(KeyError):
         get_server(agents_root, "test_agent", "crm")
+
 
 def test_create_stdio_mcp_server_with_string_args(agents_root: Path) -> None:
     create_server(

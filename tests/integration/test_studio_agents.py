@@ -187,7 +187,7 @@ class TestCreateAgentEndpoint:
         # Verify file system
         agent_dir = temp_agents_dir / "new-agent"
         assert agent_dir.is_dir()
-        assert (temp_agents_dir.parent / "config" / "new-agent" / "agent.json").is_file()
+        assert (agent_dir / "agent.json").is_file()
         assert (agent_dir / "skills").is_dir()
         assert (agent_dir / "tools").is_dir()
 

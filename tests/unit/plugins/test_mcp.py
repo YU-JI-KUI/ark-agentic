@@ -38,27 +38,24 @@ class CurrentTaskCancelScopeStack:
 def test_load_agent_mcp_config_expands_env(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("CRM_URL", "http://crm.example/mcp")
     monkeypatch.setenv("CRM_TOKEN", "secret")
-    agent_json = {
-        "id": "sales",
-        "mcp": {
-            "servers": [
-                {
-                    "id": "crm",
-                    "name": "CRM",
-                    "transport": "streamable_http",
-                    "url": "${CRM_URL}",
-                    "headers": {"Authorization": "Bearer ${CRM_TOKEN}"},
-                    "tools": {
-                        "allow": ["find_customer", "create_ticket"],
-                        "deny": ["create_ticket"],
-                        "enabled": {"find_customer": False},
-                    },
-                }
-            ]
-        },
+    mcp_json = {
+        "servers": [
+            {
+                "id": "crm",
+                "name": "CRM",
+                "transport": "streamable_http",
+                "url": "${CRM_URL}",
+                "headers": {"Authorization": "Bearer ${CRM_TOKEN}"},
+                "tools": {
+                    "allow": ["find_customer", "create_ticket"],
+                    "deny": ["create_ticket"],
+                    "enabled": {"find_customer": False},
+                },
+            }
+        ]
     }
-    (tmp_path / "agent.json").write_text(
-        json.dumps(agent_json),
+    (tmp_path / "mcp.json").write_text(
+        json.dumps(mcp_json),
         encoding="utf-8",
     )
 
@@ -74,31 +71,28 @@ def test_load_agent_mcp_config_expands_env(tmp_path, monkeypatch) -> None:
 
 
 def test_load_agent_mcp_config_splits_stdio_command_args(tmp_path) -> None:
-    agent_json = {
-        "id": "math",
-        "mcp": {
-            "servers": [
-                {
-                    "id": "math-server",
-                    "transport": "stdio",
-                    "command": "uv",
-                    "args": [
-                        "run --with mcp /tmp/math-server/math-server.py",
-                    ],
-                },
-                {
-                    "id": "quoted",
-                    "transport": "stdio",
-                    "command": "uv run --with mcp",
-                    "args": [
-                        "'/tmp/math server/math-server.py'",
-                    ],
-                },
-            ],
-        },
+    mcp_json = {
+        "servers": [
+            {
+                "id": "math-server",
+                "transport": "stdio",
+                "command": "uv",
+                "args": [
+                    "run --with mcp /tmp/math-server/math-server.py",
+                ],
+            },
+            {
+                "id": "quoted",
+                "transport": "stdio",
+                "command": "uv run --with mcp",
+                "args": [
+                    "'/tmp/math server/math-server.py'",
+                ],
+            },
+        ],
     }
-    (tmp_path / "agent.json").write_text(
-        json.dumps(agent_json),
+    (tmp_path / "mcp.json").write_text(
+        json.dumps(mcp_json),
         encoding="utf-8",
     )
 
@@ -120,42 +114,36 @@ def test_load_agent_mcp_config_splits_stdio_command_args(tmp_path) -> None:
     ]
 
 
-def test_load_agent_mcp_config_prefers_config_dir(
+def test_load_agent_mcp_config_prefers_config_dir_mcp_json(
     tmp_path,
     monkeypatch,
 ) -> None:
     legacy_dir = tmp_path / "agents" / "math"
     legacy_dir.mkdir(parents=True)
-    (legacy_dir / "agent.json").write_text(
+    (legacy_dir / "mcp.json").write_text(
         json.dumps({
-            "id": "math",
-            "mcp": {
-                "servers": [
-                    {
-                        "id": "legacy",
-                        "transport": "stdio",
-                        "command": "legacy-server",
-                    }
-                ]
-            },
+            "servers": [
+                {
+                    "id": "legacy",
+                    "transport": "stdio",
+                    "command": "legacy-server",
+                }
+            ],
         }),
         encoding="utf-8",
     )
     config_dir = tmp_path / "config"
     monkeypatch.setenv("CONFIG_DIR", str(config_dir))
     (config_dir / "math").mkdir(parents=True)
-    (config_dir / "math" / "agent.json").write_text(
+    (config_dir / "math" / "mcp.json").write_text(
         json.dumps({
-            "id": "math",
-            "mcp": {
-                "servers": [
-                    {
-                        "id": "configured",
-                        "transport": "stdio",
-                        "command": "configured-server",
-                    }
-                ]
-            },
+            "servers": [
+                {
+                    "id": "configured",
+                    "transport": "stdio",
+                    "command": "configured-server",
+                }
+            ],
         }),
         encoding="utf-8",
     )

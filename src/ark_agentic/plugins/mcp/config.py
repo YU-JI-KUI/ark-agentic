@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from ark_agentic.core.paths import resolve_agent_config_file
+from ark_agentic.core.paths import get_agent_mcp_config_file
 
 
 MCPTransport = Literal["stdio", "streamable_http"]
@@ -37,7 +37,7 @@ class MCPToolPolicy:
 
 @dataclass(frozen=True)
 class MCPServerConfig:
-    """MCP server declaration loaded from an agent's ``agent.json``."""
+    """MCP server declaration loaded from an agent's ``mcp.json``."""
 
     id: str
     name: str
@@ -55,20 +55,17 @@ class MCPServerConfig:
 
 
 def load_agent_mcp_config(agent_dir: Path) -> list[MCPServerConfig]:
-    """Read and validate MCP server config from ``agent.json``.
+    """Read and validate MCP server config from ``mcp.json``.
 
-    Missing ``agent.json`` or missing ``mcp.servers`` means no MCP servers.
+    Missing ``mcp.json`` or missing ``servers`` means no MCP servers.
     """
-    meta_file = agent_dir / "agent.json"
-    if not meta_file.is_file():
+    config_file = agent_dir / "mcp.json"
+    if not config_file.is_file():
         return []
-    data = json.loads(meta_file.read_text(encoding="utf-8"))
-    mcp_raw = data.get("mcp") or {}
-    if not isinstance(mcp_raw, dict):
-        raise ValueError("agent.json mcp must be an object")
-    raw_servers = mcp_raw.get("servers") or []
+    data = _load_mcp_json(config_file)
+    raw_servers = data.get("servers") or []
     if not isinstance(raw_servers, list):
-        raise ValueError("agent.json mcp.servers must be a list")
+        raise ValueError("mcp.json servers must be a list")
     return [_parse_server(raw) for raw in raw_servers if isinstance(raw, dict)]
 
 
@@ -76,21 +73,27 @@ def load_agent_mcp_config_for_agent(
     agent_id: str,
     legacy_agent_dir: Path | None = None,
 ) -> list[MCPServerConfig]:
-    """Read MCP config from CONFIG_DIR, falling back to legacy location."""
-    meta_file = resolve_agent_config_file(
-        agent_id,
-        legacy_agent_dir=legacy_agent_dir,
-    )
-    if meta_file is None:
+    """Read MCP config from CONFIG_DIR.
+
+    Falls back to an agent-local mcp.json for packaged defaults.
+    """
+    config_file = get_agent_mcp_config_file(agent_id)
+    if not config_file.is_file() and legacy_agent_dir is not None:
+        config_file = legacy_agent_dir / "mcp.json"
+    if not config_file.is_file():
         return []
-    data = json.loads(meta_file.read_text(encoding="utf-8"))
-    mcp_raw = data.get("mcp") or {}
-    if not isinstance(mcp_raw, dict):
-        raise ValueError("agent.json mcp must be an object")
-    raw_servers = mcp_raw.get("servers") or []
+    data = _load_mcp_json(config_file)
+    raw_servers = data.get("servers") or []
     if not isinstance(raw_servers, list):
-        raise ValueError("agent.json mcp.servers must be a list")
+        raise ValueError("mcp.json servers must be a list")
     return [_parse_server(raw) for raw in raw_servers if isinstance(raw, dict)]
+
+
+def _load_mcp_json(config_file: Path) -> dict[str, Any]:
+    data = json.loads(config_file.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("mcp.json must contain an object")
+    return data
 
 
 def expand_env_refs(value: Any) -> Any:

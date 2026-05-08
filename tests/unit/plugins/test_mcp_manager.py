@@ -54,28 +54,29 @@ class RecordingServer(FakeServer):
         await super().close()
 
 
+def _write_sales_mcp_config(tmp_path: Path, servers: list[dict]) -> None:
+    config_dir = tmp_path / "config" / "sales"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "mcp.json").write_text(
+        json.dumps({"servers": servers}),
+        encoding="utf-8",
+    )
+
+
 @pytest.mark.asyncio
 async def test_reload_agent_config_remounts_tools_without_closing_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "agent.json").write_text(
-        json.dumps({
-            "id": "sales",
-            "mcp": {
-                "servers": [
-                    {
-                        "id": "crm",
-                        "transport": "stdio",
-                        "command": "uvx",
-                        "args": ["crm-server"],
-                        "tools": {"enabled": {"search": False}},
-                    }
-                ]
-            },
-        }),
-        encoding="utf-8",
-    )
+    _write_sales_mcp_config(tmp_path, [
+        {
+            "id": "crm",
+            "transport": "stdio",
+            "command": "uvx",
+            "args": ["crm-server"],
+            "tools": {"enabled": {"search": False}},
+        }
+    ])
     monkeypatch.setattr(
         "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
@@ -121,10 +122,7 @@ async def test_reload_agent_config_removes_deleted_server_without_closing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "agent.json").write_text(
-        json.dumps({"id": "sales", "mcp": {"servers": []}}),
-        encoding="utf-8",
-    )
+    _write_sales_mcp_config(tmp_path, [])
     monkeypatch.setattr(
         "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
@@ -169,21 +167,13 @@ async def test_reload_agent_config_retires_replaced_streamable_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "agent.json").write_text(
-        json.dumps({
-            "id": "sales",
-            "mcp": {
-                "servers": [
-                    {
-                        "id": "crm",
-                        "transport": "streamable_http",
-                        "url": "http://127.0.0.1:8001/mcp",
-                    }
-                ]
-            },
-        }),
-        encoding="utf-8",
-    )
+    _write_sales_mcp_config(tmp_path, [
+        {
+            "id": "crm",
+            "transport": "streamable_http",
+            "url": "http://127.0.0.1:8001/mcp",
+        }
+    ])
     monkeypatch.setattr(
         "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
@@ -224,10 +214,7 @@ async def test_reload_agent_config_closes_removed_stdio_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "agent.json").write_text(
-        json.dumps({"id": "sales", "mcp": {"servers": []}}),
-        encoding="utf-8",
-    )
+    _write_sales_mcp_config(tmp_path, [])
     monkeypatch.setattr(
         "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
@@ -265,21 +252,13 @@ async def test_manager_worker_owns_connect_and_close(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "agent.json").write_text(
-        json.dumps({
-            "id": "sales",
-            "mcp": {
-                "servers": [
-                    {
-                        "id": "crm",
-                        "transport": "stdio",
-                        "command": "uvx",
-                    }
-                ]
-            },
-        }),
-        encoding="utf-8",
-    )
+    _write_sales_mcp_config(tmp_path, [
+        {
+            "id": "crm",
+            "transport": "stdio",
+            "command": "uvx",
+        }
+    ])
     monkeypatch.setattr(
         "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
