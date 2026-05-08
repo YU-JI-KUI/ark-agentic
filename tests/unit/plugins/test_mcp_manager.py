@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.mcp.config import MCPServerConfig, MCPToolPolicy
-from ark_agentic.core.mcp.manager import MCPAgentRuntime, MCPManager
-from ark_agentic.core.mcp.tool import MCPRemoteTool, MCPTool
+from ark_agentic.plugins.mcp.config import MCPServerConfig, MCPToolPolicy
+from ark_agentic.plugins.mcp.manager import MCPAgentRuntime, MCPManager
+from ark_agentic.plugins.mcp.tool import MCPRemoteTool, MCPTool
 from ark_agentic.core.runtime.registry import AgentRegistry
 from ark_agentic.core.tools.registry import ToolRegistry
 
@@ -77,7 +77,7 @@ async def test_reload_agent_config_remounts_tools_without_closing_session(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "ark_agentic.core.mcp.manager._agent_dir",
+        "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
     )
     monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
@@ -126,7 +126,7 @@ async def test_reload_agent_config_removes_deleted_server_without_closing(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "ark_agentic.core.mcp.manager._agent_dir",
+        "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
     )
     monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
@@ -185,12 +185,12 @@ async def test_reload_agent_config_retires_replaced_streamable_server(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "ark_agentic.core.mcp.manager._agent_dir",
+        "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
     )
     monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setattr(
-        "ark_agentic.core.mcp.manager.MCPServerRuntime",
+        "ark_agentic.plugins.mcp.manager.MCPServerRuntime",
         RecordingServer,
     )
 
@@ -229,7 +229,7 @@ async def test_reload_agent_config_closes_removed_stdio_server(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "ark_agentic.core.mcp.manager._agent_dir",
+        "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
     )
     monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
@@ -281,12 +281,12 @@ async def test_manager_worker_owns_connect_and_close(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "ark_agentic.core.mcp.manager._agent_dir",
+        "ark_agentic.plugins.mcp.manager._agent_dir",
         lambda _agent: tmp_path,
     )
     monkeypatch.setenv("CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setattr(
-        "ark_agentic.core.mcp.manager.MCPServerRuntime",
+        "ark_agentic.plugins.mcp.manager.MCPServerRuntime",
         RecordingServer,
     )
     RecordingServer.connect_tasks.clear()

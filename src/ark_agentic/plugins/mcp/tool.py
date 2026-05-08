@@ -6,8 +6,8 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..tools.base import AgentTool
-from ..types import AgentToolResult, ToolCall
+from ...core.tools.base import AgentTool
+from ...core.types import AgentToolResult, ToolCall
 from .config import mcp_registered_tool_name
 
 

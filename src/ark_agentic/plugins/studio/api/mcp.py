@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from ark_agentic.core.mcp import MCPManager
+from ark_agentic.plugins.mcp import MCPManager
 from ark_agentic.core.utils.env import get_agents_root
 from ark_agentic.plugins.studio.services import mcp_service
 from ark_agentic.plugins.studio.services.auth import (

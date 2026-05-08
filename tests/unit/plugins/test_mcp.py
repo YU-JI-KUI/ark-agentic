@@ -8,14 +8,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from ark_agentic.core.mcp.client import MCPServerRuntime
-from ark_agentic.core.mcp.config import (
+from ark_agentic.plugins.mcp.client import MCPServerRuntime
+from ark_agentic.plugins.mcp.config import (
     MCPServerConfig,
     load_agent_mcp_config,
     load_agent_mcp_config_for_agent,
     mcp_registered_tool_name,
 )
-from ark_agentic.core.mcp.tool import MCPRemoteTool, MCPTool
+from ark_agentic.plugins.mcp.tool import MCPRemoteTool, MCPTool
 from ark_agentic.core.types import ToolCall
 
 

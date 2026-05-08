@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...core.mcp import MCPManager
+from .manager import MCPManager
 from ...core.protocol.plugin import BasePlugin
 from ...core.utils.env import env_flag
 
 
 class MCPPlugin(BasePlugin):
-    """Optional MCP client integration, enabled by default as a no-op."""
+    """Optional MCP client integration, disabled by default."""
 
     name = "mcp"
 
@@ -18,7 +18,7 @@ class MCPPlugin(BasePlugin):
         self._manager: MCPManager | None = None
 
     def is_enabled(self) -> bool:
-        return env_flag("ENABLE_MCP", default=True)
+        return env_flag("ENABLE_MCP", default=False)
 
     async def start(self, ctx: Any) -> MCPManager:
         if getattr(ctx, "agent_registry", None) is None:

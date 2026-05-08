@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from ark_agentic.core.mcp.client import MCPServerRuntime
-from ark_agentic.core.mcp.config import MCPServerConfig
-from ark_agentic.core.mcp.tool import MCPTool
+from ark_agentic.plugins.mcp.client import MCPServerRuntime
+from ark_agentic.plugins.mcp.config import MCPServerConfig
+from ark_agentic.plugins.mcp.tool import MCPTool
 from ark_agentic.core.types import ToolCall
 
 

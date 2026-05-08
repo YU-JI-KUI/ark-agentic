@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, TypeVar
 
-from ..runtime.base_agent import BaseAgent
-from ..runtime.registry import AgentRegistry
+from ...core.runtime.base_agent import BaseAgent
+from ...core.runtime.registry import AgentRegistry
 from .client import MCPDependencyError, MCPServerRuntime
 from .config import load_agent_mcp_config_for_agent, mcp_registered_tool_name
 from .tool import MCPTool
