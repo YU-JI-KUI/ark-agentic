@@ -8,10 +8,7 @@ import shlex
 from pathlib import Path
 from typing import Any
 
-from ark_agentic.core.paths import (
-    get_agent_config_file,
-    resolve_agent_config_file,
-)
+from ark_agentic.core.paths import get_agent_mcp_config_file
 from ark_agentic.core.utils.env import resolve_agent_dir
 
 _SERVER_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -34,7 +31,7 @@ def create_server(
     env: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    data, meta_file = _load_agent_json(
+    data, config_file = _load_mcp_json(
         agents_root,
         agent_id,
         create_if_missing=True,
@@ -69,7 +66,7 @@ def create_server(
         headers=headers,
     )
     servers.append(server)
-    _write_agent_json(meta_file, data)
+    _write_mcp_json(config_file, data)
     return server
 
 
@@ -77,18 +74,7 @@ def list_servers(
     agents_root: Path,
     agent_id: str,
 ) -> list[dict[str, Any]]:
-    agent_dir = resolve_agent_dir(agents_root, agent_id)
-    if not agent_dir:
-        raise FileNotFoundError(f"Agent not found: {agent_id}")
-    read_file = resolve_agent_config_file(
-        agent_id,
-        legacy_agent_dir=agent_dir,
-    )
-    if read_file is None:
-        return []
-    data = json.loads(read_file.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError("agent.json must contain an object")
+    data, _ = _load_mcp_json(agents_root, agent_id)
     return [_public_server(server) for server in _get_servers(data)]
 
 
@@ -97,7 +83,7 @@ def get_server(
     agent_id: str,
     server_id: str,
 ) -> dict[str, Any]:
-    data, _ = _load_agent_json(agents_root, agent_id)
+    data, _ = _load_mcp_json(agents_root, agent_id)
     return _public_server(_find_server(data, server_id))
 
 
@@ -118,7 +104,7 @@ def update_server(
     env: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    data, meta_file = _load_agent_json(agents_root, agent_id)
+    data, config_file = _load_mcp_json(agents_root, agent_id)
     servers = _get_servers(data)
     found_index, existing = _find_server_index(servers, server_id)
 
@@ -170,7 +156,7 @@ def update_server(
         updated["tools"] = tools
 
     servers[found_index] = updated
-    _write_agent_json(meta_file, data)
+    _write_mcp_json(config_file, data)
     return updated
 
 
@@ -179,11 +165,11 @@ def delete_server(
     agent_id: str,
     server_id: str,
 ) -> None:
-    data, meta_file = _load_agent_json(agents_root, agent_id)
+    data, config_file = _load_mcp_json(agents_root, agent_id)
     servers = _get_servers(data)
     found_index, _ = _find_server_index(servers, server_id)
     del servers[found_index]
-    _write_agent_json(meta_file, data)
+    _write_mcp_json(config_file, data)
 
 
 def update_server_enabled(
@@ -192,10 +178,10 @@ def update_server_enabled(
     server_id: str,
     enabled: bool,
 ) -> None:
-    data, meta_file = _load_agent_json(agents_root, agent_id)
+    data, config_file = _load_mcp_json(agents_root, agent_id)
     server = _find_server(data, server_id)
     server["enabled"] = enabled
-    _write_agent_json(meta_file, data)
+    _write_mcp_json(config_file, data)
 
 
 def update_tool_enabled(
@@ -205,7 +191,7 @@ def update_tool_enabled(
     tool_name: str,
     enabled: bool,
 ) -> None:
-    data, meta_file = _load_agent_json(agents_root, agent_id)
+    data, config_file = _load_mcp_json(agents_root, agent_id)
     server = _find_server(data, server_id)
     tools = server.setdefault("tools", {})
     if not isinstance(tools, dict):
@@ -216,10 +202,10 @@ def update_tool_enabled(
         enabled_map = {}
         tools["enabled"] = enabled_map
     enabled_map[tool_name] = enabled
-    _write_agent_json(meta_file, data)
+    _write_mcp_json(config_file, data)
 
 
-def _load_agent_json(
+def _load_mcp_json(
     agents_root: Path,
     agent_id: str,
     *,
@@ -228,20 +214,16 @@ def _load_agent_json(
     agent_dir = resolve_agent_dir(agents_root, agent_id)
     if not agent_dir:
         raise FileNotFoundError(f"Agent not found: {agent_id}")
-    write_file = get_agent_config_file(agent_id, create=True)
-    read_file = resolve_agent_config_file(
+    config_file = get_agent_mcp_config_file(
         agent_id,
-        legacy_agent_dir=agent_dir,
+        create=create_if_missing,
     )
-    if read_file is None:
-        if not create_if_missing:
-            raise FileNotFoundError(f"agent.json not found for {agent_id}")
-        data: dict[str, Any] = {"id": agent_id, "name": agent_id}
-        return data, write_file
-    data = json.loads(read_file.read_text(encoding="utf-8"))
+    if not config_file.is_file():
+        return {"servers": []}, config_file
+    data = json.loads(config_file.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
-        raise ValueError("agent.json must contain an object")
-    return data, write_file
+        raise ValueError("mcp.json must contain an object")
+    return data, config_file
 
 
 def _find_server(data: dict[str, Any], server_id: str) -> dict[str, Any]:
@@ -347,22 +329,14 @@ def _get_servers(
     *,
     create: bool = False,
 ) -> list[Any]:
-    mcp = data.get("mcp")
-    if mcp is None and create:
-        mcp = {}
-        data["mcp"] = mcp
-    if mcp is None:
-        return []
-    if not isinstance(mcp, dict):
-        raise ValueError("agent.json mcp must be an object")
-    servers = mcp.get("servers")
+    servers = data.get("servers")
     if servers is None and create:
         servers = []
-        mcp["servers"] = servers
+        data["servers"] = servers
     if servers is None:
         return []
     if not isinstance(servers, list):
-        raise ValueError("agent.json mcp.servers must be a list")
+        raise ValueError("mcp.json servers must be a list")
     return servers
 
 
@@ -393,8 +367,9 @@ def _split_shell_words(value: str) -> list[str]:
         raise ValueError(f"Invalid shell command fragment: {value}") from exc
 
 
-def _write_agent_json(meta_file: Path, data: dict[str, Any]) -> None:
-    meta_file.write_text(
+def _write_mcp_json(config_file: Path, data: dict[str, Any]) -> None:
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )

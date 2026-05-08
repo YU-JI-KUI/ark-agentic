@@ -160,7 +160,7 @@ def test_pyproject_template_pins_server_extra():
 # ── _cmd_init ────────────────────────────────────────────────────────────
 
 def test_cmd_init_creates_project_structure(tmp_path: Path):
-    """init 装配 API + Studio: 生成 app.py + 默认 agent + CONFIG_DIR 元数据。"""
+    """init 装配 API + Studio: 生成 app.py + 默认 agent + .env / .env-sample + agent.json，不再生成 main.py。"""
     args = type("Args", (), {"project_name": "proj"})()
     with patch.object(Path, "cwd", return_value=tmp_path):
         _cmd_init(args)
@@ -173,7 +173,7 @@ def test_cmd_init_creates_project_structure(tmp_path: Path):
     assert not (pkg / "main.py").exists(), "默认入口是 app.py，不再生成 main.py"
     assert (pkg / "app.py").is_file(), "默认装配 server，应当生成 app.py"
     assert (pkg / "agents" / "default" / "agent.py").is_file()
-    assert (root / "data" / "ark_config" / "default" / "agent.json").is_file()
+    assert (pkg / "agents" / "default" / "agent.json").is_file(), "agent.json must always be generated"
 
     agent_py = (pkg / "agents" / "default" / "agent.py").read_text(encoding="utf-8")
     assert "class DefaultAgent(BaseAgent):" in agent_py
@@ -226,7 +226,7 @@ def test_cmd_add_agent_creates_agent_files(tmp_path: Path):
 
     weather_dir = project_root / "src" / "proj" / "agents" / "weather"
     assert (weather_dir / "agent.py").is_file()
-    assert (project_root / "data" / "ark_config" / "weather" / "agent.json").is_file()
+    assert (weather_dir / "agent.json").is_file()
     assert (weather_dir / "tools" / "__init__.py").is_file()
 
 

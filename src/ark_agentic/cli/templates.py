@@ -39,7 +39,7 @@ AGENT_MODULE_TEMPLATE = '''\
 环境变量:
     SESSIONS_DIR: 会话持久化基础目录（默认 data/ark_sessions）
     MEMORY_DIR:   Memory 数据基础目录（默认 data/ark_memory）
-    CONFIG_DIR:   Agent 配置基础目录（默认 data/ark_config）
+    CONFIG_DIR:   外部插件配置基础目录（默认 data/ark_config）
 """
 
 from __future__ import annotations

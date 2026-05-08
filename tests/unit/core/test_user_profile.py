@@ -14,7 +14,7 @@ from ark_agentic.core.memory.user_profile import (
     upsert_profile_by_heading,
 )
 from ark_agentic.core.paths import (
-    get_agent_config_file,
+    get_agent_mcp_config_file,
     get_config_base_dir,
     get_memory_base_dir,
 )
@@ -196,8 +196,8 @@ class TestGetConfigBaseDir:
 
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CONFIG_DIR", "/custom/config")
-        assert get_agent_config_file("insurance") == (
-            Path("/custom/config") / "insurance" / "agent.json"
+        assert get_agent_mcp_config_file("insurance") == (
+            Path("/custom/config") / "insurance" / "mcp.json"
         )
 
 
