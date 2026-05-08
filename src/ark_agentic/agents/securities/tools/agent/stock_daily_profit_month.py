@@ -36,6 +36,7 @@ class StockDailyProfitMonthTool(AgentTool):
         "month 格式为 YYYYMM（如 202603 表示 2026 年 3 月）。"
         "支持普通账户和两融账户。"
     )
+    data_source = True
     thinking_hint = "正在查询股票每日收益明细…"
     parameters = [
         ToolParameter(

@@ -111,6 +111,7 @@ class RuleEngineTool(AgentTool):
     )
     thinking_hint = "正在计算取款方案…"
     group = "insurance"
+    data_source = True
 
     parameters = [
         ToolParameter(

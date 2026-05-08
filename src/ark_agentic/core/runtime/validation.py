@@ -172,7 +172,7 @@ def parse_cited_response(text: str) -> CitedResponse | None:
 # ============ 确定性校验 ============
 
 
-def _default_extractors(
+def default_extractors(
     entity_trie: EntityTrie | None = None,
 ) -> list[ClaimExtractor]:
     """返回 grounding 用的默认 ``ClaimExtractor`` 链。为将来幻觉相关检测提供统一抽取入口。
@@ -225,7 +225,7 @@ def validate_answer_grounding(
     3. 对每个 claim 做逆向匹配，判断是否有来源支撑
     """
     if extractors is None:
-        extractors = _default_extractors(entity_trie)
+        extractors = default_extractors(entity_trie)
 
     errors: list[CitationError] = []
     fact_sources = _build_fact_sources(tool_sources, context, extractors)
@@ -234,7 +234,7 @@ def validate_answer_grounding(
     total_weight = sum(_grounding_weight_for_claim_type(c.type) for c in claims)
     ungrounded_weight = 0.0
     for claim in claims:
-        matched_sources = _match_claim_sources(claim, fact_sources)
+        matched_sources = match_claim_sources(claim, fact_sources)
         if matched_sources:
             claim.sources = matched_sources
             continue
@@ -308,7 +308,7 @@ def extract_claims_from_answer(
     同 type 同 value 的重复项始终忽略。
     """
     if extractors is None:
-        extractors = _default_extractors(entity_trie)
+        extractors = default_extractors(entity_trie)
 
     # value → 当前已收录的最高优先级 claim
     by_value: dict[str, ExtractedClaim] = {}
@@ -350,11 +350,20 @@ def _build_fact_sources(
     return sources
 
 
-def _match_claim_sources(
+def match_claim_sources(
     claim: ExtractedClaim,
     fact_sources: dict[str, str],
 ) -> list[str]:
-    """在扁平化事实来源中查找 claim 的支撑来源。"""
+    """Search flat fact_sources for keys that contain any normalized form of claim.
+
+    Args:
+        claim:        An ExtractedClaim with ``.value`` and optional
+                      ``.normalized_values``.
+        fact_sources: ``{"tool_<name>": text, ...}`` or any string-keyed corpus.
+
+    Returns:
+        List of matched source keys (may be empty).
+    """
     matched: list[str] = []
     candidates = claim.normalized_values or [claim.value]
     for source, text in fact_sources.items():
@@ -426,7 +435,7 @@ def _fallback_match_ungrounded(
     history_fact = _build_fact_sources(history_sources, "", extractors)
     still_ungrounded: list[ExtractedClaim] = []
     for claim in ungrounded_claims:
-        matched = _match_claim_sources(claim, history_fact)
+        matched = match_claim_sources(claim, history_fact)
         if matched:
             claim.sources = ["history_cache"]
         else:
@@ -453,11 +462,30 @@ def _build_context_from_session(
     return "\n".join(recent)
 
 
-def _build_tool_sources_from_session(session: Any) -> dict[str, str]:
-    """从 session.messages 中最后一条 USER 之后的 ASSISTANT（tool_calls）+ TOOL 消息构建事实语料。
+def build_tool_sources_from_session(
+    session: Any,
+    *,
+    tool_registry: Any | None = None,
+    context_turns: int | None = None,
+) -> dict[str, str]:
+    """Build factual evidence corpus from tool call results in the current session turn.
 
-    按 tool_call_id 将 ASSISTANT.tool_calls 的 name 与 TOOL.tool_results 的 content 配对，
-    同名工具多次调用用 ``\\n---\\n`` 拼接。返回 ``{tool_<name>: normalized_text}``。
+    Scans session.messages from the last USER message onward.  Pairs each
+    ASSISTANT.tool_calls entry with the corresponding TOOL.tool_results by
+    tool_call_id, then returns ``{"tool_<name>": normalized_text, ...}``.
+
+    When *tool_registry* is provided, only tool_call results from tools that
+    declare ``data_source=True`` are included.  This ensures display-only,
+    control, and flow tools do not pollute the evidence corpus.
+
+    Multiple calls to the same tool within the turn are joined with ``\\n---\\n``.
+
+    Args:
+        session:       Active session with a ``.messages`` attribute.
+        tool_registry: Optional ToolRegistry (or any dict-like mapping
+                       tool name → AgentTool).  Passed to filter by
+                       ``AgentTool.data_source``.
+        context_turns: Unused; reserved for future multi-turn expansion.
     """
     from ..types import MessageRole
     from ..utils.dates import normalize_tool_source
@@ -480,6 +508,8 @@ def _build_tool_sources_from_session(session: Any) -> dict[str, str]:
         elif msg.role == MessageRole.TOOL and msg.tool_results:
             for tr in msg.tool_results:
                 name = tc_name_by_id.get(tr.tool_call_id, "unknown")
+                if tool_registry is not None and not _is_data_source_tool(tool_registry, name):
+                    continue
                 c = tr.content
                 text = json.dumps(c, ensure_ascii=False) if isinstance(c, (dict, list)) else str(c)
                 merged.setdefault(name, []).append(normalize_tool_source(text))
@@ -487,6 +517,19 @@ def _build_tool_sources_from_session(session: Any) -> dict[str, str]:
     return {
         f"tool_{name}": "\n---\n".join(chunks) for name, chunks in merged.items()
     }
+
+
+def _is_data_source_tool(tool_registry: Any, name: str) -> bool:
+    """Return True if the named tool declares data_source=True in the registry."""
+    tool = None
+    if hasattr(tool_registry, "get"):
+        tool = tool_registry.get(name)
+    elif hasattr(tool_registry, "__getitem__"):
+        try:
+            tool = tool_registry[name]
+        except (KeyError, TypeError):
+            pass
+    return bool(tool is not None and getattr(tool, "data_source", False))
 
 
 # ============ 框架级 Hook 工厂 ============
@@ -515,7 +558,7 @@ def create_citation_validation_hook(
     """
     from ..utils.grounding_cache import FactSnapshot, _CACHE as _grounding_cache
 
-    _extractors = extractors if extractors is not None else _default_extractors(entity_trie)
+    _extractors = extractors if extractors is not None else default_extractors(entity_trie)
     _REFLECT_FLAG = "temp:grounding_reflect_used"
 
     async def _hook(
@@ -528,13 +571,13 @@ def create_citation_validation_hook(
 
         if ctx.session.state.get(_REFLECT_FLAG):
             logger.info(
-                "[CITATION_HOOK] skip validation (already reflected once this user turn)"
+                "[GROUNDING_HOOK] skip validation (already reflected once this user turn)"
             )
             return None
 
         session_id = ctx.session.session_id
         content = response.content or ""
-        tool_sources = _build_tool_sources_from_session(ctx.session)
+        tool_sources = build_tool_sources_from_session(ctx.session)
         user_input: str = _build_context_from_session(ctx.session, context_turns)
 
         # 每轮都写入缓存（空 dict 也写，保留时间戳占位）
@@ -549,7 +592,7 @@ def create_citation_validation_hook(
         )
 
         logger.info(
-            "[CITATION_HOOK] phase1 route=%s score=%.2f errors=%d",
+            "[GROUNDING_HOOK] phase1 route=%s score=%.2f errors=%d",
             result.route,
             result.score,
             len(result.errors),
@@ -568,7 +611,7 @@ def create_citation_validation_hook(
                 still_bad = _fallback_match_ungrounded(ungrounded, history_only, _extractors)
                 result = _recompute_result(all_claims, still_bad)
                 logger.info(
-                    "[CITATION_HOOK] phase2 fallback route=%s score=%.2f still_ungrounded=%d",
+                    "[GROUNDING_HOOK] phase2 fallback route=%s score=%.2f still_ungrounded=%d",
                     result.route,
                     result.score,
                     len(still_bad),
@@ -577,7 +620,7 @@ def create_citation_validation_hook(
         if result.errors:
             for e in result.errors:
                 logger.warning(
-                    "[CITATION_HOOK] %s value=%r source=%s",
+                    "[GROUNDING_HOOK] %s value=%r source=%s",
                     e.type,
                     e.value,
                     e.source or "N/A",

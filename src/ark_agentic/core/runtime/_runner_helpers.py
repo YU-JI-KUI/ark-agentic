@@ -172,6 +172,10 @@ def dispatch_event(
         handler.on_step(event.data.get("text", ""))
     elif event.type == "ui_component":
         handler.on_ui_component(event.data)
+    elif event.type == "citation_batch":
+        for span in event.data.get("spans", []):
+            handler.on_citation(span)
+        handler.on_citation_list(event.data.get("entries", []))
     else:
         handler.on_custom_event(event.type, event.data)
 

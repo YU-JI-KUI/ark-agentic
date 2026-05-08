@@ -60,6 +60,7 @@ class AccountOverviewTool(AgentTool):
     name = "account_overview"
     description = "查询用户账户的总资产信息，包括总资产、现金、股票市值、今日收益等。支持普通账户和两融账户。"
     thinking_hint = "正在查询账户总资产…"
+    data_source = True
     parameters = [
         ToolParameter(
             name="account_type",

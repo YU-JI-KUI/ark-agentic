@@ -31,6 +31,7 @@ class BranchInfoTool(AgentTool):
     name = "branch_info"
     description = "查询用户的开户营业部信息，包括营业部名称、地址、联系电话及席位号"
     thinking_hint = "正在查询开户营业部…"
+    data_source = True
     parameters = []
 
 

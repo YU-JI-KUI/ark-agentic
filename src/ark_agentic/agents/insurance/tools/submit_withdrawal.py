@@ -140,6 +140,7 @@ class SubmitWithdrawalTool(AgentTool):
         "只需传 operation_type，保单、金额和用户文字由工具自动生成。"
     )
     thinking_hint = "正在提交办理请求…"
+    data_source = True
     parameters = [
         ToolParameter(
             name="operation_type",

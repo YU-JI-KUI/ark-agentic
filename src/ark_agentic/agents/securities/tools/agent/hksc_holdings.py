@@ -49,6 +49,7 @@ class HKSCHoldingsTool(AgentTool):
     name = "hksc_holdings"
     description = "查询用户的港股通持仓信息，包括持仓列表、成本、市值、盈亏等"
     thinking_hint = "正在查询港股通持仓…"
+    data_source = True
     parameters = [
         ToolParameter(
             name="account_type",
