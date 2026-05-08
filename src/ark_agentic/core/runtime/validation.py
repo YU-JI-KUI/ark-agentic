@@ -172,7 +172,7 @@ def parse_cited_response(text: str) -> CitedResponse | None:
 # ============ 确定性校验 ============
 
 
-def _default_extractors(
+def default_extractors(
     entity_trie: EntityTrie | None = None,
 ) -> list[ClaimExtractor]:
     """返回 grounding 用的默认 ``ClaimExtractor`` 链。为将来幻觉相关检测提供统一抽取入口。
@@ -225,7 +225,7 @@ def validate_answer_grounding(
     3. 对每个 claim 做逆向匹配，判断是否有来源支撑
     """
     if extractors is None:
-        extractors = _default_extractors(entity_trie)
+        extractors = default_extractors(entity_trie)
 
     errors: list[CitationError] = []
     fact_sources = _build_fact_sources(tool_sources, context, extractors)
@@ -234,7 +234,7 @@ def validate_answer_grounding(
     total_weight = sum(_grounding_weight_for_claim_type(c.type) for c in claims)
     ungrounded_weight = 0.0
     for claim in claims:
-        matched_sources = _match_claim_sources(claim, fact_sources)
+        matched_sources = match_claim_sources(claim, fact_sources)
         if matched_sources:
             claim.sources = matched_sources
             continue
@@ -308,7 +308,7 @@ def extract_claims_from_answer(
     同 type 同 value 的重复项始终忽略。
     """
     if extractors is None:
-        extractors = _default_extractors(entity_trie)
+        extractors = default_extractors(entity_trie)
 
     # value → 当前已收录的最高优先级 claim
     by_value: dict[str, ExtractedClaim] = {}
@@ -370,14 +370,6 @@ def match_claim_sources(
         if any(candidate and candidate in text for candidate in candidates):
             matched.append(source)
     return matched
-
-
-def _match_claim_sources(
-    claim: ExtractedClaim,
-    fact_sources: dict[str, str],
-) -> list[str]:
-    """Deprecated alias — use match_claim_sources instead."""
-    return match_claim_sources(claim, fact_sources)
 
 
 # ============ 二阶段补校验辅助 ============
@@ -443,7 +435,7 @@ def _fallback_match_ungrounded(
     history_fact = _build_fact_sources(history_sources, "", extractors)
     still_ungrounded: list[ExtractedClaim] = []
     for claim in ungrounded_claims:
-        matched = _match_claim_sources(claim, history_fact)
+        matched = match_claim_sources(claim, history_fact)
         if matched:
             claim.sources = ["history_cache"]
         else:
@@ -540,11 +532,6 @@ def _is_data_source_tool(tool_registry: Any, name: str) -> bool:
     return bool(tool is not None and getattr(tool, "data_source", False))
 
 
-def _build_tool_sources_from_session(session: Any) -> dict[str, str]:
-    """Deprecated alias — use build_tool_sources_from_session instead."""
-    return build_tool_sources_from_session(session)
-
-
 # ============ 框架级 Hook 工厂 ============
 
 
@@ -571,7 +558,7 @@ def create_citation_validation_hook(
     """
     from ..utils.grounding_cache import FactSnapshot, _CACHE as _grounding_cache
 
-    _extractors = extractors if extractors is not None else _default_extractors(entity_trie)
+    _extractors = extractors if extractors is not None else default_extractors(entity_trie)
     _REFLECT_FLAG = "temp:grounding_reflect_used"
 
     async def _hook(
@@ -590,7 +577,7 @@ def create_citation_validation_hook(
 
         session_id = ctx.session.session_id
         content = response.content or ""
-        tool_sources = _build_tool_sources_from_session(ctx.session)
+        tool_sources = build_tool_sources_from_session(ctx.session)
         user_input: str = _build_context_from_session(ctx.session, context_turns)
 
         # 每轮都写入缓存（空 dict 也写，保留时间戳占位）

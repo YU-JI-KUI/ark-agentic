@@ -90,6 +90,8 @@ def extract_number_tokens(text: str) -> list[tuple[float, bool]]:
     if not text:
         return []
     cleaned = re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
+    # `\w` 在 Python 正则下匹配 CJK 字符；金融文本中数字常紧贴单位（``500元``、
+    # ``100股``）— 用 ``\d`` 边界，仅排除「数字粘连」歧义，允许中文单位后缀。
     pattern = re.compile(r"(?<!\d)(-?\d+(?:\.\d+)?)(\s*[%％])?(?!\d)")
     results: list[tuple[float, bool]] = []
     for m in pattern.finditer(cleaned):
